@@ -5,9 +5,10 @@
 ## 快速定位
 
 - 最后更新：2026-09-06
-- 远程仓库：`https://github.com/Crazy-HF/Flow-Desk.git`
+- 远程仓库：`git@github.com:Crazy-HF/Flow-Desk.git`
 - 稳定分支：`main`
-- 当前工作分支：`flow-desk/pre-development-design`
+- 当前基线分支：`main`
+- 下一次创建分支：`flow-desk/database-design`
 - 当前阶段：开发前设计阶段暂停点
 - 最新完成：总体架构设计
 - 下一步：数据库设计，先完成逻辑数据模型
@@ -76,7 +77,8 @@
 
 - `main` 只保存已经完成检查的稳定成果。
 - 每项工作使用 `flow-desk/<主题>` 短期分支。
-- 当前设计文档批次使用 `flow-desk/pre-development-design`。
+- 新机器开始开发时，先拉取最新 `main`，再从 `main` 创建本文件记录的“下一次创建分支”。
+- 已完成的设计文档批次使用 `flow-desk/pre-development-design`；不得基于该旧分支继续后续开发。
 - 提交按单一意图拆分，推荐使用 `docs:`、`feat:`、`fix:`、`test:`、`refactor:` 和 `chore:` 前缀。
 - 分支完成后先检查，再推送并通过合并进入 `main`；不得强制推送 `main`。
 - 可运行版本使用版本标签；设计阶段标签只在明确里程碑需要时创建。
