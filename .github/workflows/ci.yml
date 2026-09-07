@@ -88,7 +88,7 @@ jobs:
         run: |
           chmod +x mvnw
           docker compose up --detach --wait
-          ./mvnw --batch-mode spring-boot:run --spring-boot.run.profiles=demo > backend.log 2>&1 &
+          ./mvnw --batch-mode spring-boot:run -Dspring-boot.run.profiles=demo > backend.log 2>&1 &
           for attempt in {1..30}; do
             curl --fail --silent http://127.0.0.1:8080/actuator/health && exit 0
             sleep 2
