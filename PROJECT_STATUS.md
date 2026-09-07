@@ -8,11 +8,11 @@
 - 远程仓库：`git@github.com:Crazy-HF/Flow-Desk.git`
 - 稳定分支：`main`
 - 当前基线分支：`main`
-- 当前工作分支：`flow-desk/database-design`
-- 下一次创建分支：`flow-desk/engineering-readiness`（当前设计文档批次完成交接后）
-- 当前阶段：API 契约已完成，工程准备检查待开始
-- 最新完成：v1 API 契约与权限策略
-- 下一步：确定工程环境、迁移、测试、CI 和启动基线
+- 当前工作分支：`flow-desk/engineering-readiness`
+- 下一次创建分支：待工程准备检查完成并确认任务拆分主题后确定
+- 当前阶段：工程准备检查已形成方案，等待阶段验收
+- 最新完成：工程准备方案文档与页面/API 映射
+- 下一步：验收工程准备方案，再拆分开发任务
 - 当前阻塞：无
 
 ## 已完成里程碑
@@ -22,7 +22,8 @@
 3. 总体技术架构已经确认。
 4. 数据库逻辑数据模型和 MySQL 物理模型已经确认。
 5. v1 API 契约、权限映射、错误编码、并发和幂等语义已经确认。
-6. 尚未创建 Spring Boot、Vue 或数据库工程。
+6. 工程依赖、配置、迁移、测试、CI、启动和跨存储失败处理方案已经形成。
+7. 尚未创建 Spring Boot、Vue 或数据库工程。
 
 ## 已确认的架构摘要
 
@@ -35,34 +36,35 @@
 - 超时工单由 Spring 定时任务幂等处理。
 - v1 附件保存在受后端保护的本地持久化目录，MySQL 保存元数据。
 - v1 单实例运行，不引入微服务、消息队列、Kubernetes 或分布式任务平台。
+- 后端使用 Maven、Spring Boot 3.5.16 和 MyBatis-Plus 3.5.17；简单 CRUD 使用通用 Mapper，复杂业务查询保留自定义 SQL/XML。
+- 密码使用 Argon2id 单向哈希；Docker Compose 只运行 MySQL 和 Redis；前端使用 Element Plus。
 
 ## 下一步任务
 
-任务名称：FlowDesk 工程准备检查。
+任务名称：FlowDesk 工程准备检查验收与开发任务拆分。
 
 目标：
 
-- 确定 Java、Node.js、MySQL、Redis、构建工具和核心依赖版本。
-- 明确本地环境、配置与密钥、数据库迁移及种子数据策略。
-- 确定测试层次、执行命令、CI 质量门禁、日志和可重复启动方式。
-- 明确 MySQL 与 Redis 会话撤销、附件文件与数据库写入的失败处理。
-- 建立支撑核心流程的最小 Vue 页面和路由映射。
+- 验收 `docs/engineering-readiness.md` 中的工程准备方案。
+- 根据已确认的业务、数据、API 和工程门禁拆分纵向开发任务。
+- 为每项任务定义依赖、验收标准、测试和 Git 检查点。
 
 本步骤暂不做：
 
-- 不创建或初始化 Spring Boot、Vue 和数据库工程。
+- 任务拆分确认前不创建或初始化 Spring Boot、Vue 和数据库工程。
 - 不安装项目依赖，不执行迁移脚本。
 - 不编写业务代码或超出 v1 范围的基础设施。
 
 ## 当前任务必读
 
-开始工程准备检查前，按以下顺序读取：
+开始工程准备验收或任务拆分前，按以下顺序读取：
 
 1. `AGENTS.md`
 2. `PROJECT_STATUS.md`
-3. `docs/technical-architecture.md` 中的数据存储、认证授权、运行部署和测试架构部分
-4. `docs/database-design.md` 中的物理模型基线、预置数据和外键策略部分
-5. `docs/api-design.md` 中的全局约定、附件限制、跨存储失败边界及完整性检查部分
+3. `docs/engineering-readiness.md`
+4. `docs/technical-architecture.md` 中的模块边界与事务并发部分
+5. `docs/database-design.md` 中的物理模型事务不变量部分
+6. `docs/api-design.md` 中的权限映射与完整性检查部分
 
 `docs/kickoff.md` 已完成并作为业务规则来源；只有在业务模型无法回答具体流程或权限问题时，才回查对应小节，不需要默认全文重读。
 
@@ -77,6 +79,7 @@
 | `docs/technical-architecture.md` | 已完成 | 总体架构、模块和核心技术机制 |
 | `docs/database-design.md` | 已完成 | 已确认的逻辑模型、MySQL 物理模型、约束和索引依据 |
 | `docs/api-design.md` | 已完成 | API 全局规范、接口契约、校验、错误与权限策略 |
+| `docs/engineering-readiness.md` | 待验收 | 依赖、配置、迁移、测试、CI、启动、失败处理与页面映射 |
 | `docs/project-highlights.md` | 仅追加 | 简历与面试可用的设计亮点；非阶段默认必读 |
 
 ## Git 约定
