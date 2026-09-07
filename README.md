@@ -35,9 +35,9 @@ FlowDesk 是一个企业工单协作平台，由开发者与 Codex 协作完成�
 
 ## 当前状态
 
-项目启动分析、业务模型、总体架构、数据库逻辑与物理模型、v1 API 契约、工程准备检查、开发任务拆分和 M0 工程底座已经完成；当前等待 M0 分支交接。
+项目启动分析、业务模型、总体架构、数据库逻辑与物理模型、v1 API 契约、工程准备检查、开发任务拆分和 M0 工程底座已经完成并合并；当前进入 M1 身份入口开发。
 
-当前已经建立 Spring Boot/Vue 工程、Flyway 数据基线、公共 API 契约和 CI 基线，但尚未实现认证、工单、管理或其他业务流程。已确认的设计和实施顺序记录在 `docs/kickoff.md`、`docs/business-model.md`、`docs/technical-architecture.md`、`docs/database-design.md`、`docs/api-design.md`、`docs/engineering-readiness.md` 与 `docs/implementation-plan.md` 中。
+M0 已建立 Spring Boot/Vue 工程、Flyway 数据基线、公共 API 契约和 CI 基线；M1 将实现认证、会话和密码安全。已确认的设计和实施顺序记录在 `docs/kickoff.md`、`docs/business-model.md`、`docs/technical-architecture.md`、`docs/database-design.md`、`docs/api-design.md`、`docs/engineering-readiness.md` 与 `docs/implementation-plan.md` 中。
 
 ## 协作说明
 
@@ -79,4 +79,4 @@ pnpm --dir frontend dev
 
 后端健康检查位于 `http://localhost:8080/actuator/health`，前端开发入口位于 `http://localhost:5173`。前端将 `/fd` 请求代理到后端。普通停止使用 `docker compose down`，不要附加 `-v`，以免删除本地数据卷。
 
-M0 已完成并等待分支交接；现阶段首页只用于验证 Vue 工程能够构建和启动，尚未承载业务页面。
+M1 身份入口开发中；现阶段首页只用于验证 Vue 工程能够构建和启动，尚未承载业务页面。

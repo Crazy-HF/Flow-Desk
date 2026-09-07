@@ -8,13 +8,13 @@
 - 远程仓库：`git@github.com:Crazy-HF/Flow-Desk.git`
 - 稳定分支：`main`
 - 当前基线分支：`main`
-- 当前工作分支：`flow-desk/project-bootstrap`
-- 下一次创建分支：`flow-desk/auth-foundation`（M0 验收并完成分支交接后创建）
-- 当前阶段：M0 工程底座已完成，待分支交接
-- 最新完成：`TASK-001`～`TASK-003` 工程骨架、数据基线、公共 API 契约与 CI 基线
-- 下一步：经用户授权后提交、推送并创建合并请求；合并进入 `main` 后，从最新 `main` 创建 `flow-desk/auth-foundation`
+- 当前工作分支：`flow-desk/auth-foundation`
+- 下一次创建分支：`flow-desk/employee-ticket-flow`（M1 验收并完成分支交接后创建）
+- 当前阶段：M1 身份入口
+- 最新完成：M0 工程底座（`TASK-001`～`TASK-003`）已合并进入 `main`
+- 下一步：实现 `TASK-010` 认证、会话和密码安全
 - 当前阻塞：无
-- 环境前置：刷新 Windows 当前 PATH 后已验证 `D:\pnpm\bin\node.exe` 为 Node.js 24.20.0、`D:\pnpm\pnpm.cmd` 为 pnpm 12.3.4；Codex 后续命令需显式优先使用这两个目录
+- 环境前置：JDK 21、Node.js 24.20.0、pnpm 12.3.4、Docker 已验证
 
 ## 已完成里程碑
 
@@ -25,9 +25,7 @@
 5. v1 API 契约、权限映射、错误编码、并发和幂等语义已经确认。
 6. 工程依赖、配置、迁移、测试、CI、启动、跨存储失败处理和页面/API 映射已经确认。
 7. 开发任务拆分已经确认，全部 API 与后台任务均有实施归属。
-8. `TASK-001` 已完成：Spring Boot/Vue 骨架、Maven Wrapper、Compose、Profile、环境示例、健康检查和前端基础测试已建立。
-9. `TASK-002` 已完成：Flyway V1/V2、demo 数据与 MySQL Testcontainers 迁移验证已建立。
-10. `TASK-003` 已完成：统一响应与错误契约、traceId、UTC、OpenAPI Profile、审计日志安全边界、分层测试和三 Job CI Workflow 已建立；本地 `mvnw verify` 与全部 pnpm 基线脚本已通过。
+8. **M0 工程底座已完成并合并**：`TASK-001`～`TASK-003`（骨架、数据基线、公共契约、CI）通过 PR #4 合并进入 `main`。
 
 ## 已确认的架构摘要
 
@@ -45,30 +43,29 @@
 
 ## 下一步任务
 
-任务名称：FlowDesk M0 分支交接。
+任务名称：M1 身份入口 — TASK-010 认证、会话和密码安全。
 
 目标：
 
-- 同步检查后的状态文档，提交 `flow-desk/project-bootstrap` 的 M0 成果。
-- 推送当前分支并通过合并请求合并到远程 `main`。
-- 本地仅快进同步最新 `main`，再创建 M1 的 `flow-desk/auth-foundation`。
+- 实现 Argon2id 密码封装、登录、HS256 Access Token、Redis 会话与 Refresh Token。
+- 实现刷新轮换/重用检测、退出、`/auth/me` 和当前用户修改密码。
 
 本步骤暂不做：
 
-- 未经用户明确授权，不执行 Git 提交、推送或合并请求。
-- 合并前不开始 M1 的认证、工单、管理或页面业务流程。
+- 工单、管理或页面业务流程。
 - 不引入已确认技术边界之外的基础设施。
+- 密码和 Token 行为必须与已确认的 API 文档一致。
 
 ## 当前任务必读
 
-开始 M0 工程底座前，按以下顺序读取：
+开始 M1 身份入口前，按以下顺序读取：
 
 1. `AGENTS.md`
 2. `PROJECT_STATUS.md`
-3. `docs/implementation-plan.md` 的 M0、全局完成定义和集中确认点
-4. `docs/engineering-readiness.md` 的版本、仓库结构、配置、迁移、测试、CI 和启动部分
-5. `docs/database-design.md` 的 MySQL 物理模型、预置 RBAC、索引和事务不变量
-6. `docs/technical-architecture.md` 的模块边界和测试架构
+3. `docs/implementation-plan.md` 的 M1、TASK-010 和全局完成定义
+4. `docs/api-design.md` 的认证、会话、Token 和密码相关接口
+5. `docs/database-design.md` 的用户表、会话表和 Redis 结构
+6. `docs/technical-architecture.md` 的认证流程和安全机制
 
 `docs/kickoff.md` 已完成并作为业务规则来源；只有在业务模型无法回答具体流程或权限问题时，才回查对应小节，不需要默认全文重读。
 
