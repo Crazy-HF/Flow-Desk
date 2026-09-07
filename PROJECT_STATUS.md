@@ -8,11 +8,11 @@
 - 远程仓库：`git@github.com:Crazy-HF/Flow-Desk.git`
 - 稳定分支：`main`
 - 当前基线分支：`main`
-- 当前工作分支：`flow-desk/engineering-readiness`
-- 下一次创建分支：`flow-desk/implementation-plan`（当前分支合并并拉取最新 `main` 后创建）
-- 当前阶段：工程准备检查已完成，等待分支交接
+- 当前工作分支：`flow-desk/implementation-plan`
+- 下一次创建分支：待任务拆分完成并确认首个实现主题后确定
+- 当前阶段：开发任务拆分
 - 最新完成：工程准备检查（依赖、配置、迁移、测试、CI、启动、跨存储失败处理与页面/API 映射）
-- 下一步：完成当前分支交接，再从最新 `main` 创建任务拆分分支
+- 下一步：编写并确认 `docs/implementation-plan.md`
 - 当前阻塞：无
 - 环境前置：Node.js 24.20.0 与 pnpm 12.3.4 正在下载，工程初始化前需验证实际版本
 
