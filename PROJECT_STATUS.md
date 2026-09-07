@@ -9,12 +9,12 @@
 - 稳定分支：`main`
 - 当前基线分支：`main`
 - 当前工作分支：`flow-desk/implementation-plan`
-- 下一次创建分支：待任务拆分完成并确认首个实现主题后确定
-- 当前阶段：开发任务拆分
-- 最新完成：工程准备检查（依赖、配置、迁移、测试、CI、启动、跨存储失败处理与页面/API 映射）
-- 下一步：编写并确认 `docs/implementation-plan.md`
+- 下一次创建分支：`flow-desk/project-bootstrap`（任务拆分验收并完成当前分支交接后创建）
+- 当前阶段：开发任务拆分已完成，等待分支交接
+- 最新完成：开发任务拆分（7 个里程碑、20 项任务及其依赖、验收、测试和 Git 检查点）
+- 下一步：完成当前分支交接，再从最新 `main` 创建 `flow-desk/project-bootstrap`
 - 当前阻塞：无
-- 环境前置：Node.js 24.20.0 与 pnpm 12.3.4 正在下载，工程初始化前需验证实际版本
+- 环境前置：Node.js 24.20.0 与 pnpm 12.3.4 已下载，但当前终端仍生效 Node.js 24.4.0、pnpm 11.19.0；工程初始化前必须完成 PATH/Corepack 切换并复核
 
 ## 已完成里程碑
 
@@ -24,7 +24,8 @@
 4. 数据库逻辑数据模型和 MySQL 物理模型已经确认。
 5. v1 API 契约、权限映射、错误编码、并发和幂等语义已经确认。
 6. 工程依赖、配置、迁移、测试、CI、启动、跨存储失败处理和页面/API 映射已经确认。
-7. 尚未创建 Spring Boot、Vue 或数据库工程。
+7. 开发任务拆分已经确认，全部 API 与后台任务均有实施归属。
+8. 尚未创建 Spring Boot、Vue 或数据库工程。
 
 ## 已确认的架构摘要
 
@@ -42,30 +43,30 @@
 
 ## 下一步任务
 
-任务名称：FlowDesk 开发任务拆分。
+任务名称：FlowDesk M0 工程底座。
 
 目标：
 
-- 根据已确认的业务、数据、API 和工程门禁拆分纵向开发任务。
-- 为每项任务定义依赖、验收标准、测试和 Git 检查点。
-- 明确首个实现任务及其后续工作分支。
+- 完成 `TASK-001`：初始化可重复运行的仓库骨架。
+- 完成 `TASK-002`：实现 Flyway 数据基线与确定性测试数据。
+- 完成 `TASK-003`：建立后端公共契约与 CI 基线。
 
 本步骤暂不做：
 
-- 任务拆分确认前不创建或初始化 Spring Boot、Vue 和数据库工程。
-- 不安装项目依赖，不执行迁移脚本。
-- 不编写业务代码或超出 v1 范围的基础设施。
+- 当前分支交接及 M0 开工确认前不创建或初始化工程。
+- M0 不实现认证、工单、管理或页面业务流程。
+- 不引入已确认技术边界之外的基础设施。
 
 ## 当前任务必读
 
-开始任务拆分前，按以下顺序读取：
+开始 M0 工程底座前，按以下顺序读取：
 
 1. `AGENTS.md`
 2. `PROJECT_STATUS.md`
-3. `docs/engineering-readiness.md`
-4. `docs/technical-architecture.md` 中的模块边界与事务并发部分
-5. `docs/database-design.md` 中的物理模型事务不变量部分
-6. `docs/api-design.md` 中的权限映射与完整性检查部分
+3. `docs/implementation-plan.md` 的 M0、全局完成定义和集中确认点
+4. `docs/engineering-readiness.md` 的版本、仓库结构、配置、迁移、测试、CI 和启动部分
+5. `docs/database-design.md` 的 MySQL 物理模型、预置 RBAC、索引和事务不变量
+6. `docs/technical-architecture.md` 的模块边界和测试架构
 
 `docs/kickoff.md` 已完成并作为业务规则来源；只有在业务模型无法回答具体流程或权限问题时，才回查对应小节，不需要默认全文重读。
 
@@ -81,6 +82,7 @@
 | `docs/database-design.md` | 已完成 | 已确认的逻辑模型、MySQL 物理模型、约束和索引依据 |
 | `docs/api-design.md` | 已完成 | API 全局规范、接口契约、校验、错误与权限策略 |
 | `docs/engineering-readiness.md` | 已完成 | 依赖、配置、迁移、测试、CI、启动、失败处理与页面映射 |
+| `docs/implementation-plan.md` | 已完成 | 纵向里程碑、任务依赖、验收、测试和 Git 检查点 |
 | `docs/project-highlights.md` | 仅追加 | 简历与面试可用的设计亮点；非阶段默认必读 |
 
 ## Git 约定

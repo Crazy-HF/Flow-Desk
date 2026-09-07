@@ -35,9 +35,9 @@ FlowDesk 是一个企业工单协作平台，由开发者与 Codex 协作完成�
 
 ## 当前状态
 
-项目启动分析、业务模型、总体架构、数据库逻辑与物理模型、v1 API 契约以及工程准备检查已经完成并确认，下一阶段为开发任务拆分。
+项目启动分析、业务模型、总体架构、数据库逻辑与物理模型、v1 API 契约、工程准备检查以及开发任务拆分已经完成并确认，下一阶段为 M0 工程底座。
 
-当前尚未创建 Spring Boot 工程、Vue 工程、数据库或业务代码。已确认的设计分别记录在 `docs/kickoff.md`、`docs/business-model.md`、`docs/technical-architecture.md`、`docs/database-design.md`、`docs/api-design.md` 与 `docs/engineering-readiness.md` 中；开发任务拆分完成前，仍不编写具体业务代码。
+当前尚未创建 Spring Boot 工程、Vue 工程、数据库或业务代码。已确认的设计和实施顺序记录在 `docs/kickoff.md`、`docs/business-model.md`、`docs/technical-architecture.md`、`docs/database-design.md`、`docs/api-design.md`、`docs/engineering-readiness.md` 与 `docs/implementation-plan.md` 中；M0 只建立工程、迁移、公共契约和 CI 基线，不提前实现业务流程。
 
 ## 协作说明
 
