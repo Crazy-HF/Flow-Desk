@@ -1,0 +1,46 @@
+name: flowdesk
+
+services:
+  mysql:
+    image: mysql:8.4.11
+    environment:
+      MYSQL_ROOT_PASSWORD: ${FLOWDESK_MYSQL_ROOT_PASSWORD:?set FLOWDESK_MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_DATABASE: ${FLOWDESK_DB_NAME:-flowdesk}
+      MYSQL_USER: ${FLOWDESK_DB_USERNAME:-flowdesk}
+      MYSQL_PASSWORD: ${FLOWDESK_DB_PASSWORD:?set FLOWDESK_DB_PASSWORD in .env}
+      TZ: UTC
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+00:00
+    ports:
+      - "${FLOWDESK_MYSQL_PORT:-3306}:3306"
+    volumes:
+      - flowdesk-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
+  redis:
+    image: redis:8.8.0
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${FLOWDESK_REDIS_PORT:-6379}:6379"
+    volumes:
+      - flowdesk-redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    environment:
+      TZ: UTC
+    restart: unless-stopped
+
+volumes:
+  flowdesk-mysql-data:
+  flowdesk-redis-data:

@@ -8,13 +8,13 @@
 - 远程仓库：`git@github.com:Crazy-HF/Flow-Desk.git`
 - 稳定分支：`main`
 - 当前基线分支：`main`
-- 当前工作分支：`flow-desk/implementation-plan`
-- 下一次创建分支：`flow-desk/project-bootstrap`（任务拆分验收并完成当前分支交接后创建）
-- 当前阶段：开发任务拆分已完成，等待分支交接
-- 最新完成：开发任务拆分（7 个里程碑、20 项任务及其依赖、验收、测试和 Git 检查点）
-- 下一步：完成当前分支交接，再从最新 `main` 创建 `flow-desk/project-bootstrap`
+- 当前工作分支：`flow-desk/project-bootstrap`
+- 下一次创建分支：`flow-desk/auth-foundation`（M0 验收并完成分支交接后创建）
+- 当前阶段：M0 工程底座已完成，待分支交接
+- 最新完成：`TASK-001`～`TASK-003` 工程骨架、数据基线、公共 API 契约与 CI 基线
+- 下一步：经用户授权后提交、推送并创建合并请求；合并进入 `main` 后，从最新 `main` 创建 `flow-desk/auth-foundation`
 - 当前阻塞：无
-- 环境前置：Node.js 24.20.0 与 pnpm 12.3.4 已下载，但当前终端仍生效 Node.js 24.4.0、pnpm 11.19.0；工程初始化前必须完成 PATH/Corepack 切换并复核
+- 环境前置：刷新 Windows 当前 PATH 后已验证 `D:\pnpm\bin\node.exe` 为 Node.js 24.20.0、`D:\pnpm\pnpm.cmd` 为 pnpm 12.3.4；Codex 后续命令需显式优先使用这两个目录
 
 ## 已完成里程碑
 
@@ -25,7 +25,9 @@
 5. v1 API 契约、权限映射、错误编码、并发和幂等语义已经确认。
 6. 工程依赖、配置、迁移、测试、CI、启动、跨存储失败处理和页面/API 映射已经确认。
 7. 开发任务拆分已经确认，全部 API 与后台任务均有实施归属。
-8. 尚未创建 Spring Boot、Vue 或数据库工程。
+8. `TASK-001` 已完成：Spring Boot/Vue 骨架、Maven Wrapper、Compose、Profile、环境示例、健康检查和前端基础测试已建立。
+9. `TASK-002` 已完成：Flyway V1/V2、demo 数据与 MySQL Testcontainers 迁移验证已建立。
+10. `TASK-003` 已完成：统一响应与错误契约、traceId、UTC、OpenAPI Profile、审计日志安全边界、分层测试和三 Job CI Workflow 已建立；本地 `mvnw verify` 与全部 pnpm 基线脚本已通过。
 
 ## 已确认的架构摘要
 
@@ -43,18 +45,18 @@
 
 ## 下一步任务
 
-任务名称：FlowDesk M0 工程底座。
+任务名称：FlowDesk M0 分支交接。
 
 目标：
 
-- 完成 `TASK-001`：初始化可重复运行的仓库骨架。
-- 完成 `TASK-002`：实现 Flyway 数据基线与确定性测试数据。
-- 完成 `TASK-003`：建立后端公共契约与 CI 基线。
+- 同步检查后的状态文档，提交 `flow-desk/project-bootstrap` 的 M0 成果。
+- 推送当前分支并通过合并请求合并到远程 `main`。
+- 本地仅快进同步最新 `main`，再创建 M1 的 `flow-desk/auth-foundation`。
 
 本步骤暂不做：
 
-- 当前分支交接及 M0 开工确认前不创建或初始化工程。
-- M0 不实现认证、工单、管理或页面业务流程。
+- 未经用户明确授权，不执行 Git 提交、推送或合并请求。
+- 合并前不开始 M1 的认证、工单、管理或页面业务流程。
 - 不引入已确认技术边界之外的基础设施。
 
 ## 当前任务必读

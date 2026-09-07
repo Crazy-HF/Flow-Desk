@@ -35,12 +35,48 @@ FlowDesk 是一个企业工单协作平台，由开发者与 Codex 协作完成�
 
 ## 当前状态
 
-项目启动分析、业务模型、总体架构、数据库逻辑与物理模型、v1 API 契约、工程准备检查以及开发任务拆分已经完成并确认，下一阶段为 M0 工程底座。
+项目启动分析、业务模型、总体架构、数据库逻辑与物理模型、v1 API 契约、工程准备检查、开发任务拆分和 M0 工程底座已经完成；当前等待 M0 分支交接。
 
-当前尚未创建 Spring Boot 工程、Vue 工程、数据库或业务代码。已确认的设计和实施顺序记录在 `docs/kickoff.md`、`docs/business-model.md`、`docs/technical-architecture.md`、`docs/database-design.md`、`docs/api-design.md`、`docs/engineering-readiness.md` 与 `docs/implementation-plan.md` 中；M0 只建立工程、迁移、公共契约和 CI 基线，不提前实现业务流程。
+当前已经建立 Spring Boot/Vue 工程、Flyway 数据基线、公共 API 契约和 CI 基线，但尚未实现认证、工单、管理或其他业务流程。已确认的设计和实施顺序记录在 `docs/kickoff.md`、`docs/business-model.md`、`docs/technical-architecture.md`、`docs/database-design.md`、`docs/api-design.md`、`docs/engineering-readiness.md` 与 `docs/implementation-plan.md` 中。
 
 ## 协作说明
 
 本项目由开发者与 Codex 协作开发。详细协作规则见 `AGENTS.md`。
 
 在新机器或新会话中继续项目时，先阅读 `PROJECT_STATUS.md` 获取当前阶段、下一步和当前任务必读文件，无需默认通读全部设计文档。
+
+## 本地工程入口
+
+### 环境要求
+
+- JDK 21
+- Node.js 24.20.0
+- pnpm 12.3.4
+- Docker 与 Docker Compose
+
+### 首次准备
+
+```powershell
+Copy-Item .env.example .env
+```
+
+将 `.env` 中的占位值替换为仅供本机使用的随机密码、JWT 密钥和绝对附件目录，然后把变量加载到当前 PowerShell 进程：
+
+```powershell
+.\scripts\load-env.ps1
+```
+
+脚本只输出加载的变量数量，不输出变量值。`.env` 已被 Git 忽略。
+
+### 启动基础设施和应用
+
+```powershell
+docker compose up -d mysql redis
+.\mvnw.cmd spring-boot:run -Dspring-boot.run.profiles=local
+pnpm --dir frontend install --frozen-lockfile
+pnpm --dir frontend dev
+```
+
+后端健康检查位于 `http://localhost:8080/actuator/health`，前端开发入口位于 `http://localhost:5173`。前端将 `/fd` 请求代理到后端。普通停止使用 `docker compose down`，不要附加 `-v`，以免删除本地数据卷。
+
+M0 已完成并等待分支交接；现阶段首页只用于验证 Vue 工程能够构建和启动，尚未承载业务页面。
