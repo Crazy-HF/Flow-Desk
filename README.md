@@ -23,7 +23,7 @@ FlowDesk 是一个企业工单协作平台，由开发者与 Codex 协作完成�
 - Vue 3
 - 仅实现支撑核心业务流程所需的基础页面
 
-具体依赖、版本和技术方案将在业务需求确认后决定。
+具体依赖、版本和工程规范已记录在 `docs/engineering-readiness.md`。
 
 ## 开发原则
 
@@ -35,9 +35,9 @@ FlowDesk 是一个企业工单协作平台，由开发者与 Codex 协作完成�
 
 ## 当前状态
 
-项目启动分析、业务模型、总体架构、数据库逻辑与物理模型以及 v1 API 契约已经完成并确认，下一阶段为工程准备检查。
+项目启动分析、业务模型、总体架构、数据库逻辑与物理模型、v1 API 契约以及工程准备检查已经完成并确认，下一阶段为开发任务拆分。
 
-当前尚未创建 Spring Boot 工程、Vue 工程、数据库或业务代码。已确认的设计分别记录在 `docs/kickoff.md`、`docs/business-model.md`、`docs/technical-architecture.md`、`docs/database-design.md` 与 `docs/api-design.md` 中；工程准备和任务拆分完成前，仍不编写具体业务代码。
+当前尚未创建 Spring Boot 工程、Vue 工程、数据库或业务代码。已确认的设计分别记录在 `docs/kickoff.md`、`docs/business-model.md`、`docs/technical-architecture.md`、`docs/database-design.md`、`docs/api-design.md` 与 `docs/engineering-readiness.md` 中；开发任务拆分完成前，仍不编写具体业务代码。
 
 ## 协作说明
 
