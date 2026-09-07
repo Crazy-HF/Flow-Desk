@@ -78,19 +78,20 @@ Argon2id 通过 Spring Security `PasswordEncoder` 使用。最低参数为内存
 | Axios | `1.20.0` | 统一 API Client、Authorization 注入、401 刷新协调和错误转换 |
 | Element Plus | `2.14.5` | 按需引入，页面不复制组件库能力 |
 | Vite | `8.2.2` | 开发服务器代理 `/fd` 到后端 |
-| TypeScript | `7.0.2` | 开启严格检查，禁止用大范围 `any` 绕过契约 |
+| TypeScript | `6.0.3` | 开启严格检查；处于 typescript-eslint 8.69.0 声明支持的 `<6.1.0` 范围内 |
 | Vitest | `5.0.0` | 前端单元与组件测试 |
 | Vue Test Utils | `2.5.0` | Vue 组件交互测试 |
 | Playwright | `1.63.0` | 核心流程端到端测试，CI 固定浏览器版本 |
 | Vite Vue Plugin | `6.0.8` | Vue 单文件组件编译支持 |
 | vue-tsc | `3.3.11` | `.vue` 与 TypeScript 联合类型检查 |
 | ESLint | `10.10.0` | 使用 Flat Config |
+| ESLint JS Config | `10.0.1` | `@eslint/js` 的正式版本，与 ESLint 10 配合使用 |
 | eslint-plugin-vue | `10.10.0` | Vue 官方 ESLint 规则 |
 | Vue TypeScript ESLint Config | `14.9.0` | `@vue/eslint-config-typescript`，统一 Vue/TS 规则 |
 | jsdom | `30.0.1` | Vitest 组件 DOM 环境 |
 | Vitest V8 Coverage | `5.0.0` | 与 Vitest 保持同版本 |
 
-以上版本是工程初始化的候选锁定组合。初始化任务必须实际执行 `pnpm typecheck`、`pnpm lint`、`pnpm test:unit --run` 和 `pnpm build` 验证组合兼容；若出现正式的 peer dependency 冲突，只允许在该任务中调整直接相关工具版本并记录依据，不能使用 `--force` 或忽略 peer dependency 错误。
+以上版本是工程初始化的锁定组合。初始化验证发现 TypeScript 7.0.2 超出 typescript-eslint 8.69.0 声明的 `<6.1.0` 支持范围，因此按本节预先约定将 TypeScript 调整为 6.0.3；没有使用 `--force` 或忽略 peer dependency 错误。初始化任务仍必须实际执行 `pnpm typecheck`、`pnpm lint`、`pnpm test:unit --run` 和 `pnpm build` 验证组合兼容。
 
 ### 3.4 当前机器检查结果
 
@@ -99,8 +100,8 @@ Argon2id 通过 Spring Security `PasswordEncoder` 使用。最低参数为内存
 | 工具 | 当前结果 | 结论 |
 | --- | --- | --- |
 | Java | `21.0.12` | 满足 |
-| Node.js | `24.4.0` | 不满足最低 `24.12.0`，前端初始化前升级 |
-| pnpm | `11.19.0` | 不满足固定 `12.3.4`，前端初始化前通过 Corepack 切换 |
+| Node.js | `24.20.0`（`D:\pnpm\bin\node.exe`） | 满足；Codex 命令显式优先使用安装目录，避免旧进程 PATH 缓存 |
+| pnpm | `12.3.4`（`D:\pnpm\pnpm.cmd`） | 满足；`packageManager` 与 lockfile 已固定 |
 | Docker | `29.7.2` | 满足本地容器运行需要 |
 | Docker Compose | `v5.4.0` | 满足 |
 | Git | `2.55.0.windows.3` | 满足 |
@@ -434,14 +435,14 @@ pnpm --dir frontend dev
 | --- | --- | --- |
 | 依赖版本明确且一致 | 通过 | 第 3 节；非 BOM 与前端直接依赖需锁定 |
 | 敏感配置边界清晰 | 通过 | 第 5 节；仓库只保留 `.env.example` |
-| 空数据库可完整迁移 | 方案通过、实现待后续任务验证 | 第 6 节；V1/V2 尚未编写 |
+| 空数据库可完整迁移 | 通过 | `DatabaseMigrationIT` 在 MySQL 8.4.11 Testcontainers 空库执行 V1/V2、`validate`、关键约束与 demo 数据幂等性 |
 | 测试工具与关键场景明确 | 通过 | 第 7、8 节 |
-| CI 可从干净检出运行 | 方案通过、实现待后续任务验证 | 第 9 节；Workflow 尚未编写 |
-| 新开发者可重复启动 | 方案通过、实现待后续任务验证 | 第 10 节；工程骨架尚未创建 |
+| CI 可从干净检出运行 | 已实现，待首次合并请求的 GitHub 运行记录 | `.github/workflows/ci.yml` 固定 JDK 21、Node 24.20.0、pnpm 12.3.4，并分为 backend、frontend、core E2E 三个 Job；同等本地命令已通过 |
+| 新开发者可重复启动 | 通过 | Compose、Profile、`.env.example`、Maven Wrapper、pnpm 入口和 README 已建立并本地验证 |
 | 跨存储失败顺序明确 | 通过 | 第 7 节；故障测试列明 |
 | API 映射到页面或后台任务 | 通过 | 第 11 节 |
 
-工程准备设计就绪状态：**Ready**。这里的 Ready 表示实现所需规则已经明确，不表示工程、迁移或 CI 已经创建并运行。下一阶段只能先拆分可验收的实现任务；任务拆分确认后，才进入工程初始化和业务编码。
+工程准备状态：**Ready，且 M0 工程底座已完成本地验证**。工程、迁移、公共契约和 CI Workflow 已创建；CI 的首次 GitHub 执行将在本分支创建合并请求后留下运行记录。下一阶段须在 M0 分支完成交接后，才开始 M1 身份入口实现。
 
 ## 13. 版本核验来源
 

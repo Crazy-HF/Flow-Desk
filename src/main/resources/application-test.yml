@@ -1,0 +1,18 @@
+spring:
+  main:
+    banner-mode: "off"
+  task:
+    scheduling:
+      enabled: false
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+flowdesk:
+  allowed-origins: http://localhost
+  attachment-root: ${java.io.tmpdir}/flowdesk-test-attachments
+  cookie-secure: false
+  jwt-secret: dGVzdC1vbmx5LXNlY3JldC10aGF0LWlzLW5vdC1mb3ItcHJvZA==

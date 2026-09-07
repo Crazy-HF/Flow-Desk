@@ -1,0 +1,54 @@
+:root {
+  color: #1f2937;
+  background: #f3f4f6;
+  font-family:
+    Inter, "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+.foundation {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 2rem;
+}
+
+.foundation__card {
+  width: min(36rem, 100%);
+  padding: 3rem;
+  border: 1px solid #dbe3ee;
+  border-radius: 1rem;
+  background: #ffffff;
+  box-shadow: 0 1rem 3rem rgb(15 23 42 / 8%);
+}
+
+.foundation__eyebrow {
+  margin: 0 0 0.75rem;
+  color: #2563eb;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+
+h1 {
+  margin: 0;
+  color: #0f172a;
+  font-size: clamp(2rem, 6vw, 3rem);
+}
+
+.foundation__card > p:last-child {
+  margin: 1rem 0 0;
+  color: #64748b;
+  line-height: 1.7;
+}

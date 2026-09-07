@@ -1,0 +1,9 @@
+spring:
+  flyway:
+    locations: classpath:db/migration,classpath:db/demo
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
