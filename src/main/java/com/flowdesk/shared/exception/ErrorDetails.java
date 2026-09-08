@@ -1,4 +1,4 @@
-package com.flowdesk.shared.api;
+package com.flowdesk.shared.exception;
 
 import java.util.List;
 

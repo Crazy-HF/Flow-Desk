@@ -369,7 +369,7 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 
 ### 8.1 管理接口通用规则
 
-- 所有系统管理接口使用 `/fd/v1/admin` 前缀，并要求对应的管理员业务权限。
+- 分类管理和管理性交接接口使用 `/fd/v1/admin` 前缀；用户管理接口统一使用 `/fd/v1/users`。两类接口均要求对应的管理员业务权限。
 - 角色和权限定义由系统预置；管理员只能为用户分配预置角色，不能在线创建角色、权限或修改角色权限映射。
 - 用户不提供物理删除接口，分类只有从未被工单引用时才允许删除。
 - 用户、角色或账号状态变化成功后，撤销受影响用户的现有登录会话。
@@ -379,14 +379,14 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 
 | 用例 | 方法与路径 | 说明 |
 | --- | --- | --- |
-| 用户列表 | `GET /fd/v1/admin/users` | 按关键词、状态和角色分页筛选 |
-| 用户详情 | `GET /fd/v1/admin/users/{userId}` | 返回账号、角色、状态和版本，不返回密码摘要 |
-| 创建用户 | `POST /fd/v1/admin/users` | 提交登录名、显示名称、初始密码和至少一个角色 |
-| 修改基本资料 | `PUT /fd/v1/admin/users/{userId}` | 修改显示名称并携带 `version` |
-| 启用账号 | `POST /fd/v1/admin/users/{userId}/actions/enable` | 携带 `version` |
-| 停用账号 | `POST /fd/v1/admin/users/{userId}/actions/disable` | 携带版本和必要交接方案 |
-| 替换角色 | `PUT /fd/v1/admin/users/{userId}/roles` | 携带版本、完整角色集合和必要交接方案 |
-| 管理员重置密码 | `POST /fd/v1/admin/users/{userId}/actions/reset-password` | 携带版本，设置新密码并撤销目标用户全部会话 |
+| 用户列表 | `GET /fd/v1/users` | 按关键词、状态和角色分页筛选 |
+| 用户详情 | `GET /fd/v1/users/{userId}` | 返回账号、角色、状态和版本，不返回密码摘要 |
+| 创建用户 | `POST /fd/v1/users` | 提交登录名、显示名称、初始密码和至少一个角色 |
+| 修改基本资料 | `PUT /fd/v1/users/{userId}` | 修改显示名称并携带 `version` |
+| 启用账号 | `POST /fd/v1/users/{userId}/actions/enable` | 携带 `version` |
+| 停用账号 | `POST /fd/v1/users/{userId}/actions/disable` | 携带版本和必要交接方案 |
+| 替换角色 | `PUT /fd/v1/users/{userId}/roles` | 携带版本、完整角色集合和必要交接方案 |
+| 管理员重置密码 | `POST /fd/v1/users/{userId}/actions/reset-password` | 携带版本，设置新密码并撤销目标用户全部会话 |
 | 当前用户修改密码 | `POST /fd/v1/auth/change-password` | 校验原密码，修改成功后撤销当前用户全部会话 |
 | 角色选项 | `GET /fd/v1/admin/roles/options` | 返回三个预置角色的编码和名称 |
 

@@ -1,5 +1,6 @@
 package com.flowdesk.shared.api;
 
+import com.flowdesk.shared.web.filter.TraceIdFilter;
 import org.junit.jupiter.api.Test;
 import org.slf4j.MDC;
 import org.springframework.mock.web.MockHttpServletRequest;

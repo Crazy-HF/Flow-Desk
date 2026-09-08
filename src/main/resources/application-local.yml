@@ -1,9 +1,18 @@
+spring:
+  config:
+    import: optional:file:.env[.properties]
+
 springdoc:
   api-docs:
     enabled: true
   swagger-ui:
     enabled: true
 
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+
 logging:
   level:
     com.flowdesk: DEBUG
+    com.flowdesk.iam.mapper: DEBUG

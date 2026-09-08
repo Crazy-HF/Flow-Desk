@@ -13,7 +13,7 @@ spring:
     redis:
       host: ${FLOWDESK_REDIS_HOST}
       port: ${FLOWDESK_REDIS_PORT}
-      password: ${FLOWDESK_REDIS_PASSWORD}
+      password:
       timeout: 2s
   flyway:
     enabled: true
@@ -30,7 +30,7 @@ spring:
       enabled: false
 
 server:
-  port: 8080
+  port: 8081
   shutdown: graceful
   error:
     include-message: never

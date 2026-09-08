@@ -1,5 +1,6 @@
-package com.flowdesk.shared.api;
+package com.flowdesk.shared.exception;
 
+import com.flowdesk.shared.web.R;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -26,7 +27,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ResponseEntity<R<ErrorDetails>> handleValidation(MethodArgumentNotValidException exception) {
-        List<com.flowdesk.shared.api.FieldError> fieldErrors = exception.getBindingResult().getFieldErrors().stream()
+        List<com.flowdesk.shared.exception.FieldError> fieldErrors = exception.getBindingResult().getFieldErrors().stream()
                 .map(this::fieldError)
                 .toList();
         ErrorDetails details = new ErrorDetails(errorWriter.body("VALIDATION_FAILED", "请求字段校验失败")
@@ -60,7 +61,7 @@ public class GlobalExceptionHandler {
                 .body(errorWriter.body("INTERNAL_ERROR", "系统暂时无法处理该请求"));
     }
 
-    private com.flowdesk.shared.api.FieldError fieldError(FieldError error) {
-        return new com.flowdesk.shared.api.FieldError(error.getField(), error.getCode());
+    private com.flowdesk.shared.exception.FieldError fieldError(FieldError error) {
+        return new com.flowdesk.shared.exception.FieldError(error.getField(), error.getCode());
     }
 }

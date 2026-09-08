@@ -1,6 +1,6 @@
 package com.flowdesk.shared.config;
 
-import com.flowdesk.shared.api.ApiErrorWriter;
+import com.flowdesk.shared.exception.ApiErrorWriter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -9,6 +9,9 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
 
+/**
+ * 基础安全配置
+ */
 @Configuration
 @EnableMethodSecurity
 public class FoundationSecurityConfiguration {

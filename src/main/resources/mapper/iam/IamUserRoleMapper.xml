@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.flowdesk.iam.mapper.IamUserRoleMapper">
+
+    <!-- 通用查询映射结果 -->
+    <resultMap id="BaseResultMap" type="com.flowdesk.iam.domain.IamUserRole">
+        <id column="user_id" property="userId" />
+        <id column="role_id" property="roleId" />
+        <result column="granted_by" property="grantedBy" />
+        <result column="granted_at" property="grantedAt" />
+    </resultMap>
+
+    <!-- 通用查询结果列 -->
+    <sql id="Base_Column_List">
+        user_id, role_id, granted_by, granted_at
+    </sql>
+
+</mapper>

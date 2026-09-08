@@ -4,7 +4,7 @@
 
 ## 快速定位
 
-- 最后更新：2026-09-07
+- 最后更新：2026-09-08
 - 远程仓库：`git@github.com:Crazy-HF/Flow-Desk.git`
 - 稳定分支：`main`
 - 当前基线分支：`main`
@@ -12,8 +12,8 @@
 - 下一次创建分支：`flow-desk/employee-ticket-flow`（M1 验收并完成分支交接后创建）
 - 当前阶段：M1 身份入口
 - 最新完成：M0 工程底座（`TASK-001`～`TASK-003`）已合并进入 `main`
-- 下一步：实现 `TASK-010` 认证、会话和密码安全
-- 当前阻塞：无
+- 下一步：先修正并验证当前 IAM 用户管理切片，再回到 `TASK-010` 认证、会话和密码安全
+- 当前阻塞：IAM 用户管理代码 review 尚未通过；全量单测有 5 项因测试上下文缺少 Mapper Bean 而失败
 - 环境前置：JDK 21、Node.js 24.20.0、pnpm 12.3.4、Docker 已验证
 
 ## 已完成里程碑
@@ -26,6 +26,25 @@
 6. 工程依赖、配置、迁移、测试、CI、启动、跨存储失败处理和页面/API 映射已经确认。
 7. 开发任务拆分已经确认，全部 API 与后台任务均有实施归属。
 8. **M0 工程底座已完成并合并**：`TASK-001`～`TASK-003`（骨架、数据基线、公共契约、CI）通过 PR #4 合并进入 `main`。
+
+## 2026-09-08 工作记录
+
+- 创建 IAM 模块的 domain、BO/VO、Controller、Service、Mapper 等基础结构，并接入 MyBatis-Plus。
+- 增加通用 `PageQuery`、`PageResult` 和分页拦截器；本地环境启用 MyBatis SQL 日志。
+- 完成用户分页查询、创建用户及密码 Argon2id 哈希的基础实现。
+- 完成账号启用/停用的目标状态幂等设计与 `status + version` 条件更新基础实现。
+- 完成管理员重置密码的请求校验、权限注解、Argon2id 哈希和乐观版本条件更新；Redis 全会话撤销尚待 `TASK-010` 接入。
+- 管理员重置密码及 IAM Service 相关单测共 8 项通过；全量 `mvnw test` 共 21 项，其中 5 项因测试上下文排除 MyBatis-Plus 后缺少 Mapper Bean 而失败。
+- 当前 IAM 用户管理属于后续 `TASK-051` 能力的提前基础搭建，不计为 M1 已完成成果。
+
+### Review 待修正
+
+1. 修正用户详情、修改接口的路径参数绑定，并为修改请求补充 `@RequestBody`、校验和专用 VO。
+2. 删除修改用户失败后错误执行 `insert` 的分支，补齐不存在、更新冲突和版本递增处理。
+3. 为用户列表、详情、创建和修改接口补充 `USER_MANAGE` 权限；未实现的角色替换接口不得直接返回成功。
+4. 为分页排序建立固定字段白名单，禁止把客户端 `orderBy` 原样拼入 SQL。
+5. 创建用户需按既定契约处理至少一个角色；停用和重置密码需在会话组件完成后撤销目标用户全部会话。
+6. 修复公共 Spring 测试的 IAM Mapper 依赖，使全量单测重新通过；清理 `pom.xml` 中重复的 MyBatis-Plus Generator 依赖。
 
 ## 已确认的架构摘要
 
@@ -43,12 +62,17 @@
 
 ## 下一步任务
 
-任务名称：M1 身份入口 — TASK-010 认证、会话和密码安全。
+任务名称：IAM 用户管理切片纠错与测试恢复，然后继续 M1 `TASK-010`。
 
 目标：
 
+- 先修复上述 Controller、Service、权限、排序白名单和测试上下文问题，确保当前代码不会阻断应用启动与公共测试。
 - 实现 Argon2id 密码封装、登录、HS256 Access Token、Redis 会话与 Refresh Token。
 - 实现刷新轮换/重用检测、退出、`/auth/me` 和当前用户修改密码。
+
+协作方式：
+
+- 用户负责编写业务代码；除非用户明确授权代写，Codex 只提供小步目标、设计说明、验收标准、代码 review 与测试建议。
 
 本步骤暂不做：
 
@@ -62,10 +86,14 @@
 
 1. `AGENTS.md`
 2. `PROJECT_STATUS.md`
-3. `docs/implementation-plan.md` 的 M1、TASK-010 和全局完成定义
-4. `docs/api-design.md` 的认证、会话、Token 和密码相关接口
-5. `docs/database-design.md` 的用户表、会话表和 Redis 结构
-6. `docs/technical-architecture.md` 的认证流程和安全机制
+3. `src/main/java/com/flowdesk/iam/controller/IamUserController.java`
+4. `src/main/java/com/flowdesk/iam/service/impl/IamUserServiceImpl.java`
+5. `src/main/java/com/flowdesk/shared/web/PageQuery.java`
+6. `src/test/java/com/flowdesk/iam/service/IamUserServiceImplTest.java`
+7. `docs/implementation-plan.md` 的 M1、TASK-010、TASK-051 和全局完成定义
+8. `docs/api-design.md` 的认证、会话、Token 和密码相关接口
+9. `docs/database-design.md` 的用户表、会话表和 Redis 结构
+10. `docs/technical-architecture.md` 的认证流程和安全机制
 
 `docs/kickoff.md` 已完成并作为业务规则来源；只有在业务模型无法回答具体流程或权限问题时，才回查对应小节，不需要默认全文重读。
 

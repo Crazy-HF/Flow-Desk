@@ -1,6 +1,8 @@
-package com.flowdesk.shared.api;
+package com.flowdesk.shared.exception;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.flowdesk.shared.web.R;
+import com.flowdesk.shared.web.filter.TraceIdFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
