@@ -3,6 +3,7 @@ package com.flowdesk.iam.service;
 import com.flowdesk.iam.domain.bo.IamUserBO;
 import com.flowdesk.iam.domain.vo.IamUserCreateVO;
 import com.flowdesk.iam.domain.vo.IamUserResetPasswordVO;
+import com.flowdesk.iam.domain.vo.IamUserUpdateVO;
 import com.flowdesk.iam.domain.vo.IamUserVO;
 import com.flowdesk.shared.web.PageQuery;
 import com.flowdesk.shared.web.PageResult;
@@ -27,7 +28,7 @@ public interface IamUserService {
     /**
      * 更新IAM用户
      */
-    IamUserBO updateIamUser(Long userId, IamUserVO iamUserVO);
+    IamUserBO updateIamUser(Long userId, IamUserUpdateVO request);
 
     /**
      * 启用用户账号

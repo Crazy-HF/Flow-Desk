@@ -10,6 +10,7 @@ import com.flowdesk.iam.domain.IamUserStatus;
 import com.flowdesk.iam.domain.bo.IamUserBO;
 import com.flowdesk.iam.domain.vo.IamUserCreateVO;
 import com.flowdesk.iam.domain.vo.IamUserResetPasswordVO;
+import com.flowdesk.iam.domain.vo.IamUserUpdateVO;
 import com.flowdesk.iam.domain.vo.IamUserVO;
 import com.flowdesk.iam.mapper.IamUserMapper;
 import com.flowdesk.iam.service.IamUserService;
@@ -82,16 +83,14 @@ public class IamUserServiceImpl extends ServiceImpl<IamUserMapper, IamUser> impl
      */
     @Override
     public IamUserBO getIamUserById(Long userId) {
-        // 1. 参数防空
-
-        if (userId == null)
-            return null;
-
-        // 2. 获取用户信息
+        validateUserId(userId);
         IamUser user = baseMapper.selectById(userId);
-
-        // 3. 转换为BO
-        return user != null ? toUserBO(user) : null;
+        if (user == null) {
+            throw new ApiException(HttpStatus.NOT_FOUND,
+                    "USER_NOT_FOUND",
+                    "用户不存在");
+        }
+        return toUserBO(user);
     }
 
     /**
@@ -112,6 +111,7 @@ public class IamUserServiceImpl extends ServiceImpl<IamUserMapper, IamUser> impl
         user.setUpdatedAt(now);
         user.setVersion(0L);
 
+        // TODO TASK-051：校验至少一个预置角色，并在同一事务中写入 iam_user_role。
         try {
             if (baseMapper.insert(user) != 1)
                 throw new IllegalStateException("创建用户失败");
@@ -126,28 +126,45 @@ public class IamUserServiceImpl extends ServiceImpl<IamUserMapper, IamUser> impl
      * 更新IAM用户
      */
     @Override
-    public IamUserBO updateIamUser(Long userId, IamUserVO iamUserVO) {
-        // 1. 参数防空
-        if (userId == null || iamUserVO == null)
-            return null;
+    public IamUserBO updateIamUser(Long userId, IamUserUpdateVO request) {
+        validateUserId(userId);
+        Objects.requireNonNull(request, "修改用户参数不能为 null");
 
-        // 2. 更新用户信息
         IamUser user = baseMapper.selectById(userId);
-        if (user != null) {
-            user.setDisplayName(iamUserVO.getDisplayName().trim());
-            user.setUpdatedAt(LocalDateTime.now(clock));
-            if (baseMapper.updateById(user) == 1) {
-                return toUserBO(user);
-            }
+        if (user == null) {
+            throw new ApiException(HttpStatus.NOT_FOUND,
+                    "USER_NOT_FOUND",
+                    "用户不存在");
         }
 
-        try {
-            if (baseMapper.insert(user) != 1)
-                throw new IllegalStateException("更新用户失败");
-        } catch (DuplicateKeyException exception) {
-            throw new ApiException(HttpStatus.CONFLICT, "USERNAME_CONFLICT", "登录名已存在");
+        if (!Objects.equals(user.getVersion(), request.getVersion())) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "USER_CONFLICT",
+                    "用户信息或版本已发生变化");
         }
 
+        String displayName = request.getDisplayName().trim();
+        LocalDateTime updatedAt = LocalDateTime.now(clock);
+        long nextVersion = request.getVersion() + 1;
+        int updatedRows = baseMapper.update(
+                null,
+                new LambdaUpdateWrapper<IamUser>()
+                        .eq(IamUser::getId, userId)
+                        .eq(IamUser::getVersion, request.getVersion())
+                        .set(IamUser::getDisplayName, displayName)
+                        .set(IamUser::getUpdatedAt, updatedAt)
+                        .set(IamUser::getVersion, nextVersion)
+        );
+
+        if (updatedRows != 1) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "USER_CONFLICT",
+                    "用户信息或版本已发生变化");
+        }
+
+        user.setDisplayName(displayName);
+        user.setUpdatedAt(updatedAt);
+        user.setVersion(nextVersion);
         return toUserBO(user);
     }
 
@@ -232,6 +249,14 @@ public class IamUserServiceImpl extends ServiceImpl<IamUserMapper, IamUser> impl
         result.setUpdatedAt(user.getUpdatedAt());
         result.setVersion(user.getVersion());
         return result;
+    }
+
+    private void validateUserId(Long userId) {
+        if (userId == null || userId <= 0) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "INVALID_USER_ID",
+                    "用户 ID 必须为正整数");
+        }
     }
 
 

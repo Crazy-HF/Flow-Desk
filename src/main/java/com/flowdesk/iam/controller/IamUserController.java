@@ -4,6 +4,7 @@ import com.flowdesk.iam.domain.bo.IamUserBO;
 import com.flowdesk.iam.domain.vo.IamUserCreateVO;
 import com.flowdesk.iam.domain.vo.IamUserResetPasswordVO;
 import com.flowdesk.iam.domain.vo.IamUserRoleUpdateVO;
+import com.flowdesk.iam.domain.vo.IamUserUpdateVO;
 import com.flowdesk.iam.domain.vo.IamUserVO;
 import com.flowdesk.iam.service.IamUserService;
 import com.flowdesk.shared.web.PageQuery;
@@ -57,7 +58,7 @@ public class IamUserController {
      * 查询用户详情
      */
     @GetMapping("/{userId}")
-    public R<IamUserBO> getIamUserById(@PathVariable Long userId) {
+    public R<IamUserBO> getIamUserById(@PathVariable("userId") Long userId) {
         return R.success(iamUserService.getIamUserById(userId));
     }
 
@@ -73,8 +74,11 @@ public class IamUserController {
      * 修改用户
      */
     @PutMapping("/{userId}")
-    public R<IamUserBO> updateIamUser(@PathVariable Long userId,  @Valid @RequestBody IamUserVO iamUserVO) {
-        return R.success(iamUserService.updateIamUser(userId, iamUserVO));
+    public R<IamUserBO> updateIamUser(
+            @PathVariable("userId") Long userId,
+            @Valid @RequestBody IamUserUpdateVO request
+    ) {
+        return R.success(iamUserService.updateIamUser(userId, request));
     }
 
     /**

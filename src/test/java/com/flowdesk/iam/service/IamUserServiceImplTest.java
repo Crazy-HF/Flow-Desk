@@ -8,6 +8,7 @@ import com.flowdesk.iam.domain.IamUserStatus;
 import com.flowdesk.iam.domain.bo.IamUserBO;
 import com.flowdesk.iam.domain.vo.IamUserCreateVO;
 import com.flowdesk.iam.domain.vo.IamUserResetPasswordVO;
+import com.flowdesk.iam.domain.vo.IamUserUpdateVO;
 import com.flowdesk.iam.mapper.IamUserMapper;
 import com.flowdesk.iam.service.impl.IamUserServiceImpl;
 import com.flowdesk.shared.exception.ApiException;
@@ -76,6 +77,80 @@ class IamUserServiceImplTest {
         assertThat(result.getVersion()).isZero();
         assertThat(result.getCreatedAt()).isEqualTo(LocalDateTime.parse("2026-09-08T08:00:00"));
         assertThat(result.getUpdatedAt()).isEqualTo(result.getCreatedAt());
+    }
+
+    @Test
+    void getUserRejectsMissingUser() {
+        IamUserMapper mapper = mock(IamUserMapper.class);
+        IamUserServiceImpl service = new IamUserServiceImpl(
+                mock(PasswordEncoder.class), Clock.systemUTC());
+        ReflectionTestUtils.setField(service, "baseMapper", mapper);
+        when(mapper.selectById(99L)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.getIamUserById(99L))
+                .isInstanceOf(ApiException.class)
+                .hasMessage("用户不存在");
+    }
+
+    @Test
+    void updateUserUsesExpectedVersionAndReturnsIncrementedVersion() {
+        IamUserMapper mapper = mock(IamUserMapper.class);
+        Clock clock = Clock.fixed(Instant.parse("2026-09-08T11:00:00Z"), ZoneOffset.UTC);
+        IamUserServiceImpl service = new IamUserServiceImpl(mock(PasswordEncoder.class), clock);
+        ReflectionTestUtils.setField(service, "baseMapper", mapper);
+
+        IamUser user = new IamUser();
+        user.setId(42L);
+        user.setUsername("alice");
+        user.setDisplayName("Alice");
+        user.setStatus(IamUserStatus.ENABLED);
+        user.setVersion(3L);
+        when(mapper.selectById(42L)).thenReturn(user);
+        when(mapper.update(isNull(), any(LambdaUpdateWrapper.class))).thenReturn(1);
+
+        IamUserBO result = service.updateIamUser(42L, updateRequest("  Alice Chen  ", 3L));
+
+        verify(mapper).update(isNull(), any(LambdaUpdateWrapper.class));
+        verify(mapper, never()).insert(any(IamUser.class));
+        assertThat(result.getDisplayName()).isEqualTo("Alice Chen");
+        assertThat(result.getVersion()).isEqualTo(4L);
+        assertThat(result.getUpdatedAt()).isEqualTo(LocalDateTime.parse("2026-09-08T11:00:00"));
+    }
+
+    @Test
+    void updateUserRejectsMissingUserWithoutInsert() {
+        IamUserMapper mapper = mock(IamUserMapper.class);
+        IamUserServiceImpl service = new IamUserServiceImpl(
+                mock(PasswordEncoder.class), Clock.systemUTC());
+        ReflectionTestUtils.setField(service, "baseMapper", mapper);
+        when(mapper.selectById(99L)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.updateIamUser(99L, updateRequest("Alice", 0L)))
+                .isInstanceOf(ApiException.class)
+                .hasMessage("用户不存在");
+
+        verify(mapper, never()).insert(any(IamUser.class));
+        verify(mapper, never()).update(any(), any());
+    }
+
+    @Test
+    void updateUserRejectsStaleVersionBeforeUpdate() {
+        IamUserMapper mapper = mock(IamUserMapper.class);
+        IamUserServiceImpl service = new IamUserServiceImpl(
+                mock(PasswordEncoder.class), Clock.systemUTC());
+        ReflectionTestUtils.setField(service, "baseMapper", mapper);
+
+        IamUser user = new IamUser();
+        user.setId(42L);
+        user.setVersion(4L);
+        when(mapper.selectById(42L)).thenReturn(user);
+
+        assertThatThrownBy(() -> service.updateIamUser(42L, updateRequest("Alice", 3L)))
+                .isInstanceOf(ApiException.class)
+                .hasMessage("用户信息或版本已发生变化");
+
+        verify(mapper, never()).insert(any(IamUser.class));
+        verify(mapper, never()).update(any(), any());
     }
 
     @Test
@@ -210,6 +285,13 @@ class IamUserServiceImplTest {
     private IamUserResetPasswordVO resetPasswordRequest(String newPassword, Long version) {
         IamUserResetPasswordVO request = new IamUserResetPasswordVO();
         request.setNewPassword(newPassword);
+        request.setVersion(version);
+        return request;
+    }
+
+    private IamUserUpdateVO updateRequest(String displayName, Long version) {
+        IamUserUpdateVO request = new IamUserUpdateVO();
+        request.setDisplayName(displayName);
         request.setVersion(version);
         return request;
     }
