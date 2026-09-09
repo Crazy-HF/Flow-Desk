@@ -19,4 +19,35 @@
         id, username, display_name, password_hash, status, created_at, updated_at, version
     </sql>
 
+    <resultMap id="AuthenticationResultMap" type="com.flowdesk.iam.domain.bo.IamAuthenticationBO">
+        <id column="id" property="id" />
+        <result column="username" property="username" />
+        <result column="display_name" property="displayName" />
+        <result column="password_hash" property="passwordHash" />
+        <result column="status" property="status" />
+        <collection property="roleCodes" ofType="java.lang.String">
+            <result column="role_code" />
+        </collection>
+        <collection property="permissionCodes" ofType="java.lang.String">
+            <result column="permission_code" />
+        </collection>
+    </resultMap>
+
+    <select id="selectAuthenticationByUsername" resultMap="AuthenticationResultMap">
+        SELECT u.id,
+               u.username,
+               u.display_name,
+               u.password_hash,
+               u.status,
+               r.code AS role_code,
+               p.code AS permission_code
+        FROM iam_user u
+        LEFT JOIN iam_user_role ur ON ur.user_id = u.id
+        LEFT JOIN iam_role r ON r.id = ur.role_id
+        LEFT JOIN iam_role_permission rp ON rp.role_id = r.id
+        LEFT JOIN iam_permission p ON p.id = rp.permission_id
+        WHERE u.username = #{username}
+        ORDER BY r.code, p.code
+    </select>
+
 </mapper>

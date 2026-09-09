@@ -283,8 +283,8 @@ v1 暂不建立以下实体：
 | 表 | 对应逻辑实体 | 主要用途 |
 | --- | --- | --- |
 | `iam_user` | 用户 | 登录身份、密码摘要和账号状态 |
-| `iam_role` | 角色 | 预置角色定义 |
-| `iam_permission` | 权限 | 预置后端业务权限定义 |
+| `iam_role` | 角色 | 内置与自定义角色定义 |
+| `iam_permission` | 权限 | 内置与自定义后端业务权限定义 |
 | `iam_user_role` | 用户角色 | 用户与角色多对多关系 |
 | `iam_role_permission` | 角色权限 | 角色与权限多对多关系 |
 | `ticket_category` | 工单分类 | 单级分类及启停状态 |
@@ -328,7 +328,7 @@ v1 暂不建立以下实体：
 | `description` | `VARCHAR(255)` | 是 | 角色说明 |
 | `created_at` | `DATETIME(3)` | 否 | UTC 创建时间 |
 
-`code` 唯一。v1 角色由迁移脚本预置，不提供在线新增、修改或删除。
+`code` 唯一。迁移脚本提供基础角色；管理员可在线维护自定义角色。内置 `SYSTEM_ADMIN` 受保护，不能删除或失去 RBAC 管理所需权限。
 
 ### 17.3 `iam_permission`
 
@@ -362,7 +362,7 @@ v1 暂不建立以下实体：
 | `role_id` | `BIGINT UNSIGNED` | 否 | 外键指向 `iam_role.id` |
 | `permission_id` | `BIGINT UNSIGNED` | 否 | 外键指向 `iam_permission.id` |
 
-复合主键为 `(role_id, permission_id)`，并增加 `(permission_id, role_id)` 反向索引。两个外键均限制删除，映射只由版本迁移维护。
+复合主键为 `(role_id, permission_id)`，并增加 `(permission_id, role_id)` 反向索引。两个外键均限制删除，授权关系由 RBAC 管理用例维护；角色或权限仍被引用时禁止删除。
 
 ## 18. 分类表
 

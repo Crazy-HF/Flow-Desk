@@ -8,17 +8,20 @@ import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.flowdesk.iam.domain.IamUser;
 import com.flowdesk.iam.domain.IamUserStatus;
 import com.flowdesk.iam.domain.bo.IamUserBO;
+import com.flowdesk.iam.domain.bo.IamAuthenticationBO;
 import com.flowdesk.iam.domain.vo.IamUserCreateVO;
 import com.flowdesk.iam.domain.vo.IamUserResetPasswordVO;
 import com.flowdesk.iam.domain.vo.IamUserUpdateVO;
 import com.flowdesk.iam.domain.vo.IamUserVO;
 import com.flowdesk.iam.mapper.IamUserMapper;
+import com.flowdesk.iam.service.IamRoleService;
 import com.flowdesk.iam.service.IamUserService;
 import com.flowdesk.shared.exception.ApiException;
 import com.flowdesk.shared.utils.StringUtils;
 import com.flowdesk.shared.web.PageQuery;
 import com.flowdesk.shared.web.PageResult;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -43,6 +46,8 @@ public class IamUserServiceImpl extends ServiceImpl<IamUserMapper, IamUser> impl
         this.clock = clock;
     }
 
+    @Autowired
+    private IamRoleService iamRoleService;
     /**
      * 获取IAM用户列表
      */
@@ -94,12 +99,22 @@ public class IamUserServiceImpl extends ServiceImpl<IamUserMapper, IamUser> impl
     }
 
     /**
+     * 根据用户名获取认证所需的内部身份快照。
+     */
+    @Override
+    public IamAuthenticationBO getAuthenticationByUsername(String username) {
+        return baseMapper.selectAuthenticationByUsername(username);
+    }
+
+    /**
      * 增加IAM用户
      */
     @Override
     public IamUserBO createIamUser(IamUserCreateVO iamUserVO) {
 
         Objects.requireNonNull(iamUserVO, "创建用户参数不能为 null");
+
+        //TODO 校验用户是否存在
 
         IamUser user = new IamUser();
         LocalDateTime now = LocalDateTime.now(clock);
@@ -112,6 +127,12 @@ public class IamUserServiceImpl extends ServiceImpl<IamUserMapper, IamUser> impl
         user.setVersion(0L);
 
         // TODO TASK-051：校验至少一个预置角色，并在同一事务中写入 iam_user_role。
+
+        //1.非空判断
+
+        //插入ur表
+        //iamRoleService.insertUserRoles(user.getId(), iamUserVO.getRoleIds());
+
         try {
             if (baseMapper.insert(user) != 1)
                 throw new IllegalStateException("创建用户失败");
@@ -233,6 +254,7 @@ public class IamUserServiceImpl extends ServiceImpl<IamUserMapper, IamUser> impl
         }
 
         // TODO TASK-010：接入 Redis 会话服务后，撤销该用户的全部会话。
+
         log.info("管理员重置用户密码成功，userId={}", userId);
     }
 

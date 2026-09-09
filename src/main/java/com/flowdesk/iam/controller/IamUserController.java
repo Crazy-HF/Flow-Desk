@@ -49,6 +49,7 @@ public class IamUserController {
     /**
      * 分页查询用户
      */
+    @PreAuthorize("hasAuthority('USER_MANAGE')")
     @GetMapping("")
     public R<PageResult<IamUserBO>> listIamUsers(IamUserVO iamUserVO, @Valid PageQuery pageQuery) {
         return R.success(iamUserService.listIamUsers(iamUserVO, pageQuery));
@@ -65,6 +66,7 @@ public class IamUserController {
     /**
      * 创建用户
      */
+    @PreAuthorize("hasAuthority('USER_MANAGE')")
     @PostMapping("")
     public R<IamUserBO> createIamUser(@Valid @RequestBody IamUserCreateVO iamUserVO) {
         return R.success(iamUserService.createIamUser(iamUserVO));

@@ -11,6 +11,7 @@
 - 当前工作分支：`flow-desk/auth-foundation`
 - 下一次创建分支：`flow-desk/employee-ticket-flow`（M1 验收并完成分支交接后创建）
 - 当前阶段：M1 身份入口
+- 已确认的范围调整：RBAC 支持在线维护自定义角色、权限及其授权关系；`SYSTEM_ADMIN` 为受保护内置角色，角色或权限被引用时禁止删除。
 - 最新完成：M0 工程底座（`TASK-001`～`TASK-003`）已合并进入 `main`
 - 下一步：先修正并验证当前 IAM 用户管理切片，再回到 `TASK-010` 认证、会话和密码安全
 - 当前阻塞：IAM 用户管理仍有权限、排序、角色和测试上下文问题；当前终端 `JAVA_HOME=D:\java` 指向不存在的目录，无法在本机执行新增定向测试
@@ -64,6 +65,7 @@
 - v1 附件保存在受后端保护的本地持久化目录，MySQL 保存元数据。
 - v1 单实例运行，不引入微服务、消息队列、Kubernetes 或分布式任务平台。
 - 后端使用 Maven、Spring Boot 3.5.16 和 MyBatis-Plus 3.5.17；简单 CRUD 使用通用 Mapper，复杂业务查询保留自定义 SQL/XML。
+- JWT 使用 `spring-security-oauth2-jose` 提供的 Nimbus 实现，以 HS256 签发和校验 Access Token。
 - 密码使用 Argon2id 单向哈希；Docker Compose 只运行 MySQL 和 Redis；前端使用 Element Plus。
 
 ## 下一步任务

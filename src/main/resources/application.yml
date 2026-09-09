@@ -56,7 +56,18 @@ flowdesk:
   allowed-origins: ${FLOWDESK_ALLOWED_ORIGINS}
   attachment-root: ${FLOWDESK_ATTACHMENT_ROOT}
   cookie-secure: ${FLOWDESK_COOKIE_SECURE}
-  jwt-secret: ${FLOWDESK_JWT_SECRET}
+
+jwt:
+  secret: ${FLOWDESK_JWT_SECRET}
+  expiration: 900
+  issuer: https://flowdesk.local
+
+auth:
+  refresh-expiration: 7d
+  refresh-cookie-name: FLOWDESK_REFRESH
+  refresh-cookie-path: /fd/v1/auth
+  cookie-secure: ${FLOWDESK_COOKIE_SECURE}
+  refresh-token-bytes: 32
 
 logging:
   pattern:

@@ -15,4 +15,15 @@ flowdesk:
   allowed-origins: http://localhost
   attachment-root: ${java.io.tmpdir}/flowdesk-test-attachments
   cookie-secure: false
-  jwt-secret: dGVzdC1vbmx5LXNlY3JldC10aGF0LWlzLW5vdC1mb3ItcHJvZA==
+
+jwt:
+  secret: dGVzdC1vbmx5LXNlY3JldC10aGF0LWlzLW5vdC1mb3ItcHJvZA==
+  expiration: 900
+  issuer: https://flowdesk.test
+
+auth:
+  refresh-expiration: 7d
+  refresh-cookie-name: FLOWDESK_REFRESH
+  refresh-cookie-path: /fd/v1/auth
+  cookie-secure: false
+  refresh-token-bytes: 32

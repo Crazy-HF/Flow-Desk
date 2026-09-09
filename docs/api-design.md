@@ -369,8 +369,9 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 
 ### 8.1 管理接口通用规则
 
-- 分类管理和管理性交接接口使用 `/fd/v1/admin` 前缀；用户管理接口统一使用 `/fd/v1/users`。两类接口均要求对应的管理员业务权限。
-- 角色和权限定义由系统预置；管理员只能为用户分配预置角色，不能在线创建角色、权限或修改角色权限映射。
+- 分类管理、管理性交接和 RBAC 管理接口使用 `/fd/v1/admin` 前缀；用户管理接口统一使用 `/fd/v1/users`。两类接口均要求对应的管理员业务权限。
+- 管理员可以在线维护自定义角色、权限及其授权关系。系统初始化仍提供基础角色和权限；`SYSTEM_ADMIN` 是受保护的内置角色，不能删除或失去 RBAC 管理所需权限。
+- 角色或权限只要仍被授权关系引用便禁止删除；删除前必须先显式解除全部关联。
 - 用户不提供物理删除接口，分类只有从未被工单引用时才允许删除。
 - 用户、角色或账号状态变化成功后，撤销受影响用户的现有登录会话。
 - 涉及活动工单交接时必须全部成功或全部失败，不能先停用账号再留下无效负责人。
@@ -388,11 +389,36 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 | 替换角色 | `PUT /fd/v1/users/{userId}/roles` | 携带版本、完整角色集合和必要交接方案 |
 | 管理员重置密码 | `POST /fd/v1/users/{userId}/actions/reset-password` | 携带版本，设置新密码并撤销目标用户全部会话 |
 | 当前用户修改密码 | `POST /fd/v1/auth/change-password` | 校验原密码，修改成功后撤销当前用户全部会话 |
-| 角色选项 | `GET /fd/v1/admin/roles/options` | 返回三个预置角色的编码和名称 |
+| 角色、权限与授权关系管理 | 见 8.2.1 | 要求 `RBAC_MANAGE` |
 
 **已确认**：密码长度为 8～64 个字符，不在接口文档或日志中返回密码；演示版不通过邮件发送初始密码或重置链接，由管理员通过项目演示场景之外的安全渠道告知用户。
 
-禁止停用最后一个启用的管理员，也禁止移除其管理员角色。每个用户至少保留一个角色；登录名创建后不可修改，避免身份引用和审计含义变化。
+禁止停用最后一个启用的管理员，也禁止移除其管理员角色。每个用户至少保留一个角色；登录名创建后不可修改，避免身份引用和审计含义变化。自定义权限编码只能在后端已有对应授权检查时产生实际访问能力，新增数据本身不会自动生成业务接口或安全规则。
+
+### 8.2.1 自定义 RBAC 管理
+
+所有本节接口均要求 `RBAC_MANAGE`。实现该能力时，必须通过新的 Flyway 迁移预置此权限并授予受保护的 `SYSTEM_ADMIN` 角色；不得修改已发布的历史迁移。
+
+| 用例 | 方法与路径 | 请求与结果 |
+| --- | --- | --- |
+| 角色列表 | `GET /fd/v1/admin/roles` | 支持 `keyword` 和标准 `PageQuery`；返回 `R<PageResult<RoleDetail>>` |
+| 角色详情 | `GET /fd/v1/admin/roles/{roleId}` | 返回角色字段及已授权 `permissionIds` |
+| 创建角色 | `POST /fd/v1/admin/roles` | Body：`code`、`name`、可选 `description`；返回 `201/R<RoleDetail>` |
+| 修改角色 | `PUT /fd/v1/admin/roles/{roleId}` | Body：`name`、可选 `description`；`code` 创建后不可修改 |
+| 删除角色 | `DELETE /fd/v1/admin/roles/{roleId}` | 角色存在用户或权限授权关系时返回 `409`；`SYSTEM_ADMIN` 始终禁止删除 |
+| 权限列表 | `GET /fd/v1/admin/permissions` | 支持 `keyword` 和标准 `PageQuery`；返回 `R<PageResult<PermissionDetail>>` |
+| 权限详情 | `GET /fd/v1/admin/permissions/{permissionId}` | 返回权限字段及已授权 `roleIds` |
+| 创建权限 | `POST /fd/v1/admin/permissions` | Body：`code`、`name`、可选 `description`；返回 `201/R<PermissionDetail>` |
+| 修改权限 | `PUT /fd/v1/admin/permissions/{permissionId}` | Body：`name`、可选 `description`；`code` 创建后不可修改 |
+| 删除权限 | `DELETE /fd/v1/admin/permissions/{permissionId}` | 权限仍被角色引用时返回 `409`；不得删除 `RBAC_MANAGE` |
+| 用户角色授权列表 | `GET /fd/v1/admin/user-roles` | 至少提供 `userId` 或 `roleId` 之一，支持标准 `PageQuery` |
+| 授予用户角色 | `POST /fd/v1/admin/user-roles` | Body：`userId`、`roleId`；重复授权幂等成功，并撤销该用户全部会话 |
+| 撤销用户角色 | `DELETE /fd/v1/admin/user-roles/{userId}/{roleId}` | 不得使用户失去最后一个角色，或使最后一个启用管理员失去管理员角色；成功后撤销全部会话 |
+| 角色权限授权列表 | `GET /fd/v1/admin/role-permissions` | 至少提供 `roleId` 或 `permissionId` 之一，支持标准 `PageQuery` |
+| 授予角色权限 | `POST /fd/v1/admin/role-permissions` | Body：`roleId`、`permissionId`；重复授权幂等成功 |
+| 撤销角色权限 | `DELETE /fd/v1/admin/role-permissions/{roleId}/{permissionId}` | 不得撤销 `SYSTEM_ADMIN` 的 `RBAC_MANAGE` 授权 |
+
+`iam_user_role` 与 `iam_role_permission` 都是只有复合主键和审计字段的授权关系，没有独立可编辑的业务字段；因此这两组接口采用“查询、授予、撤销”，而非没有实际语义的 `PUT`。资源不存在分别返回 `404/ROLE_NOT_FOUND`、`404/PERMISSION_NOT_FOUND` 或 `404/GRANT_NOT_FOUND`；编码重复返回 `409/ROLE_CODE_CONFLICT` 或 `409/PERMISSION_CODE_CONFLICT`；违反保护或引用约束返回 `409/RBAC_CONFLICT`。
 
 ### 8.3 活动工单与管理性交接
 
@@ -468,6 +494,7 @@ MySQL 与 Redis 之间不存在天然原子事务。工程准备阶段必须明�
 | `TICKET_CLOSE` | 手动关闭 | 当前负责人、处理中、关闭原因及版本 |
 | `TICKET_ADMIN_HANDOFF` | 最小交接元数据、候选人和管理性交接 | 不授予工单正文访问 |
 | `USER_MANAGE` | 用户、角色、账号及密码管理 | 用户版本、至少一个角色、最后管理员保护 |
+| `RBAC_MANAGE` | 角色、权限、用户角色及角色权限管理 | 内置管理员保护、编码唯一、引用约束和会话撤销 |
 | `CATEGORY_MANAGE` | 分类管理 | 分类版本、名称唯一和引用约束 |
 | `DASHBOARD_VIEW` | 工单数据概览 | 复用 IT 工单可见范围 |
 

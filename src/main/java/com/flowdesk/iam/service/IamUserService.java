@@ -1,5 +1,6 @@
 package com.flowdesk.iam.service;
 
+import com.flowdesk.iam.domain.bo.IamAuthenticationBO;
 import com.flowdesk.iam.domain.bo.IamUserBO;
 import com.flowdesk.iam.domain.vo.IamUserCreateVO;
 import com.flowdesk.iam.domain.vo.IamUserResetPasswordVO;
@@ -19,6 +20,11 @@ public interface IamUserService {
      * 根据用户ID获取IAM用户
      */
     IamUserBO getIamUserById(Long userId);
+
+    /**
+     * 根据规范化登录名获取认证所需的内部身份快照；不存在时返回 null。
+     */
+    IamAuthenticationBO getAuthenticationByUsername(String username);
 
     /**
      * 创建IAM用户
