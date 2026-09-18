@@ -6,7 +6,7 @@
 -- 本脚本必须可重复执行：INSERT IGNORE 保证不覆盖真实数据、不重复造数。
 
 -- 1. 演示用户（固定 Argon2id 哈希，三个用户各不相同但均对应同一演示密码）
-INSERT IGNORE INTO iam_user (username, display_name, password_hash, status, created_at, updated_at, version) VALUES
+INSERT IGNORE INTO iam_user (username, display_name, password, status, created_at, updated_at, version) VALUES
     ('demo.employee', '演示员工',
      '$argon2id$v=19$m=16384,t=2,p=1$O4C91k/J1ot360vjHTkPmw$ORD6C7ZfULfZD0gpEgENLN+nQ4w74yHWoTEq+Z3C7OI',
      'ENABLED', '2026-01-01 00:00:00.000', '2026-01-01 00:00:00.000', 0),

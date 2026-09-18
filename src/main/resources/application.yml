@@ -1,6 +1,11 @@
 spring:
   application:
     name: flowdesk
+  profiles:
+    group:
+      # 本地数据库已应用 demo 种子（R__seed_demo_data.sql）；Flyway 校验要求
+      # 每次启动都扫描到同一批迁移位置，因此 local 固定包含 demo。
+      local: demo
   datasource:
     url: ${FLOWDESK_DB_URL}
     username: ${FLOWDESK_DB_USERNAME}
@@ -53,13 +58,11 @@ springdoc:
     enabled: false
 
 flowdesk:
-  allowed-origins: ${FLOWDESK_ALLOWED_ORIGINS}
   attachment-root: ${FLOWDESK_ATTACHMENT_ROOT}
-  cookie-secure: ${FLOWDESK_COOKIE_SECURE}
 
 jwt:
   secret: ${FLOWDESK_JWT_SECRET}
-  expiration: 900
+  expiration: 15m
   issuer: https://flowdesk.local
 
 auth:
@@ -68,6 +71,7 @@ auth:
   refresh-cookie-path: /fd/v1/auth
   cookie-secure: ${FLOWDESK_COOKIE_SECURE}
   refresh-token-bytes: 32
+  allowed-origins: ${FLOWDESK_ALLOWED_ORIGINS}
 
 logging:
   pattern:

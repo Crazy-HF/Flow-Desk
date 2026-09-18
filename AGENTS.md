@@ -75,6 +75,8 @@
 
 ## 当前阶段限制
 
-- 项目启动分析至工程准备已经完成，M0 工程底座已通过 PR #4 合并进入 `main`，当前处于 M1 身份入口。
-- M1 按 `docs/implementation-plan.md` 实施 `TASK-010`～`TASK-011`：认证、会话、密码安全以及 Vue 登录外壳与身份恢复。
-- 当前已提前搭建部分 IAM 用户管理基础代码，该部分属于后续 `TASK-051`，不计为 M1 完成成果；继续 M1 前先按 `PROJECT_STATUS.md` 修复其正确性和测试回归问题。
+- 项目分为“求职 MVP”和“完整版”两个交付层级，当前只执行求职 MVP；M0 工程底座已通过 PR #4 合并进入 `main`，当前处于 MVP 阶段 1 Auth 身份入口。
+- 阶段 1 按 `docs/implementation-plan.md` 实施 `TASK-010`～`TASK-011`：认证、会话、密码安全以及 Vue 登录外壳与身份恢复。
+- MVP 固定使用 `EMPLOYEE`、`IT_SUPPORT`、`SYSTEM_ADMIN` 三种内置角色。允许一个用户拥有多个内置角色，但不实现角色、权限及其授权关系的在线 CRUD；动态 RBAC 仅是完整版的可选能力，需再次确认后才能实施。
+- `TASK-010` 切片 1～3 已完成并端到端验证：配置绑定与 Argon2id、IAM 认证查询、登录创建 Redis 会话、签发 JWT、写入 Refresh Cookie。已确认 19 项单元测试与 4 项迁移集成测试全绿。
+- 公共安全基线（CSRF 关闭、无状态会话、`AUTH_REQUIRED` 错误信封）归 `common/config/FoundationSecurityConfiguration`。下一步只实现切片 4 的 JWT 请求认证过滤器；refresh/logout、`/auth/me`、本人改密与 Vue 登录外壳按后续切片推进。旧实现只可按需参考，不作为恢复目标。

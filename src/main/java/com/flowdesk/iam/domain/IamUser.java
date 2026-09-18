@@ -17,7 +17,7 @@ public class IamUser {
     private Long id;
     private String username;
     private String displayName;
-    private String passwordHash;
+    private String password;
     private IamUserStatus status;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

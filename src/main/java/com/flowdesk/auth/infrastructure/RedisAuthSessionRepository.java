@@ -1,90 +1,53 @@
 package com.flowdesk.auth.infrastructure;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.flowdesk.auth.config.AuthProperties;
 import com.flowdesk.auth.domain.AuthSession;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.time.Duration;
-import java.time.Instant;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 
-/** Redis 会话仓储：保存 Refresh Token 摘要，不保存 JWT 或原始 Refresh Token。 */
+/**
+ * 会话的 Redis 实现：三个键共用同一有效期 TTL，值以 JSON 存储以便直接读出排查。
+ *
+ * <p>Redis 写失败会直接抛出，调用方不得在会话未落库的情况下签发访问令牌。</p>
+ */
 @Repository
 public class RedisAuthSessionRepository implements AuthSessionRepository {
 
-    static final String SESSION_KEY_PREFIX = "flowdesk:auth:session:";
-    static final String REFRESH_KEY_PREFIX = "flowdesk:auth:refresh:";
+    private static final String SESSION_KEY = "flowdesk:auth:session:";
+    private static final String REFRESH_KEY = "flowdesk:auth:refresh:";
+    private static final String USER_KEY = "flowdesk:auth:user:";
 
-    private final StringRedisTemplate redisTemplate;
+    private final StringRedisTemplate redis;
+    private final ObjectMapper objectMapper;
+    private final AuthProperties authProperties;
 
-    public RedisAuthSessionRepository(StringRedisTemplate redisTemplate) {
-        this.redisTemplate = redisTemplate;
+    public RedisAuthSessionRepository(StringRedisTemplate redis, ObjectMapper objectMapper,
+                                      AuthProperties authProperties) {
+        this.redis = redis;
+        this.objectMapper = objectMapper;
+        this.authProperties = authProperties;
     }
 
     @Override
-    public void create(AuthSession session, Duration ttl) {
-        String sessionKey = SESSION_KEY_PREFIX + session.sessionId();
-        String refreshKey = REFRESH_KEY_PREFIX + session.refreshTokenDigest();
-        try {
-            redisTemplate.opsForHash().putAll(sessionKey, Map.of(
-                    "userId", session.userId().toString(),
-                    "refreshTokenDigest", session.refreshTokenDigest(),
-                    "roles", String.join(",", session.roles()),
-                    "permissions", String.join(",", session.permissions()),
-                    "status", "ACTIVE",
-                    "createdAt", session.createdAt().toString(),
-                    "expiresAt", session.expiresAt().toString()
-            ));
-            if (!Boolean.TRUE.equals(redisTemplate.expire(sessionKey, ttl))) {
-                throw new IllegalStateException("Failed to set authentication session TTL");
-            }
-            redisTemplate.opsForValue().set(
-                    refreshKey,
-                    session.sessionId(),
-                    ttl
-            );
-        } catch (RuntimeException exception) {
-            redisTemplate.delete(sessionKey);
-            redisTemplate.delete(refreshKey);
-            throw exception;
-        }
+    public void save(AuthSession session) {
+        Duration ttl = authProperties.refreshExpiration();
+        redis.opsForValue().set(SESSION_KEY + session.sessionId(), toJson(session), ttl);
+        redis.opsForValue().set(REFRESH_KEY + session.refreshDigest(), session.sessionId(), ttl);
+
+        String userKey = USER_KEY + session.userId();
+        redis.opsForSet().add(userKey, session.sessionId());
+        redis.expire(userKey, ttl);     // 集合可能已存在，每次续期
     }
 
-    @Override
-    public Optional<AuthSession> findActive(String sessionId, Long userId) {
-        if (sessionId == null || sessionId.isBlank() || userId == null) {
-            return Optional.empty();
-        }
-        String sessionKey = SESSION_KEY_PREFIX + sessionId;
-        Map<Object, Object> fields = redisTemplate.opsForHash().entries(sessionKey);
-        if (!userId.toString().equals(fields.get("userId"))
-                || !"ACTIVE".equals(fields.get("status"))) {
-            return Optional.empty();
-        }
+    private String toJson(AuthSession session) {
         try {
-            return Optional.of(new AuthSession(
-                    sessionId,
-                    userId,
-                    String.valueOf(fields.get("refreshTokenDigest")),
-                    splitCodes(fields.get("roles")),
-                    splitCodes(fields.get("permissions")),
-                    Instant.parse(String.valueOf(fields.get("createdAt"))),
-                    Instant.parse(String.valueOf(fields.get("expiresAt")))
-            ));
-        } catch (RuntimeException exception) {
-            return Optional.empty();
+            return objectMapper.writeValueAsString(session);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("会话序列化失败", ex);
         }
-    }
-
-    private List<String> splitCodes(Object value) {
-        if (value == null || value.toString().isBlank()) {
-            return List.of();
-        }
-        return Arrays.stream(value.toString().split(","))
-                .filter(code -> !code.isBlank())
-                .toList();
     }
 }

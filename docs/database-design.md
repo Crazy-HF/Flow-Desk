@@ -50,7 +50,7 @@
 
 ### 4.2 角色
 
-角色代表职责集合。v1 预置普通员工、IT 支持人员和系统管理员三个稳定角色编码，不允许在线新增、删除或改变角色含义。
+角色代表职责集合。MVP 预置普通员工、IT 支持人员和系统管理员三个稳定角色编码，不允许在线新增、删除或改变角色含义。
 
 ### 4.3 权限
 
@@ -303,7 +303,7 @@ v1 暂不建立以下实体：
 | `id` | `BIGINT UNSIGNED` | 否 | 主键，自增 |
 | `username` | `VARCHAR(64)` | 否 | 登录名，唯一且按不区分大小写规则比较 |
 | `display_name` | `VARCHAR(100)` | 否 | 页面展示名称 |
-| `password_hash` | `VARCHAR(255)` | 否 | 密码安全摘要，不保存明文 |
+| `password` | `VARCHAR(255)` | 否 | 密码安全摘要（Argon2id），不保存明文 |
 | `status` | `VARCHAR(16)` | 否 | `ENABLED`、`DISABLED` |
 | `created_at` | `DATETIME(3)` | 否 | UTC 创建时间 |
 | `updated_at` | `DATETIME(3)` | 否 | UTC 最近更新时间 |
@@ -328,7 +328,7 @@ v1 暂不建立以下实体：
 | `description` | `VARCHAR(255)` | 是 | 角色说明 |
 | `created_at` | `DATETIME(3)` | 否 | UTC 创建时间 |
 
-`code` 唯一。迁移脚本提供基础角色；管理员可在线维护自定义角色。内置 `SYSTEM_ADMIN` 受保护，不能删除或失去 RBAC 管理所需权限。
+`code` 唯一。MVP 只使用迁移脚本预置的 `EMPLOYEE`、`IT_SUPPORT`、`SYSTEM_ADMIN` 三种角色，不提供在线角色 CRUD。表结构保留扩展空间；自定义角色属于完整版可选能力，只有再次确认并补齐迁移、保护、审计和会话撤销设计后才能开放。
 
 ### 17.3 `iam_permission`
 
@@ -362,7 +362,7 @@ v1 暂不建立以下实体：
 | `role_id` | `BIGINT UNSIGNED` | 否 | 外键指向 `iam_role.id` |
 | `permission_id` | `BIGINT UNSIGNED` | 否 | 外键指向 `iam_permission.id` |
 
-复合主键为 `(role_id, permission_id)`，并增加 `(permission_id, role_id)` 反向索引。两个外键均限制删除，授权关系由 RBAC 管理用例维护；角色或权限仍被引用时禁止删除。
+复合主键为 `(role_id, permission_id)`，并增加 `(permission_id, role_id)` 反向索引。两个外键均限制删除。MVP 的授权关系只由 Flyway 种子数据维护，不提供在线修改；完整版若启用动态 RBAC，再由对应管理用例维护并补齐引用保护。
 
 ## 18. 分类表
 
@@ -573,6 +573,7 @@ v1 暂不建立以下实体：
 | `USER_MANAGE` | 系统管理员 | 管理用户状态和用户角色 |
 | `CATEGORY_MANAGE` | 系统管理员 | 管理工单分类 |
 | `DASHBOARD_VIEW` | IT 支持人员 | 查看权限范围内的数据概览 |
+| `RBAC_MANAGE` | 系统管理员 | 完整版可选：在线维护自定义角色、权限及授权关系；不属于 MVP，启用前需单独确认并通过新迁移预置 |
 
 权限只是进入业务操作的第一层门槛。工单是否属于本人、是否为当前负责人、状态是否允许以及数据版本是否匹配，仍由后端领域规则校验。
 

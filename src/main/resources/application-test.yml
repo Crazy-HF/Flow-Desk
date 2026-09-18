@@ -12,13 +12,11 @@ springdoc:
     enabled: false
 
 flowdesk:
-  allowed-origins: http://localhost
   attachment-root: ${java.io.tmpdir}/flowdesk-test-attachments
-  cookie-secure: false
 
 jwt:
   secret: dGVzdC1vbmx5LXNlY3JldC10aGF0LWlzLW5vdC1mb3ItcHJvZA==
-  expiration: 900
+  expiration: 15m
   issuer: https://flowdesk.test
 
 auth:
@@ -27,3 +25,4 @@ auth:
   refresh-cookie-path: /fd/v1/auth
   cookie-secure: false
   refresh-token-bytes: 32
+  allowed-origins: http://localhost
