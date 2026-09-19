@@ -22,4 +22,10 @@ public record AuthSession(
         List<String> permissionCodes,
         Instant createdAt,
         Instant expiresAt) {
+
+    /** 轮换后返回同一会话的新快照：只有 Refresh 摘要变化，其余字段保持不变。 */
+    public AuthSession withRefreshDigest(String refreshDigest) {
+        return new AuthSession(sessionId, userId, username, displayName, refreshDigest, roleCodes,
+                permissionCodes, createdAt, expiresAt);
+    }
 }

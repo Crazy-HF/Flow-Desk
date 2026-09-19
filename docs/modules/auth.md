@@ -10,7 +10,7 @@
 
 MVP 只识别 `EMPLOYEE`、`IT_SUPPORT`、`SYSTEM_ADMIN` 三种内置角色及其预置权限映射。本模块不得增加角色、权限或授权关系的管理端点。
 
-当前状态：`TASK-010` 切片 1～3 已完成并验证，包括配置与 Argon2id、IAM 认证查询、登录时创建 Redis 会话、签发 JWT 和写入 Refresh Cookie。当前唯一实施目标是切片 4 的 JWT 请求认证过滤器；切片 5、切片 6 和 `TASK-011` 尚未开始。
+当前状态：`TASK-010` 切片 1～6 的代码全部完成（用户按开工卡重敲落地），包括配置与 Argon2id、IAM 认证查询、登录会话与 JWT、请求认证过滤器、刷新轮换与重放检测、幂等退出、`/auth/me` 与本人改密；2026-09-19 完成真实栈端到端验证并补齐自动化用例（见 8.3）。前端 `TASK-011`（Vue 登录外壳、内存身份、单次刷新协调、路由守卫、退出与改密入口）也已完成并通过前端用例验证。阶段 1 的功能已齐备，下一步是阶段验收与分支交接。
 
 旧版本只可按需查看设计思路，不作为恢复目标。公共安全基线位于 `common/config/FoundationSecurityConfiguration`；Auth 模块在其上叠加认证过滤器与认证路径放行规则。
 
@@ -32,11 +32,11 @@ Auth*Service（登录、刷新、退出、当前身份、改密）
 | 包 | 职责 | 当前状态 |
 | --- | --- | --- |
 | `auth.config` | `JwtProperties`、`AuthProperties` 类型安全配置 | 切片 1 已完成 |
-| `auth.controller` | 暴露 `/fd/v1/auth/**` 接口、校验请求和写入 Cookie | 登录已完成；其余待后续切片 |
-| `auth.service` | 编排认证用例，不承载 HTTP 细节 | 登录已完成；其余待后续切片 |
-| `auth.domain` | 会话、JWT 声明与登录请求/响应对象 | 切片 1～3 所需部分已完成 |
-| `auth.security` | JWT 签发/验证、Cookie 与安全过滤链 | JWT 签发和 Cookie 已完成；请求认证过滤器待切片 4 |
-| `auth.infrastructure` | Redis 会话与 Refresh Token 摘要读写 | 登录建会话已完成；轮换与重用检测待切片 5 |
+| `auth.controller` | 暴露 `/fd/v1/auth/**` 接口、校验来源、读取 Cookie 与写入 Cookie | 切片 1～6 接口全部完成 |
+| `auth.service` | 编排认证用例，不承载 HTTP 细节 | 登录、刷新、退出、当前身份、改密全部完成 |
+| `auth.domain` | 会话、JWT 声明、请求身份、Refresh 摘要状态与请求/响应对象 | 切片 1～6 所需部分已完成 |
+| `auth.security` | JWT 签发与验证、请求认证过滤器、401 出口、Cookie 与安全过滤链 | 切片 4 已完成 |
+| `auth.infrastructure` | Redis 会话与 Refresh Token 摘要读写 | 读取、写入、轮换与撤销已完成 |
 
 `common` 保留通用响应、异常、时钟和公共配置；`iam` 保留用户、角色、权限及其持久化模型。
 
@@ -161,6 +161,10 @@ Auth 模块在此基础上叠加 JWT 解析与 Redis 会话校验，并决定哪
 Bearer 解析 → JWT 验签、有效期与 issuer 校验 → 查询 Redis 会话仍有效 → 把会话中的角色与权限写入 Spring Security 上下文。
 401 按原因细分：Token 缺失或无法验证返回 `AUTH_REQUIRED`，Token 有效但会话已过期或被撤销返回 `AUTH_SESSION_INVALID`。
 
+分流机制：过滤器只负责确定身份，不判断是否放行。没有凭据、凭据不可验证、凭据有效但会话已不存在，三种情况都不设置身份；只有第三种会额外在请求属性上记下原因，受保护路径被授权规则拦下时由 `AuthEntryPoint` 据此返回 `AUTH_SESSION_INVALID`。这样匿名路径（登录、刷新、退出）不会被残留的失效令牌短路，退出与恢复会话始终可用；受保护路径则照旧拿不到身份。
+
+**实现注意（2026-09-19 核对）**：`AuthSecurityConfiguration` 目前只声明了 `POST /fd/v1/auth/login` 一条规则，而 Spring Security 6.5.11 的 `AuthorizationFilter` 在授权管理器返回 null 决策时直接放行（已核对字节码）。也就是说 auth 链下未被规则覆盖的路径当前是匿名可达的：切片 4 必须显式补 `anyRequest().authenticated()`，否则切片 6 新增的 `/auth/me` 会直接暴露为匿名接口。匿名接口一律用显式 `permitAll` 声明，不依赖未匹配时的默认行为。
+
 ### 8.2 配置键（实现记录）
 
 | 配置键 | 用途 |
@@ -174,23 +178,37 @@ Bearer 解析 → JWT 验签、有效期与 issuer 校验 → 查询 Redis 会�
 
 ### 8.3 当前测试与验证证据
 
-- 19 项单元测试全绿。
-- 4 项迁移集成测试全绿。
-- 登录端到端验证：成功请求返回 `200`、Access Token 与 `Set-Cookie`；错误密码返回 `401`。
-- Redis 验证：会话、Refresh 摘要索引和用户会话索引三类键均存在，TTL 为 7 天，Refresh Token 只保存摘要。
-- 完整 `verify` 的 JaCoCo 门禁状态见 `PROJECT_STATUS.md`，需要在阶段交接前处理。
+- **自动化证据（2026-09-19）**：`./mvnw -B verify` → 单元/Web `Tests run: 53`（`AuthWebTest` 22、`JwtTokenServiceTest` 6、`RefreshTokenUtilsTest` 3、`AuthCookieFactoryTest` 3，其余为既有用例），集成 `Tests run: 17`（`RedisAuthSessionRepositoryIT` 13 + `DatabaseMigrationIT` 4），`Failures: 0, Errors: 0`，`BUILD SUCCESS`。覆盖请求认证四类结果、刷新轮换与重放撤销、退出幂等与来源校验、改密顺序与冲突、真实 Redis 上的轮换与按用户撤销。
+- **测试基建要点**：测试上下文排除了 MyBatis-Plus 自动配置，真实服务构建 `LambdaQueryWrapper` 前需 `MybatisPlusTestMetadata.initialize(...)`；`MockedPersistenceConfiguration` 的 Mock Bean 不会自动重置，需在 `@BeforeEach` 中 `reset(...)`。
+- **真实栈端到端验证（2026-09-19，本地 MySQL + Redis + `local` profile）**：六个接口全部跑过真实 HTTP，含登录、`/me`、连续两次刷新、旧 Cookie 重放（撤销整个会话）、退出后令牌失效、改密（旧密码失效、新密码可用、改密前令牌立即失效）、非法来源 `403 / ORIGIN_NOT_ALLOWED`、无 Cookie 退出幂等且清 Cookie。明细见 `PROJECT_STATUS.md` 同日记录。
+- **两处加固已落地（2026-09-19）**：① `findById` 捕获 `RedisSystemException`（键类型不对等 Redis 拒绝执行的情况）并按会话无效处理 + WARN，但不捕获连接类异常；② `GlobalExceptionHandler` 兜底分支把异常对象传给日志以保留堆栈。验证：手工把某会话键改成 hash 类型后改密，由 `500 / RedisSystemException` 变为 `200`，日志出现"会话键无法读取，按会话无效处理"。
+- 已覆盖的自动化验证：请求认证四类结果与权限注入、刷新轮换与重放、退出幂等、改密顺序与冲突；真实 Redis 上的 TTL、JSON 往返、脏值、异类型键、轮换与撤销；迁移基线。
+- 此前切片 1～3 的端到端验证：成功登录返回 `200`、Access Token 与 `Set-Cookie`；错误密码返回 `401`；Redis 三类键存在且 TTL 为 7 天，Refresh Token 只保存摘要。
+- 尚未覆盖：真实 HTTP 端到端"登录 → 带令牌访问受保护业务接口"要等切片 6 的 `/auth/me` 提供端点后补做；覆盖率只作为报告保留，不作为构建门禁。
 
-切片 4 必须补充与请求认证直接相关的自动化验证，至少覆盖：有效认证、无 Token、无效/过期 Token、Redis 会话失效，以及登录接口仍可匿名访问。
+## 9. 切片 4 开工卡（2026-09-19 已完成）
 
-## 9. 切片 4 开工卡
+**完成情况**：新增 `auth/domain/AuthPrincipal`、`auth/security/AuthEntryPoint`、`auth/security/JwtAuthenticationFilter`；`AuthSecurityConfiguration` 已挂入过滤器并补 `anyRequest().authenticated()`；`RedisAuthSessionRepository.findById` 的脏值分支改为 WARN 并按会话无效处理。代码已由用户按开工卡重敲完成，`AuthWebTest` 已补齐，测试状态见 8.3。
+
+**交接给切片 5 的已确认结论**：会话失效不再短路匿名路径——过滤器只确定身份，是否放行交给授权规则，只把失效原因记在请求属性上，由 `AuthEntryPoint` 在受保护路径被拦下时返回 `AUTH_SESSION_INVALID`。因此携带失效令牌调用刷新或退出可以照常到达控制器；切片 5 的 logout 必须基于 Refresh Cookie 撤销会话并清除 Cookie，不依赖 `SecurityContext` 中的身份。
+
+以下为切片 4 开工时的原始约定与验收标准，保留作为实现记录。
 
 新会话的唯一目标是完成 JWT 请求认证过滤器，不同时实现 refresh、logout、`/auth/me`、改密、Vue、工单、用户管理或动态 RBAC。
+
+已确认的实现约束（2026-09-19，三项均取推荐方案）：
+
+1. **失败分流**：Token 缺失，或头部存在但验签、有效期与 issuer 校验失败时，过滤器不设置身份、继续链，由受保护路径的入口点给出 `401 / AUTH_REQUIRED`；只有"签名有效但 Redis 会话不存在、快照已过期"才由过滤器直接返回 `401 / AUTH_SESSION_INVALID` 并中断。这样 `/auth/refresh`、`/auth/logout` 不会被浏览器残留的过期 Token 打断。
+2. **401 出口**：收敛为一个 `AuthenticationEntryPoint`（auth 安全包内），过滤器与安全链都委托它，不各自拼错误响应；错误信封仍走 `ApiErrorWriter`，`AUTH_REQUIRED` 沿用现有文案。过滤器抛出的 `ApiException` 不会被 `GlobalExceptionHandler` 处理（它在 DispatcherServlet 之前运行），因此不得依赖抛异常产出 401。
+3. **身份对象**：新增 `auth/domain/AuthPrincipal`（`userId`、`username`、`displayName`、`sessionId`）作为 principal，authorities 只写权限裸码（与 `hasAuthority('TICKET_CREATE')` 对齐），角色编码保留在 principal 中供展示。
+
+过滤器必须挂进安全链内部（`addFilterBefore(..., UsernamePasswordAuthenticationFilter.class)`），且**不得声明为 `@Component` 或 `@Bean` 的 `Filter`**：Spring Boot 会把容器中的 Filter Bean 自动注册到 Servlet 链，默认顺序排在 `springSecurityFilterChain`（-100）之后，导致授权结束后才执行过滤器、认证完全不生效。推荐在 `AuthSecurityConfiguration` 内直接 `new` 出该过滤器。
 
 开工前按顺序执行：
 
 1. 阅读 `AGENTS.md`、`PROJECT_STATUS.md`、本文和 `docs/implementation-plan.md` 第 2～5 节。
 2. 检查 `FoundationSecurityConfiguration`、`AuthSecurityConfiguration`、`JwtTokenService`、`AuthSessionRepository`、`RedisAuthSessionRepository`、`AuthClaims` 和 `AuthSession` 的现有契约。
-3. 运行 `./mvnw.cmd test`，确认 19 项基线测试通过；若数量已变化，以当次真实输出为准并记录原因。
+3. 运行 `./mvnw.cmd test`，确认基线测试通过。2026-09-19 实测为 `Tests run: 19, Failures: 0, Errors: 0`；若数量已变化，以当次真实输出为准并记录原因。
 4. 只实现下列请求认证链路，并补充对应测试：
 
 ```text

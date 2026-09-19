@@ -75,8 +75,8 @@
 
 ## 当前阶段限制
 
-- 项目分为“求职 MVP”和“完整版”两个交付层级，当前只执行求职 MVP；M0 工程底座已通过 PR #4 合并进入 `main`，当前处于 MVP 阶段 1 Auth 身份入口。
+- 项目分为“求职 MVP”和“完整版”两个交付层级，当前只执行求职 MVP；M0 工程底座已通过 PR #4 合并进入 `main`，MVP 阶段 1 Auth 身份入口已完成，下一步进入阶段 2 员工创建与查询。
 - 阶段 1 按 `docs/implementation-plan.md` 实施 `TASK-010`～`TASK-011`：认证、会话、密码安全以及 Vue 登录外壳与身份恢复。
 - MVP 固定使用 `EMPLOYEE`、`IT_SUPPORT`、`SYSTEM_ADMIN` 三种内置角色。允许一个用户拥有多个内置角色，但不实现角色、权限及其授权关系的在线 CRUD；动态 RBAC 仅是完整版的可选能力，需再次确认后才能实施。
-- `TASK-010` 切片 1～3 已完成并端到端验证：配置绑定与 Argon2id、IAM 认证查询、登录创建 Redis 会话、签发 JWT、写入 Refresh Cookie。已确认 19 项单元测试与 4 项迁移集成测试全绿。
-- 公共安全基线（CSRF 关闭、无状态会话、`AUTH_REQUIRED` 错误信封）归 `common/config/FoundationSecurityConfiguration`。下一步只实现切片 4 的 JWT 请求认证过滤器；refresh/logout、`/auth/me`、本人改密与 Vue 登录外壳按后续切片推进。旧实现只可按需参考，不作为恢复目标。
+- `TASK-010` 六个后端接口与 `TASK-011` Vue 登录外壳、身份恢复均已完成并通过验收；后端 `verify` 共 53 项单元/Web 测试与 17 项集成测试全绿，前端 14 项单元测试及类型检查、Lint、构建、5 项 E2E 全绿。
+- 公共安全基线归 `common/config/FoundationSecurityConfiguration`，Auth 专用链负责 JWT 请求认证、Refresh 轮换与重用检测、退出、`/auth/me` 和本人改密。阶段 2 只推进 `TASK-020`～`TASK-023-MVP` 的员工工单创建与查询闭环。

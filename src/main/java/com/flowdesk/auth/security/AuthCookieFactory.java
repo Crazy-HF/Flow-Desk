@@ -4,6 +4,8 @@ import com.flowdesk.auth.config.AuthProperties;
 import org.springframework.http.ResponseCookie;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
+
 /**
  * Refresh Cookie 的组装。
  *
@@ -29,4 +31,16 @@ public class AuthCookieFactory {
                 .maxAge(authProperties.refreshExpiration())
                 .build();
     }
+
+    /** 清除用的 Refresh Cookie：同名、同路径、值为空、立即过期。 */
+    public ResponseCookie clearedRefreshTokenCookie() {
+        return ResponseCookie.from(authProperties.refreshCookieName(), "")
+                .httpOnly(true)
+                .secure(authProperties.cookieSecure())
+                .sameSite("Strict")
+                .path(authProperties.refreshCookiePath())
+                .maxAge(Duration.ZERO)
+                .build();
+    }
+
 }

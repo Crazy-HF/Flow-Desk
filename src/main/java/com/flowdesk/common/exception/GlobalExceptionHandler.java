@@ -63,7 +63,8 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     ResponseEntity<R<ErrorDetails>> handleUnexpected(Exception exception) {
-        log.error("unexpected request failure type={}", exception.getClass().getSimpleName());
+        // 末位参数传异常对象，保留完整堆栈便于排查；日志消息本身不含请求数据，不会泄露敏感信息
+        log.error("unexpected request failure type={}", exception.getClass().getSimpleName(), exception);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(errorWriter.body("INTERNAL_ERROR", "系统暂时无法处理该请求"));
     }

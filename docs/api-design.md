@@ -100,7 +100,7 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 - 成功后旧 Refresh Token 立即失效，同时返回新的 Access Token 并覆盖 Cookie。
 - Refresh Token 无效、过期、已撤销或会话不存在时返回 `401`。
 - 检测到已经轮换过的 Refresh Token 被再次使用时，撤销整个会话。
-- 该接口必须校验允许的请求来源并落实 CSRF 防护，具体 Cookie 属性和防护方案在工程准备阶段确定。
+- 该接口必须校验允许的请求来源并落实 CSRF 防护，具体 Cookie 属性和防护方案在工程准备阶段确定；来源不在白名单时返回 `403 / ORIGIN_NOT_ALLOWED`。
 
 ### 3.4 退出登录
 
@@ -523,6 +523,7 @@ MySQL 与 Redis 之间不存在天然原子事务。工程准备阶段必须明�
 | `401` | `AUTH_SESSION_INVALID` | 会话过期、撤销或 Refresh Token 无效 |
 | `403` | `ACCESS_DENIED` | 缺少接口级业务权限 |
 | `403` | `TICKET_ACTION_FORBIDDEN` | 可查看工单但不满足动作权限 |
+| `403` | `ORIGIN_NOT_ALLOWED` | 依赖 Cookie 的认证接口收到不在白名单内的请求来源 |
 | `404` | `TICKET_NOT_FOUND` | 工单不存在或不可见 |
 | `404` | `USER_NOT_FOUND` | 管理范围内用户不存在 |
 | `404` | `CATEGORY_NOT_FOUND` | 管理范围内分类不存在 |

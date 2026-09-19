@@ -4,19 +4,19 @@
 
 ## 快速定位
 
-- 最后更新：2026-09-18
+- 最后更新：2026-09-19
 - 远程仓库：`git@github.com:Crazy-HF/Flow-Desk.git`
 - 稳定分支：`main`
 - 当前基线分支：`main`
 - 当前工作分支：`flow-desk/auth-foundation`
-- 下一次创建分支：`flow-desk/employee-ticket-flow`（MVP 阶段 1 验收并完成分支交接后创建）
-- 当前阶段：求职 MVP 阶段 1 Auth 身份入口
+- 下一次创建分支：`flow-desk/employee-ticket-flow`
+- 当前阶段：求职 MVP 阶段 1 Auth 身份入口已完成，正在交接至阶段 2 员工创建与查询
 - 已确认的范围调整：项目分为“求职 MVP”和“完整版”；MVP 固定 `EMPLOYEE`、`IT_SUPPORT`、`SYSTEM_ADMIN` 三种内置角色，不实现在线角色、权限及授权关系 CRUD。动态 RBAC 仅为完整版可选项，需另行确认。
-- 最新完成：`TASK-010` 切片 1～3 的代码已落地并端到端验证（配置绑定、Argon2id、IAM 认证查询、登录会话 + JWT + Refresh Cookie）；`POST /fd/v1/auth/login` 实测返回 200 + `Set-Cookie` + JWT，错误密码返回 `401 / AUTH_INVALID_CREDENTIALS`，Redis 三个键、TTL 7 天、只存摘要
-- 下一步：只实施切片 4——JWT 请求认证过滤器：Bearer 解析 → JWT 验签 → Redis 会话校验 → 角色与权限写入 `SecurityContext`。完成后再进入切片 5、切片 6 和 `TASK-011`
-- 当前阻塞：无功能实现阻塞。已确认 19 项单元测试与 4 项迁移集成测试全绿；完整 `verify` 的 JaCoCo 门禁仍按既有记录待处理，不影响下次从切片 4 开始，但必须在阶段交接前解决
-- 环境前置：JDK 21、Node.js 24.20.0、pnpm 12.3.4、Docker 29.7.2 已验证；本机已有 `redis:8.8.0`、`mysql:8.4.11` 镜像。本地启动 profile 用 `local` 即可（`spring.profiles.group.local=demo` 已配置）
-- 待确认事项：JaCoCo 门禁如何处置（补测试达到原阈值，或另行确认调整门禁）；本项不扩大切片 4 的实现范围
+- 最新完成：`TASK-010`（后端六个接口）与 `TASK-011`（Vue 登录外壳与身份恢复）均已完成。后端 `./mvnw -B verify` 单元/Web 53 项 + 集成 17 项全绿；前端 `test:unit` 14 项、`typecheck`、`lint`、`build`、`test:e2e` 5 项全部通过
+- 下一步：完成当前主题分支交接后，从最新 `main` 创建 `flow-desk/employee-ticket-flow`，实施 `TASK-020`～`TASK-023-MVP`
+- 当前阻塞：无。本机启动后端前修复过两处环境问题（Flyway 历史记录、Redis 残留键，见记录）
+- 环境前置：JDK 21、Node.js 24.20.0、pnpm 12.3.4、Docker 29.7.2 已验证；本机已有 `redis:8.8.0`、`mysql:8.4.11` 镜像。本地启动 profile 用 `local` 即可（`spring.profiles.group.local=demo` 已配置）。演示账号 `demo.employee` / `demo.it` / `demo.admin`，密码见 `db/demo/R__seed_demo_data.sql` 头部注释。本机已有过两类运行障碍并已修复：① Flyway 校验失败——历史表残留已删除的 V3 迁移记录，处置为删除该行（等价 `flyway repair`）；② Redis 残留旧实现写入的 hash 类型会话键，会让"撤销全部会话"抛 `WRONGTYPE`，已清理。另需注意：本机 Argon2id 校验约 2 秒/次（并发登录可拖到十几秒），前端 e2e 因此串行执行并放宽超时；跑 e2e 需要 `FLOWDESK_ALLOWED_ORIGINS` 包含 `http://127.0.0.1:4173`（本地 `.env` 已加）
+- 待确认事项：无。JaCoCo 覆盖率门禁已确认取消（2026-09-19）：`pom.xml` 只保留 `jacoco:report` 供 CI 上传工件，不再保留 70% 行 / 60% 分支阈值；当时实测行覆盖 37.2%、分支 13.9%，阈值必定使 `verify` 失败
 
 ## 已完成里程碑
 
@@ -28,6 +28,64 @@
 6. 工程依赖、配置、迁移、测试、CI、启动、跨存储失败处理和页面/API 映射已经确认。
 7. 开发任务拆分已经确认，全部 API 与后台任务均有实施归属。
 8. **M0 工程底座已完成并合并**：`TASK-001`～`TASK-003`（骨架、数据基线、公共契约、CI）通过 PR #4 合并进入 `main`。
+
+## 2026-09-19 TASK-011 完成：Vue 登录外壳与身份恢复
+
+- **新增**：`src/api/http.ts`（Bearer 注入、401 单次刷新协调、会话失效回调）、`src/api/auth.ts`（登录/刷新/退出/当前身份/改密的封装与信封处理）、`src/stores/auth.ts`（内存身份、权限判断、恢复与退出）、`src/views/LoginView.vue`、`HomeView.vue`、`ForbiddenView.vue`、`NotFoundView.vue`、`src/components/ChangePasswordDialog.vue`、`src/test-setup.ts`、`e2e/auth.spec.ts`。
+- **修改**：`router/index.ts`（`/login` 公开、其余受保护、`/403`、404 兜底；守卫先尝试恢复身份，未登录带 `redirect` 回登录页、按 `meta.permission` 做界面级拦截）、`App.vue`（仅已登录时显示账号菜单：修改密码 / 退出登录）、`main.ts`（Element Plus 与中文本地化、网络层与 store 装配）、`styles/main.css`、`vite.config.ts`（补 `preview.proxy`——否则 `pnpm preview` 与 e2e 的接口请求不会代理到后端）、`vitest.config.ts`、`playwright.config.ts`（串行 + 放宽超时，原因见下）。
+- **删除**：M0 占位页 `FoundationView` 及其用例、`e2e/foundation.spec.ts`（`/` 已成为受保护首页）。
+- **已确认的行为**：Access Token 只保存在 Pinia 内存（用例断言 localStorage 与 sessionStorage 为空）；刷新页面靠 HttpOnly Refresh Cookie 恢复身份；并发 401 只触发一次 `/auth/refresh`；刷新失败清空身份并回登录页；能力清单按权限展示，后端仍是最终授权边界；改密成功后本地身份清空并回登录页。
+- **验证证据（2026-09-19）**：前端 `pnpm test:unit --run` 14 项、`pnpm typecheck`、`pnpm lint`、`pnpm build` 全部通过；`pnpm test:e2e` 5 项通过（未登录重定向、登录后显示身份、刷新恢复、退出、错误密码提示）；三类演示账号经真实接口验证：`demo.employee` → `EMPLOYEE`、`demo.it` → `IT_SUPPORT`、`demo.admin` → `SYSTEM_ADMIN`，权限映射与迁移一致。
+- **环境发现**：Argon2id 在本机约 2 秒/次，并发登录可被拖到 13 秒，故 e2e 串行并放宽超时；本机库中 `demo.admin` 仍带 `RBAC_MANAGE`（早前已删除的 V3 迁移留下的数据，迁移集不含它，CI 与新库不会出现）。
+- **待办**：阶段 1 分支交接（提交 → 推送 → 合并请求 → 同步 `main` → 建下一分支）。
+
+## 2026-09-19 切片 4～6 自动化用例补齐
+
+- **新增用例**：`AuthWebTest`（22 项）、`RedisAuthSessionRepositoryIT`（13 项）、`RefreshTokenUtilsTest`（3 项）、`AuthCookieFactoryTest`（3 项）、`JwtTokenServiceTest`（6 项）。
+- **覆盖范围**：请求认证四类结果（有效、无令牌、不可验证、会话失效）与权限注入到方法级授权；刷新成功（校验写回 Cookie 的是新令牌、响应体不含 Refresh Token）、无 Cookie、未知摘要、重放撤销整个会话、来源白名单与缺失来源；退出撤销并清 Cookie、无 Cookie 幂等、来源校验；改密成功（校验"先撤 Redis 再写 MySQL"的顺序）、原密码错误不动会话、新密码过短 400、版本冲突 409、无令牌 401；真实 Redis 上的 TTL、JSON 往返、脏值与异类型键、轮换、重放反查、撤销与按用户撤销。
+- **测试证据（2026-09-19）**：`./mvnw -B verify` → 单元/Web `Tests run: 53`，集成 `Tests run: 17`（`RedisAuthSessionRepositoryIT` 13 + `DatabaseMigrationIT` 4），`Failures: 0, Errors: 0`，`BUILD SUCCESS`。
+- **测试基建两处要点**：① 测试上下文排除了 MyBatis-Plus 自动配置，真实服务构建 `LambdaQueryWrapper` 之前需要 `MybatisPlusTestMetadata.initialize(...)` 注册实体元数据，否则抛 `MybatisPlusException`；② `MockedPersistenceConfiguration` 提供的是普通 Mock Bean，不会在用例之间自动重置，需在 `@BeforeEach` 中 `reset(...)`，否则前一个用例的调用记录会污染 `never()` 断言。
+- **结果**：`docs/implementation-plan.md` 中 `TASK-010` 的最低测试证据（单元、Web、Redis 集成三类）已全部满足。
+
+## 2026-09-19 切片 6 完成与真实栈端到端验证
+
+- **新增/修改**：`AuthService.currentUser` 与 `changePassword` 及实现（抽出 `requireActiveSession`，`refresh` 复用）；`AuthController` 的 `GET /me`（`@AuthenticationPrincipal`）与 `POST /change-password`（校验原密码 → 先 `revokeAll` 再写新密码 → 响应清 Cookie）；`AuthChangePasswordVO`；`AuthSessionRepository.revokeAll` 与 Redis 实现；IAM 的 `IamUserService.updatePassword`（`id + version` 条件更新，显式写 `updated_at`）。
+- **真实栈验证（本地 MySQL + Redis + `local` profile，2026-09-19）**：
+  - 失败与边界：无令牌与乱写令牌访问 `/me` → `401 / AUTH_REQUIRED`；`/refresh` 无 Cookie → `401 / AUTH_SESSION_INVALID`；`/refresh` 与 `/logout` 非法来源 → `403 / ORIGIN_NOT_ALLOWED`；`/logout` 无 Cookie → `200` 且 `Set-Cookie: FLOWDESK_REFRESH=; Max-Age=0`（幂等）。
+  - 成功路径：`demo.employee` 登录 `200`（角色 `EMPLOYEE`、三项权限）；带令牌 `/me` `200`；**连续刷新两次均 `200`**（验证轮换返回新令牌的修复）；用第一次登录的旧 Cookie 再刷 → `401 / AUTH_SESSION_INVALID`，且最新 Cookie 随之失效（**重放撤销整个会话**成立）；退出后原令牌访问 `/me` → `401 / AUTH_SESSION_INVALID`。
+  - 改密：原密码填错 → `401 / AUTH_INVALID_CREDENTIALS` 且会话不受影响；改密成功 → `200` + 清 Cookie；旧密码登录 `401`、新密码登录 `200`；**改密前的令牌立即失效**。验证后已把演示密码改回 `Demo#FlowDesk2026`（摘要重新生成、`version` 递增，密码本身不变）。
+- **排障记录**：启动失败于 `FlywayValidateException: Detected applied migration not resolved locally: 3` → 删除 `flyway_schema_history` 中该行（等价 `flyway repair`）；改密返回 `500 / RedisSystemException` → 根因是 Redis 残留旧实现的 hash 会话键，`revokeAll` 遍历时 `GET` 触发 `WRONGTYPE`，已清理 8 个残留键。
+- **两处加固已落地并验证（2026-09-19）**：① `RedisAuthSessionRepository.findById` 现在捕获 `RedisSystemException`（Redis 拒绝执行该命令，例如键类型不对）并按会话无效处理 + WARN；只捕获这一类，不吞连接类异常，Redis 连不上仍显式失败。② `GlobalExceptionHandler` 兜底分支把异常对象传给日志，保留完整堆栈。验证方式：登录建立两个会话，手工把其中一个会话键改成 hash 类型，再用另一个会话的令牌改密——修复前是 `500 / RedisSystemException`，修复后 `200`，且日志出现 `会话键无法读取，按会话无效处理 sessionId=...`；随后旧密码 `401`、新密码 `200`，演示密码已改回 `Demo#FlowDesk2026`，脏键已清理。
+- **仍未做**：`TASK-011` 前端（自动化用例已在同日补齐，见上一条记录）。
+
+## 2026-09-19 切片 5 代码完成：刷新轮换、重放检测与幂等退出
+
+- **新增**：`auth/domain/RefreshTokenLookup`（`ACTIVE` / `REUSED` / `UNKNOWN` 三态）、`AuthSession.withRefreshDigest`、`AuthCookieFactory.clearedRefreshTokenCookie`。
+- **修改**：`AuthSessionRepository` 与 `RedisAuthSessionRepository` 增加 `findByRefreshDigest` / `rotate` / `revoke`（`consumed:` 标记、沿用剩余 TTL、撤销幂等）；`AuthService` 与实现增加 `refresh` / `logout`，并把签发响应抽成登录与刷新共用的私有方法；`AuthController` 增加 `POST /refresh` 与 `POST /logout`，两者都先校验 Origin 白名单；安全链为 login / refresh / logout 显式 `permitAll`。
+- **关键决策**：检测到重放即撤销整个会话；轮换顺序为"先作废旧摘要、再启用新摘要、最后更新快照"（宁可让用户重登，也不让旧令牌继续可用）；轮换不延长会话寿命；退出基于 Refresh Cookie 且幂等，不依赖 `SecurityContext`；来源不在白名单返回新增编码 `403 / ORIGIN_NOT_ALLOWED`（已写入 `docs/api-design.md` 错误表与 3.3 节）。
+- **代码审查修复**：`refresh` 原先把**旧** Refresh Token 写回 Cookie，会让第二次刷新命中重放检测并把用户踢下线；安全链中重复的 `login` permitAll 已删除。
+- **验证状态**：`./mvnw -B verify` → 单元/Web 19 项、集成 9 项全绿，`BUILD SUCCESS`；切片 5 的行为用例与手工端到端尚未执行。
+- **后续状态**：切片 4、5 已连同切片 6 和 `TASK-011` 完成验证，统一纳入阶段 1 分支交接。
+
+## 2026-09-19 切片 4 完成：JWT 请求认证过滤器
+
+- **新增**：`auth/domain/AuthPrincipal`、`auth/security/AuthEntryPoint`、`auth/security/JwtAuthenticationFilter`。
+- **修改**：`AuthSecurityConfiguration`（在内 `new` 出过滤器 + `addFilterBefore` + `anyRequest().authenticated()`，入口点改用 `AuthEntryPoint` Bean）、`RedisAuthSessionRepository.findById`（脏值改为 WARN + 按会话无效处理）。
+- **失败分流**：过滤器只确定身份、不判断放行。无凭据、JWT 验签/有效期/issuer 失败、以及签名有效但 Redis 会话不存在或快照 `expiresAt` 已过，三种情况都不设置身份；只有会话失效会额外写入 `AuthEntryPoint.SESSION_INVALID_ATTRIBUTE`，受保护路径被授权规则拦下时由入口点据此返回 `AUTH_SESSION_INVALID`，其余返回 `AUTH_REQUIRED`。角色与权限只取会话快照，令牌只提供会话标识。
+- **测试证据**：`./mvnw -B verify` → 单元/Web `Tests run: 27, Failures: 0, Errors: 0`，集成 `Tests run: 9, Failures: 0, Errors: 0`（`RedisAuthSessionRepositoryIT` 5 项 + `DatabaseMigrationIT` 4 项），`BUILD SUCCESS`。`AuthWebTest` 覆盖无令牌、坏令牌、过期令牌、会话缺失、会话过期、有效令牌携带身份与权限，以及"过期令牌与会话失效令牌都不能阻断匿名登录"；`RedisAuthSessionRepositoryIT` 在真实 `redis:8.8.0` 上覆盖 JSON 往返、TTL、撤销与脏值。
+- **会话失效不短路匿名路径（已确认）**：携带会话已失效的令牌调用刷新或退出不会被拦下，二者照常按 Refresh Cookie 处理；这也是切片 5 实现 logout 的依据——退出必须基于 Cookie 而不是 SecurityContext 中的身份。
+- **验收状态**：切片 4 的 8 条验收标准全部满足；真正的 HTTP 端到端验证要等切片 6 的 `/auth/me` 提供受保护业务接口后补做。
+- **工作区状态（2026-09-19 更新）**：本节代码已由用户按开工卡重敲完成并挂链；`AuthWebTest` 已补齐（22 项），撤回前那次 27 项的证据已由当前实现重新复现。
+
+## 2026-09-19 切片 4 设计确认
+
+- **已确认的 3 项实现决策**（切片 4，均取推荐方案）：
+  1. Token 缺失，或头部存在但验签、有效期与 issuer 校验失败时，过滤器不设置身份、继续链；受保护路径由认证入口点返回 `401 / AUTH_REQUIRED`。理由是 `/auth/refresh`、`/auth/logout` 属匿名接口，浏览器可能仍带过期 Token，立即 401 会打断刷新与退出，而 `TASK-011` 依赖这两条路径。
+  2. 401 出口收敛为一个 `AuthenticationEntryPoint`（放在 auth 安全包内）：默认 `AUTH_REQUIRED`，会话不存在、过期或撤销时为 `AUTH_SESSION_INVALID`；过滤器与安全链都委托它，不再各自拼错误响应。
+  3. 新增 `auth/domain/AuthPrincipal`（`userId`、`username`、`displayName`、`sessionId`）作为 `SecurityContext` 的 principal，不直接使用 `AuthSession`（其中含 `refreshDigest` 等凭据相关字段）。authorities 只写权限裸码，角色编码留在 principal 供展示与菜单使用。
+- **已核实的关键事实**：`AuthSecurityConfiguration` 当前只声明 `POST /fd/v1/auth/login` 的 permitAll；Spring Security 6.5.11 的 `AuthorizationFilter` 在授权管理器返回 null 决策时直接放行（已用 javap 核对字节码），即 `/fd/v1/auth/**` 下其余路径目前匿名可达。切片 4 必须在 auth 链补 `anyRequest().authenticated()`，否则切片 6 的 `/auth/me` 会成为匿名接口。
+- **JaCoCo**：覆盖率门禁取消，`pom.xml` 只保留 `jacoco:report`；不再作为阶段交接的阻塞项。
+- **本轮未改业务代码**：按切片 4 协作方式，业务代码由用户编写，Codex 提供小步目标、设计说明、验收标准与测试建议。
 
 ## 2026-09-18 TASK-010 切片 1～3 交接记录
 
@@ -154,14 +212,19 @@
 
 ## 下一步任务
 
-任务名称：求职 MVP 阶段 1——`TASK-010` 切片 4：JWT 请求认证过滤器。
+任务名称：求职 MVP 阶段 2——员工创建与查询（`TASK-020`～`TASK-023-MVP`）。
 
 目标：
 
-- 从 `Authorization: Bearer <token>` 解析 Access Token，并完成签名、有效期与 issuer 校验。
-- 使用 JWT 中的会话标识查询 Redis；会话有效时将用户标识、角色和权限写入 `SecurityContext`。
-- Token 缺失或不可验证返回 `401 / AUTH_REQUIRED`；JWT 有效但会话不存在、过期或撤销返回 `401 / AUTH_SESSION_INVALID`。
-- 保持登录等已确认匿名接口可访问，且不破坏切片 1～3 的登录链路。
+- 实现启用分类选项，以及工单列表的 `own`、`queue`、`assigned`、`participated` 显式 scope。
+- 员工使用 `submissionKey` 幂等创建无附件工单；工单快照、首条时间线和提交人参与事实同一事务写入。
+- 实现员工工单列表、新建、详情与不可变时间线，并验证登录 → 创建 → 列表 → 详情完整路径。
+
+阶段验收：
+
+- 员工重复点击不会制造重复工单。
+- 员工只能查看自己的工单，越权访问统一返回 `404/TICKET_NOT_FOUND`。
+- 创建结果和时间线可在刷新后从后端恢复。
 
 协作方式：
 
@@ -169,26 +232,21 @@
 
 本步骤暂不做：
 
-- refresh 轮换、旧令牌重用检测、logout（切片 5）。
-- `/auth/me`、本人改密（切片 6）。
-- 工单、IAM 管理或 Vue 页面业务流程（`TASK-011` 后续处理）。
+- IT 领取、处理和员工确认闭环（阶段 3）。
+- 附件、完整状态机、管理端和数据概览。
 - 角色、权限及授权关系的在线 CRUD。
 - 不引入已确认技术边界之外的基础设施。
-- 密码和 Token 行为必须与已确认的 API 文档一致。
 
 ## 当前任务必读
 
-继续 `TASK-010` 切片 4 前，按以下顺序读取：
+开始阶段 2 前，按以下顺序读取：
 
 1. `AGENTS.md`
 2. `PROJECT_STATUS.md`
-3. `docs/modules/auth.md` 第 8～9 节（安全链规则与切片 4 开工卡）
-4. `src/main/java/com/flowdesk/common/config/FoundationSecurityConfiguration.java`
-5. `src/main/java/com/flowdesk/auth/security/AuthSecurityConfiguration.java`
-6. `src/main/java/com/flowdesk/auth/security/JwtTokenService.java`
-7. `src/main/java/com/flowdesk/auth/infrastructure/AuthSessionRepository.java` 与 `RedisAuthSessionRepository.java`
-8. `src/main/java/com/flowdesk/auth/domain/AuthClaims.java` 与 `AuthSession.java`
-9. `docs/api-design.md`、`docs/technical-architecture.md` 中认证失败和会话校验规则（仅在契约细节不清时查阅）
+3. `docs/implementation-plan.md` 第 6 节（阶段 2 范围与验收）
+4. `docs/business-model.md` 中工单、时间线、参与人与幂等约束
+5. `docs/api-design.md` 中分类选项、工单列表、创建、详情与时间线契约
+6. `docs/database-design.md` 中阶段 2 涉及的表、索引和事务约束
 
 `docs/kickoff.md` 已完成并作为业务规则来源；只有在业务模型无法回答具体流程或权限问题时，才回查对应小节，不需要默认全文重读。
 
