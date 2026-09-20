@@ -4,19 +4,19 @@
 
 ## 快速定位
 
-- 最后更新：2026-09-19
+- 最后更新：2026-09-20
 - 远程仓库：`git@github.com:Crazy-HF/Flow-Desk.git`
 - 稳定分支：`main`
-- 当前基线分支：`main`
-- 当前工作分支：`flow-desk/auth-foundation`
-- 下一次创建分支：`flow-desk/employee-ticket-flow`
-- 当前阶段：求职 MVP 阶段 1 Auth 身份入口已完成，正在交接至阶段 2 员工创建与查询
+- 当前基线分支：`main`（阶段 1 已合并，合并提交 `5c6cca0`）
+- 当前工作分支：`flow-desk/employee-ticket-flow`
+- 下一次创建分支：阶段 2 验收并完成交接后再确定
+- 当前阶段：求职 MVP 阶段 2 员工创建与查询（尚未开始，开工前先确认接口与数据模型的落地顺序）
 - 已确认的范围调整：项目分为“求职 MVP”和“完整版”；MVP 固定 `EMPLOYEE`、`IT_SUPPORT`、`SYSTEM_ADMIN` 三种内置角色，不实现在线角色、权限及授权关系 CRUD。动态 RBAC 仅为完整版可选项，需另行确认。
-- 最新完成：`TASK-010`（后端六个接口）与 `TASK-011`（Vue 登录外壳与身份恢复）均已完成。后端 `./mvnw -B verify` 单元/Web 53 项 + 集成 17 项全绿；前端 `test:unit` 14 项、`typecheck`、`lint`、`build`、`test:e2e` 5 项全部通过
-- 下一步：完成当前主题分支交接后，从最新 `main` 创建 `flow-desk/employee-ticket-flow`，实施 `TASK-020`～`TASK-023-MVP`
-- 当前阻塞：无。本机启动后端前修复过两处环境问题（Flyway 历史记录、Redis 残留键，见记录）
+- 最新完成：**阶段 1（Auth 身份入口）已通过 PR #5 合并进入 `main`**，CI 三个 job（后端 verify、前端 verify、核心 E2E）全绿。成果：后端 `TASK-010` 五个接口 + 前端 `TASK-011`；证据为后端 `./mvnw -B verify` 单元/Web 53 项 + 集成 17 项、前端 `test:unit` 14 项与 `test:e2e` 5 项、三类演示账号真实登录验证
+- 下一步：阶段 2 开工准备——先确认 `TASK-020`（查询与可见性基础）到 `TASK-023-MVP`（员工页面）的接口与数据模型落地顺序，再按切片实施
+- 当前阻塞：无。工作区干净，当前分支基于最新 `main`；本机启动后端前修复过两处环境问题（Flyway 历史记录、Redis 残留键，见记录）
 - 环境前置：JDK 21、Node.js 24.20.0、pnpm 12.3.4、Docker 29.7.2 已验证；本机已有 `redis:8.8.0`、`mysql:8.4.11` 镜像。本地启动 profile 用 `local` 即可（`spring.profiles.group.local=demo` 已配置）。演示账号 `demo.employee` / `demo.it` / `demo.admin`，密码见 `db/demo/R__seed_demo_data.sql` 头部注释。本机已有过两类运行障碍并已修复：① Flyway 校验失败——历史表残留已删除的 V3 迁移记录，处置为删除该行（等价 `flyway repair`）；② Redis 残留旧实现写入的 hash 类型会话键，会让"撤销全部会话"抛 `WRONGTYPE`，已清理。另需注意：本机 Argon2id 校验约 2 秒/次（并发登录可拖到十几秒），前端 e2e 因此串行执行并放宽超时；跑 e2e 需要 `FLOWDESK_ALLOWED_ORIGINS` 包含 `http://127.0.0.1:4173`（本地 `.env` 已加）
-- 待确认事项：无。JaCoCo 覆盖率门禁已确认取消（2026-09-19）：`pom.xml` 只保留 `jacoco:report` 供 CI 上传工件，不再保留 70% 行 / 60% 分支阈值；当时实测行覆盖 37.2%、分支 13.9%，阈值必定使 `verify` 失败
+- 待确认事项：① Element Plus 目前是**全量引入**（打包约 1.07 MB / gzip 348 KB），是否改为按需引入（需新增 `unplugin-vue-components`、`unplugin-auto-import` 两个 dev 依赖）；② 本机库中 `demo.admin` 仍带 `RBAC_MANAGE`（早前已删除的 V3 迁移遗留数据），是否清理。历史处置：JaCoCo 覆盖率门禁已确认取消（2026-09-19），`pom.xml` 只保留 `jacoco:report` 供 CI 上传工件，不再保留 70% 行 / 60% 分支阈值（当时实测行覆盖 37.2%、分支 13.9%，阈值必定使 `verify` 失败）
 
 ## 已完成里程碑
 
@@ -28,6 +28,15 @@
 6. 工程依赖、配置、迁移、测试、CI、启动、跨存储失败处理和页面/API 映射已经确认。
 7. 开发任务拆分已经确认，全部 API 与后台任务均有实施归属。
 8. **M0 工程底座已完成并合并**：`TASK-001`～`TASK-003`（骨架、数据基线、公共契约、CI）通过 PR #4 合并进入 `main`。
+9. **MVP 阶段 1（Auth 身份入口）已完成并合并**：`TASK-010`（后端认证、会话与密码安全）+ `TASK-011`（Vue 登录外壳与身份恢复）通过 PR #5 合并进入 `main`（合并提交 `5c6cca0`）。
+
+## 2026-09-20 阶段 1 交接完成
+
+- **合并请求**：PR #5 `flow-desk/auth-foundation` → `main`（7 个提交、123 个文件、+5833/−585），CI 三个 job 全绿。
+- **合并与同步**：合并提交 `5c6cca0`；本地 `main` 仅快进拉取后与 `origin/main` 一致。
+- **下一分支**：已从最新 `main` 创建 `flow-desk/employee-ticket-flow`；按仓库惯例，推送发生在阶段 2 完成检查、准备合并时。
+- **说明**：PR 中包含 2026-09-07～09-09 的三条 IAM groundwork 提交，那批 IAM 管理代码后来按范围收敛清空重写，历史保留供追溯；阶段 1 的实际成果为 `40a1264`、`e571a5d`、`df80c86` 三条提交。
+- **未开始的工作**：阶段 2（`TASK-020`～`TASK-023-MVP`）尚未动工，开工前先确认接口与数据模型的落地顺序。
 
 ## 2026-09-19 TASK-011 完成：Vue 登录外壳与身份恢复
 
