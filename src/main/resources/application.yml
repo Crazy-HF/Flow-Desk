@@ -1,6 +1,11 @@
 spring:
   application:
     name: flowdesk
+  profiles:
+    group:
+      # 本地数据库已应用 demo 种子（R__seed_demo_data.sql）；Flyway 校验要求
+      # 每次启动都扫描到同一批迁移位置，因此 local 固定包含 demo。
+      local: demo
   datasource:
     url: ${FLOWDESK_DB_URL}
     username: ${FLOWDESK_DB_USERNAME}
@@ -13,7 +18,7 @@ spring:
     redis:
       host: ${FLOWDESK_REDIS_HOST}
       port: ${FLOWDESK_REDIS_PORT}
-      password: ${FLOWDESK_REDIS_PASSWORD}
+      password:
       timeout: 2s
   flyway:
     enabled: true
@@ -30,7 +35,7 @@ spring:
       enabled: false
 
 server:
-  port: 8080
+  port: 8081
   shutdown: graceful
   error:
     include-message: never
@@ -53,10 +58,20 @@ springdoc:
     enabled: false
 
 flowdesk:
-  allowed-origins: ${FLOWDESK_ALLOWED_ORIGINS}
   attachment-root: ${FLOWDESK_ATTACHMENT_ROOT}
+
+jwt:
+  secret: ${FLOWDESK_JWT_SECRET}
+  expiration: 15m
+  issuer: https://flowdesk.local
+
+auth:
+  refresh-expiration: 7d
+  refresh-cookie-name: FLOWDESK_REFRESH
+  refresh-cookie-path: /fd/v1/auth
   cookie-secure: ${FLOWDESK_COOKIE_SECURE}
-  jwt-secret: ${FLOWDESK_JWT_SECRET}
+  refresh-token-bytes: 32
+  allowed-origins: ${FLOWDESK_ALLOWED_ORIGINS}
 
 logging:
   pattern:

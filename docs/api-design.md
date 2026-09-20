@@ -100,7 +100,7 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 - 成功后旧 Refresh Token 立即失效，同时返回新的 Access Token 并覆盖 Cookie。
 - Refresh Token 无效、过期、已撤销或会话不存在时返回 `401`。
 - 检测到已经轮换过的 Refresh Token 被再次使用时，撤销整个会话。
-- 该接口必须校验允许的请求来源并落实 CSRF 防护，具体 Cookie 属性和防护方案在工程准备阶段确定。
+- 该接口必须校验允许的请求来源并落实 CSRF 防护，具体 Cookie 属性和防护方案在工程准备阶段确定；来源不在白名单时返回 `403 / ORIGIN_NOT_ALLOWED`。
 
 ### 3.4 退出登录
 
@@ -369,8 +369,10 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 
 ### 8.1 管理接口通用规则
 
-- 所有系统管理接口使用 `/fd/v1/admin` 前缀，并要求对应的管理员业务权限。
-- 角色和权限定义由系统预置；管理员只能为用户分配预置角色，不能在线创建角色、权限或修改角色权限映射。
+- 分类管理、管理性交接和 RBAC 管理接口使用 `/fd/v1/admin` 前缀；用户管理接口统一使用 `/fd/v1/users`。两类接口均要求对应的管理员业务权限。
+- **版本边界**：本节系统管理接口属于完整版，均不阻塞求职 MVP。MVP 只使用 `EMPLOYEE`、`IT_SUPPORT`、`SYSTEM_ADMIN` 三种内置角色，不提供在线角色、权限或授权关系 CRUD。
+- 完整版可以先实现“用户分配固定角色”；自定义角色、权限及授权关系管理仍是可选能力，必须再次确认后实施。
+- 若启用动态 RBAC，`SYSTEM_ADMIN` 必须是受保护的内置角色；角色或权限仍被授权关系引用时禁止删除。
 - 用户不提供物理删除接口，分类只有从未被工单引用时才允许删除。
 - 用户、角色或账号状态变化成功后，撤销受影响用户的现有登录会话。
 - 涉及活动工单交接时必须全部成功或全部失败，不能先停用账号再留下无效负责人。
@@ -379,20 +381,45 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 
 | 用例 | 方法与路径 | 说明 |
 | --- | --- | --- |
-| 用户列表 | `GET /fd/v1/admin/users` | 按关键词、状态和角色分页筛选 |
-| 用户详情 | `GET /fd/v1/admin/users/{userId}` | 返回账号、角色、状态和版本，不返回密码摘要 |
-| 创建用户 | `POST /fd/v1/admin/users` | 提交登录名、显示名称、初始密码和至少一个角色 |
-| 修改基本资料 | `PUT /fd/v1/admin/users/{userId}` | 修改显示名称并携带 `version` |
-| 启用账号 | `POST /fd/v1/admin/users/{userId}/actions/enable` | 携带 `version` |
-| 停用账号 | `POST /fd/v1/admin/users/{userId}/actions/disable` | 携带版本和必要交接方案 |
-| 替换角色 | `PUT /fd/v1/admin/users/{userId}/roles` | 携带版本、完整角色集合和必要交接方案 |
-| 管理员重置密码 | `POST /fd/v1/admin/users/{userId}/actions/reset-password` | 携带版本，设置新密码并撤销目标用户全部会话 |
+| 用户列表 | `GET /fd/v1/users` | 按关键词、状态和角色分页筛选 |
+| 用户详情 | `GET /fd/v1/users/{userId}` | 返回账号、角色、状态和版本，不返回密码摘要 |
+| 创建用户 | `POST /fd/v1/users` | 提交登录名、显示名称、初始密码和至少一个角色 |
+| 修改基本资料 | `PUT /fd/v1/users/{userId}` | 修改显示名称并携带 `version` |
+| 启用账号 | `POST /fd/v1/users/{userId}/actions/enable` | 携带 `version` |
+| 停用账号 | `POST /fd/v1/users/{userId}/actions/disable` | 携带版本和必要交接方案 |
+| 替换角色 | `PUT /fd/v1/users/{userId}/roles` | 携带版本、完整角色集合和必要交接方案 |
+| 管理员重置密码 | `POST /fd/v1/users/{userId}/actions/reset-password` | 携带版本，设置新密码并撤销目标用户全部会话 |
 | 当前用户修改密码 | `POST /fd/v1/auth/change-password` | 校验原密码，修改成功后撤销当前用户全部会话 |
-| 角色选项 | `GET /fd/v1/admin/roles/options` | 返回三个预置角色的编码和名称 |
+| 角色、权限与授权关系管理 | 见 8.2.1 | 完整版可选；MVP 不实现 |
 
 **已确认**：密码长度为 8～64 个字符，不在接口文档或日志中返回密码；演示版不通过邮件发送初始密码或重置链接，由管理员通过项目演示场景之外的安全渠道告知用户。
 
-禁止停用最后一个启用的管理员，也禁止移除其管理员角色。每个用户至少保留一个角色；登录名创建后不可修改，避免身份引用和审计含义变化。
+禁止停用最后一个启用的管理员，也禁止移除其管理员角色。每个用户至少保留一个角色；登录名创建后不可修改，避免身份引用和审计含义变化。MVP 只能从固定三角色中分配；若完整版启用自定义权限，权限编码也只有在后端已有对应授权检查时才产生实际访问能力，新增数据本身不会自动生成业务接口或安全规则。
+
+### 8.2.1 自定义 RBAC 管理
+
+**完整版可选，MVP 明确不实现。** 所有本节接口均要求 `RBAC_MANAGE`。只有后续再次确认该能力时，才通过新的 Flyway 迁移预置此权限并授予受保护的 `SYSTEM_ADMIN` 角色；不得修改已发布的历史迁移。
+
+| 用例 | 方法与路径 | 请求与结果 |
+| --- | --- | --- |
+| 角色列表 | `GET /fd/v1/admin/roles` | 支持 `keyword` 和标准 `PageQuery`；返回 `R<PageResult<RoleDetail>>` |
+| 角色详情 | `GET /fd/v1/admin/roles/{roleId}` | 返回角色字段及已授权 `permissionIds` |
+| 创建角色 | `POST /fd/v1/admin/roles` | Body：`code`、`name`、可选 `description`；返回 `201/R<RoleDetail>` |
+| 修改角色 | `PUT /fd/v1/admin/roles/{roleId}` | Body：`name`、可选 `description`；`code` 创建后不可修改 |
+| 删除角色 | `DELETE /fd/v1/admin/roles/{roleId}` | 角色存在用户或权限授权关系时返回 `409`；`SYSTEM_ADMIN` 始终禁止删除 |
+| 权限列表 | `GET /fd/v1/admin/permissions` | 支持 `keyword` 和标准 `PageQuery`；返回 `R<PageResult<PermissionDetail>>` |
+| 权限详情 | `GET /fd/v1/admin/permissions/{permissionId}` | 返回权限字段及已授权 `roleIds` |
+| 创建权限 | `POST /fd/v1/admin/permissions` | Body：`code`、`name`、可选 `description`；返回 `201/R<PermissionDetail>` |
+| 修改权限 | `PUT /fd/v1/admin/permissions/{permissionId}` | Body：`name`、可选 `description`；`code` 创建后不可修改 |
+| 删除权限 | `DELETE /fd/v1/admin/permissions/{permissionId}` | 权限仍被角色引用时返回 `409`；不得删除 `RBAC_MANAGE` |
+| 用户角色授权列表 | `GET /fd/v1/admin/user-roles` | 至少提供 `userId` 或 `roleId` 之一，支持标准 `PageQuery` |
+| 授予用户角色 | `POST /fd/v1/admin/user-roles` | Body：`userId`、`roleId`；重复授权幂等成功，并撤销该用户全部会话 |
+| 撤销用户角色 | `DELETE /fd/v1/admin/user-roles/{userId}/{roleId}` | 不得使用户失去最后一个角色，或使最后一个启用管理员失去管理员角色；成功后撤销全部会话 |
+| 角色权限授权列表 | `GET /fd/v1/admin/role-permissions` | 至少提供 `roleId` 或 `permissionId` 之一，支持标准 `PageQuery` |
+| 授予角色权限 | `POST /fd/v1/admin/role-permissions` | Body：`roleId`、`permissionId`；重复授权幂等成功 |
+| 撤销角色权限 | `DELETE /fd/v1/admin/role-permissions/{roleId}/{permissionId}` | 不得撤销 `SYSTEM_ADMIN` 的 `RBAC_MANAGE` 授权 |
+
+`iam_user_role` 与 `iam_role_permission` 都是只有复合主键和审计字段的授权关系，没有独立可编辑的业务字段；因此这两组接口采用“查询、授予、撤销”，而非没有实际语义的 `PUT`。资源不存在分别返回 `404/ROLE_NOT_FOUND`、`404/PERMISSION_NOT_FOUND` 或 `404/GRANT_NOT_FOUND`；编码重复返回 `409/ROLE_CODE_CONFLICT` 或 `409/PERMISSION_CODE_CONFLICT`；违反保护或引用约束返回 `409/RBAC_CONFLICT`。
 
 ### 8.3 活动工单与管理性交接
 
@@ -468,6 +495,7 @@ MySQL 与 Redis 之间不存在天然原子事务。工程准备阶段必须明�
 | `TICKET_CLOSE` | 手动关闭 | 当前负责人、处理中、关闭原因及版本 |
 | `TICKET_ADMIN_HANDOFF` | 最小交接元数据、候选人和管理性交接 | 不授予工单正文访问 |
 | `USER_MANAGE` | 用户、角色、账号及密码管理 | 用户版本、至少一个角色、最后管理员保护 |
+| `RBAC_MANAGE` | 角色、权限、用户角色及角色权限管理 | 内置管理员保护、编码唯一、引用约束和会话撤销 |
 | `CATEGORY_MANAGE` | 分类管理 | 分类版本、名称唯一和引用约束 |
 | `DASHBOARD_VIEW` | 工单数据概览 | 复用 IT 工单可见范围 |
 
@@ -495,6 +523,7 @@ MySQL 与 Redis 之间不存在天然原子事务。工程准备阶段必须明�
 | `401` | `AUTH_SESSION_INVALID` | 会话过期、撤销或 Refresh Token 无效 |
 | `403` | `ACCESS_DENIED` | 缺少接口级业务权限 |
 | `403` | `TICKET_ACTION_FORBIDDEN` | 可查看工单但不满足动作权限 |
+| `403` | `ORIGIN_NOT_ALLOWED` | 依赖 Cookie 的认证接口收到不在白名单内的请求来源 |
 | `404` | `TICKET_NOT_FOUND` | 工单不存在或不可见 |
 | `404` | `USER_NOT_FOUND` | 管理范围内用户不存在 |
 | `404` | `CATEGORY_NOT_FOUND` | 管理范围内分类不存在 |
@@ -538,4 +567,4 @@ MySQL 与 Redis 之间不存在天然原子事务。工程准备阶段必须明�
 
 以下内容按阶段边界留到工程准备：Access Token 与 Refresh Token 的具体有效期、Cookie/CSRF 配置、密码哈希参数、附件文件与数据库提交顺序、依赖版本、OpenAPI 生成方式及测试工具。
 
-API 契约就绪状态：**Ready**。下一阶段进入工程准备检查，不创建业务代码。
+完整版 API 契约设计状态：**Ready**。当前求职 MVP 只实现 `docs/implementation-plan.md` 对应接口；未进入 MVP 的接口继续作为完整版契约保留，不得据此提前扩展当前阶段。

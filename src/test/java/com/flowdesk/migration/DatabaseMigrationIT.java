@@ -81,7 +81,7 @@ class DatabaseMigrationIT {
         var history = jdbc.queryForList(
                 "SELECT version, success FROM flyway_schema_history ORDER BY installed_rank");
         assertThat(history).extracting(row -> String.valueOf(row.get("version")))
-                .containsExactly("1", "2");
+                .containsExactly("1", "2", "4");
         assertThat(history).allSatisfy(row ->
                 assertThat(row.get("success")).isEqualTo(Boolean.TRUE));
 
@@ -123,7 +123,7 @@ class DatabaseMigrationIT {
                 .isEqualTo(13);
         assertThat(rolePermissionCount("EMPLOYEE")).isEqualTo(3);
         assertThat(rolePermissionCount("IT_SUPPORT")).isEqualTo(7);
-        // 系统管理员角色不包含查看具体工单内容的权限
+        // 系统管理员角色不包含查看具体工单内容的权限；动态 RBAC 不属于 MVP。
         assertThat(rolePermissionCount("SYSTEM_ADMIN")).isEqualTo(3);
 
         // 公共迁移不创建任何用户或默认管理员
@@ -194,7 +194,7 @@ class DatabaseMigrationIT {
         assertThat(demoJdbc.queryForObject("SELECT COUNT(*) FROM ticket_category", Integer.class))
                 .isEqualTo(5);
         assertThat(demoJdbc.queryForObject(
-                "SELECT COUNT(*) FROM iam_user WHERE password_hash LIKE '$argon2id$%'", Integer.class))
+                "SELECT COUNT(*) FROM iam_user WHERE password LIKE '$argon2id$%'", Integer.class))
                 .isEqualTo(3);
     }
 
@@ -209,7 +209,7 @@ class DatabaseMigrationIT {
     }
 
     private long insertUser(String username) {
-        jdbc.update("INSERT INTO iam_user (username, display_name, password_hash, status, "
+        jdbc.update("INSERT INTO iam_user (username, display_name, password, status, "
                         + "created_at, updated_at, version) VALUES (?, ?, ?, 'ENABLED', ?, ?, 0)",
                 username, username, "test-hash", timestamp(), timestamp());
         return jdbc.queryForObject("SELECT id FROM iam_user WHERE username = ?", Long.class, username);

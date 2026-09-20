@@ -6,8 +6,16 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import com.flowdesk.auth.infrastructure.AuthSessionRepository;
+import com.flowdesk.support.MockedPersistenceConfiguration;
+
+@ActiveProfiles("test")
+@Import(MockedPersistenceConfiguration.class)
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
@@ -22,6 +30,10 @@ class FlowDeskApplicationTest {
 
     @Autowired
     private TestRestTemplate restTemplate;
+
+    /** 本上下文排除了 Redis 自动配置，会话仓储以替身提供。 */
+    @MockitoBean
+    private AuthSessionRepository authSessionRepository;
 
     @Test
     void exposesHealthWithoutDefaultCredentials() {
