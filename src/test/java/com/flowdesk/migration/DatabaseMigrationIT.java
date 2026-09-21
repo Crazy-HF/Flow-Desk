@@ -190,7 +190,7 @@ class DatabaseMigrationIT {
         assertThat(userCount(demoJdbc)).isEqualTo(3);
         assertThat(demoJdbc.queryForObject(
                 "SELECT COUNT(*) FROM iam_user_role ur JOIN iam_user u ON u.id = ur.user_id "
-                        + "WHERE u.username LIKE 'demo.%'", Integer.class)).isEqualTo(3);
+                        + "WHERE u.username IN ('employee', 'it', 'admin')", Integer.class)).isEqualTo(3);
         assertThat(demoJdbc.queryForObject("SELECT COUNT(*) FROM ticket_category", Integer.class))
                 .isEqualTo(5);
         assertThat(demoJdbc.queryForObject(

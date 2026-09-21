@@ -98,11 +98,11 @@ class AuthWebTest {
 
     private static final String SESSION_ID = "3f1c9b7a-0d2e-4c85-9a6f-test-session";
     private static final long USER_ID = 42L;
-    private static final String USERNAME = "demo.employee";
+    private static final String USERNAME = "employee";
     private static final String DISPLAY_NAME = "演示员工";
     private static final List<String> PERMISSIONS = List.of("TICKET_CREATE", "TICKET_VIEW_OWN");
     private static final String RAW_REFRESH_TOKEN = "raw-refresh-token-for-test";
-    private static final String CURRENT_PASSWORD = "Demo#FlowDesk2026";
+    private static final String CURRENT_PASSWORD = "123456";
     private static final String NEW_PASSWORD = "Updated#FlowDesk2026";
 
     @Autowired
