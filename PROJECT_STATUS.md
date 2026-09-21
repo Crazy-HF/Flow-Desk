@@ -8,7 +8,7 @@
 - 远程仓库：`git@github.com:Crazy-HF/Flow-Desk.git`
 - 稳定分支：`main`
 - 当前基线分支：`main`（阶段 1 已合并，合并提交 `5c6cca0`）
-- 当前工作分支：`flow-desk/frontend-shell`（基于最新 `main`，基准 `5c6cca0`；已推送到 `origin/flow-desk/frontend-shell`，**合并请求 PR #6 已创建**，等待 CI 与合并，见下方交接记录）
+- 当前工作分支：`flow-desk/frontend-shell`（基于最新 `main`，基准 `5c6cca0`；已推送，**PR #6 已创建且 CI 三个 job 全绿**，等待是否合并的决定，见下方交接记录）
 - 下一次创建分支：本工作项交接完成后，从最新 `main` 创建第 3 步“系统业务：RBAC”的分支，名称待该阶段范围确认后确定。已存在的 `flow-desk/employee-ticket-flow` 只含 `7f6c72c` 一条文档同步提交，不用于本轮开发
 - 当前阶段：第 1 步**前端外壳与页面骨架**收口与提交已完成（2026-09-21），进入第 2 步交接；本轮先按用户指示重排应用壳版式（四层框架对齐对照项目）并把面包屑改成侧栏层级，见下方“应用壳重排”记录。路线按用户 2026-09-21 指示调整为四步：① 收口并提交前端外壳 ② 完成交接（推送 → 合并请求 → 合并 `main` → 同步 → 建下一分支）③ **系统业务：RBAC**（范围待确认，见待确认事项⑤）④ 阶段 2 `TASK-020`～`TASK-023-MVP`
 - 已确认的范围调整：项目分为“求职 MVP”和“完整版”；三种内置角色 `EMPLOYEE`、`IT_SUPPORT`、`SYSTEM_ADMIN` 仍是权限基线，`SYSTEM_ADMIN` 始终受保护。**2026-09-21 用户确认把「完整动态 RBAC」定为第 3 步实施**：按 `docs/api-design.md` 8.2.1 开放角色、权限、用户角色授权、角色权限授权四组 CRUD，需新增 Flyway 迁移 `V5` 预置 `RBAC_MANAGE` 并授予受保护的 `SYSTEM_ADMIN`，配套保护规则、会话撤销、审计与测试；不得修改已发布的历史迁移。该能力的交付层级归属（计入求职 MVP 演示范围，还是完整版能力提前实施）仍待确认。
@@ -20,16 +20,18 @@
 
 ## 2026-09-21 前端外壳工作项：提交、推送与分支交接（第 2 步）
 
-- **交接的分支**：`flow-desk/frontend-shell`，基准 `main` 的 `5c6cca0`；PR 合并前共 11 条提交（6 条既有 + 本轮 3 条功能/设计提交 + 2 条只改交接记录的 `docs:` 提交）。
+- **交接的分支**：`flow-desk/frontend-shell`，基准 `main` 的 `5c6cca0`；PR 合并前共 13 条提交（6 条既有 + 本轮 3 条功能/设计提交 + 1 条锁文件修复 + 3 条交接记录）。
 - **本轮 3 条功能与设计提交**（用户 2026-09-21 指示：先更新文档，再提交并创建 PR）：
   - `72022e7` `feat(frontend): 重排应用壳为整幅顶栏 + 侧栏 + 面包屑 + 主体`
   - `9587c8d` `feat(frontend): 面包屑按侧栏层级显示`
   - `51fc87a` `docs: 同步应用壳重排与面包屑层级的状态与设计记录`
 - **推送（已完成）**：`git -c http.proxy=http://127.0.0.1:12000 push -u origin flow-desk/frontend-shell` 退出码 0，本地分支已跟踪 `origin/flow-desk/frontend-shell`。
-- **合并请求（已创建）**：**PR #6** `flow-desk/frontend-shell` → `main`，地址 <https://github.com/Crazy-HF/Flow-Desk/pull/6>；创建时状态 `open`、`mergeable=true`、10 条提交、`56 files changed, +3639 / −441`。CI 已触发（`frontend-verify` in\_progress、`backend-verify` queued），**结果尚未回看**。
+- **合并请求（已创建）**：**PR #6** `flow-desk/frontend-shell` → `main`，地址 <https://github.com/Crazy-HF/Flow-Desk/pull/6>；`open`、`mergeable=true`、`mergeable_state=clean`、56 files changed。分支头提交 `a0e1512` 上 **CI 三个 job 全绿**：`backend-verify` success、`frontend-verify` success、`core-e2e` success。
+- **CI 首轮失败与修复（本轮最有价值的一条排障记录）**：首轮 `frontend-verify` 在 `vue-tsc` 阶段报 `TS2307: Cannot find module '@element-plus/icons-vue'`（`AppHeader` / `AppSidebar` 各一条），而同一个 job 的 `pnpm install --frozen-lockfile` 明确报告该包已安装、`core-e2e` 因此被 skip。根因不在本轮改动里：`frontend/pnpm-lock.yaml` 的 importer 段把这个依赖记成没有 peer 后缀的 `2.3.2`，snapshots 段却只有带后缀的键 `@element-plus/icons-vue@2.3.2(vue@3.5.42(typescript@6.0.3))`，pnpm 因此把顶层 `node_modules/@element-plus/icons-vue` 指向不存在的 `.pnpm/@element-plus+icons-vue@2.3.2/`，真实目录是 `...@2.3.2_vue@3.5.42_typescript@6.0.3_` —— **这正是本机 2026-09-21 那条"pnpm 符号链接缺陷、要用 junction 手工修"记录的真实原因（不是 Windows 专有，Linux CI 同样复现）**。`pnpm install --lockfile-only` 认为原文件已是最新、不会自行修正。处置为 `a0e1512`：把 importer 的 `version` 补成与 snapshots 一致的后缀形式（与 `element-plus` / `vue` / `pinia` 的记法相同），只改这一行。
+- **该修复的验证方式（可复现）**：在 `%TEMP%` 下复制 `frontend/`（排除 `node_modules`、`dist` 等）做干净副本，避免本机已存在的 junction 干扰——对照组（原锁文件）`fs.realpathSync('node_modules/@element-plus/icons-vue')` 报 `ENOENT`，实验组（补后缀）指向 `...@2.3.2_vue@3.5.42_typescript@6.0.3_`；实验组整包 `pnpm install --frozen-lockfile` / `typecheck` / `lint` 退出码 0、`test:unit` 8 套件 33 项通过，随后远端 CI 复现为全绿。
 - **PR 的创建方式（需要知道的环境事实）**：本机 `gh` 未登录（`%APPDATA%\GitHub CLI` 目录不存在，也没有 `GH_TOKEN` / `GITHUB_TOKEN`），所以没有走 `gh pr create`；改为用 push 已经使用过的同一份 git 凭据（`git credential fill`）调用 GitHub REST API `POST /repos/Crazy-HF/Flow-Desk/pulls` 建 PR，**令牌未落盘、未打印**。下次要让 Codex 直接建 PR，先在本机执行一次 `gh auth login` 更稳妥。
-- **PR 创建后的剩余步骤**：回看 CI 三个 job → 合并 `main` → 本地切回 `main` 执行仅快进拉取 → 从最新 `main` 创建第 3 步（完整动态 RBAC）的分支。
-- **提交前检查（已验证，2026-09-21）**：`pnpm exec vitest run` → 8 套件 33 项、`pnpm run typecheck`、`pnpm run lint`、`pnpm run build` 退出码 0、`pnpm test:e2e` → 9 项；后端本轮未改动。**已提交与已推送都不等于已验收**：远端 CI 结果尚未回看。
+- **PR 创建后的剩余步骤**：CI 已全绿 → **合并 `main`（待用户决定是否由 Codex 执行）** → 本地切回 `main` 执行仅快进拉取 → 从最新 `main` 创建第 3 步（完整动态 RBAC）的分支。
+- **提交前检查（已验证，2026-09-21）**：`pnpm exec vitest run` → 8 套件 33 项、`pnpm run typecheck`、`pnpm run lint`、`pnpm run build` 退出码 0、`pnpm test:e2e` → 9 项；后端本轮未改动。远端 CI 已全绿，但**合并前仍以 PR 页面的最新一轮结论为准**。
 
 ## 2026-09-21 应用壳重排：四层框架对齐对照项目
 
@@ -75,7 +77,8 @@
   - **处置**：删除坏链接，改为指向真实目录的 **junction**（`fs.symlinkSync(storeAbs, link, 'junction')`）。用相对符号链接重建无效——即使目标字符串正确，Windows 上 Node 仍拒绝跟随；junction 立即可用。修复后 `--frozen-lockfile` 复跑链接仍完好。
   - **复发时的修复脚本**（`node` 执行，只重建链接、不动 store 内容）：把 `node_modules/@element-plus/icons-vue` 删掉，用 `fs.symlinkSync('<绝对路径>/.pnpm/@element-plus+icons-vue@2.3.2_vue@3.5.42_typescript@6.0.3_/node_modules/@element-plus/icons-vue', '<绝对路径>/node_modules/@element-plus/icons-vue', 'junction')` 重建。
 - **验证证据（2026-09-21）**：`pnpm install --frozen-lockfile` 通过（363 条供应链策略校验）；`pnpm typecheck`、`pnpm lint`、`pnpm build`、`pnpm test:unit --run`（25 项）全通过；Node 模块解析该包成功，**导出 293 个图标**，`ArrowDown` / `ArrowRight` / `ArrowUp` 均存在。
-- **尚未做**：侧栏的 CSS 下拉三角**还没有换成** `ArrowDown` 组件，等确认后再改（届时可一并删掉只为它加的 `--fd-border-width` token）。
+- **尚未做**：侧栏的 CSS 下拉三角**还没有换成** `ArrowDown` 组件，等确认后再改（届时可一并删掉只为它加的 `--fd-border-width` token）。**该条已过期**：`AppSidebar` 现已使用 `ArrowDown`，`--fd-border-width` 也已删除（见待确认事项⑥）。
+- **2026-09-21 更正（CI 复现后，重要）**：上面把症状判断为"pnpm 在 Windows 上生成符号链接时少了 peer 后缀"的**本机缺陷**，**结论错了**。真实根因在锁文件：`frontend/pnpm-lock.yaml` 的 importer 段把 `@element-plus/icons-vue` 记成没有 peer 后缀的 `2.3.2`，而 snapshots 段只有带后缀的键 `...@2.3.2(vue@3.5.42(typescript@6.0.3))`；pnpm 于是把顶层链接指向不存在的 `.pnpm/@element-plus+icons-vue@2.3.2/`。**它不是 Windows 专有**：Linux CI 上 `pnpm install` 同样报"已安装"，`vue-tsc` 却报 `TS2307 Cannot find module`。已在 `a0e1512` 把 importer 的 `version` 补成与 snapshots 一致的后缀形式；本机此前手工建的 junction 与新锁文件可以并存，不需要再修。**推论**：以后遇到"装上了但解析不到"的链接问题，先对比锁文件 importer 段与 snapshots 段的键，而不是先归因于平台。
 
 ## 2026-09-21 请求与 SQL 日志打通
 
