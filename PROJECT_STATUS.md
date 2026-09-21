@@ -34,6 +34,7 @@
 - **阶段验收标准**：见 `docs/implementation-plan.md` 9.1（`verify` 全绿且相对起点只增不减、覆盖矩阵逐格有据、迁移断言与 `V5` 一致、三条手工链路留 `traceId`、三份文档当前阶段一致）。
 - **同步的文档**：`docs/implementation-plan.md`（§3.2、§3.3、§4、§9.1）、`docs/api-design.md`（§8.1 版本边界、§8.2.1 补充语义）、`docs/database-design.md`（§17.2 边界、§17.5 新增列）、本文件与 `AGENTS.md`。
 - **开工前置**：用 `compose.yaml` 起 MySQL/Redis，并在新分支上复现 `./mvnw -B verify` 的 **55 项单元/Web + 17 项集成**基线（起点不确定则后续“未退化”不可信）；本机 `gh` 仍未登录，只影响建 PR 效率。
+- **本轮产出边界（2026-09-21）**：只产出**文档与数据库设计**——`docs/modules/rbac.md`（模块设计说明）、`docs/implementation-plan.md` 9.1（决策与任务拆分）、`docs/api-design.md` 8.2.1 与 10.2（语义与错误码）、`docs/database-design.md` 17.5（`V5` 计划新增的列）。**实现代码（迁移脚本、服务、控制器、测试）一行都还没写**；越界写出的版本已移出本分支，存放在本地分支 `wip/rbac-code`（未推送，可随时 `git branch -D wip/rbac-code` 丢弃，或经确认后 cherry-pick 取用）。
 
 ## 2026-09-21 PR #6 合并、main 同步与下一分支创建
 
