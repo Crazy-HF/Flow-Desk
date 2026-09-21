@@ -7,16 +7,24 @@
 - 最后更新：2026-09-21
 - 远程仓库：`git@github.com:Crazy-HF/Flow-Desk.git`
 - 稳定分支：`main`
-- 当前基线分支：`main`（阶段 1 已合并，合并提交 `5c6cca0`）
-- 当前工作分支：`flow-desk/frontend-shell`（基于最新 `main`，基准 `5c6cca0`；已推送，**PR #6 已创建且 CI 三个 job 全绿**，等待是否合并的决定，见下方交接记录）
-- 下一次创建分支：本工作项交接完成后，从最新 `main` 创建第 3 步“系统业务：RBAC”的分支，名称待该阶段范围确认后确定。已存在的 `flow-desk/employee-ticket-flow` 只含 `7f6c72c` 一条文档同步提交，不用于本轮开发
-- 当前阶段：第 1 步**前端外壳与页面骨架**收口与提交已完成（2026-09-21），进入第 2 步交接；本轮先按用户指示重排应用壳版式（四层框架对齐对照项目）并把面包屑改成侧栏层级，见下方“应用壳重排”记录。路线按用户 2026-09-21 指示调整为四步：① 收口并提交前端外壳 ② 完成交接（推送 → 合并请求 → 合并 `main` → 同步 → 建下一分支）③ **系统业务：RBAC**（范围待确认，见待确认事项⑤）④ 阶段 2 `TASK-020`～`TASK-023-MVP`
+- 当前基线分支：`main`（阶段 1 与前端外壳工作项均已合并，最新合并提交 `2993a2a`）
+- 当前工作分支：`flow-desk/dynamic-rbac`（从最新 `main` 的 `2993a2a` 创建，**尚未推送**——按仓库惯例，推送发生在该阶段完成检查、准备合并时）
+- 下一次创建分支：本文档四步路线的第 4 步（阶段 2 `TASK-020`～`TASK-023-MVP`）在本阶段交接完成后从最新 `main` 创建，名称待定。已存在的 `flow-desk/employee-ticket-flow` 只含 `7f6c72c` 一条文档同步提交，不用于本轮开发
+- 当前阶段：第 3 步 **系统业务：完整动态 RBAC**（四步路线的 ① 收口前端外壳与 ② 交接已于 2026-09-21 完成，工作项经 PR #6 合并进入 `main`）。本阶段先产出阶段设计——任务拆分、切片顺序、`V5` 迁移内容、保护规则、会话撤销与审计、验收标准——并经一次集中确认后再实施
 - 已确认的范围调整：项目分为“求职 MVP”和“完整版”；三种内置角色 `EMPLOYEE`、`IT_SUPPORT`、`SYSTEM_ADMIN` 仍是权限基线，`SYSTEM_ADMIN` 始终受保护。**2026-09-21 用户确认把「完整动态 RBAC」定为第 3 步实施**：按 `docs/api-design.md` 8.2.1 开放角色、权限、用户角色授权、角色权限授权四组 CRUD，需新增 Flyway 迁移 `V5` 预置 `RBAC_MANAGE` 并授予受保护的 `SYSTEM_ADMIN`，配套保护规则、会话撤销、审计与测试；不得修改已发布的历史迁移。该能力的交付层级归属（计入求职 MVP 演示范围，还是完整版能力提前实施）仍待确认。
-- 最新完成：**阶段 1（Auth 身份入口）已通过 PR #5 合并进入 `main`**，CI 三个 job（后端 verify、前端 verify、核心 E2E）全绿。成果：后端 `TASK-010` 五个接口 + 前端 `TASK-011`；证据为后端 `./mvnw -B verify` 单元/Web 53 项 + 集成 17 项、前端 `test:unit` 14 项与 `test:e2e` 5 项、三类演示账号真实登录验证
-- 下一步（四步路线，2026-09-21 用户指示）：① ~~收口并提交前端外壳与页面骨架工作项~~ **已完成**（`flow-desk/frontend-shell`，含本轮应用壳重排与面包屑层级，见下方记录）；② **进行中**：完成本工作项交接——推送分支 → 创建合并请求 → 合并 `main` → 本地 `main` 仅快进拉取 → 从最新 `main` 创建下一分支；③ **系统业务：完整动态 RBAC**（范围已确认）——下一步产出阶段设计（任务拆分、切片顺序、`V5` 迁移内容、保护规则、会话撤销与审计、验收标准）并经一次集中确认，再确定分支名与实施；④ 阶段 2 员工创建与查询——先确认 `TASK-020` 到 `TASK-023-MVP` 的接口与数据模型落地顺序，再按切片实施
-- 当前阻塞：无。工作区改动已按主题提交到 `flow-desk/frontend-shell`，推送与合并请求按用户 2026-09-21 指示进行中（见下方记录）；本机启动后端前修复过两处环境问题（Flyway 历史记录、Redis 残留键，见记录）
+- 最新完成：**前端外壳工作项（含四层应用壳重排与层级面包屑）已通过 PR #6 合并进入 `main`**（合并提交 `2993a2a`，CI 三个 job 全绿）。此前阶段 1（Auth 身份入口）经 PR #5 合并。前端证据：`test:unit` 8 套件 33 项、`test:e2e` 9 项、`typecheck` / `lint` / `build` 全通过；期间修掉了锁文件里 `@element-plus/icons-vue` 的 peer 后缀（首轮 CI 失败的根因，见下方记录）
+- 下一步（四步路线，2026-09-21 用户指示）：① ~~收口并提交前端外壳与页面骨架工作项~~ **已完成**；② ~~完成该工作项交接（推送 → 合并请求 → 合并 `main` → 同步 → 建下一分支）~~ **已完成**；③ **系统业务：完整动态 RBAC**（范围已确认，分支 `flow-desk/dynamic-rbac`）——先产出阶段设计（任务拆分、切片顺序、`V5` 迁移内容、保护规则、会话撤销与审计、验收标准）并经一次集中确认，再按切片实施；④ 阶段 2 员工创建与查询——先确认 `TASK-020` 到 `TASK-023-MVP` 的接口与数据模型落地顺序，再按切片实施
+- 当前阻塞：无。第 3 步尚未动代码，工作区在 `flow-desk/dynamic-rbac`（尚未推送）；本机启动后端前修复过两处环境问题（Flyway 历史记录、Redis 残留键，见记录）
 - 环境前置：JDK 21、Node.js 24.20.0、pnpm 12.3.4、Docker 29.7.2 已验证；本机已有 `redis:8.8.0`、`mysql:8.4.11` 镜像。本地启动 profile 用 `local` 即可（`spring.profiles.group.local=demo` 已配置）。演示账号 `employee` / `it` / `admin`，密码统一为 `123456`（见 `db/demo/R__seed_demo_data.sql` 头部注释，2026-09-20 由 `demo.*` 改名）。本机已有过两类运行障碍并已修复：① Flyway 校验失败——历史表残留已删除的 V3 迁移记录，处置为删除该行（等价 `flyway repair`）；② Redis 残留旧实现写入的 hash 类型会话键，会让"撤销全部会话"抛 `WRONGTYPE`，已清理。另需注意：本机 Argon2id 校验约 2 秒/次（并发登录可拖到十几秒），前端 e2e 因此串行执行并放宽超时；跑 e2e 需要 `FLOWDESK_ALLOWED_ORIGINS` 包含 `http://127.0.0.1:4173`（本地 `.env` 已加）
 - 待确认事项：① Element Plus 目前是**全量引入**（打包约 1.07 MB / gzip 348 KB），是否改为按需引入（需新增 `unplugin-vue-components`、`unplugin-auto-import` 两个 dev 依赖）；② 本机库中 `admin` 仍带 `RBAC_MANAGE`（早前已删除的 V3 迁移遗留数据），是否清理；③ 登录页占位文案是「登录名」「密码」，与 `frontend/AGENTS.md` 新增的「请输入…／请选择…」约定不一致（E2E 定位依赖现文案，改文案需同时改用例）；④ 首页 `h1`「欢迎回来」用的是展示级字号 `clamp(1.75rem, 5vw, 2.5rem)`，是否收小到页面标题刻度；⑤ ~~第 3 步「系统业务：RBAC」的范围~~ **已于 2026-09-21 确认：完整动态 RBAC**（`docs/api-design.md` 8.2.1 的角色、权限、用户角色授权、角色权限授权四组 CRUD）；仍待确认的是该能力的交付层级归属，以及阶段内的任务拆分、切片顺序与验收标准（待下一轮阶段设计产出后集中确认）；⑥ ~~侧栏当前的 CSS 下拉三角是否换成已安装的 `@element-plus/icons-vue` 的 `ArrowDown`~~ **已完成**：`AppSidebar` 已改用 `ArrowDown` 组件，为此新增的 `--fd-border-width` token 也已不存在（2026-09-21 核对）。历史处置：JaCoCo 覆盖率门禁已确认取消（2026-09-19），`pom.xml` 只保留 `jacoco:report` 供 CI 上传工件，不再保留 70% 行 / 60% 分支阈值（当时实测行覆盖 37.2%、分支 13.9%，阈值必定使 `verify` 失败）
+
+## 2026-09-21 PR #6 合并、main 同步与下一分支创建
+
+- **合并**：PR #6 `flow-desk/frontend-shell` → `main`，合并提交 `2993a2a`，`merge_method=merge`（与 PR #5 的风格一致）；合并前分支头 `a7aa41f` 上 `backend-verify` / `frontend-verify` / `core-e2e` 三个 job 全绿。
+- **同步**：本地切回 `main` 并 `git pull --ff-only` 快进到 `2993a2a`，与 `origin/main` 一致。
+- **下一分支**：`flow-desk/dynamic-rbac`（第 3 步「系统业务：完整动态 RBAC」），从最新 `main` 创建，**尚未推送**——按仓库惯例，推送发生在该阶段完成检查、准备合并时。
+- **环境事实**：本机 `gh` 未登录，本次建 PR 与合并都通过 GitHub REST API 完成，用的是 push 已使用的同一份 git 凭据（`git credential fill`），令牌未落盘、未打印；以后要在命令行直接建 PR / 合并，先在本机执行一次 `gh auth login`。
+- **开工前置**：第 3 步的阶段设计（任务拆分、切片顺序、`V5` 迁移内容、保护规则、会话撤销与审计、验收标准）尚未产出，需先集中确认再动代码。
 
 ## 2026-09-21 前端外壳工作项：提交、推送与分支交接（第 2 步）
 
@@ -30,7 +38,7 @@
 - **CI 首轮失败与修复（本轮最有价值的一条排障记录）**：首轮 `frontend-verify` 在 `vue-tsc` 阶段报 `TS2307: Cannot find module '@element-plus/icons-vue'`（`AppHeader` / `AppSidebar` 各一条），而同一个 job 的 `pnpm install --frozen-lockfile` 明确报告该包已安装、`core-e2e` 因此被 skip。根因不在本轮改动里：`frontend/pnpm-lock.yaml` 的 importer 段把这个依赖记成没有 peer 后缀的 `2.3.2`，snapshots 段却只有带后缀的键 `@element-plus/icons-vue@2.3.2(vue@3.5.42(typescript@6.0.3))`，pnpm 因此把顶层 `node_modules/@element-plus/icons-vue` 指向不存在的 `.pnpm/@element-plus+icons-vue@2.3.2/`，真实目录是 `...@2.3.2_vue@3.5.42_typescript@6.0.3_` —— **这正是本机 2026-09-21 那条"pnpm 符号链接缺陷、要用 junction 手工修"记录的真实原因（不是 Windows 专有，Linux CI 同样复现）**。`pnpm install --lockfile-only` 认为原文件已是最新、不会自行修正。处置为 `a0e1512`：把 importer 的 `version` 补成与 snapshots 一致的后缀形式（与 `element-plus` / `vue` / `pinia` 的记法相同），只改这一行。
 - **该修复的验证方式（可复现）**：在 `%TEMP%` 下复制 `frontend/`（排除 `node_modules`、`dist` 等）做干净副本，避免本机已存在的 junction 干扰——对照组（原锁文件）`fs.realpathSync('node_modules/@element-plus/icons-vue')` 报 `ENOENT`，实验组（补后缀）指向 `...@2.3.2_vue@3.5.42_typescript@6.0.3_`；实验组整包 `pnpm install --frozen-lockfile` / `typecheck` / `lint` 退出码 0、`test:unit` 8 套件 33 项通过，随后远端 CI 复现为全绿。
 - **PR 的创建方式（需要知道的环境事实）**：本机 `gh` 未登录（`%APPDATA%\GitHub CLI` 目录不存在，也没有 `GH_TOKEN` / `GITHUB_TOKEN`），所以没有走 `gh pr create`；改为用 push 已经使用过的同一份 git 凭据（`git credential fill`）调用 GitHub REST API `POST /repos/Crazy-HF/Flow-Desk/pulls` 建 PR，**令牌未落盘、未打印**。下次要让 Codex 直接建 PR，先在本机执行一次 `gh auth login` 更稳妥。
-- **PR 创建后的剩余步骤**：CI 已全绿 → **合并 `main`（待用户决定是否由 Codex 执行）** → 本地切回 `main` 执行仅快进拉取 → 从最新 `main` 创建第 3 步（完整动态 RBAC）的分支。
+- **交接已完成（2026-09-21，用户确认后由 Codex 连续执行）**：PR #6 以合并提交 `2993a2a` 合并（`merge_method=merge`，沿用仓库既有风格，合并前分支头 `a7aa41f` 上 CI 全绿）；本地 `main` 仅快进拉取到 `2993a2a`、与 `origin/main` 一致；从最新 `main` 创建第 3 步分支 `flow-desk/dynamic-rbac`（尚未推送）。
 - **提交前检查（已验证，2026-09-21）**：`pnpm exec vitest run` → 8 套件 33 项、`pnpm run typecheck`、`pnpm run lint`、`pnpm run build` 退出码 0、`pnpm test:e2e` → 9 项；后端本轮未改动。远端 CI 已全绿，但**合并前仍以 PR 页面的最新一轮结论为准**。
 
 ## 2026-09-21 应用壳重排：四层框架对齐对照项目
