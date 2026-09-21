@@ -1,0 +1,38 @@
+/**
+ * Element Plus 编译期主题覆写 —— 品牌与语义色的唯一字面量来源
+ *
+ * 为什么必须走 SCSS 而不是只在 CSS 里覆盖变量：
+ * EP 的 light-3 / light-5 / light-7 / light-8 / light-9 与 dark-2 色阶，是用 Sass 的 mix()
+ * 从主色算出来的（theme-chalk/src/common/var.scss）。如果只在 :root 覆盖 --el-color-primary，
+ * 这些色阶仍是默认蓝色的结果，会出现"主色换了、浅色底和 hover 色还是旧的"。
+ *
+ * 注入方式：vite.config.ts 的 css.preprocessorOptions.scss.additionalData 会把本文件注入到
+ * 每个 SCSS 编译单元的开头，因此它一定先于 element-plus/theme-chalk/src/index.scss 生效。
+ * 不要改成在 main.ts 里手动 import —— 那样注入顺序不再受控，色阶会按默认色计算。
+ *
+ * 改品牌色只改这里：src/styles/tokens.css 通过 --el-color-primary 自动跟随，
+ * 不需要在两个文件里各写一遍十六进制。
+ */
+
+@forward 'element-plus/theme-chalk/src/common/var.scss' with (
+  $colors: (
+    'primary': (
+      'base': #2563eb,
+    ),
+    'success': (
+      'base': #16a34a,
+    ),
+    'warning': (
+      'base': #d97706,
+    ),
+    'danger': (
+      'base': #dc2626,
+    ),
+    'error': (
+      'base': #dc2626,
+    ),
+    'info': (
+      'base': #64748b,
+    ),
+  )
+);

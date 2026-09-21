@@ -10,6 +10,15 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  css: {
+    preprocessorOptions: {
+      scss: {
+        // 必须在 Element Plus 的 SCSS 之前注入：EP 的 light-x / dark-2 色阶由主色在编译期
+        // 用 Sass mix() 算出，晚于 EP 生效就只能得到默认蓝色色阶。
+        additionalData: `@use "@/styles/element/var-override.scss" as *;`,
+      },
+    },
+  },
   server: {
     port: 5173,
     proxy: {

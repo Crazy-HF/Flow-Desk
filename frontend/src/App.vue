@@ -1,58 +1,14 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
 
-import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
+import AppLayout from '@/layout/index.vue'
 import { useAuthStore } from '@/stores/auth'
 
-const auth = useAuthStore()
-const { isAuthenticated, user } = storeToRefs(auth)
-const router = useRouter()
-
-const passwordDialogVisible = ref(false)
-
-async function handleSignOut(): Promise<void> {
-  await auth.signOut()
-  await router.replace({ name: 'login' })
-}
+/** 入口只做一次分流：已登录进应用壳，未登录直接交给路由（登录页 / 403 / 404）。 */
+const { isAuthenticated } = storeToRefs(useAuthStore())
 </script>
 
 <template>
-  <header
-    v-if="isAuthenticated"
-    class="app-header"
-  >
-    <RouterLink
-      class="app-header__brand"
-      to="/"
-    >
-      FlowDesk
-    </RouterLink>
-    <div class="app-header__account">
-      <span class="app-header__identity">{{ user?.displayName }}</span>
-      <el-dropdown trigger="click">
-        <el-button text>
-          账号
-        </el-button>
-        <template #dropdown>
-          <el-dropdown-menu>
-            <el-dropdown-item @click="passwordDialogVisible = true">
-              修改密码
-            </el-dropdown-item>
-            <el-dropdown-item
-              divided
-              @click="handleSignOut"
-            >
-              退出登录
-            </el-dropdown-item>
-          </el-dropdown-menu>
-        </template>
-      </el-dropdown>
-    </div>
-  </header>
-
-  <RouterView />
-
-  <ChangePasswordDialog v-model="passwordDialogVisible" />
+  <AppLayout v-if="isAuthenticated" />
+  <RouterView v-else />
 </template>

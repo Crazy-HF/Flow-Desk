@@ -10,9 +10,13 @@ springdoc:
 
 mybatis-plus:
   configuration:
+    # 把 MyBatis 的日志转交 SLF4J，级别由下面的 logging.level 决定
     log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
 
 logging:
   level:
     com.flowdesk: DEBUG
+    # SQL 的 logger 名是 Mapper 的全限定名，所以级别必须落在 mapper 包上
     com.flowdesk.iam.mapper: DEBUG
+    # 开关"请求开始"行：结束行是 INFO，各环境都有；开始行只在本地开发时打开
+    com.flowdesk.common.web.filter.RequestAuditFilter: DEBUG

@@ -59,6 +59,17 @@ describe('auth store', () => {
     expect(auth.hasPermission('USER_MANAGE')).toBe(false)
   })
 
+  it('hasAnyPermission 在任一命中时为真', async () => {
+    vi.mocked(login).mockResolvedValue(tokenPayload('token-1'))
+    const auth = useAuthStore()
+
+    await auth.signIn('demo.employee', 'secret')
+
+    expect(auth.hasAnyPermission(['USER_MANAGE', 'TICKET_CREATE'])).toBe(true)
+    expect(auth.hasAnyPermission(['USER_MANAGE', 'DASHBOARD_VIEW'])).toBe(false)
+    expect(auth.hasAnyPermission([])).toBe(false)
+  })
+
   it('restoreSession 用 Refresh Cookie 换新令牌并恢复身份', async () => {
     vi.mocked(refreshAccessToken).mockResolvedValue('token-2')
     vi.mocked(fetchCurrentUser).mockResolvedValue(demoUser)
@@ -67,6 +78,16 @@ describe('auth store', () => {
     await expect(auth.restoreSession()).resolves.toBe(true)
 
     expect(auth.accessToken).toBe('token-2')
+    expect(auth.user).toEqual(demoUser)
+  })
+
+  it('loadCurrentUser 允许页面原位重试当前身份请求', async () => {
+    vi.mocked(fetchCurrentUser).mockResolvedValue(demoUser)
+    const auth = useAuthStore()
+
+    await auth.loadCurrentUser()
+
+    expect(fetchCurrentUser).toHaveBeenCalledTimes(1)
     expect(auth.user).toEqual(demoUser)
   })
 

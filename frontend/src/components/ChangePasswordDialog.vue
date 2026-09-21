@@ -4,6 +4,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { changePassword } from '@/api/auth'
+import { describeError } from '@/api/errorMessages'
 import { errorCode } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
 
@@ -28,17 +29,16 @@ function close(): void {
   reset()
 }
 
-function messageFor(code: string): string {
+/** 同一错误码在改密语境下的文案与登录不同，因此这里先做语境覆盖，其余交给统一映射。 */
+function messageFor(error: unknown): string {
+  const code = errorCode(error)
   if (code === 'AUTH_INVALID_CREDENTIALS') {
     return '当前密码不正确'
   }
   if (code === 'VALIDATION_FAILED') {
     return '新密码需要 8 到 64 位'
   }
-  if (code === 'USER_CONFLICT') {
-    return '账号信息已变化，请重新登录后再试'
-  }
-  return '修改失败，请稍后重试'
+  return describeError(error, '修改失败，请稍后重试')
 }
 
 async function submit(): Promise<void> {
@@ -52,7 +52,7 @@ async function submit(): Promise<void> {
     auth.clearSession()
     await router.replace({ name: 'login' })
   } catch (error) {
-    errorMessage.value = messageFor(errorCode(error))
+    errorMessage.value = messageFor(error)
   } finally {
     submitting.value = false
   }
