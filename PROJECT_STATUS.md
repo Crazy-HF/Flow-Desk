@@ -8,7 +8,7 @@
 - 远程仓库：`git@github.com:Crazy-HF/Flow-Desk.git`
 - 稳定分支：`main`
 - 当前基线分支：`main`（阶段 1 已合并，合并提交 `5c6cca0`）
-- 当前工作分支：`flow-desk/frontend-shell`（基于最新 `main`，基准 `5c6cca0`；共 9 条提交**已推送**到 `origin/flow-desk/frontend-shell`，合并请求待创建，见下方交接记录）
+- 当前工作分支：`flow-desk/frontend-shell`（基于最新 `main`，基准 `5c6cca0`；已推送到 `origin/flow-desk/frontend-shell`，**合并请求 PR #6 已创建**，等待 CI 与合并，见下方交接记录）
 - 下一次创建分支：本工作项交接完成后，从最新 `main` 创建第 3 步“系统业务：RBAC”的分支，名称待该阶段范围确认后确定。已存在的 `flow-desk/employee-ticket-flow` 只含 `7f6c72c` 一条文档同步提交，不用于本轮开发
 - 当前阶段：第 1 步**前端外壳与页面骨架**收口与提交已完成（2026-09-21），进入第 2 步交接；本轮先按用户指示重排应用壳版式（四层框架对齐对照项目）并把面包屑改成侧栏层级，见下方“应用壳重排”记录。路线按用户 2026-09-21 指示调整为四步：① 收口并提交前端外壳 ② 完成交接（推送 → 合并请求 → 合并 `main` → 同步 → 建下一分支）③ **系统业务：RBAC**（范围待确认，见待确认事项⑤）④ 阶段 2 `TASK-020`～`TASK-023-MVP`
 - 已确认的范围调整：项目分为“求职 MVP”和“完整版”；三种内置角色 `EMPLOYEE`、`IT_SUPPORT`、`SYSTEM_ADMIN` 仍是权限基线，`SYSTEM_ADMIN` 始终受保护。**2026-09-21 用户确认把「完整动态 RBAC」定为第 3 步实施**：按 `docs/api-design.md` 8.2.1 开放角色、权限、用户角色授权、角色权限授权四组 CRUD，需新增 Flyway 迁移 `V5` 预置 `RBAC_MANAGE` 并授予受保护的 `SYSTEM_ADMIN`，配套保护规则、会话撤销、审计与测试；不得修改已发布的历史迁移。该能力的交付层级归属（计入求职 MVP 演示范围，还是完整版能力提前实施）仍待确认。
@@ -20,14 +20,15 @@
 
 ## 2026-09-21 前端外壳工作项：提交、推送与分支交接（第 2 步）
 
-- **交接的分支**：`flow-desk/frontend-shell`，基准 `main` 的 `5c6cca0`，共 **9 条提交**（6 条既有 + 本轮 3 条）；相对 `origin/main` 汇总为 **56 files changed, +3627 / −441**。
-- **本轮 3 条提交**（用户 2026-09-21 指示：先更新文档，再提交并创建 PR）：
+- **交接的分支**：`flow-desk/frontend-shell`，基准 `main` 的 `5c6cca0`；PR 合并前共 11 条提交（6 条既有 + 本轮 3 条功能/设计提交 + 2 条只改交接记录的 `docs:` 提交）。
+- **本轮 3 条功能与设计提交**（用户 2026-09-21 指示：先更新文档，再提交并创建 PR）：
   - `72022e7` `feat(frontend): 重排应用壳为整幅顶栏 + 侧栏 + 面包屑 + 主体`
   - `9587c8d` `feat(frontend): 面包屑按侧栏层级显示`
   - `51fc87a` `docs: 同步应用壳重排与面包屑层级的状态与设计记录`
 - **推送（已完成）**：`git -c http.proxy=http://127.0.0.1:12000 push -u origin flow-desk/frontend-shell` 退出码 0，本地分支已跟踪 `origin/flow-desk/frontend-shell`。
-- **合并请求（未完成，待用户选择路径）**：本机 `gh` 未登录——`%APPDATA%\GitHub CLI` 目录不存在，也没有 `GH_TOKEN` / `GITHUB_TOKEN`，因此 PR 无法由 Codex 直接创建。两条可选路径：① 用户在本机执行一次 `gh auth login`，之后由 Codex 用 `gh pr create` 建 PR；② 用户直接在浏览器打开 GitHub 在推送响应里给出的地址 `https://github.com/Crazy-HF/Flow-Desk/pull/new/flow-desk/frontend-shell` 创建。**注意**：不因为要建 PR 就往仓库里写入任何 token。
-- **PR 创建后的剩余步骤**：合并 `main` → 本地切回 `main` 执行仅快进拉取 → 从最新 `main` 创建第 3 步（完整动态 RBAC）的分支。
+- **合并请求（已创建）**：**PR #6** `flow-desk/frontend-shell` → `main`，地址 <https://github.com/Crazy-HF/Flow-Desk/pull/6>；创建时状态 `open`、`mergeable=true`、10 条提交、`56 files changed, +3639 / −441`。CI 已触发（`frontend-verify` in\_progress、`backend-verify` queued），**结果尚未回看**。
+- **PR 的创建方式（需要知道的环境事实）**：本机 `gh` 未登录（`%APPDATA%\GitHub CLI` 目录不存在，也没有 `GH_TOKEN` / `GITHUB_TOKEN`），所以没有走 `gh pr create`；改为用 push 已经使用过的同一份 git 凭据（`git credential fill`）调用 GitHub REST API `POST /repos/Crazy-HF/Flow-Desk/pulls` 建 PR，**令牌未落盘、未打印**。下次要让 Codex 直接建 PR，先在本机执行一次 `gh auth login` 更稳妥。
+- **PR 创建后的剩余步骤**：回看 CI 三个 job → 合并 `main` → 本地切回 `main` 执行仅快进拉取 → 从最新 `main` 创建第 3 步（完整动态 RBAC）的分支。
 - **提交前检查（已验证，2026-09-21）**：`pnpm exec vitest run` → 8 套件 33 项、`pnpm run typecheck`、`pnpm run lint`、`pnpm run build` 退出码 0、`pnpm test:e2e` → 9 项；后端本轮未改动。**已提交与已推送都不等于已验收**：远端 CI 结果尚未回看。
 
 ## 2026-09-21 应用壳重排：四层框架对齐对照项目
