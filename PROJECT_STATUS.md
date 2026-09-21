@@ -8,7 +8,7 @@
 - 远程仓库：`git@github.com:Crazy-HF/Flow-Desk.git`
 - 稳定分支：`main`
 - 当前基线分支：`main`（阶段 1 已合并，合并提交 `5c6cca0`）
-- 当前工作分支：`flow-desk/frontend-shell`（基于最新 `main`，基准 `5c6cca0`；本工作项改动已按主题提交，**正在做第 2 步交接：推送 → 合并请求**）
+- 当前工作分支：`flow-desk/frontend-shell`（基于最新 `main`，基准 `5c6cca0`；共 9 条提交**已推送**到 `origin/flow-desk/frontend-shell`，合并请求待创建，见下方交接记录）
 - 下一次创建分支：本工作项交接完成后，从最新 `main` 创建第 3 步“系统业务：RBAC”的分支，名称待该阶段范围确认后确定。已存在的 `flow-desk/employee-ticket-flow` 只含 `7f6c72c` 一条文档同步提交，不用于本轮开发
 - 当前阶段：第 1 步**前端外壳与页面骨架**收口与提交已完成（2026-09-21），进入第 2 步交接；本轮先按用户指示重排应用壳版式（四层框架对齐对照项目）并把面包屑改成侧栏层级，见下方“应用壳重排”记录。路线按用户 2026-09-21 指示调整为四步：① 收口并提交前端外壳 ② 完成交接（推送 → 合并请求 → 合并 `main` → 同步 → 建下一分支）③ **系统业务：RBAC**（范围待确认，见待确认事项⑤）④ 阶段 2 `TASK-020`～`TASK-023-MVP`
 - 已确认的范围调整：项目分为“求职 MVP”和“完整版”；三种内置角色 `EMPLOYEE`、`IT_SUPPORT`、`SYSTEM_ADMIN` 仍是权限基线，`SYSTEM_ADMIN` 始终受保护。**2026-09-21 用户确认把「完整动态 RBAC」定为第 3 步实施**：按 `docs/api-design.md` 8.2.1 开放角色、权限、用户角色授权、角色权限授权四组 CRUD，需新增 Flyway 迁移 `V5` 预置 `RBAC_MANAGE` 并授予受保护的 `SYSTEM_ADMIN`，配套保护规则、会话撤销、审计与测试；不得修改已发布的历史迁移。该能力的交付层级归属（计入求职 MVP 演示范围，还是完整版能力提前实施）仍待确认。
@@ -17,6 +17,18 @@
 - 当前阻塞：无。工作区改动已按主题提交到 `flow-desk/frontend-shell`，推送与合并请求按用户 2026-09-21 指示进行中（见下方记录）；本机启动后端前修复过两处环境问题（Flyway 历史记录、Redis 残留键，见记录）
 - 环境前置：JDK 21、Node.js 24.20.0、pnpm 12.3.4、Docker 29.7.2 已验证；本机已有 `redis:8.8.0`、`mysql:8.4.11` 镜像。本地启动 profile 用 `local` 即可（`spring.profiles.group.local=demo` 已配置）。演示账号 `employee` / `it` / `admin`，密码统一为 `123456`（见 `db/demo/R__seed_demo_data.sql` 头部注释，2026-09-20 由 `demo.*` 改名）。本机已有过两类运行障碍并已修复：① Flyway 校验失败——历史表残留已删除的 V3 迁移记录，处置为删除该行（等价 `flyway repair`）；② Redis 残留旧实现写入的 hash 类型会话键，会让"撤销全部会话"抛 `WRONGTYPE`，已清理。另需注意：本机 Argon2id 校验约 2 秒/次（并发登录可拖到十几秒），前端 e2e 因此串行执行并放宽超时；跑 e2e 需要 `FLOWDESK_ALLOWED_ORIGINS` 包含 `http://127.0.0.1:4173`（本地 `.env` 已加）
 - 待确认事项：① Element Plus 目前是**全量引入**（打包约 1.07 MB / gzip 348 KB），是否改为按需引入（需新增 `unplugin-vue-components`、`unplugin-auto-import` 两个 dev 依赖）；② 本机库中 `admin` 仍带 `RBAC_MANAGE`（早前已删除的 V3 迁移遗留数据），是否清理；③ 登录页占位文案是「登录名」「密码」，与 `frontend/AGENTS.md` 新增的「请输入…／请选择…」约定不一致（E2E 定位依赖现文案，改文案需同时改用例）；④ 首页 `h1`「欢迎回来」用的是展示级字号 `clamp(1.75rem, 5vw, 2.5rem)`，是否收小到页面标题刻度；⑤ ~~第 3 步「系统业务：RBAC」的范围~~ **已于 2026-09-21 确认：完整动态 RBAC**（`docs/api-design.md` 8.2.1 的角色、权限、用户角色授权、角色权限授权四组 CRUD）；仍待确认的是该能力的交付层级归属，以及阶段内的任务拆分、切片顺序与验收标准（待下一轮阶段设计产出后集中确认）；⑥ ~~侧栏当前的 CSS 下拉三角是否换成已安装的 `@element-plus/icons-vue` 的 `ArrowDown`~~ **已完成**：`AppSidebar` 已改用 `ArrowDown` 组件，为此新增的 `--fd-border-width` token 也已不存在（2026-09-21 核对）。历史处置：JaCoCo 覆盖率门禁已确认取消（2026-09-19），`pom.xml` 只保留 `jacoco:report` 供 CI 上传工件，不再保留 70% 行 / 60% 分支阈值（当时实测行覆盖 37.2%、分支 13.9%，阈值必定使 `verify` 失败）
+
+## 2026-09-21 前端外壳工作项：提交、推送与分支交接（第 2 步）
+
+- **交接的分支**：`flow-desk/frontend-shell`，基准 `main` 的 `5c6cca0`，共 **9 条提交**（6 条既有 + 本轮 3 条）；相对 `origin/main` 汇总为 **56 files changed, +3627 / −441**。
+- **本轮 3 条提交**（用户 2026-09-21 指示：先更新文档，再提交并创建 PR）：
+  - `72022e7` `feat(frontend): 重排应用壳为整幅顶栏 + 侧栏 + 面包屑 + 主体`
+  - `9587c8d` `feat(frontend): 面包屑按侧栏层级显示`
+  - `51fc87a` `docs: 同步应用壳重排与面包屑层级的状态与设计记录`
+- **推送（已完成）**：`git -c http.proxy=http://127.0.0.1:12000 push -u origin flow-desk/frontend-shell` 退出码 0，本地分支已跟踪 `origin/flow-desk/frontend-shell`。
+- **合并请求（未完成，待用户选择路径）**：本机 `gh` 未登录——`%APPDATA%\GitHub CLI` 目录不存在，也没有 `GH_TOKEN` / `GITHUB_TOKEN`，因此 PR 无法由 Codex 直接创建。两条可选路径：① 用户在本机执行一次 `gh auth login`，之后由 Codex 用 `gh pr create` 建 PR；② 用户直接在浏览器打开 GitHub 在推送响应里给出的地址 `https://github.com/Crazy-HF/Flow-Desk/pull/new/flow-desk/frontend-shell` 创建。**注意**：不因为要建 PR 就往仓库里写入任何 token。
+- **PR 创建后的剩余步骤**：合并 `main` → 本地切回 `main` 执行仅快进拉取 → 从最新 `main` 创建第 3 步（完整动态 RBAC）的分支。
+- **提交前检查（已验证，2026-09-21）**：`pnpm exec vitest run` → 8 套件 33 项、`pnpm run typecheck`、`pnpm run lint`、`pnpm run build` 退出码 0、`pnpm test:e2e` → 9 项；后端本轮未改动。**已提交与已推送都不等于已验收**：远端 CI 结果尚未回看。
 
 ## 2026-09-21 应用壳重排：四层框架对齐对照项目
 
