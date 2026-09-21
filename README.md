@@ -79,4 +79,4 @@ pnpm --dir frontend dev
 
 后端健康检查位于 `http://localhost:8081/actuator/health`，前端开发入口位于 `http://localhost:5173`。前端将 `/fd` 请求代理到后端。普通停止使用 `docker compose down`，不要附加 `-v`，以免删除本地数据卷。
 
-MVP 阶段 1 Auth 身份入口已完成并通过 PR #5 合并进入 `main`：访问 `http://localhost:5173` 会被引导到 `/login`，用演示账号登录后进入受保护首页（显示当前身份与按权限展示的能力清单）。登录后的应用壳按四层职责组织——整幅顶栏（品牌位 + 搜索位 + 全屏 + 账号菜单）、按权限生成的侧栏、表达当前位置的面包屑、主体内容；导航条目与面包屑层级共用 `frontend/src/constants/authorization.ts` 的同一份声明。下一步先实施系统管理端 RBAC（角色、权限、用户角色与角色权限的在线管理，2026-09-21 确认），随后是员工工单主链路；业务页面（工单、队列、数据概览、管理端）分批在后续阶段实现。演示账号见 `src/main/resources/db/demo/R__seed_demo_data.sql` 头部注释。
+MVP 阶段 1 Auth 身份入口已完成并通过 PR #5 合并进入 `main`：访问 `http://localhost:5173` 会被引导到 `/login`，用演示账号登录后进入受保护首页（显示当前身份与按权限展示的能力清单）。登录后的应用壳按四层职责组织——整幅顶栏（品牌位 + 搜索位 + 全屏 + 账号菜单）、按权限生成的侧栏、表达当前位置的面包屑、主体内容；导航条目与面包屑层级共用 `frontend/src/constants/authorization.ts` 的同一份声明。下一步先实施系统管理端 RBAC（角色、权限、用户角色与角色权限的在线管理，2026-09-21 确认；**阶段设计已同日确认**——8 项设计决策与 `TASK-055`～`TASK-058` 见 `docs/implementation-plan.md` 9.1，本阶段只做后端接口、`V5` 迁移与测试，不做管理端页面），随后是员工工单主链路；业务页面（工单、队列、数据概览、管理端）分批在后续阶段实现。演示账号见 `src/main/resources/db/demo/R__seed_demo_data.sql` 头部注释。

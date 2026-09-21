@@ -328,7 +328,7 @@ v1 暂不建立以下实体：
 | `description` | `VARCHAR(255)` | 是 | 角色说明 |
 | `created_at` | `DATETIME(3)` | 否 | UTC 创建时间 |
 
-`code` 唯一。MVP 只使用迁移脚本预置的 `EMPLOYEE`、`IT_SUPPORT`、`SYSTEM_ADMIN` 三种角色，不提供在线角色 CRUD。表结构保留扩展空间；自定义角色属于完整版可选能力，只有再次确认并补齐迁移、保护、审计和会话撤销设计后才能开放。
+`code` 唯一。MVP 只使用迁移脚本预置的 `EMPLOYEE`、`IT_SUPPORT`、`SYSTEM_ADMIN` 三种角色，不提供在线角色 CRUD。表结构保留扩展空间；**自定义角色已于 2026-09-21 确认实施（第 3 步动态 RBAC），迁移（`V5`）、保护规则、审计与会话撤销设计均已确认，见 `docs/implementation-plan.md` 9.1 与 `docs/api-design.md` 8.2.1。** 表结构本身不为管理接口新增列：角色没有 `version` 与 `updated_at`，因此修改接口不带版本号，`code` 创建后不可修改。
 
 ### 17.3 `iam_permission`
 
@@ -361,8 +361,12 @@ v1 暂不建立以下实体：
 | --- | --- | --- | --- |
 | `role_id` | `BIGINT UNSIGNED` | 否 | 外键指向 `iam_role.id` |
 | `permission_id` | `BIGINT UNSIGNED` | 否 | 外键指向 `iam_permission.id` |
+| `granted_by` | `BIGINT UNSIGNED` | 是 | **`V5` 新增**：外键指向授权管理员；`V2` 预置授权与系统写入为空 |
+| `granted_at` | `DATETIME(3)` | 是 | **`V5` 新增**：UTC 授权时间；`V2` 预置的存量行为 `NULL`，新授权必填 |
 
-复合主键为 `(role_id, permission_id)`，并增加 `(permission_id, role_id)` 反向索引。两个外键均限制删除。授权关系原只由 Flyway 种子数据维护、不提供在线修改；**动态 RBAC 已于 2026-09-21 确认实施（第 3 步），届时由对应管理用例维护并补齐引用保护。**
+复合主键为 `(role_id, permission_id)`，并增加 `(permission_id, role_id)` 反向索引。两个外键均限制删除。授权关系原只由 Flyway 种子数据维护、不提供在线修改；**动态 RBAC 已于 2026-09-21 确认实施（第 3 步），由对应管理用例维护并补齐引用保护。**
+
+**`V5` 变更说明（2026-09-21 阶段设计确认）**：`V2` 建表时这张关系表没有审计列，而 `docs/api-design.md` 8.2.1 要求授权可审计，因此由 `V5` 补列（不回改 `V1`/`V2`）。两列都允许为空，是为了不改写存量行的语义：`granted_by` 为空表示"没有具体操作人"（迁移预置或系统写入），存量 `granted_at` 留空而不伪造时间。新授权必须同时写入两列。
 
 ## 18. 分类表
 

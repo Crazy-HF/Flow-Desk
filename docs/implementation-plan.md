@@ -49,7 +49,7 @@ MVP 实现和演示优先使用：
 - `TICKET_VIEW_PARTICIPATED`
 - `TICKET_PROCESS`
 
-其余已有权限编码可保留在迁移中作为完整版预留，但不得因此增加 MVP 页面或接口。`RBAC_MANAGE` 不属于 MVP。
+其余已有权限编码可保留在迁移中作为完整版预留，但不得因此增加 MVP 页面或接口。`RBAC_MANAGE` 不属于 MVP 主链；**但已于 2026-09-21 经用户确认提前实施（先于阶段 2），阶段设计与任务拆分见第 9.1 节。**
 
 ### 3.3 决策说明：为什么 MVP 固定三角色
 
@@ -58,11 +58,14 @@ MVP 实现和演示优先使用：
 - **取舍**：MVP 暂时不能让管理员创建新角色，但减少了管理接口、保护规则、审计、会话撤销和大量测试成本；现有多对多表仍允许完整版扩展。
 - **面试表达**：这是按风险和展示价值主动收敛范围，不是把授权写死在前端。后端仍基于稳定权限编码鉴权，并继续校验资源关系、状态和版本。
 
+**2026-09-21 变更**：本节"未选方案"里的"同期实现动态角色、动态权限和授权关系后台"已由用户确认提前实施（先于阶段 2）。范围以 `docs/api-design.md` 8.2.1 为上限，任务拆分与验收标准见第 9.1 节；固定三角色与资源级授权仍是基线，不因本次变更而放宽。
+
 ## 4. MVP 总体顺序
 
 ```text
 M0 工程底座（已完成）
   → 阶段 1 Auth 身份入口
+  → 第 3 步 完整动态 RBAC（2026-09-21 确认提前实施，见 9.1）
   → 阶段 2 员工创建与查询
   → 阶段 3 IT 处理闭环
   → 阶段 4 MVP 验收与求职展示收口
@@ -203,7 +206,41 @@ MVP 最终完成定义：
 3. **自动化**：待确认自动完成、待补充自动关闭、停机恢复和幂等扫描。
 4. **系统管理**：用户与固定角色分配、账号启停、管理员重置密码、活动工单管理性交接、分类管理。
 5. **数据概览**：IT 权限范围内的状态、优先级、分类和负责人统计。
-6. **动态 RBAC（已于 2026-09-21 确认实施，先于阶段 2）**：自定义角色、权限和授权关系 CRUD，必须补新的 Flyway 迁移、保护规则、会话撤销、审计和测试；阶段划分、任务拆分与验收标准待阶段设计确认后写入本文件。
+6. **动态 RBAC（已于 2026-09-21 确认实施，先于阶段 2）**：任务拆分、切片顺序与验收标准见第 9.1 节。
+
+### 9.1 完整动态 RBAC（2026-09-21 阶段设计确认，先于阶段 2）
+
+范围上限是 `docs/api-design.md` 8.2.1 的四组接口，不扩展到该节之外的权限模型。**本阶段只交付后端接口、迁移与测试证据，不做 RBAC 前端页面**（`frontend/src/views/admin/` 留给后续主题）。
+
+已确认的阶段设计决策：
+
+| # | 决策 | 说明 |
+| --- | --- | --- |
+| 1 | `iam_role_permission` 在 `V5` 中补 `granted_by` / `granted_at` | 契约要求审计，而该表原本一行审计列都没有；`granted_by` 允许为空，表示 Flyway 预置授权没有操作人 |
+| 2 | IAM 定义 `SessionRevocationPort`，auth 提供 adapter 实现 | 保持现有单向依赖 `auth → iam`，IAM 不感知 Redis |
+| 3 | 撤销会话与提交 MySQL 的顺序：**先撤 Redis，后提交授权变更** | 与改密的既有顺序一致；宁可让用户重登一次，也不让旧权限在旧会话里继续可用 |
+| 4 | 授予接口统一返回 `200`（首次与重复都是） | 授予是幂等放置语义；`201` 只用于真正创建了新资源 |
+| 5 | 受保护角色与权限按 `code` 常量判定（`SYSTEM_ADMIN`、`RBAC_MANAGE`） | `code` 已有唯一约束，不新增"内置"标记列 |
+| 6 | 分页排序白名单：角色/权限为 `code,name,created_at`；用户角色为 `granted_at`；角色权限为 `role_id,permission_id` | 作为 `PageQuery.orderItems(...)` 的入参 |
+| 7 | 两组授权列表必须至少给出一个筛选（`userId`/`roleId`、`roleId`/`permissionId`），都不给返回 `400/VALIDATION_FAILED` | 避免无筛选的全表分页 |
+| 8 | 交付层级：本阶段记为第 3 步的后端能力；前端页面与"是否计入 MVP 演示范围"留待后续确认 | 见 `PROJECT_STATUS.md` 待确认事项 |
+
+任务拆分（每个任务独立验收，顺序即依赖顺序）：
+
+| 任务 | 内容 | 关键产出 |
+| --- | --- | --- |
+| `TASK-055` | `V5` 迁移：新增 `RBAC_MANAGE` 权限、授予 `SYSTEM_ADMIN`、为 `iam_role_permission` 补审计列；同步 `DatabaseMigrationIT` 的三处断言（版本 `1,2,4,5`、权限数 14、`SYSTEM_ADMIN` 权限数 4） | 迁移脚本 + 迁移集成测试 |
+| `TASK-056` | 会话撤销端口与 adapter：`iam/service/SessionRevocationPort`（`void revokeAll(long userId)`）+ `auth/security/IamSessionRevocationAdapter` | 端口、adapter、转发单测 |
+| `TASK-057` | 角色与权限两组 CRUD：`/fd/v1/admin/roles`、`/fd/v1/admin/permissions` | Controller/Service/VO/BO + Web 测试 |
+| `TASK-058` | 用户角色与角色权限两组授权：`/fd/v1/admin/user-roles`、`/fd/v1/admin/role-permissions` | 同上 + 会话撤销联动 |
+
+阶段验收标准（可检查）：
+
+1. `./mvnw -B verify` 全绿，且相对阶段起点只增不减（起点：单元/Web 55 项 + 集成 17 项）。
+2. 四组接口 × {成功、400、401、403、404、409、幂等} **每一格都有用例**；并发路径要么在 MySQL 集成测试里做真并发，要么在文档里明确写"以 mock 返回 0 模拟"，不得含糊表述为"已覆盖"。
+3. `DatabaseMigrationIT` 断言与 `V5` 一致，并能证明 `RBAC_MANAGE` 只授予 `SYSTEM_ADMIN`。
+4. 手工验证三条链路各留 `traceId` 与响应码：授予后目标用户旧会话失效、撤销最后一个角色被拒、删除受保护角色被拒。
+5. `PROJECT_STATUS.md`、`README.md` 与 `AGENTS.md` 的当前阶段一致。
 
 动态 RBAC 已按 2026-09-21 的确认提前实施，实现范围以 `docs/api-design.md` 8.2.1 为上限，不扩展到该节之外的权限模型；`EMPLOYEE`、`IT_SUPPORT`、`SYSTEM_ADMIN` 三种内置角色继续保留且 `SYSTEM_ADMIN` 受保护。
 
