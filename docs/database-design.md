@@ -361,12 +361,12 @@ v1 暂不建立以下实体：
 | --- | --- | --- | --- |
 | `role_id` | `BIGINT UNSIGNED` | 否 | 外键指向 `iam_role.id` |
 | `permission_id` | `BIGINT UNSIGNED` | 否 | 外键指向 `iam_permission.id` |
-| `granted_by` | `BIGINT UNSIGNED` | 是 | **计划由 `V5` 新增**：外键指向授权管理员；`V2` 预置授权与系统写入为空 |
-| `granted_at` | `DATETIME(3)` | 是 | **计划由 `V5` 新增**：UTC 授权时间；`V2` 预置的存量行为 `NULL`，新授权必填 |
+| `granted_by` | `BIGINT UNSIGNED` | 是 | **由 `V5` 新增**：外键指向授权管理员；`V2` 预置授权与系统写入为空 |
+| `granted_at` | `DATETIME(6)` | 是 | **由 `V5` 新增**：UTC 授权时间；`V2` 预置的存量行为 `NULL`，新授权必填 |
 
-复合主键为 `(role_id, permission_id)`，并增加 `(permission_id, role_id)` 反向索引。两个外键均限制删除。授权关系原只由 Flyway 种子数据维护、不提供在线修改；**动态 RBAC 已于 2026-09-21 确认实施（第 3 步），由对应管理用例维护并补齐引用保护。**
+复合主键为 `(role_id, permission_id)`，并保留 `(permission_id, role_id)` 反向索引；`V5` 为 `granted_by` 增加单列索引。三个外键均限制删除。授权关系原只由 Flyway 种子数据维护、不提供在线修改；**动态 RBAC 已于 2026-09-21 确认实施（第 3 步），由对应管理用例维护并补齐引用保护。**
 
-**`V5` 变更说明（2026-09-21 阶段设计确认，尚未实现）**：`V2` 建表时这张关系表没有审计列，而 `docs/api-design.md` 8.2.1 要求授权可审计，因此**计划由 `V5` 补列**（不回改 `V1`/`V2`）。两列都允许为空，是为了不改写存量行的语义：`granted_by` 为空表示"没有具体操作人"（迁移预置或系统写入），存量 `granted_at` 留空而不伪造时间。新授权必须同时写入两列。迁移脚本、端点实现与测试均未开始，见 `docs/implementation-plan.md` 9.1 的任务拆分。
+**`V5` 变更说明（2026-09-21 已实现并通过空库迁移测试）**：`V2` 建表时这张关系表没有审计列，而 `docs/api-design.md` 8.2.1 要求授权可审计，因此由 `V5` 补列（不回改 `V1`/`V2`）。两列都允许为空，是为了不改写存量行的语义：`granted_by` 为空表示"没有具体操作人"（迁移预置或系统写入），存量 `granted_at` 留空而不伪造时间。新授权必须同时写入两列。`DatabaseMigrationIT` 已验证新列、索引、外键、权限数量以及 `RBAC_MANAGE` 仅授予 `SYSTEM_ADMIN`；在线授权端点仍按 `TASK-058` 实现。
 
 ## 18. 分类表
 

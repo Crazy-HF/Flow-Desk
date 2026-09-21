@@ -42,7 +42,7 @@
 | controller | `IamRoleController`、`IamPermissionController`、`IamUserRoleController`、`IamRolePermissionController` | 路由、参数绑定、`@PreAuthorize("hasAuthority('RBAC_MANAGE')")`、HTTP 状态（创建用 `201`） |
 | service | `IamRoleService`、`IamPermissionService`、`IamUserRoleService`、`IamRolePermissionService`（+ `impl`） | 业务规则、保护规则、事务、编排会话撤销 |
 | vo（请求） | `IamRoleCreateVO`、`IamRoleUpdateVO`、`IamRoleQueryVO`、`IamPermissionCreateVO`、`IamPermissionUpdateVO`、`IamPermissionQueryVO`、`IamUserRoleGrantVO`、`IamUserRoleQueryVO`、`IamRolePermissionGrantVO`、`IamRolePermissionQueryVO` | 字段校验（`jakarta.validation`） |
-| bo（响应/服务间） | `IamRoleBO`、`IamPermissionBO`、`IamUserRoleBO`、`IamRolePermissionBO` | 对外字段；**不含**任何密码或内部存储细节 |
+| bo（响应/服务间） | `IamRoleBO`、`IamPermissionBO`、`IamUserRoleBO`、`IamRolePermissionBO` | 对外字段；两类授权 BO 的字段固定见 4.3、4.4，**不含**任何密码或内部存储细节 |
 | 端口 | `SessionRevocationPort`（iam）+ `IamSessionRevocationAdapter`（auth） | 撤销某用户全部会话 |
 
 命名沿用项目既有约定：请求体 `*VO`、响应与服务间 `*BO`（对照 `auth/domain/vo/AuthLoginVO` 与 `auth/domain/bo/AuthUserBO`）。
@@ -71,16 +71,20 @@
 | 方法与路径 | 请求 | 成功响应 | 失败 |
 | --- | --- | --- | --- |
 | `GET /user-roles` | `userId` 或 `roleId` **至少一个** + `PageQuery` | `200 R<PageResult<IamUserRoleBO>>` | `400 VALIDATION_FAILED`（两个都不给、分页非法） |
-| `POST /user-roles` | `IamUserRoleGrantVO`：`userId`、`roleId` | `200 R<Void>`（首次与重复都是 `200`） | `400`、`404 USER_NOT_FOUND`、`404 ROLE_NOT_FOUND` |
+| `POST /user-roles` | `IamUserRoleGrantVO`：`userId`、`roleId` | `200 R<IamUserRoleBO>`（首次与重复都是 `200`；重复时返回原记录） | `400`、`404 USER_NOT_FOUND`、`404 ROLE_NOT_FOUND` |
 | `DELETE /user-roles/{userId}/{roleId}` | 路径参数 | `200 R<Void>` | `404 GRANT_NOT_FOUND`、`409 USER_ROLE_REQUIRED`、`409 LAST_ADMIN_PROTECTED` |
+
+`IamUserRoleBO` 固定字段：`userId`、`username`、`roleId`、`roleCode`、`roleName`、`grantedBy`、`grantedAt`。其中 `grantedBy` 是授权人用户 ID，可为 `null`；本阶段不返回授权人的用户名或显示名称。
 
 ### 4.4 角色权限授权
 
 | 方法与路径 | 请求 | 成功响应 | 失败 |
 | --- | --- | --- | --- |
 | `GET /role-permissions` | `roleId` 或 `permissionId` **至少一个** + `PageQuery` | `200 R<PageResult<IamRolePermissionBO>>` | `400 VALIDATION_FAILED` |
-| `POST /role-permissions` | `IamRolePermissionGrantVO`：`roleId`、`permissionId` | `200 R<Void>` | `400`、`404 ROLE_NOT_FOUND`、`404 PERMISSION_NOT_FOUND` |
+| `POST /role-permissions` | `IamRolePermissionGrantVO`：`roleId`、`permissionId` | `200 R<IamRolePermissionBO>`（重复时返回原记录） | `400`、`404 ROLE_NOT_FOUND`、`404 PERMISSION_NOT_FOUND` |
 | `DELETE /role-permissions/{roleId}/{permissionId}` | 路径参数 | `200 R<Void>` | `404 GRANT_NOT_FOUND`、`409 RBAC_CONFLICT` |
+
+`IamRolePermissionBO` 固定字段：`roleId`、`roleCode`、`permissionId`、`permissionCode`、`permissionName`、`grantedBy`、`grantedAt`。`grantedBy` 是授权人用户 ID；`grantedBy` 和历史预置关系的 `grantedAt` 可以为 `null`。所有授权时间按全局契约返回带 UTC 偏移的 ISO 8601 字符串。
 
 ## 5. 校验与错误码
 
@@ -105,7 +109,7 @@
 | `404` | `USER_NOT_FOUND` | 授予用户角色时用户不存在（沿用既有编码） |
 | `409` | `ROLE_CODE_CONFLICT` | 角色 `code` 已存在 |
 | `409` | `PERMISSION_CODE_CONFLICT` | 权限 `code` 已存在 |
-| `409` | `RBAC_CONFLICT` | 违反保护或引用约束（见第 6 节） |
+| `409` | `RBAC_CONFLICT` | 违反保护或引用约束（见第 6 节），或 RBAC 写事务锁等待超时/死锁 |
 | `409` | `USER_ROLE_REQUIRED` / `LAST_ADMIN_PROTECTED` | 沿用既有编码，见第 6 节 |
 | `403` | `ACCESS_DENIED` | 缺少 `RBAC_MANAGE`（既有编码，无需新增） |
 
@@ -126,7 +130,19 @@
 
 ## 7. 事务与跨存储顺序
 
-- 单个用例内的多表写入在同一个 `@Transactional` 方法里完成（例如删除角色 = 检查引用 + 删除角色 + 删除其角色权限行）。
+- 单个用例内的多表写入在同一个 `@Transactional` 方法里完成。角色或权限仍被授权关系引用时禁止删除，不自动级联清理授权行。
+- 所有 RBAC 写用例对用于存在性判断、保护判断和引用判断的已有记录执行 `SELECT ... FOR UPDATE`；列表、详情等只读接口不加悲观锁。
+- **全模块固定锁顺序：`iam_role` → `iam_permission` → `iam_user` → 授权关系行**。允许跳过当前用例不涉及的层级，但禁止反向获取；同表多行一律按主键升序。具体口径：
+
+  | 写用例 | 必须先取得的锁 |
+  | --- | --- |
+  | 修改/删除角色 | 目标角色；随后在锁内重新检查用户角色、角色权限引用 |
+  | 修改/删除权限 | 目标权限；随后在锁内重新检查角色权限引用 |
+  | 授予/撤销用户角色 | 目标角色 → 目标用户 → 目标用户现有授权关系；涉及 `SYSTEM_ADMIN` 时，角色行同时作为“最后启用管理员”检查的串行化锁 |
+  | 授予/撤销角色权限 | 目标角色 → 目标权限 → 目标授权关系；持有角色锁期间通过 `FOR UPDATE` 按 `user_id` 升序锁定并读取该角色的用户角色关系，保证受影响用户集合不会被并发的用户角色写操作改变 |
+
+- 取得全部所需锁后，必须重新查询授权是否存在并重新校验不变量，不能复用加锁前的数据。创建角色/权限仍由唯一约束兜底；授权复合主键和外键是锁协议之外的最后防线。
+- 用户角色的所有写操作都先锁角色、再锁用户，因此同一用户不同角色的并发撤销最终会在用户行上串行；后取得用户锁的事务必须看到前一事务结果，不能把同一份旧计数各自当真。所有会影响“最后启用管理员”的后续账号启停用例，也必须先锁 `SYSTEM_ADMIN` 角色，再锁目标用户。
 - **会话撤销与 MySQL 提交的顺序（决策 3）：先撤销 Redis 会话，再让事务提交**。与改密的既有顺序一致，理由：若顺序相反而 Redis 失败，会出现"权限已变更但旧会话仍然有效"的窗口；反过来最坏结果是"用户被登出但变更失败"，用户重登即可。
 - 触发撤销的三处：
 
@@ -134,10 +150,11 @@
   | --- | --- |
   | 授予用户角色 | 该用户的全部会话 |
   | 撤销用户角色 | 该用户的全部会话 |
-  | 授予/撤销角色权限 | **拥有该角色的全部用户的会话**（见下方说明） |
+  | 授予/撤销角色权限 | **拥有该角色的全部用户的会话**；按已锁定的用户 ID 快照升序逐个撤销 |
 
 - **关于角色权限变更也撤会话**：`docs/api-design.md` 8.1 已确认"用户、角色或账号状态变化成功后，撤销受影响用户的现有登录会话"；会话快照缓存的是**权限码**（`JwtAuthenticationFilter` 从 Redis 快照读权限），所以角色权限变化后不撤销会话，用户的旧权限最长会保留到会话过期（7 天）。撤销某个权限却仍能继续使用，属于安全缺口，因此这里按 8.1 的通用规则执行，8.2.1 只是没有重复写明。**代价**：该角色用户越多，Redis 调用越多（v1 单实例，先不做批量优化）。
 - 幂等：重复授予直接返回成功且**不写库、不撤销会话**（没有发生变化），避免把幂等调用变成"把用户踢下线"。
+- Redis 撤销发生在持有 MySQL 锁期间；除 `SessionRevocationPort` 外，事务内不得调用其他外部服务。任一用户撤销失败时抛错并回滚 MySQL。数据库报告死锁或锁等待超时时同样回滚并返回 `409/RBAC_CONFLICT`；服务层不自动重试，因为 Redis 撤销是不可回滚副作用。
 
 ## 8. 分页与排序
 
@@ -154,7 +171,7 @@
 
 ## 9. 审计
 
-- **落库的授权审计**：`iam_user_role` 沿用建表已有的 `granted_by` / `granted_at`；`iam_role_permission` 由 `V5` 补同名列。新授权必须同时写入两列，`granted_by` = 当前操作人的 `userId`。
+- **落库的授权审计**：`iam_user_role` 沿用建表已有的 `granted_by` / `granted_at`；`iam_role_permission` 由 `V5` 补 `granted_by BIGINT UNSIGNED`、`granted_at DATETIME(6)`、授权人索引及指向 `iam_user(id)` 的外键。新授权必须同时写入两列，`granted_by` = 当前操作人的 `userId`。
 - **空值语义**：`granted_by IS NULL` 表示"没有具体操作人"（Flyway 预置或系统写入）；存量 `granted_at` 保持 `NULL`，不伪造时间。
 - **请求级审计**：`common/web/filter/RequestAuditFilter` + `TraceIdFilter` 已记录 `method/path/status/durationMs/traceId`，且刻意不记录请求头、Cookie、查询串与请求体。
 - **已知缺口**：被拒绝的操作（如"删除 `SYSTEM_ADMIN` 被拒"）不会在数据库留下痕迹，只能靠应用日志；"改了哪些字段"目前无处可查（日志不含请求体）。要覆盖这些，需要独立的只追加审计日志表——**不在本次范围**，需要单独确认。
@@ -173,8 +190,8 @@ Web 测试沿用 `AuthWebTest` 的既有做法：`@ActiveProfiles("test")` + 排
 补充证据要求：
 
 - 迁移层：`DatabaseMigrationIT` 断言版本 `1,2,4,5`、权限数 14、`SYSTEM_ADMIN` 权限数 4，并断言 `RBAC_MANAGE` 恰好授予 `SYSTEM_ADMIN`。
-- 会话撤销：断言"授予/撤销时调用了撤销端口"，以及在需要时**先撤销后写库**（用 `InOrder`，与 `AuthWebTest` 对改密的既有断言方式一致）。
-- 并发：现有仓库没有真并发用例。本阶段**不做**真并发，文档明确写"以 mock 返回 0 / 唯一键约束模拟"，不表述为"已覆盖"；真并发留给后续（需要在 MySQL IT 里跑多线程）。
+- 会话撤销：断言用户角色变化只撤目标用户；角色权限变化撤销该角色全部用户且按用户 ID 升序；重复授予不撤销；并用 `InOrder` 证明需要时**先撤销后写库**（与 `AuthWebTest` 对改密的既有断言方式一致）。
+- 并发：在 MySQL Testcontainers 集成测试中至少真实覆盖两条竞争路径：① 同一用户仅剩两个角色时，并发撤销不同角色只能有一个成功；② 两个启用管理员并发撤销各自 `SYSTEM_ADMIN` 时只能有一个成功。测试设置有限等待时间，证明无死锁且最终仍满足“至少一个角色、至少一个启用管理员”。mock 返回 0 只能补充分支，不能替代这两条真并发证据。
 
 ## 11. 验收命令与手工验证
 

@@ -10,19 +10,31 @@
 - 当前基线分支：`main`（阶段 1 与前端外壳工作项均已合并，最新合并提交 `2993a2a`）
 - 当前工作分支：`flow-desk/dynamic-rbac`（从最新 `main` 的 `2993a2a` 创建，**尚未推送**——按仓库惯例，推送发生在该阶段完成检查、准备合并时）
 - 下一次创建分支：本文档四步路线的第 4 步（阶段 2 `TASK-020`～`TASK-023-MVP`）在本阶段交接完成后从最新 `main` 创建，名称待定。已存在的 `flow-desk/employee-ticket-flow` 只含 `7f6c72c` 一条文档同步提交，不用于本轮开发
-- 当前阶段：第 3 步 **系统业务：完整动态 RBAC**（四步路线的 ① 收口前端外壳与 ② 交接已于 2026-09-21 完成，工作项经 PR #6 合并进入 `main`）。**阶段设计已于 2026-09-21 确认**：8 项设计决策、`TASK-055`～`TASK-058` 任务拆分与验收标准见 `docs/implementation-plan.md` 9.1；下一步从 `TASK-055`（`V5` 迁移）开始实施，本阶段只交付后端接口、迁移与测试证据，不做管理端页面。
+- 当前阶段：第 3 步 **系统业务：完整动态 RBAC**（四步路线的 ① 收口前端外壳与 ② 交接已于 2026-09-21 完成，工作项经 PR #6 合并进入 `main`）。**阶段设计已于 2026-09-21 确认并补充**：11 项设计决策、`TASK-055`～`TASK-058` 任务拆分与验收标准见 `docs/implementation-plan.md` 9.1；`TASK-055`（`V5` 迁移）、`TASK-056`（会话撤销端口与 adapter）和 `TASK-057`（角色、权限 CRUD）已完成，下一步实施 `TASK-058`（用户角色、角色权限授权）。本阶段只交付后端接口、迁移与测试证据，不做管理端页面。
 - 已确认的范围调整：项目分为“求职 MVP”和“完整版”；三种内置角色 `EMPLOYEE`、`IT_SUPPORT`、`SYSTEM_ADMIN` 仍是权限基线，`SYSTEM_ADMIN` 始终受保护。**2026-09-21 用户确认把「完整动态 RBAC」定为第 3 步实施**：按 `docs/api-design.md` 8.2.1 开放角色、权限、用户角色授权、角色权限授权四组 CRUD，需新增 Flyway 迁移 `V5` 预置 `RBAC_MANAGE` 并授予受保护的 `SYSTEM_ADMIN`，配套保护规则、会话撤销、审计与测试；不得修改已发布的历史迁移。该能力的交付层级归属（计入求职 MVP 演示范围，还是完整版能力提前实施）仍待确认。
-- 最新完成：**前端外壳工作项（含四层应用壳重排与层级面包屑）已通过 PR #6 合并进入 `main`**（合并提交 `2993a2a`，CI 三个 job 全绿）。此前阶段 1（Auth 身份入口）经 PR #5 合并。前端证据：`test:unit` 8 套件 33 项、`test:e2e` 9 项、`typecheck` / `lint` / `build` 全通过；期间修掉了锁文件里 `@element-plus/icons-vue` 的 peer 后缀（首轮 CI 失败的根因，见下方记录）
-- 下一步（四步路线，2026-09-21 用户指示）：① ~~收口并提交前端外壳与页面骨架工作项~~ **已完成**；② ~~完成该工作项交接（推送 → 合并请求 → 合并 `main` → 同步 → 建下一分支）~~ **已完成**；③ **系统业务：完整动态 RBAC**（分支 `flow-desk/dynamic-rbac`）——~~产出阶段设计并集中确认~~ **2026-09-21 已确认**，按 `TASK-055`（`V5` 迁移）→ `TASK-056`（会话撤销端口）→ `TASK-057`（角色与权限 CRUD）→ `TASK-058`（两组授权）顺序实施；④ 阶段 2 员工创建与查询——先确认 `TASK-020` 到 `TASK-023-MVP` 的接口与数据模型落地顺序，再按切片实施
-- 当前阻塞：无。第 3 步尚未动代码，工作区在 `flow-desk/dynamic-rbac`（尚未推送）；本机启动后端前修复过两处环境问题（Flyway 历史记录、Redis 残留键，见记录）
+- 最新完成：**`TASK-057` 角色与权限 CRUD**——两组接口均已实现分页、详情、创建、更新和删除，统一使用 `RBAC_MANAGE` 鉴权；编码创建后不可修改，创建以预检查加数据库唯一键处理并发冲突，更新与删除在事务内锁定目标记录，删除受内置对象和授权关系引用保护。角色、权限均已补服务单元测试、Web 认证权限矩阵测试和真实 MySQL 集成测试；完整 `mvnw verify` 结果为 128 项单元/Web 测试与 30 项集成测试全绿。
+- 下一步（四步路线，2026-09-21 用户指示）：① ~~收口并提交前端外壳与页面骨架工作项~~ **已完成**；② ~~完成该工作项交接（推送 → 合并请求 → 合并 `main` → 同步 → 建下一分支）~~ **已完成**；③ **系统业务：完整动态 RBAC**（分支 `flow-desk/dynamic-rbac`）——~~产出阶段设计并集中确认~~ **2026-09-21 已确认**，~~`TASK-055`（`V5` 迁移）~~ **已完成**，~~`TASK-056`（会话撤销端口）~~ **已完成**，~~`TASK-057`（角色与权限 CRUD）~~ **已完成**，下一步 `TASK-058`（两组授权）；④ 阶段 2 员工创建与查询——先确认 `TASK-020` 到 `TASK-023-MVP` 的接口与数据模型落地顺序，再按切片实施
+- 当前阻塞：无。第 3 步已完成 `TASK-055`～`TASK-057`，工作区在 `flow-desk/dynamic-rbac`（尚未推送），下一步实施 `TASK-058`；本机启动后端前修复过三处环境问题（Flyway 历史记录、Redis 残留键、`V3` 残留导致 `V5` 无法应用的库内数据，见记录）
 - 环境前置：JDK 21、Node.js 24.20.0、pnpm 12.3.4、Docker 29.7.2 已验证；本机已有 `redis:8.8.0`、`mysql:8.4.11` 镜像。本地启动 profile 用 `local` 即可（`spring.profiles.group.local=demo` 已配置）。演示账号 `employee` / `it` / `admin`，密码统一为 `123456`（见 `db/demo/R__seed_demo_data.sql` 头部注释，2026-09-20 由 `demo.*` 改名）。本机已有过两类运行障碍并已修复：① Flyway 校验失败——历史表残留已删除的 V3 迁移记录，处置为删除该行（等价 `flyway repair`）；② Redis 残留旧实现写入的 hash 类型会话键，会让"撤销全部会话"抛 `WRONGTYPE`，已清理。另需注意：本机 Argon2id 校验约 2 秒/次（并发登录可拖到十几秒），前端 e2e 因此串行执行并放宽超时；跑 e2e 需要 `FLOWDESK_ALLOWED_ORIGINS` 包含 `http://127.0.0.1:4173`（本地 `.env` 已加）
-- 待确认事项：① Element Plus 目前是**全量引入**（打包约 1.07 MB / gzip 348 KB），是否改为按需引入（需新增 `unplugin-vue-components`、`unplugin-auto-import` 两个 dev 依赖）；② 本机库中 `admin` 仍带 `RBAC_MANAGE`（早前已删除的 V3 迁移遗留数据）：`V5` 正式预置该权限后本条需重新表述——此后它不再是“异常遗留”，改为核对本机库与迁移一致，在 `TASK-055` 收口时一并确认；③ 登录页占位文案是「登录名」「密码」，与 `frontend/AGENTS.md` 新增的「请输入…／请选择…」约定不一致（E2E 定位依赖现文案，改文案需同时改用例）；④ 首页 `h1`「欢迎回来」用的是展示级字号 `clamp(1.75rem, 5vw, 2.5rem)`，是否收小到页面标题刻度；⑤ ~~第 3 步「系统业务：RBAC」的范围~~ **已于 2026-09-21 确认：完整动态 RBAC**（`docs/api-design.md` 8.2.1 的角色、权限、用户角色授权、角色权限授权四组 CRUD）；**阶段设计已于 2026-09-21 确认**（8 项设计决策、`TASK-055`～`TASK-058` 任务拆分与验收标准，见 `docs/implementation-plan.md` 9.1）；仍待确认的只剩交付层级归属——是否补管理端页面、是否计入 MVP 演示范围（本阶段按“只做后端接口、迁移与测试”执行）；⑥ ~~侧栏当前的 CSS 下拉三角是否换成已安装的 `@element-plus/icons-vue` 的 `ArrowDown`~~ **已完成**：`AppSidebar` 已改用 `ArrowDown` 组件，为此新增的 `--fd-border-width` token 也已不存在（2026-09-21 核对）。历史处置：JaCoCo 覆盖率门禁已确认取消（2026-09-19），`pom.xml` 只保留 `jacoco:report` 供 CI 上传工件，不再保留 70% 行 / 60% 分支阈值（当时实测行覆盖 37.2%、分支 13.9%，阈值必定使 `verify` 失败）
+- 待确认事项：① Element Plus 目前是**全量引入**（打包约 1.07 MB / gzip 348 KB），是否改为按需引入（需新增 `unplugin-vue-components`、`unplugin-auto-import` 两个 dev 依赖）；② 登录页占位文案是「登录名」「密码」，与 `frontend/AGENTS.md` 新增的「请输入…／请选择…」约定不一致（E2E 定位依赖现文案，改文案需同时改用例）；③ 首页 `h1`「欢迎回来」用的是展示级字号 `clamp(1.75rem, 5vw, 2.5rem)`，是否收小到页面标题刻度；④ ~~第 3 步「系统业务：RBAC」的范围~~ **已于 2026-09-21 确认：完整动态 RBAC**（`docs/api-design.md` 8.2.1 的角色、权限、用户角色授权、角色权限授权四组 CRUD）；**阶段设计已于 2026-09-21 确认并补充**（11 项设计决策、`TASK-055`～`TASK-058` 任务拆分与验收标准，见 `docs/implementation-plan.md` 9.1）；仍待确认的只剩交付层级归属——是否补管理端页面、是否计入 MVP 演示范围（本阶段按“只做后端接口、迁移与测试”执行）；⑤ ~~侧栏当前的 CSS 下拉三角是否换成已安装的 `@element-plus/icons-vue` 的 `ArrowDown`~~ **已完成**：`AppSidebar` 已改用 `ArrowDown` 组件，为此新增的 `--fd-border-width` token 也已不存在（2026-09-21 核对）。历史处置：JaCoCo 覆盖率门禁已确认取消（2026-09-19），`pom.xml` 只保留 `jacoco:report` 供 CI 上传工件，不再保留 70% 行 / 60% 分支阈值（当时实测行覆盖 37.2%、分支 13.9%，阈值必定使 `verify` 失败）
+
+## 2026-09-21 本机库同步 V5（清理 V3 残留数据）
+
+- **问题**：`V5__enable_dynamic_rbac.sql` 已写入且空库迁移测试已通过，但**本机库**（`localhost:3308/flowdesk`）仍停在 V4 结构：`flyway_schema_history` 只有 `1,2,4`；`iam_role_permission` 没有 `granted_by`/`granted_at`，也没有 `idx_iam_role_permission_granted_by` 与 `fk_iam_role_permission_granted_by`。库里却已经有一行 `RBAC_MANAGE`（`iam_permission.id=14`）和一条 `SYSTEM_ADMIN×RBAC_MANAGE` 授权——来自**早前已删除的 `V3` 迁移残留**，不是 `V5` 的产物。
+- **直接重启的后果（已规避）**：`V5` 第 2 句 `INSERT INTO iam_permission ... 'RBAC_MANAGE'` 会撞唯一索引 `uk_iam_permission_code`（`Duplicate entry`），第 3 句会撞 `PRIMARY(role_id, permission_id)`。MySQL 的 DDL 自动提交，一旦触发就会留下"列已加、迁移失败"的半应用状态，需要先删掉失败记录才能重跑。空库与 CI 不受影响（`V3` 从未进入迁移集）。
+- **处置（2026-09-21 执行，用户授权）**：停掉 8081 后端（PID 16984）→ 在单个事务里删除残留的授权行与权限行（回到 `V2` 基线：13 权限 / 13 授权 / `SYSTEM_ADMIN` 3 项）→ 重启后端由 Flyway 应用 `V5`。
+- **验证证据**：
+  - 启动日志：`Current version of schema flowdesk: 4` → `Migrating schema flowdesk to version "5 - enable dynamic rbac"` → `Successfully applied 1 migration ... now at version v5`；`Started FlowDeskApplication in 6.839 seconds`，Tomcat 8081，profiles `local, demo`。
+  - 库内核对：`flyway_schema_history` 新增 `5 | enable dynamic rbac | success=1`；`iam_role_permission` 为四列（`granted_by bigint unsigned NULL`、`granted_at datetime(6) NULL`）；授权人索引与外键 `fk_iam_role_permission_granted_by → iam_user(id)` 均在；`RBAC_MANAGE` 为新行 `id=15`；授权 `(SYSTEM_ADMIN=3, RBAC_MANAGE=15)` 的两列审计为 `NULL`；权限 14 / 授权 14 / 审计为空的授权 14，与 `DatabaseMigrationIT` 的断言一致。
+  - 端到端：`admin` / `123456` 登录返回 `OK`，`GET /fd/v1/auth/me` 返回 `SYSTEM_ADMIN` 与 4 项权限（含 `RBAC_MANAGE`）。
+- **本机启动方式（避免踩坑）**：`-Dspring-boot.run.profiles=local` 在 PowerShell 下会被拆成 `-Dspring-boot` 与 `.run.profiles=local`，Maven 报 `Unknown lifecycle phase`；改用环境变量 `SPRING_PROFILES_ACTIVE=local`。另外 `Start-Process` 起的后端会随命令结束一起被回收，需要以受管后台任务方式启动。
+- **顺带观察（非阻塞）**：启动日志出现 `Can not find table primary key in Class: IamUserRole / IamRolePermission`——两张授权表是复合主键、实体没有 `@TableId`，MyBatis-Plus 因此不能对它们用 `xxById` 系列方法；`TASK-057`/`TASK-058` 读写这两张表时需用 wrapper 方式。
 
 ## 2026-09-21 第 3 步阶段设计确认（完整动态 RBAC）
 
-- **决策来源**：用户 2026-09-21 指示“按建议执行”，确认了阶段设计的 8 项设计决策与其余 6 项默认项。范围上限仍是 `docs/api-design.md` 8.2.1 的四组接口，不扩展到该节之外的权限模型。
-- **8 项设计决策**（完整理由见 `docs/implementation-plan.md` 9.1）：
-  1. `iam_role_permission` 由 `V5` 补 `granted_by` / `granted_at`，两列允许为空，存量行不伪造时间；新授权必须写入两列。
+- **决策来源**：用户 2026-09-21 先确认阶段设计的 8 项设计决策与其余 6 项默认项，随后补充确认两类授权返回字段、角色权限变化的会话撤销范围及并发锁协议。范围上限仍是 `docs/api-design.md` 8.2.1 的四组接口，不扩展到该节之外的权限模型。
+- **11 项设计决策**（完整理由见 `docs/implementation-plan.md` 9.1）：
+  1. `iam_role_permission` 由 `V5` 补 `granted_by BIGINT UNSIGNED` / `granted_at DATETIME(6)`、授权人索引与外键，两列允许为空，存量行不伪造时间；新授权必须写入两列。
   2. 会话撤销经 IAM 定义的 `SessionRevocationPort`，由 auth 侧 adapter 实现，保持 `auth → iam` 单向依赖，IAM 不感知 Redis。
   3. 撤销会话与提交的顺序：**先撤 Redis 会话，后提交 MySQL 授权变更**（与改密一致；不让旧权限在旧会话里继续可用）。
   4. 授予接口首次与重复都返回 `200`；`201` 只用于创建角色、创建权限。
@@ -30,9 +42,12 @@
   6. 排序白名单：角色/权限 `code,name,created_at`；用户角色 `granted_at`；角色权限 `role_id,permission_id`。
   7. 两组授权列表必须至少给出一个筛选条件，都不给返回 `400/VALIDATION_FAILED`。
   8. 本阶段只交付后端接口、迁移与测试证据，**不做管理端页面**（`frontend/src/views/admin/` 留给后续主题）。
-- **任务拆分（按依赖顺序）**：`TASK-055`（`V5` 迁移 + `DatabaseMigrationIT` 三处断言同步）→ `TASK-056`（会话撤销端口与 adapter）→ `TASK-057`（角色、权限两组 CRUD）→ `TASK-058`（用户角色、角色权限两组授权）。
-- **阶段验收标准**：见 `docs/implementation-plan.md` 9.1（`verify` 全绿且相对起点只增不减、覆盖矩阵逐格有据、迁移断言与 `V5` 一致、三条手工链路留 `traceId`、三份文档当前阶段一致）。
-- **同步的文档**：`docs/implementation-plan.md`（§3.2、§3.3、§4、§9.1）、`docs/api-design.md`（§8.1 版本边界、§8.2.1 补充语义）、`docs/database-design.md`（§17.2 边界、§17.5 新增列）、本文件与 `AGENTS.md`。
+  9. 两类授权列表和授予响应使用固定授权 BO；`grantedBy` 返回可空的授权人用户 ID，重复授予返回原记录且不改写审计字段。
+  10. 角色权限实际变化后撤销该角色全部用户会话；持有角色锁后通过 `FOR UPDATE` 按用户 ID 升序取得受影响用户快照，重复授予不撤销。
+  11. RBAC 写操作统一使用 `SELECT ... FOR UPDATE`，固定锁顺序为角色 → 权限 → 用户 → 授权关系，同层按主键升序；锁后重查不变量，并以 MySQL 真并发测试验证至少一个角色与最后启用管理员保护。
+- **任务拆分（按依赖顺序）**：~~`TASK-055`（`V5` 迁移 + `DatabaseMigrationIT` 同步）~~ **已完成** → `TASK-056`（会话撤销端口与 adapter）→ `TASK-057`（角色、权限两组 CRUD）→ `TASK-058`（用户角色、角色权限两组授权）。
+- **阶段验收标准**：见 `docs/implementation-plan.md` 9.1（`verify` 全绿且相对起点只增不减、覆盖矩阵逐格有据、迁移断言与 `V5` 一致、四条手工链路留 `traceId`、MySQL 真并发验证两项核心不变量、三份当前阶段文档一致）。
+- **同步的文档**：`docs/implementation-plan.md`（§3.2、§3.3、§4、§9.1）、`docs/api-design.md`（§8.1 版本边界、§8.2.1 补充语义）、`docs/database-design.md`（§17.2 边界、§17.5 新增列）、`docs/modules/rbac.md`、本文件、`README.md` 与 `AGENTS.md`。
 - **开工前置**：用 `compose.yaml` 起 MySQL/Redis，并在新分支上复现 `./mvnw -B verify` 的 **55 项单元/Web + 17 项集成**基线（起点不确定则后续“未退化”不可信）；本机 `gh` 仍未登录，只影响建 PR 效率。
 - **本轮产出边界（2026-09-21）**：只产出**文档与数据库设计**——`docs/modules/rbac.md`（模块设计说明）、`docs/implementation-plan.md` 9.1（决策与任务拆分）、`docs/api-design.md` 8.2.1 与 10.2（语义与错误码）、`docs/database-design.md` 17.5（`V5` 计划新增的列）。**实现代码（迁移脚本、服务、控制器、测试）一行都还没写**；越界写出的版本已移出本分支，存放在本地分支 `wip/rbac-code`（未推送，可随时 `git branch -D wip/rbac-code` 丢弃，或经确认后 cherry-pick 取用）。
 

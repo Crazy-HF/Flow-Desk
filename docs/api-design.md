@@ -401,10 +401,20 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 **2026-09-21 已确认实施，阶段设计同日确认**（原文为“完整版可选，MVP 明确不实现”）。所有本节接口均要求 `RBAC_MANAGE`：通过新的 Flyway 迁移（`V5`）预置此权限并授予受保护的 `SYSTEM_ADMIN` 角色；不得修改已发布的历史迁移。任务拆分、切片顺序与验收标准见 `docs/implementation-plan.md` 9.1。本节补充确认的语义：
 
 - **审计**：`iam_role_permission` 原无审计列，`V5` 为其补 `granted_by` / `granted_at`（允许为空，存量行不伪造时间）；新授权必须同时写入两列，`granted_by` 取当前操作人。`iam_user_role` 沿用建表时已有的同名两列。
-- **会话撤销**：授予或撤销用户角色成功后，按“**先撤销该用户全部会话（Redis），后提交 MySQL 授权变更**”的顺序执行，与改密一致；撤销会话经 IAM 定义的 `SessionRevocationPort` 完成，IAM 不依赖 auth 模块。
+- **会话撤销**：授予或撤销用户角色成功后，撤销该用户全部会话；授予或撤销角色权限成功后，撤销当前拥有该角色的**全部用户**会话。两者都按“**先撤销 Redis 会话，后提交 MySQL 授权变更**”的顺序执行，与改密一致；角色权限变化时，在持有角色锁后通过 `FOR UPDATE` 按 `user_id` 升序取得受影响用户快照并逐个撤销。任一撤销失败则本次 MySQL 事务回滚。撤销会话经 IAM 定义的 `SessionRevocationPort` 完成，IAM 不依赖 auth 模块。
 - **幂等**：重复授予（同一 `userId`+`roleId` 或 `roleId`+`permissionId`）统一返回 `200`，与首次授予相同；`201` 只用于真正创建了新资源的接口（创建角色、创建权限）。
 - **保护判定**：受保护角色与权限按 `code` 常量判定（`SYSTEM_ADMIN`、`RBAC_MANAGE`），不新增“内置”标记列。
 - **分页与筛选**：排序白名单为角色/权限 `code,name,created_at`、用户角色 `granted_at`、角色权限 `role_id,permission_id`；两组授权列表必须至少给出一个筛选条件（`userId`/`roleId`、`roleId`/`permissionId`），都不给返回 `400/VALIDATION_FAILED`。
+- **并发锁定**：所有 RBAC 写用例使用同一 MySQL 事务和 `SELECT ... FOR UPDATE` 锁定参与校验的已有记录，固定顺序为 **角色 → 权限 → 用户 → 授权关系**；同一层需要多行时按主键升序。允许跳过不涉及的层级，但禁止反向加锁。取得锁后必须重新读取授权关系并校验“至少一个角色、最后启用管理员、受保护授权、引用关系”等不变量，不得用加锁前的查询结果作决定。数据库死锁或锁等待超时回滚并返回 `409/RBAC_CONFLICT`，不得自动重放包含 Redis 会话撤销的写用例。
+
+两类授权使用各自唯一的响应模型，列表项与授予成功后的 `data` 使用相同字段；重复授予返回原授权记录，不更新原 `grantedBy` / `grantedAt`，也不撤销会话：
+
+| 响应模型 | 字段 |
+| --- | --- |
+| `UserRoleGrant` | `userId`（用户 ID）、`username`（用户名）、`roleId`（角色 ID）、`roleCode`（角色编码）、`roleName`（角色名称）、`grantedBy`（授权人用户 ID，可空）、`grantedAt`（授权时间） |
+| `RolePermissionGrant` | `roleId`（角色 ID）、`roleCode`（角色编码）、`permissionId`（权限 ID）、`permissionCode`（权限编码）、`permissionName`（权限名称）、`grantedBy`（授权人用户 ID，可空）、`grantedAt`（授权时间；历史预置关系可空） |
+
+`grantedAt` 遵循全局约定，返回带 UTC 偏移的 ISO 8601 字符串。`grantedBy = null` 表示 Flyway 预置或其他没有具体操作人的系统授权；本阶段不额外返回授权人的用户名或显示名称。
 
 | 用例 | 方法与路径 | 请求与结果 |
 | --- | --- | --- |
@@ -418,12 +428,12 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 | 创建权限 | `POST /fd/v1/admin/permissions` | Body：`code`、`name`、可选 `description`；返回 `201/R<PermissionDetail>` |
 | 修改权限 | `PUT /fd/v1/admin/permissions/{permissionId}` | Body：`name`、可选 `description`；`code` 创建后不可修改 |
 | 删除权限 | `DELETE /fd/v1/admin/permissions/{permissionId}` | 权限仍被角色引用时返回 `409`；不得删除 `RBAC_MANAGE` |
-| 用户角色授权列表 | `GET /fd/v1/admin/user-roles` | 至少提供 `userId` 或 `roleId` 之一，支持标准 `PageQuery` |
-| 授予用户角色 | `POST /fd/v1/admin/user-roles` | Body：`userId`、`roleId`；重复授权幂等成功，并撤销该用户全部会话 |
-| 撤销用户角色 | `DELETE /fd/v1/admin/user-roles/{userId}/{roleId}` | 不得使用户失去最后一个角色，或使最后一个启用管理员失去管理员角色；成功后撤销全部会话 |
-| 角色权限授权列表 | `GET /fd/v1/admin/role-permissions` | 至少提供 `roleId` 或 `permissionId` 之一，支持标准 `PageQuery` |
-| 授予角色权限 | `POST /fd/v1/admin/role-permissions` | Body：`roleId`、`permissionId`；重复授权幂等成功 |
-| 撤销角色权限 | `DELETE /fd/v1/admin/role-permissions/{roleId}/{permissionId}` | 不得撤销 `SYSTEM_ADMIN` 的 `RBAC_MANAGE` 授权 |
+| 用户角色授权列表 | `GET /fd/v1/admin/user-roles` | 至少提供 `userId` 或 `roleId` 之一，支持标准 `PageQuery`；返回 `R<PageResult<UserRoleGrant>>` |
+| 授予用户角色 | `POST /fd/v1/admin/user-roles` | Body：`userId`、`roleId`；返回 `200/R<UserRoleGrant>`；重复授权返回原记录，实际新增后撤销该用户全部会话 |
+| 撤销用户角色 | `DELETE /fd/v1/admin/user-roles/{userId}/{roleId}` | 返回 `200/R<Void>`；不得使用户失去最后一个角色，或使最后一个启用管理员失去管理员角色；成功后撤销全部会话 |
+| 角色权限授权列表 | `GET /fd/v1/admin/role-permissions` | 至少提供 `roleId` 或 `permissionId` 之一，支持标准 `PageQuery`；返回 `R<PageResult<RolePermissionGrant>>` |
+| 授予角色权限 | `POST /fd/v1/admin/role-permissions` | Body：`roleId`、`permissionId`；返回 `200/R<RolePermissionGrant>`；重复授权返回原记录，实际新增后撤销该角色全部用户会话 |
+| 撤销角色权限 | `DELETE /fd/v1/admin/role-permissions/{roleId}/{permissionId}` | 返回 `200/R<Void>`；不得撤销 `SYSTEM_ADMIN` 的 `RBAC_MANAGE` 授权；成功后撤销该角色全部用户会话 |
 
 `iam_user_role` 与 `iam_role_permission` 都是只有复合主键和审计字段的授权关系，没有独立可编辑的业务字段；因此这两组接口采用“查询、授予、撤销”，而非没有实际语义的 `PUT`。资源不存在分别返回 `404/ROLE_NOT_FOUND`、`404/PERMISSION_NOT_FOUND` 或 `404/GRANT_NOT_FOUND`；编码重复返回 `409/ROLE_CODE_CONFLICT` 或 `409/PERMISSION_CODE_CONFLICT`；违反保护或引用约束返回 `409/RBAC_CONFLICT`。
 
@@ -549,7 +559,7 @@ MySQL 与 Redis 之间不存在天然原子事务。工程准备阶段必须明�
 | `409` | `CATEGORY_CONFLICT` | 分类版本或状态已变化 |
 | `409` | `ROLE_CODE_CONFLICT` | 角色编码已存在 |
 | `409` | `PERMISSION_CODE_CONFLICT` | 权限编码已存在 |
-| `409` | `RBAC_CONFLICT` | 违反内置管理员保护或授权引用约束（删除 `SYSTEM_ADMIN`、删除 `RBAC_MANAGE`、删除仍被引用的角色或权限、撤销 `SYSTEM_ADMIN` 的 `RBAC_MANAGE`） |
+| `409` | `RBAC_CONFLICT` | 违反内置管理员保护或授权引用约束（删除 `SYSTEM_ADMIN`、删除 `RBAC_MANAGE`、删除仍被引用的角色或权限、撤销 `SYSTEM_ADMIN` 的 `RBAC_MANAGE`），或 RBAC 写事务发生锁等待超时/死锁 |
 | `413` | `ATTACHMENT_TOO_LARGE` | 单文件、数量或总大小超过限制 |
 | `415` | `ATTACHMENT_TYPE_UNSUPPORTED` | 文件类型不在白名单或检测不一致 |
 | `500` | `INTERNAL_ERROR` | 未预期错误；对外隐藏内部细节 |
