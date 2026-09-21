@@ -230,7 +230,7 @@ MVP 最终完成定义：
 | 任务 | 内容 | 关键产出 |
 | --- | --- | --- |
 | `TASK-055` | `V5` 迁移：新增 `RBAC_MANAGE` 权限、授予 `SYSTEM_ADMIN`、为 `iam_role_permission` 补审计列；同步 `DatabaseMigrationIT` 的三处断言（版本 `1,2,4,5`、权限数 14、`SYSTEM_ADMIN` 权限数 4） | 迁移脚本 + 迁移集成测试 |
-| `TASK-056` | 会话撤销端口与 adapter：`iam/service/SessionRevocationPort`（`void revokeAll(long userId)`）+ `auth/security/IamSessionRevocationAdapter` | 端口、adapter、转发单测 |
+| `TASK-056` | 会话撤销端口与 adapter：`iam/service/SessionRevocationPort`（`void revokeAll(long userId)`）+ `auth/infrastructure/IamSessionRevocationAdapter` | 端口、adapter、转发单测 |
 | `TASK-057` | 角色与权限两组 CRUD：`/fd/v1/admin/roles`、`/fd/v1/admin/permissions` | Controller/Service/VO/BO + Web 测试 |
 | `TASK-058` | 用户角色与角色权限两组授权：`/fd/v1/admin/user-roles`、`/fd/v1/admin/role-permissions` | 同上 + 会话撤销联动 |
 

@@ -533,6 +533,9 @@ MySQL 与 Redis 之间不存在天然原子事务。工程准备阶段必须明�
 | `404` | `TICKET_NOT_FOUND` | 工单不存在或不可见 |
 | `404` | `USER_NOT_FOUND` | 管理范围内用户不存在 |
 | `404` | `CATEGORY_NOT_FOUND` | 管理范围内分类不存在 |
+| `404` | `ROLE_NOT_FOUND` | 角色不存在，或 `roleId` 非正整数 |
+| `404` | `PERMISSION_NOT_FOUND` | 权限不存在，或 `permissionId` 非正整数 |
+| `404` | `GRANT_NOT_FOUND` | 要撤销的授权关系不存在 |
 | `404` | `ATTACHMENT_NOT_FOUND` | 附件不存在、归属不符或不可见 |
 | `409` | `TICKET_CONFLICT` | 工单版本、状态或负责人已变化 |
 | `409` | `USERNAME_CONFLICT` | 登录名已存在 |
@@ -544,6 +547,9 @@ MySQL 与 Redis 之间不存在天然原子事务。工程准备阶段必须明�
 | `409` | `CATEGORY_NAME_CONFLICT` | 分类名称已存在 |
 | `409` | `CATEGORY_IN_USE` | 删除仍被工单引用的分类 |
 | `409` | `CATEGORY_CONFLICT` | 分类版本或状态已变化 |
+| `409` | `ROLE_CODE_CONFLICT` | 角色编码已存在 |
+| `409` | `PERMISSION_CODE_CONFLICT` | 权限编码已存在 |
+| `409` | `RBAC_CONFLICT` | 违反内置管理员保护或授权引用约束（删除 `SYSTEM_ADMIN`、删除 `RBAC_MANAGE`、删除仍被引用的角色或权限、撤销 `SYSTEM_ADMIN` 的 `RBAC_MANAGE`） |
 | `413` | `ATTACHMENT_TOO_LARGE` | 单文件、数量或总大小超过限制 |
 | `415` | `ATTACHMENT_TYPE_UNSUPPORTED` | 文件类型不在白名单或检测不一致 |
 | `500` | `INTERNAL_ERROR` | 未预期错误；对外隐藏内部细节 |
