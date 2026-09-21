@@ -1,58 +1,52 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 
-import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
+import AppBreadcrumb from '@/components/AppBreadcrumb.vue'
+import AppHeader from '@/components/AppHeader.vue'
+import AppSidebar from '@/components/AppSidebar.vue'
 import { useAuthStore } from '@/stores/auth'
 
-const auth = useAuthStore()
-const { isAuthenticated, user } = storeToRefs(auth)
-const router = useRouter()
+const { isAuthenticated } = storeToRefs(useAuthStore())
+const route = useRoute()
+const mobileNavigationOpen = ref(false)
 
-const passwordDialogVisible = ref(false)
-
-async function handleSignOut(): Promise<void> {
-  await auth.signOut()
-  await router.replace({ name: 'login' })
-}
+watch(
+  () => route.fullPath,
+  () => {
+    mobileNavigationOpen.value = false
+  },
+)
 </script>
 
 <template>
-  <header
+  <div
     v-if="isAuthenticated"
-    class="app-header"
+    class="app-shell"
   >
-    <RouterLink
-      class="app-header__brand"
-      to="/"
-    >
-      FlowDesk
-    </RouterLink>
-    <div class="app-header__account">
-      <span class="app-header__identity">{{ user?.displayName }}</span>
-      <el-dropdown trigger="click">
-        <el-button text>
-          账号
-        </el-button>
-        <template #dropdown>
-          <el-dropdown-menu>
-            <el-dropdown-item @click="passwordDialogVisible = true">
-              修改密码
-            </el-dropdown-item>
-            <el-dropdown-item
-              divided
-              @click="handleSignOut"
-            >
-              退出登录
-            </el-dropdown-item>
-          </el-dropdown-menu>
-        </template>
-      </el-dropdown>
+    <a
+      class="app-shell__skip-link"
+      href="#main-content"
+    >跳到主体内容</a>
+    <AppHeader @toggle-navigation="mobileNavigationOpen = true" />
+
+    <div class="app-shell__body">
+      <AppSidebar class="app-shell__sidebar" />
+      <section class="app-shell__workspace">
+        <AppBreadcrumb />
+        <RouterView />
+      </section>
     </div>
-  </header>
 
-  <RouterView />
-
-  <ChangePasswordDialog v-model="passwordDialogVisible" />
+    <el-drawer
+      v-model="mobileNavigationOpen"
+      direction="ltr"
+      size="var(--fd-sidebar-drawer-width)"
+      title="主导航"
+    >
+      <AppSidebar @navigate="mobileNavigationOpen = false" />
+    </el-drawer>
+  </div>
+  <RouterView v-else />
 </template>

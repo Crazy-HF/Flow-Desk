@@ -25,6 +25,11 @@ export const useAuthStore = defineStore('auth', () => {
     return permissions.value.includes(code)
   }
 
+  /** 任一权限命中即通过：用于菜单显隐与路由守卫里声明多条可选权限的场景。 */
+  function hasAnyPermission(codes: string[]): boolean {
+    return codes.some((code) => hasPermission(code))
+  }
+
   function setAccessToken(token: string): void {
     accessToken.value = token
   }
@@ -41,6 +46,11 @@ export const useAuthStore = defineStore('auth', () => {
     restoreAttempted.value = true
   }
 
+  /** 重新读取当前身份；由需要原位恢复的页面调用，失败交给页面展示可重试状态。 */
+  async function loadCurrentUser(): Promise<void> {
+    user.value = await fetchCurrentUser()
+  }
+
   /** 刷新页面后恢复身份：先用 Refresh Cookie 换新的 Access Token，再读当前身份。 */
   async function restoreSession(): Promise<boolean> {
     if (accessToken.value && user.value) {
@@ -49,7 +59,7 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       // 显式写回自己的状态，不依赖网络层的副作用；两者最终写入的是同一个令牌
       accessToken.value = await refreshAccessToken()
-      user.value = await fetchCurrentUser()
+      await loadCurrentUser()
       return true
     } catch {
       clearSession()
@@ -82,9 +92,11 @@ export const useAuthStore = defineStore('auth', () => {
     permissions,
     roles,
     hasPermission,
+    hasAnyPermission,
     setAccessToken,
     clearSession,
     signIn,
+    loadCurrentUser,
     restoreSession,
     restoreOnce,
     signOut,

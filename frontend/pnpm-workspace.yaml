@@ -1,0 +1,7 @@
+# 这里只放 pnpm 的安装策略配置，不是 monorepo：本项目前端是单包，锁文件仍在 frontend/pnpm-lock.yaml。
+#
+# sass 的可选依赖 @parcel/watcher 只服务于 `sass --watch`；本项目由 Vite 提供 HMR，不需要它的原生构建。
+# pnpm 12 对未批准的构建脚本会以 ERR_PNPM_IGNORED_BUILDS 直接中断安装，CI 的
+# `pnpm install --frozen-lockfile` 会因此失败，因此在这里显式拒绝该构建脚本。
+allowBuilds:
+  '@parcel/watcher': false
