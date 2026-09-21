@@ -4,19 +4,53 @@
 
 ## 快速定位
 
-- 最后更新：2026-09-19
+- 最后更新：2026-09-21
 - 远程仓库：`git@github.com:Crazy-HF/Flow-Desk.git`
 - 稳定分支：`main`
-- 当前基线分支：`main`
-- 当前工作分支：`flow-desk/auth-foundation`
-- 下一次创建分支：`flow-desk/employee-ticket-flow`
-- 当前阶段：求职 MVP 阶段 1 Auth 身份入口已完成，正在交接至阶段 2 员工创建与查询
-- 已确认的范围调整：项目分为“求职 MVP”和“完整版”；MVP 固定 `EMPLOYEE`、`IT_SUPPORT`、`SYSTEM_ADMIN` 三种内置角色，不实现在线角色、权限及授权关系 CRUD。动态 RBAC 仅为完整版可选项，需另行确认。
-- 最新完成：`TASK-010`（后端六个接口）与 `TASK-011`（Vue 登录外壳与身份恢复）均已完成。后端 `./mvnw -B verify` 单元/Web 53 项 + 集成 17 项全绿；前端 `test:unit` 14 项、`typecheck`、`lint`、`build`、`test:e2e` 5 项全部通过
-- 下一步：完成当前主题分支交接后，从最新 `main` 创建 `flow-desk/employee-ticket-flow`，实施 `TASK-020`～`TASK-023-MVP`
-- 当前阻塞：无。本机启动后端前修复过两处环境问题（Flyway 历史记录、Redis 残留键，见记录）
-- 环境前置：JDK 21、Node.js 24.20.0、pnpm 12.3.4、Docker 29.7.2 已验证；本机已有 `redis:8.8.0`、`mysql:8.4.11` 镜像。本地启动 profile 用 `local` 即可（`spring.profiles.group.local=demo` 已配置）。演示账号 `demo.employee` / `demo.it` / `demo.admin`，密码见 `db/demo/R__seed_demo_data.sql` 头部注释。本机已有过两类运行障碍并已修复：① Flyway 校验失败——历史表残留已删除的 V3 迁移记录，处置为删除该行（等价 `flyway repair`）；② Redis 残留旧实现写入的 hash 类型会话键，会让"撤销全部会话"抛 `WRONGTYPE`，已清理。另需注意：本机 Argon2id 校验约 2 秒/次（并发登录可拖到十几秒），前端 e2e 因此串行执行并放宽超时；跑 e2e 需要 `FLOWDESK_ALLOWED_ORIGINS` 包含 `http://127.0.0.1:4173`（本地 `.env` 已加）
-- 待确认事项：无。JaCoCo 覆盖率门禁已确认取消（2026-09-19）：`pom.xml` 只保留 `jacoco:report` 供 CI 上传工件，不再保留 70% 行 / 60% 分支阈值；当时实测行覆盖 37.2%、分支 13.9%，阈值必定使 `verify` 失败
+- 当前基线分支：`main`（阶段 1 已合并，合并提交 `5c6cca0`）
+- 当前工作分支：`flow-desk/frontend-shell`（本地分支，基于最新 `main`；本工作项改动已按主题提交，**尚未推送**）
+- 下一次创建分支：本工作项交接完成后，从最新 `main` 创建第 3 步“系统业务：RBAC”的分支，名称待该阶段范围确认后确定。已存在的 `flow-desk/employee-ticket-flow` 只含 `7f6c72c` 一条文档同步提交，不用于本轮开发
+- 当前阶段：第 1 步**前端外壳与页面骨架**收口与提交（2026-09-21 已提交，待第 2 步交接）；路线按用户 2026-09-21 指示调整为四步：① 收口并提交前端外壳 ② 完成交接（推送 → 合并请求 → 合并 `main` → 同步 → 建下一分支）③ **系统业务：RBAC**（范围待确认，见待确认事项⑤）④ 阶段 2 `TASK-020`～`TASK-023-MVP`
+- 已确认的范围调整：项目分为“求职 MVP”和“完整版”；MVP 固定 `EMPLOYEE`、`IT_SUPPORT`、`SYSTEM_ADMIN` 三种内置角色，不实现在线角色、权限及授权关系 CRUD。动态 RBAC 仅为完整版可选项，需另行确认。**用户已把「系统业务：RBAC」定为第 3 步，但该阶段是否包含在线 CRUD 仍待确认，确认前不改动 `AGENTS.md` 的既有边界与 `docs/implementation-plan.md` 的阶段划分。**
+- 最新完成：**阶段 1（Auth 身份入口）已通过 PR #5 合并进入 `main`**，CI 三个 job（后端 verify、前端 verify、核心 E2E）全绿。成果：后端 `TASK-010` 五个接口 + 前端 `TASK-011`；证据为后端 `./mvnw -B verify` 单元/Web 53 项 + 集成 17 项、前端 `test:unit` 14 项与 `test:e2e` 5 项、三类演示账号真实登录验证
+- 下一步（四步路线，2026-09-21 用户指示）：① 收口并提交前端外壳与页面骨架工作项（`flow-desk/frontend-shell`，已提交，见下方记录）；② 完成本工作项交接：推送分支 → 创建合并请求 → 合并 `main` → 本地 `main` 仅快进拉取 → 从最新 `main` 创建下一分支；③ **系统业务：RBAC**——先确认范围（动态角色/权限/授权关系 CRUD，或仅用户与内置角色管理），再确定分支名、任务拆分与验收标准；④ 阶段 2 员工创建与查询——先确认 `TASK-020` 到 `TASK-023-MVP` 的接口与数据模型落地顺序，再按切片实施
+- 当前阻塞：无。工作区改动已按主题提交到 `flow-desk/frontend-shell`（尚未推送）；本机启动后端前修复过两处环境问题（Flyway 历史记录、Redis 残留键，见记录）
+- 环境前置：JDK 21、Node.js 24.20.0、pnpm 12.3.4、Docker 29.7.2 已验证；本机已有 `redis:8.8.0`、`mysql:8.4.11` 镜像。本地启动 profile 用 `local` 即可（`spring.profiles.group.local=demo` 已配置）。演示账号 `employee` / `it` / `admin`，密码统一为 `123456`（见 `db/demo/R__seed_demo_data.sql` 头部注释，2026-09-20 由 `demo.*` 改名）。本机已有过两类运行障碍并已修复：① Flyway 校验失败——历史表残留已删除的 V3 迁移记录，处置为删除该行（等价 `flyway repair`）；② Redis 残留旧实现写入的 hash 类型会话键，会让"撤销全部会话"抛 `WRONGTYPE`，已清理。另需注意：本机 Argon2id 校验约 2 秒/次（并发登录可拖到十几秒），前端 e2e 因此串行执行并放宽超时；跑 e2e 需要 `FLOWDESK_ALLOWED_ORIGINS` 包含 `http://127.0.0.1:4173`（本地 `.env` 已加）
+- 待确认事项：① Element Plus 目前是**全量引入**（打包约 1.07 MB / gzip 348 KB），是否改为按需引入（需新增 `unplugin-vue-components`、`unplugin-auto-import` 两个 dev 依赖）；② 本机库中 `admin` 仍带 `RBAC_MANAGE`（早前已删除的 V3 迁移遗留数据），是否清理；③ 登录页占位文案是「登录名」「密码」，与 `frontend/AGENTS.md` 新增的「请输入…／请选择…」约定不一致（E2E 定位依赖现文案，改文案需同时改用例）；④ 首页 `h1`「欢迎回来」用的是展示级字号 `clamp(1.75rem, 5vw, 2.5rem)`，是否收小到页面标题刻度；⑤ **第 3 步「系统业务：RBAC」的范围**——是只做用户管理与内置角色分配（`TASK-051` 的 IAM 管理能力），还是同时开放动态角色/权限及其授权关系 CRUD（`docs/api-design.md` 8.2.1，需新 Flyway 迁移预置 `RBAC_MANAGE`），或两者分两步做；该决定会同时影响 `AGENTS.md` 当前阶段限制、`docs/implementation-plan.md` 阶段划分与数据库迁移；⑥ 侧栏当前的 CSS 下拉三角是否换成已安装的 `@element-plus/icons-vue` 的 `ArrowDown`（换掉后可一并删除为此新增的 `--fd-border-width` token）。历史处置：JaCoCo 覆盖率门禁已确认取消（2026-09-19），`pom.xml` 只保留 `jacoco:report` 供 CI 上传工件，不再保留 70% 行 / 60% 分支阈值（当时实测行覆盖 37.2%、分支 13.9%，阈值必定使 `verify` 失败）
+
+## 2026-09-21 前端外壳工作项提交与路线调整
+
+- **分支纠正**：此前“快速定位”把当前工作分支记为 `flow-desk/employee-ticket-flow`，与仓库实际不符。实际开发在本地分支 `flow-desk/frontend-shell`（基于 `main` 的 `5c6cca0`）上进行，此前既无自身提交也未推送；`flow-desk/employee-ticket-flow` 只含 `7f6c72c` 一条文档同步提交。已在“快速定位”更正当前工作分支与下一次创建分支。
+- **本轮提交（`flow-desk/frontend-shell`，未推送）**：按单一意图拆为 5 个提交——前端规范与设计上下文（`docs`）→ 设计 token、应用外壳与页面骨架（`feat`）→ 演示账号改名与本地密码统一（`chore`）→ 请求开始行与本地 SQL 日志（`feat`）→ 状态文档同步（`docs`）。
+- **一并提交的既有成果**：`views` 按 `frontend/AGENTS.md` 新增的目录分层移到 `views/auth`、`views/error`、`views/work`；`App.vue` 接线“顶栏 + 权限侧栏 + 面包屑 + 主体”四层；`HomeView` 重做（骨架屏、原位重试、三阶段入口）；新增 `frontend/AGENTS.md` 与 `.ui-craft/brief.md`、`tokens.md`；新增依赖 `@element-plus/icons-vue`、`sass`。
+- **验证证据（Codex 实跑）**：前端 `vitest run` 12 套件 / 25 项全通过；`vue-tsc -b` 退出码 0；`eslint . --max-warnings=0` 退出码 0。
+- **未验证（不得计入完成）**：`pnpm build`、`pnpm test:e2e`（需后端 + MySQL + Redis + 演示账号）与后端 `./mvnw -B verify` 本轮均未执行；后端 55 项单元/Web + 17 项集成来自同日“请求与 SQL 日志打通”记录，本轮未复现。**已提交不等于已验收。**
+- **路线调整（用户 2026-09-21 指示）**：后续改为四步（收口前端外壳 → 交接 → 系统业务 RBAC → 阶段 2 `TASK-020`～`TASK-023-MVP`）。第 3 步 RBAC 的范围尚未确认，确认前不改 `AGENTS.md` 的既有边界（MVP 不实现在线角色/权限 CRUD）与 `docs/implementation-plan.md` 的阶段划分。
+
+## 2026-09-21 前端新增 @element-plus/icons-vue（含本机 pnpm 链接缺陷的处置）
+
+- **变更**：`frontend/package.json` 新增 `"@element-plus/icons-vue": "2.3.2"`（精确锁版本，与既有 `element-plus: 2.14.5` 惯例一致），lockfile 同步更新。用途是给侧栏一级栏目提供下拉三角图标——`frontend/AGENTS.md` 本来就要求图标走这个包，此前它并未安装，所以下拉三角一度是用 CSS 边框画的。
+- **装前按环境约定停掉了 IntelliJ 的 JS 语言服务 JVM**（`-Xmx700m` + IntelliJ jna 路径的那两个），装完由 IDE 自行重启；未动 IDE 自己启动的 Spring Boot 进程。
+- **本机缺陷（重要，会复发）**：pnpm 12.3.4 在 Windows 上为**带 peer 依赖的包**生成顶层符号链接时，链接目标名少了 peer 后缀。实测：
+  - 真实目录 `.pnpm/@element-plus+icons-vue@2.3.2_vue@3.5.42_typescript@6.0.3_/`（存在、内容完好）
+  - 链接却指向 `.pnpm/@element-plus+icons-vue@2.3.2/`（不存在）
+  - 后果：`fs.realpathSync` / `statSync` 报 `ENOENT`，Node 与 Vite 都解析不到该模块；而 `pnpm install` 与 `pnpm install --frozen-lockfile` 都报 "Already up to date"，`--force` 重装也不会修。全量扫描 `node_modules` 的 21 个符号链接，**只有这一个坏了**（对照 `element-plus` 自身的链接是 `.pnpm/element-plus@2.14.5_vue@3.5.42_typescript@6.0.3_/`，带后缀、正常）。
+  - **处置**：删除坏链接，改为指向真实目录的 **junction**（`fs.symlinkSync(storeAbs, link, 'junction')`）。用相对符号链接重建无效——即使目标字符串正确，Windows 上 Node 仍拒绝跟随；junction 立即可用。修复后 `--frozen-lockfile` 复跑链接仍完好。
+  - **复发时的修复脚本**（`node` 执行，只重建链接、不动 store 内容）：把 `node_modules/@element-plus/icons-vue` 删掉，用 `fs.symlinkSync('<绝对路径>/.pnpm/@element-plus+icons-vue@2.3.2_vue@3.5.42_typescript@6.0.3_/node_modules/@element-plus/icons-vue', '<绝对路径>/node_modules/@element-plus/icons-vue', 'junction')` 重建。
+- **验证证据（2026-09-21）**：`pnpm install --frozen-lockfile` 通过（363 条供应链策略校验）；`pnpm typecheck`、`pnpm lint`、`pnpm build`、`pnpm test:unit --run`（25 项）全通过；Node 模块解析该包成功，**导出 293 个图标**，`ArrowDown` / `ArrowRight` / `ArrowUp` 均存在。
+- **尚未做**：侧栏的 CSS 下拉三角**还没有换成** `ArrowDown` 组件，等确认后再改（届时可一并删掉只为它加的 `--fd-border-width` token）。
+
+## 2026-09-21 请求与 SQL 日志打通
+
+- **背景**：本地开发看不清"一次请求里到底执行了哪些 SQL"。排查后发现链路已有一半：`TraceIdFilter`（`HIGHEST_PRECEDENCE+10`）已建立 traceId 并写入 MDC，`RequestAuditFilter`（`+20`）已在请求结束时打 `method/path/status/durationMs`，`application.yml` 的日志 pattern 已带 `[traceId=%X{traceId:-}]`。
+- **缺口与处置**：
+  - **请求开始行**：`RequestAuditFilter` 新增 `request start method= path=`，级别为 **DEBUG**（结束行保持 INFO）。理由：结束行的耗时与结果是任何环境都值得留的运维事实；开始行只是开发时把一次请求在控制台框出来，不该成为生产的默认 I/O 成本。
+  - **SQL 日志**：`mybatis-plus.configuration.log-impl=Slf4jImpl`（`application-local.yml`）原本已就位，但级别必须落在 **Mapper 所在包** `com.flowdesk.iam.mapper` 才生效——SQL 的 logger 名是 Mapper 的全限定名。本地另加 `com.flowdesk.common.web.filter.RequestAuditFilter: DEBUG` 用于打开开始行。
+  - **生产无需改动**（比原方案更省）：`application-prod.yml` 已是 `root: WARN` + `com.flowdesk: INFO`，SQL 与开始行天然不输出。已逐份核对 `application-demo.yml`（只有 flyway 与 springdoc）与 `application-test.yml`，**均不含 `logging.level`**，因此 `spring.profiles.group.local=demo` 不会顶掉 local 的 DEBUG。
+- **安全边界**：`RequestAuditFilter` 依旧不读请求头、Cookie、查询串与请求体；SQL 日志由 MyBatis 输出"语句 + 参数"两行，不含明文口令（登录只绑定 username）。**已知未处理**：登录查询是全列 `SELECT`（`IamUserMapper` 的 `SELECT id,username,display_name,password,…`），日志可看到 `password` 列名；摘要值本身不打印。处置建议：阶段 2 写员工查询时改为显式列，并把"密码列不出现在任何查询里"作为验收项。
+- **测试**：`RequestAuditFilterTest` 从 1 项扩到 3 项，且不再依赖日志事件顺序（原先用 `list.getLast()`，仅在"结束行恰好是最后一条"时成立，现已改为按内容筛选）。新增"开始行是 DEBUG 且不含敏感值"与"DEBUG 关闭时不出开始行、结束行仍在"两项——后者反过来印证了设计：测试环境没有 `local` profile、级别为 INFO，所以开始行默认不输出。
+- **验证证据（2026-09-21）**：`./mvnw -B verify` → 单元/Web **55 项**（原 53 项 + 新增 2 项）、集成 **17 项**，`Failures: 0, Errors: 0`，`BUILD SUCCESS`。真实栈实测 `POST /fd/v1/auth/login`（`employee` / `123456`）：同一个 `traceId=3684713b-…` 贯穿 `request start` → 5 组 `==> Preparing / ==> Parameters / <== Total`（iam_user、iam_user_role、iam_role、iam_role_permission、iam_permission）→ `request end … status=200 durationMs=520`；响应头 `X-Trace-Id` 与日志值一致。
+- **排障记录**：用 `spring-boot:run` 且被包装进程包裹时，重定向只能拿到 Maven 自身输出，应用日志不进文件；包装进程退出后 fork 出的 `java` 会变成孤儿继续占用 8081（`job_kill` 杀不到它，症状是"服务没起却登录成功"）。要看应用输出用 `Start-Process -RedirectStandardOutput`，或按命令行里的 `-Dspring.profiles.active=local` 定位并清理孤儿进程。
 
 ## 已完成里程碑
 
@@ -28,6 +62,43 @@
 6. 工程依赖、配置、迁移、测试、CI、启动、跨存储失败处理和页面/API 映射已经确认。
 7. 开发任务拆分已经确认，全部 API 与后台任务均有实施归属。
 8. **M0 工程底座已完成并合并**：`TASK-001`～`TASK-003`（骨架、数据基线、公共契约、CI）通过 PR #4 合并进入 `main`。
+9. **MVP 阶段 1（Auth 身份入口）已完成并合并**：`TASK-010`（后端认证、会话与密码安全）+ `TASK-011`（Vue 登录外壳与身份恢复）通过 PR #5 合并进入 `main`（合并提交 `5c6cca0`）。
+
+## 2026-09-20 演示账号改名与密码调整
+
+- 演示账号由 `demo.employee` / `demo.it` / `demo.admin` 改为 `employee` / `it` / `admin`，密码统一改为 `123456`；`display_name` 与角色映射不变。
+- 变更文件：`db/demo/R__seed_demo_data.sql`（用户名、Argon2id 摘要、角色映射 CASE/WHERE）、`AuthWebTest` 的 `USERNAME` / `CURRENT_PASSWORD`、`DatabaseMigrationIT` 的 demo 用户断言、`frontend/e2e/auth.spec.ts` 的默认凭据。本机库用 `UPDATE` 改名以保留 `id` 与 `iam_user_role` 关联。
+- 新摘要用 `common/config/PasswordConfiguration` 的同一组参数生成（salt 16、hash 32、m=19456,t=2,p=1），三个账号各一份并逐个验证 `matches` 为真、错误口令为假。
+- **注意**：`123456` 只有 6 位，低于 `docs/api-design.md` 已确认的"密码长度 8～64 个字符"，而 `AuthChangePwdVO` 当前实现是 `@Size(min = 6, max = 64)`。演示库可正常登录（登录只比对摘要，不校验强度），但该口令不符合已确认策略，不得用于真实环境；文档与实现的口径差异需要确认后统一。
+- 本文件中此前出现的 `demo.*` 账号名与 `Demo#FlowDesk2026` 属于变更前的当时事实，保留不改。
+
+## 2026-09-20 前端设计 token 与 Element Plus 主题
+
+- **新增**：`src/styles/tokens.css`（`--fd-*` 唯一真源 + 文件末尾把 Element Plus 的 `--el-*` 映射到 token）、`src/styles/element/var-override.scss`（品牌与语义色的唯一字面量来源，`@forward` 覆写 EP 的 SCSS 变量）、`frontend/AGENTS.md`（前端硬约束与设计参照，根 `AGENTS.md` 已挂钩要求改前端前先读）、`frontend/pnpm-workspace.yaml`（显式 `allowBuilds: {'@parcel/watcher': false}`）。
+- **修改**：`src/main.ts`（EP 样式改用 `element-plus/theme-chalk/src/index.scss`，并把 `tokens.css` 放在 EP 样式之后保证 `--el-*` 覆盖生效）、`vite.config.ts`（`css.preprocessorOptions.scss.additionalData` 注入 `var-override.scss`，早于 EP 编译）、`src/styles/main.css`（所有色值、间距、字号、圆角、阴影改为 token 引用）、`package.json` + 锁文件（新增 devDependency `sass`）。
+- **为什么两条路都要**：EP 的 `light-3/5/7/8/9` 与 `dark-2` 是编译期用 Sass `mix()` 从主色算出来的，只在 `:root` 覆盖 `--el-color-primary` 会让这些色阶停留在默认蓝；因此品牌色字面量放 SCSS，其余（圆角、字号、字色、描边、底色）走 `tokens.css` 的 CSS 变量映射。
+- **生效结果**（编译产物核对）：主色 `#2563eb`，色阶 `light-3 #6692f1`、`light-5 #92b1f5`、`light-9 #e9effd`、`dark-2 #1e4fbc`，产物内 EP 默认蓝 `#409eff` / `#ecf5ff` 残留为 0。
+- **有意的观感变化**：顶部导航选中态与身份标签由 indigo（`#e0e7ff`/`#3730a3`）统一为主色浅底，落实"一个强调色"。
+- **验证证据（2026-09-20）**：`pnpm typecheck`、`pnpm lint`、`pnpm build` 通过；`pnpm test:unit --run` 22 项、`pnpm test:e2e` 7 项通过；浏览器实际登录（`employee` / `123456`）后截图自查登录页与首页，布局、圆角、阴影、主色均正常；`pnpm install --frozen-lockfile` 退出码 0（补齐 `allowBuilds` 之前该命令以 `ERR_PNPM_IGNORED_BUILDS` 失败，会直接挂掉 CI 的 frontend job）。
+- **本机环境提醒（Windows）**：`pnpm add/install` 前必须先停掉 Vite dev server 和 IDE 的 JS/TS 语言服务，否则句柄被占会出现"拒绝访问"并在极端情况下把 `node_modules` 删到一半；本次已按此恢复，dev server 已重新启动（5173）。
+- **未迁移的部分**：视图与组件内本来就没有硬编码色值或 px（样式集中在 `main.css`），因此本次只迁移了 `main.css`；后续新页面按 `frontend/AGENTS.md` 直接引用 token。
+
+## 2026-09-20 前端外壳与页面骨架（阶段 2 之前的准备性工作项）
+
+- **范围（已确认）**：只做外壳与骨架，不新增后端接口、不提前实现工单业务页面；已确认的实施顺序仍是"后端先行、页面随后"，本工作项完成后进入阶段 2。
+- **新增**：`api/pagination.ts`（与后端 `PageQuery` / `PageResult` 对齐的分页契约）、`api/errorMessages.ts`（稳定错误码 → 界面文案，未知码回落）、`utils/format.ts`（UTC 时间格式化）、`constants/authorization.ts`（角色/权限中文名 + 顶部导航条目）、`components/AppPage.vue`、`components/EmptyState.vue`、`components/AppHeader.vue`（导航 + 账号菜单 + 改密对话框）、`views/PlannedWorkView.vue`（占位页）。
+- **修改**：`router/index.ts`（补齐 `/tickets`、`/tickets/new`、`/tickets/:ticketNo`、`/dashboard`、`/admin/users`、`/admin/users/:userId`、`/admin/categories` 七条占位路由；`meta` 扩展 `title`、`plannedTask`、`permission` 支持多条"任一命中"；守卫按新语义判断）、`stores/auth.ts`（新增 `hasAnyPermission`）、`App.vue`（外壳抽到 `AppHeader`）、`HomeView.vue`（角色与权限用中文名展示、改用 `AppPage`）、`LoginView.vue`（用户名自动聚焦、错误文案走统一映射）、`ChangePasswordDialog.vue`（统一映射 + 改密语境覆盖）、`styles/main.css`（导航、页面容器、空态样式）。
+- **行为**：导航入口按权限显隐；直接访问没有权限的路由进入 `/403`；占位页标注实现任务；同一个错误码在登录与改密语境下给出各自贴切的文案。
+- **验证证据（2026-09-20）**：前端 `test:unit` **22 项**（新增守卫 4 项、错误码映射 3 项、`hasAnyPermission` 1 项）、`typecheck`、`lint`、`build` 全部通过；`test:e2e` **7 项**通过（新增"导航只显示有权限的入口""无权限路由 → 403"）。后端未改动。
+- **文档**：`AGENTS.md` 更正两处过期信息（"六个后端接口"→ 五个；前端测试数量改为 22 项单元 + 7 项 E2E）。
+
+## 2026-09-20 阶段 1 交接完成
+
+- **合并请求**：PR #5 `flow-desk/auth-foundation` → `main`（7 个提交、123 个文件、+5833/−585），CI 三个 job 全绿。
+- **合并与同步**：合并提交 `5c6cca0`；本地 `main` 仅快进拉取后与 `origin/main` 一致。
+- **下一分支**：已从最新 `main` 创建 `flow-desk/employee-ticket-flow`；按仓库惯例，推送发生在阶段 2 完成检查、准备合并时。
+- **说明**：PR 中包含 2026-09-07～09-09 的三条 IAM groundwork 提交，那批 IAM 管理代码后来按范围收敛清空重写，历史保留供追溯；阶段 1 的实际成果为 `40a1264`、`e571a5d`、`df80c86` 三条提交。
+- **未开始的工作**：阶段 2（`TASK-020`～`TASK-023-MVP`）尚未动工，开工前先确认接口与数据模型的落地顺序。
 
 ## 2026-09-19 TASK-011 完成：Vue 登录外壳与身份恢复
 
