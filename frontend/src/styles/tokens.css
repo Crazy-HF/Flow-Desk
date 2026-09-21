@@ -125,12 +125,13 @@
   --fd-page-wide-max: 70rem; /* 首页等宽业务页上限 */
   --fd-sidebar-width: 14rem; /* 桌面应用壳侧栏 */
   --fd-sidebar-drawer-width: min(20rem, 88vw); /* 窄屏抽屉宽度 */
+  --fd-shell-header-height: 3.25rem; /* 52px  应用壳顶栏：36px 控件 + 上下各 8px */
+  --fd-shell-search-width: 11rem; /* 176px 顶栏搜索位：图标 + 两字标签 + 两侧留白 */
   --fd-auth-card-max: 26rem; /* 登录等居中卡片宽度 */
   --fd-auth-shell-max: 62rem; /* 双栏登录页总宽度 */
   --fd-auth-form-max: 24rem; /* 登录表单阅读与操作宽度 */
   --fd-control-size-md: 2.25rem; /* 36px，EP 默认尺寸控件 */
   --fd-control-size-lg: 2.75rem; /* 44px，满足触控目标 */
-  --fd-header-padding-y: var(--fd-space-3);
   --fd-header-padding-x: var(--fd-space-6);
   --fd-z-sticky: 20;
   --fd-z-skip-link: 40;

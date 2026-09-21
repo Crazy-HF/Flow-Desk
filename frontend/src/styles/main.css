@@ -259,7 +259,8 @@ h1 {
   line-height: var(--fd-line-height-relaxed);
 }
 
-/* 登录后的统一应用壳：顶栏、权限侧栏、面包屑与主体内容各自承担单一职责。 */
+/* 登录后的统一应用壳，四层职责分离：整幅顶栏（品牌位 + 账户区）、权限侧栏、面包屑条、主体内容。
+   品牌位与侧栏同宽，侧栏右缘那条竖线因此能在顶栏里延续，读的时候不会在拐角断开。 */
 .app-shell {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -285,39 +286,114 @@ h1 {
   transform: translateY(0);
 }
 
-.app-header {
+/* 顶栏整幅通栏：品牌位固定占侧栏那一列，账户区吃掉剩余宽度。
+   用背景微差 + 一条下缘分割线分层级，不用纯黑底，也不用阴影。 */
+.app-shell__header {
   position: sticky;
   top: 0;
   z-index: var(--fd-z-sticky);
   display: flex;
-  align-items: center;
-  gap: var(--fd-space-4);
-  padding: var(--fd-header-padding-y) var(--fd-header-padding-x);
+  height: var(--fd-shell-header-height);
+  align-items: stretch;
   border-bottom: thin solid var(--fd-color-border);
   background: var(--fd-color-surface);
+}
+
+.app-shell__brand {
+  display: flex;
+  flex: none;
+  width: var(--fd-sidebar-width);
+  align-items: center;
+  padding: 0 var(--fd-header-padding-x);
+  border-right: thin solid var(--fd-color-border);
+}
+
+.app-shell__brand-link {
+  color: var(--fd-color-text-strong);
+  font-family: var(--fd-font-family-mono);
+  font-size: var(--fd-font-size-md);
+  font-weight: var(--fd-font-weight-bold);
+  letter-spacing: var(--fd-tracking-tight);
+  text-decoration: none;
+}
+
+.app-shell__brand-link:focus-visible {
+  outline: none;
+  border-radius: var(--fd-radius-xs);
+  box-shadow: var(--fd-focus-ring);
+}
+
+.app-header {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: var(--fd-space-3);
+  padding: 0 var(--fd-header-padding-x);
 }
 
 .app-header__menu-button {
   display: none;
 }
 
-.app-header__brand {
-  color: var(--fd-color-text-strong);
-  font-family: var(--fd-font-family-mono);
-  font-weight: var(--fd-font-weight-bold);
-  text-decoration: none;
+/* 搜索位：后端还没有检索接口，所以是一个明确禁用的按钮，不用可点击的假输入框冒充功能。
+   位置在账户区最左，与右侧图标按钮留出一档间距。 */
+.app-header__search {
+  display: inline-flex;
+  flex: none;
+  width: var(--fd-shell-search-width);
+  height: var(--fd-control-size-md);
+  align-items: center;
+  gap: var(--fd-space-2);
+  margin-right: var(--fd-space-2);
+  padding: 0 var(--fd-space-3);
+  border: 0;
+  border-radius: var(--fd-radius-full);
+  background: var(--fd-color-surface-subtle);
+  color: var(--fd-color-text-faint);
+  font-family: inherit;
+  font-size: var(--fd-font-size-base);
 }
 
-.app-header__account {
+.app-header__actions {
   display: flex;
   align-items: center;
-  gap: var(--fd-space-3);
+  gap: var(--fd-space-2);
   margin-left: auto;
 }
 
+.app-header__icon-button {
+  display: inline-flex;
+  width: var(--fd-control-size-md);
+  height: var(--fd-control-size-md);
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--fd-radius-sm);
+  background: none;
+  color: var(--fd-color-text-muted);
+  cursor: pointer;
+  font-size: var(--fd-font-size-md);
+  transition:
+    background-color var(--fd-duration-fast) var(--fd-ease-standard),
+    color var(--fd-duration-fast) var(--fd-ease-standard);
+}
+
+.app-header__icon-button:hover {
+  background: var(--fd-color-surface-subtle);
+  color: var(--fd-color-primary);
+}
+
+.app-header__icon-button:focus-visible {
+  outline: none;
+  box-shadow: var(--fd-focus-ring);
+}
+
 .app-header__identity {
+  padding-left: var(--fd-space-2);
   color: var(--fd-color-text-muted);
   font-size: var(--fd-font-size-base);
+  white-space: nowrap;
 }
 
 .app-shell__body {
@@ -327,19 +403,28 @@ h1 {
 }
 
 .app-shell__workspace {
+  display: grid;
+  min-width: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.app-shell__main {
   min-width: 0;
 }
 
+/* 侧栏底色占满整列（grid 行高），导航自己粘在顶栏之下：
+   背景属于"列"，位置属于"导航"，两者不互相绑死——所以侧栏下方不会再露出页面底色。 */
 .app-sidebar {
   display: flex;
-  min-height: 100%;
   flex-direction: column;
-  padding: var(--fd-space-5) var(--fd-space-3);
+  padding: var(--fd-space-4) var(--fd-space-3);
   border-right: thin solid var(--fd-color-border);
   background: var(--fd-color-surface);
 }
 
 .app-sidebar__navigation {
+  position: sticky;
+  top: var(--fd-shell-header-height);
   display: grid;
   gap: var(--fd-space-5);
 }
@@ -403,6 +488,12 @@ h1 {
 .app-sidebar__link:focus-visible {
   outline: none;
   box-shadow: var(--fd-focus-ring);
+}
+
+/* 分组标题在"组内有当前位置"时只跟随文字色：当前位置的标记由子项那条竖条承担。
+   两处都出选中态，"我在哪"就会有两个答案。必须写在 `.app-sidebar__link` 之后才生效。 */
+.app-sidebar__group-toggle--active {
+  color: var(--fd-color-primary-soft-fg);
 }
 
 .app-sidebar__link--active {
@@ -484,6 +575,12 @@ h1 {
 .app-breadcrumb .el-breadcrumb__inner.is-link:hover {
   background: var(--fd-color-border-subtle);
   color: var(--fd-color-text-strong);
+}
+
+/* 一级栏目（业务工作 / 系统管理）在面包屑里是"容器"而不是页面：没有可跳转的目标，
+   所以不给块底色，只留浅一档的文字，免得看起来能点。 */
+.app-breadcrumb__group .el-breadcrumb__inner {
+  color: var(--fd-color-text-subtle);
 }
 
 /* 业务页面统一容器 */
@@ -783,6 +880,7 @@ h1 {
   .app-shell__skip-link,
   .app-sidebar__link,
   .app-sidebar__chevron,
+  .app-header__icon-button,
   .home-entry,
   .home-entry__action {
     transition: none;
@@ -790,12 +888,24 @@ h1 {
 }
 
 @media (max-width: 52rem) {
+  /* 窄屏：品牌位不再与侧栏对齐（侧栏已收进抽屉），顶栏让出宽度给账户区 */
+  .app-shell__brand {
+    width: auto;
+    padding: 0 var(--fd-space-4);
+    border-right: 0;
+  }
+
   .app-header {
-    padding: var(--fd-space-2) var(--fd-space-4);
+    padding: 0 var(--fd-space-4);
   }
 
   .app-header__menu-button {
     display: inline-flex;
+  }
+
+  /* 窄屏优先保证身份与账号菜单可见，搜索位让位 */
+  .app-header__search {
+    display: none;
   }
 
   .app-header__identity {

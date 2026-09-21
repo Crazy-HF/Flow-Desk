@@ -3,19 +3,23 @@ import { ArrowDown } from '@element-plus/icons-vue'
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
-import { navigationEntries } from '@/constants/authorization'
+import { navigationEntries, navigationGroupLabels } from '@/constants/authorization'
+import type { NavigationGroup } from '@/constants/authorization'
 import { useAuthStore } from '@/stores/auth'
 
 const emit = defineEmits<{
   navigate: []
 }>()
 
-type GroupKey = 'work' | 'admin'
-
 const auth = useAuthStore()
 const route = useRoute()
 
-/** 这里只控制界面入口；服务端仍会对每个请求重新鉴权。 */
+/**
+ * 这里只控制界面入口；服务端仍会对每个请求重新鉴权。
+ *
+ * <p>图标位随 `NavigationEntry.icon` 预留：后端暂无菜单与 icon 契约，字段为空时不出图标，
+ * 因此当前每行只有文字，行高与选中态不受图标缺失影响。</p>
+ */
 const visibleEntries = computed(() =>
   navigationEntries.filter((entry) =>
     auth.hasAnyPermission(Array.isArray(entry.permission) ? entry.permission : [entry.permission]),
@@ -23,16 +27,19 @@ const visibleEntries = computed(() =>
 )
 
 const groups = computed(() =>
-  [
-    { key: 'work' as GroupKey, label: '业务工作', entries: visibleEntries.value.filter((entry) => entry.group === 'work') },
-    { key: 'admin' as GroupKey, label: '系统管理', entries: visibleEntries.value.filter((entry) => entry.group === 'admin') },
-  ].filter((group) => group.entries.length > 0),
+  (['work', 'admin'] as NavigationGroup[])
+    .map((key) => ({
+      key,
+      label: navigationGroupLabels[key],
+      entries: visibleEntries.value.filter((entry) => entry.group === key),
+    }))
+    .filter((group) => group.entries.length > 0),
 )
 
 /** 默认全部展开：收起会藏起入口，不改变既有信息量；展开状态只在本次会话内保留。 */
-const expanded = ref<Record<GroupKey, boolean>>({ work: true, admin: true })
+const expanded = ref<Record<NavigationGroup, boolean>>({ work: true, admin: true })
 
-function toggleGroup(key: GroupKey): void {
+function toggleGroup(key: NavigationGroup): void {
   expanded.value[key] = !expanded.value[key]
 }
 
@@ -70,7 +77,7 @@ function groupHasActiveEntry(entries: { name: string; activeRouteNames?: string[
         <button
           :id="`nav-group-${group.key}`"
           class="app-sidebar__link app-sidebar__group-toggle"
-          :class="{ 'app-sidebar__link--active': groupHasActiveEntry(group.entries) }"
+          :class="{ 'app-sidebar__group-toggle--active': groupHasActiveEntry(group.entries) }"
           type="button"
           :aria-controls="`nav-group-${group.key}-items`"
           :aria-expanded="expanded[group.key]"

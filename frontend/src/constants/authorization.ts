@@ -26,11 +26,27 @@ export const permissionLabels: Record<string, string> = {
   DASHBOARD_VIEW: '数据概览',
 }
 
+/** 侧栏一级栏目。面包屑与侧栏共用这一份声明，两处不会各写一遍栏目名。 */
+export type NavigationGroup = 'work' | 'admin'
+
+export const navigationGroupLabels: Record<NavigationGroup, string> = {
+  work: '业务工作',
+  admin: '系统管理',
+}
+
 export interface NavigationEntry {
   /** 目标路由名。 */
   name: string
   label: string
-  group: 'work' | 'admin'
+  /**
+   * 图标编码：**预留字段，当前没有任何来源赋值**。
+   *
+   * <p>后端既没有菜单接口、也没有 `icon` 字段，所以条目仍然写在本文件里。
+   * 先保留这个字段位：为空时侧栏不渲染图标位，等后端给出编码约定后按同一份声明接图标，
+   * 不需要再改导航条目的结构。</p>
+   */
+  icon?: string
+  group: NavigationGroup
   /** 这些子路由也沿用当前入口的选中态。 */
   activeRouteNames?: string[]
   /** 具备其中任一权限即可看到该入口。 */

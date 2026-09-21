@@ -17,6 +17,7 @@
 | 目录 | 放什么 | 例子 |
 | --- | --- | --- |
 | `src/views/` 根 | 只有确实跨领域或跨外壳的页面 | 当前为空 |
+| `src/layout/` | 登录后的应用壳：顶栏 / 侧栏 / 面包屑 / 主体四层的摆位，不放业务内容 | `index.vue` |
 | `src/views/auth/` | 登录与身份入口 | `LoginView.vue` |
 | `src/views/error/` | 框架级错误页 | `ForbiddenView.vue`、`NotFoundView.vue` |
 | `src/views/work/` | 员工工单主链路 + shell 入口页 | 以后放工单列表/详情/新建；当前 `HomeView.vue`、`PlannedWorkView.vue` |
@@ -34,7 +35,8 @@
 刻意保持扁平，理由与触发条件如下：
 
 - **`components/`**：已由 `App*` 前缀区分用途，但要注意 `App*` 内部其实有两类，别混着数：
-  - **外壳组件**（`App.vue` 直接消费）：`AppHeader`、`AppSidebar`、`AppBreadcrumb`。约定：外壳组件必须用 `App*` 前缀。
+  - **外壳组件**（由 `layout/index.vue` 直接消费；`App.vue` 只做"已登录进壳 / 未登录走路由"的分流）：
+    `AppHeader`（顶栏账户区）、`AppSidebar`、`AppBreadcrumb`。约定：外壳组件必须用 `App*` 前缀。
   - **共享页面骨架**：`AppPage`（标题 + 内容槽），由页面消费，目前只有 2 个页面用它。
   - 其余为通用或功能性组件：`EmptyState`（3 处消费）、`ChangePasswordDialog`（当前仅 `AppHeader` 消费）。
   触发分层：当外壳组件超过 8 个、**或**通用组件超过 8 个（单层扫读开始失效）时，再拆
