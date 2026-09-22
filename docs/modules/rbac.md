@@ -207,6 +207,25 @@ Web 测试沿用 `AuthWebTest` 的既有做法：`@ActiveProfiles("test")` + 排
 - 会话撤销：断言用户角色变化只撤目标用户；角色权限变化撤销该角色全部用户且按用户 ID 升序；重复授予不撤销；并用 `InOrder` 证明需要时**先撤销后写库**（与 `AuthWebTest` 对改密的既有断言方式一致）。
 - 并发：在 MySQL Testcontainers 集成测试中至少真实覆盖两条竞争路径：① 同一用户仅剩两个角色时，并发撤销不同角色只能有一个成功；② 两个启用管理员并发撤销各自 `SYSTEM_ADMIN` 时只能有一个成功。测试设置有限等待时间，证明无死锁且最终仍满足“至少一个角色、至少一个启用管理员”。mock 返回 0 只能补充分支，不能替代这两条真并发证据。
 
+### 10.1 覆盖矩阵（逐格证据）
+
+上表只写"要覆盖什么"，本节写"哪一格由哪个用例负责"。阶段验收要求每一格都有据，因此按用例名逐格登记；`TASK-058` 的六个端点落地后，本节的空白格必须补齐才能进入阶段收口。
+
+**关于身份构造（2026-09-22 更正）**：本文件此前描述为"用**真实 JWT** 构造身份"，与代码不符。实际是两类：
+- `IamRoleControllerWebTest` / `IamPermissionControllerWebTest` 用 `SecurityMockMvcRequestPostProcessors.user(...)` 直接注入 `SecurityContext`，**不经过 `JwtAuthenticationFilter`**；
+- `SecurityChainScopeWebTest` 用真实 Access Token + 会话快照，专门覆盖"过滤器是否装在这条链上"。
+
+这正是 `TASK-059` 能长期躲过 Web 测试的原因（见 `docs/modules/auth.md` §8.1），所以后续新增端点的 401/403 矩阵沿用前者即可，但**每组端点至少要有一条真实过滤链用例**。
+
+| 端点组 | 成功 | 400 | 401 | 403 | 404 | 409 | 幂等 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 角色 | `IamRoleControllerWebTest.rbacManagerCan{List,Get,Create,Update,Delete}Role*`（5） | `invalidPageParametersAreRejected…`、`invalidRoleCodeIsRejected…` | `everyEndpointRequiresAuthentication`（5 端点参数化） | `everyEndpointRequiresRbacManage`（5 端点参数化） | `IamRoleServiceImplTest.returnsNotFoundWhen…`（3）、`IamRoleServiceIT.missingRoleReturnsNotFound…` | `rejectsExistingRoleCode…`、`convertsConcurrentDuplicateKey…`、`alwaysProtectsSystemAdminFromDeletion`、`rejectsDeletionWhenRoleIs{AssignedToUser,HasPermissionGrant}`、`convertsDeleteIntegrityFailure…`；IT：`systemAdminCannotBeDeleted…`、`role{AssignedToUser,GrantedPermission}CannotBeDeleted`、`duplicateCodeReturnsBusinessConflict…` | 不适用（无幂等端点） |
+| 权限 | `IamPermissionControllerWebTest.rbacManagerCan{List,Get,Create,Update,Delete}Permission*`（5） | `invalidPageParametersAreRejected…`、`invalidPermissionCodeIsRejected…` | 同上（5 端点参数化） | 同上（5 端点参数化） | `IamPermissionServiceImplTest` 对称用例、`IamPermissionServiceIT.missingPermissionReturnsNotFound…` | `IamPermissionServiceImplTest` 对称用例；IT：`rbacManageCannotBeDeleted…`、`permissionGrantedToRoleCannotBeDeleted`、`duplicateCodeReturnsBusinessConflict…` | 不适用 |
+| 用户角色 | **待 `TASK-058`** | 待 `TASK-058`（缺筛选） | 待 `TASK-058` | 待 `TASK-058` | 待 `TASK-058` | 待 `TASK-058`（最后角色、最后启用管理员） | 待 `TASK-058`（重复授予） |
+| 角色权限 | **待 `TASK-058`** | 待 `TASK-058`（缺筛选） | 待 `TASK-058` | 待 `TASK-058` | 待 `TASK-058` | 待 `TASK-058`（`SYSTEM_ADMIN`×`RBAC_MANAGE`） | 待 `TASK-058`（重复授予） |
+
+真实过滤链证据（`SecurityChainScopeWebTest`，任务 `TASK-059`）：`/fd/v1/admin/roles` 上无令牌 `401/AUTH_REQUIRED`、有 `RBAC_MANAGE` 令牌 `200/OK`、缺权限令牌 `403/ACCESS_DENIED`、会话已撤销 `401/AUTH_SESSION_INVALID`；另有真实栈写路径证据（`DELETE` 受保护对象返回 `409`，见第 11 节）。
+
 ## 11. 验收命令与手工验证
 
 ```powershell
@@ -224,6 +243,21 @@ $env:JAVA_HOME='D:\Idea\Jdk\Jdk21'; .\mvnw.cmd spring-boot:run "-Dspring-boot.ru
 2. 撤销 `employee` 的唯一角色 → 期望 `409/USER_ROLE_REQUIRED`。
 3. 删除 `SYSTEM_ADMIN` → 期望 `409/RBAC_CONFLICT`；撤销其 `RBAC_MANAGE` → 期望 `409/RBAC_CONFLICT`。
 4. 清理：撤销授权、删除 `TEMP_AUDITOR`，并把本机库恢复到与迁移一致的状态。
+
+### 11.1 已留证的链路（2026-09-22，`local` profile + 演示账号）
+
+链路 1、2 与链路 3 的"撤销 `RBAC_MANAGE`"部分依赖 `TASK-058` 的端点，尚未执行。**已经执行并留证的部分**：
+
+| 步骤 | 响应 | `traceId` |
+| --- | --- | --- |
+| `admin`/`123456` 登录取令牌 | `200/OK`，权限含 `RBAC_MANAGE` | `21a3d8f4-4dd2-41fa-9707-82134e7c04d2` |
+| `DELETE /fd/v1/admin/roles/3` | `409/RBAC_CONFLICT`「系统管理员角色不能删除」 | `04cb2583-bc7d-4919-9aa6-a412c8cf9652` |
+| `DELETE /fd/v1/admin/permissions/15` | `409/RBAC_CONFLICT`「RBAC_MANAGE 权限不能删除」 | `41e91d3c-658e-4894-8e1a-928ab9779d5e` |
+| 拒绝后核对（`GET /roles/3`、`GET /permissions/15`） | 两行都仍在：`SYSTEM_ADMIN`(id=3)、`RBAC_MANAGE`(id=15) | —— |
+
+第三条顺带构成**写路径**的真实过滤链证据：`DELETE` 同样经过 JWT 过滤器并到达控制器，不只是 `GET` 可用。
+
+`TASK-059` 的完整真实验证矩阵（无令牌 `401`、`admin` `200`、`employee` `403`，各 2 个端点）记在 `PROJECT_STATUS.md` 的 2026-09-22 小节与 `docs/modules/auth.md` §8.1。
 
 ## 12. 依据文档
 
