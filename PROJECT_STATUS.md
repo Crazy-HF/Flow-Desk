@@ -18,6 +18,17 @@
 - 环境前置：JDK 21、Node.js 24.20.0、pnpm 12.3.4、Docker 29.7.2 已验证；本机已有 `redis:8.8.0`、`mysql:8.4.11` 镜像。本地启动 profile 用 `local` 即可（`spring.profiles.group.local=demo` 已配置）。演示账号 `employee` / `it` / `admin`，密码统一为 `123456`（见 `db/demo/R__seed_demo_data.sql` 头部注释，2026-09-20 由 `demo.*` 改名）。本机已有过两类运行障碍并已修复：① Flyway 校验失败——历史表残留已删除的 V3 迁移记录，处置为删除该行（等价 `flyway repair`）；② Redis 残留旧实现写入的 hash 类型会话键，会让"撤销全部会话"抛 `WRONGTYPE`，已清理。另需注意：本机 Argon2id 校验约 2 秒/次（并发登录可拖到十几秒），前端 e2e 因此串行执行并放宽超时；跑 e2e 需要 `FLOWDESK_ALLOWED_ORIGINS` 包含 `http://127.0.0.1:4173`（本地 `.env` 已加）
 - 待确认事项：① Element Plus 目前是**全量引入**（打包约 1.07 MB / gzip 348 KB），是否改为按需引入（需新增 `unplugin-vue-components`、`unplugin-auto-import` 两个 dev 依赖）；② 登录页占位文案是「登录名」「密码」，与 `frontend/AGENTS.md` 新增的「请输入…／请选择…」约定不一致（E2E 定位依赖现文案，改文案需同时改用例）；③ 首页 `h1`「欢迎回来」用的是展示级字号 `clamp(1.75rem, 5vw, 2.5rem)`，是否收小到页面标题刻度；④ ~~第 3 步范围与交付层级~~ **已确认**：完整动态 RBAC，**计入求职 MVP 演示范围，并在后端接口之外补 RBAC 管理端页面**（2026-09-22 确认，见 `TASK-060`）；开工 `TASK-060` 前仍需确认页面交互细节（是否要批量授权、权限码搜索、授予时的用户/角色选择器形态）；⑤ ~~侧栏当前的 CSS 下拉三角是否换成已安装的 `@element-plus/icons-vue` 的 `ArrowDown`~~ **已完成**：`AppSidebar` 已改用 `ArrowDown` 组件，为此新增的 `--fd-border-width` token 也已不存在（2026-09-21 核对）。历史处置：JaCoCo 覆盖率门禁已确认取消（2026-09-19），`pom.xml` 只保留 `jacoco:report` 供 CI 上传工件，不再保留 70% 行 / 60% 分支阈值（当时实测行覆盖 37.2%、分支 13.9%，阈值必定使 `verify` 失败）
 
+## 2026-09-22 TASK-060 开工规格确认（三项决策 + 一处硬约束）
+
+- **一处硬约束（代码事实，改变了原问题的前提）**：任务原话把「授予时的用户/角色选择器形态」当作两个都能选，但 `GET /fd/v1/users` **未实现**——`IamUserController` 只有一个空的 `@RequestMapping("/fd/v1/iam/user")` 壳，一个方法都没有，路径还与 `docs/api-design.md` 8.2 的 `/fd/v1/users` 不一致；用户管理按 8.2 与 `docs/modules/rbac.md` 第 1 节属**完整版 backlog**。因此**角色选择器可以有**（数据源 `GET /fd/v1/admin/roles`），**用户选择器没有数据源**。
+- **确认 1：用户选择器 = 数字用户 ID + 候选下拉**。不改后端契约、不扩大范围；输入框旁明确写"后端暂无用户查询接口，用户管理属完整版"，**不做可点击的假搜索框**。候选下拉只提供当前列表里已出现过的用户，它是便利而非数据源。曾评估「为 `TASK-060` 补一个最小只读 `GET /fd/v1/users`」，因扩大范围未采纳。
+- **确认 2：批量授权语义 = 一个用户 × 多个角色**。契约（8.2.1）**没有批量端点**，批量只能是前端循环调用单条 `POST`，两个后果已登记：部分失败**不可回滚**、每条成功都**撤销会话**。选"一个用户 × 多角色"是因为重复授予幂等、对同一用户反复撤会话无额外代价，重试最便宜；"一个角色 × 多用户"会在只授一半时踢掉一批人。
+- **确认 3：`api/` 保持扁平，`errorMessages` 不下沉**。`frontend/AGENTS.md` 的分层触发条件已满足（RBAC 是第二个领域模块），裁定为只新增 `api/rbac.ts`、不建 `api/core/`，理由沿用该文件自己对 `api/core/` 的否定论证；错误码继续单一映射表。
+- **页面开工前必须补的两处既有缺口**：`frontend/src/api/errorMessages.ts` 缺 6 个 RBAC 错误码（`ROLE_NOT_FOUND`、`PERMISSION_NOT_FOUND`、`GRANT_NOT_FOUND`、`ROLE_CODE_CONFLICT`、`PERMISSION_CODE_CONFLICT`、`RBAC_CONFLICT`——正是新页面会撞上的全部错误）；`frontend/src/constants/authorization.ts` 的 `permissionLabels` 缺 `RBAC_MANAGE`，且需在侧栏 `admin` 组新增四组维护页入口。
+- **权限码搜索可行**：`GET /fd/v1/admin/permissions` 的 `keyword` 同时匹配 `code` 与 `name`，按远程检索实现即可。
+- **同步的文档**：`docs/modules/rbac.md` 新增第 12 节「管理端页面（`TASK-060`）实现细则」（原第 12 节「依据文档」顺延为第 13 节）；`frontend/AGENTS.md` 的 `api/` 触发条件条目补记裁定结果；本文件「快速定位」的待确认事项已清空（其中另列 3 项纯 UI 问题——Element Plus 按需引入、登录页占位文案、首页 `h1` 字号——至今仍待确认，与本阶段无关）。
+- **已知坑（尚未处理）**：真实闭环 E2E 会**写演示库**（建角色、授权限、给 `employee` 授角色）。测试侧按"临时角色 → 闭环 → 撤销授权 → 删除角色"并断言清理干净来实现。
+
 ## 2026-09-22 TASK-059 完成：安全链作用域修复验收（阻塞解除）
 
 - **改动**：`AuthSecurityConfiguration` 的 `securityMatcher` 由 `/fd/v1/auth/**` 扩为 `/fd/v1/**`（决策 12 方案 A）。`JwtAuthenticationFilter` 只装在 `@Order(1)` 的 auth 链上，作用域不含 `/fd/v1/admin/**` 时，管理端请求落到没有认证过滤器的基础链，被 `anyRequest().authenticated()` 一律判成匿名。基础链继续负责 `/actuator/**`、springdoc 等非 `/fd` 路径。
@@ -42,7 +53,7 @@
 - **确认 2：`TASK-058` 按四片推进**：① 两组授权列表（筛选二选一否则 `400`、固定授权 BO、排序白名单）② 用户角色授予/撤销（保护规则 5/6、审计两列、撤该用户全部会话、重复授予幂等）③ 角色权限授予/撤销（保护规则 7、持角色锁按 `user_id` 升序取用户快照、按角色范围撤会话、先撤 Redis 后提交）④ 并发与真实栈收口（两条 MySQL 真并发 IT + 四条手工链路留 `traceId` + `verify` 全绿）。
 - **确认 3：交付层级计入求职 MVP 演示范围，并在后端接口之外补 RBAC 管理端页面**。新增 `TASK-060`（`frontend/src/views/admin/` 的角色、权限与两组授权维护页），按 `frontend/AGENTS.md` 的六态与「视觉决策契约」交付。原设计决策 8「不做管理端页面」据此改写。
 - **同步的文档**：`docs/implementation-plan.md` 9.1（决策表新增 12、13 并改写 8；任务表补 `TASK-059`、`TASK-060`，标出执行顺序与 `TASK-056`/`TASK-057` 已完成；阶段验收标准新增第 6、7 条）、`docs/modules/rbac.md` 第 1 节（管理端页面从"不做"移到"做"）、`docs/modules/auth.md` §8.1（标注 auth 链作用域待扩为 `/fd/v1/**`）、`AGENTS.md` 当前阶段限制、本文件、`README.md`。
-- **待确认**：① ~~`TASK-060` 的页面交互细节~~ **2026-09-22 已定**：要做批量授权、权限码搜索，授予时使用用户/角色选择器形态；这三项不阻塞 `TASK-059`/`TASK-058`。② `frontend/AGENTS.md` 里 `api/` 的分层触发条件已被满足（RBAC 是第二个领域模块），落地 `api/rbac.ts` 时要一并决定是否把 `api/` 拆成“基础设施 + 领域文件”、以及 `errorMessages` 是否同步下沉。
+- **待确认**：无。① ~~`TASK-060` 的页面交互细节~~ **2026-09-22 已定**；② ~~`api/` 是否分层、`errorMessages` 是否下沉~~ **2026-09-22 已裁定：保持扁平、只加 `api/rbac.ts`、`errorMessages` 不下沉**。两项细节见下方「`TASK-060` 开工规格确认」一节与 `docs/modules/rbac.md` 第 12 节。
 
 ## 2026-09-21 本机库同步 V5（清理 V3 残留数据）
 
@@ -427,7 +438,7 @@
 6. `docs/modules/auth.md` 第 8 节（安全链结构；§8.1 已记录 `securityMatcher` 扩为 `/fd/v1/**` 与真实栈复核结论）
 7. `docs/database-design.md` 17.2～17.5（两张授权表结构、复合主键与 `V5` 新增审计列）
 
-开工 `TASK-060`（管理端页面）前必读 `frontend/AGENTS.md`。它的**起点基线**（2026-09-22 本会话复跑）：`typecheck` / `lint` / `build` 退出码 0，单元 **8 套件 33 项**，E2E **9 项**；后端起点为 **132 项单元/Web + 30 项集成**。`docs/kickoff.md` 已完成并作为业务规则来源；只有在业务模型无法回答具体流程或权限问题时，才回查对应小节。
+开工 `TASK-060`（管理端页面）前必读 `frontend/AGENTS.md` 与 `.ui-craft/brief.md`，并先读 `docs/modules/rbac.md` 第 12 节（三项已确认决策：用户选择器用数字 ID、批量授权限定"一个用户 × 多个角色"、`api/` 保持扁平；以及页面开工前必须补的 6 个错误码与 `RBAC_MANAGE` 标签）。它的**起点基线**（2026-09-22 本会话复跑）：`typecheck` / `lint` / `build` 退出码 0，单元 **8 套件 33 项**，E2E **9 项**；后端起点为 **132 项单元/Web + 30 项集成**。`docs/kickoff.md` 已完成并作为业务规则来源；只有在业务模型无法回答具体流程或权限问题时，才回查对应小节。
 
 ## 文档索引
 

@@ -264,7 +264,45 @@ $env:JAVA_HOME='D:\Idea\Jdk\Jdk21'; .\mvnw.cmd spring-boot:run "-Dspring-boot.ru
 
 `TASK-059` 的完整真实验证矩阵（无令牌 `401`、`admin` `200`、`employee` `403`，各 2 个端点）记在 `PROJECT_STATUS.md` 的 2026-09-22 小节与 `docs/modules/auth.md` §8.1。
 
-## 12. 依据文档
+## 12. 管理端页面（`TASK-060`）实现细则
+
+三个交互与落层决策由用户 **2026-09-22 一次确认**（原为 `PROJECT_STATUS.md` 的待确认事项），结论如下。
+
+### 12.1 用户选择器：数字用户 ID + 候选下拉
+
+**代码事实**：`GET /fd/v1/users` **未实现**——`IamUserController` 只有一个空的 `@RequestMapping("/fd/v1/iam/user")` 壳，一个方法都没有，连路径都与 `docs/api-design.md` 8.2 的 `/fd/v1/users` 不一致；用户管理按 8.2 与本文第 1 节属**完整版 backlog**。因此"给用户授角色"没有可用的用户检索数据源。
+
+- 用户输入**数字用户 ID**，输入框旁明确说明"后端暂无用户查询接口，用户管理属完整版"。**不做可点击的假搜索框**——与 `.ui-craft/brief.md` 对顶栏搜索位的既有纠正同一条原则。
+- 候选下拉只提供**当前列表里已经出现过的**用户（来自 `IamUserRoleBO.userId` / `username`）；它是便利，不是数据源，不能因此让首屏依赖它。
+- 角色选择器正常实现，数据源是 `GET /fd/v1/admin/roles`（支持 `keyword` + `PageQuery`）。
+- 权限选择器（角色权限授予页）数据源是 `GET /fd/v1/admin/permissions`（`keyword` 同时匹配 `code` 与 `name`），据此实现"权限码搜索"的远程检索。
+
+### 12.2 批量授权语义：一个用户 × 多个角色
+
+`docs/api-design.md` 8.2.1 只有单条 `POST /user-roles` 与 `POST /role-permissions`，**没有批量端点**，所以"批量"只能是前端循环调用单条 `POST`。两个后果必须显式处理：
+
+- **部分失败不可回滚**：循环到第 N 条失败时，前 N−1 条已经提交；
+- **每条成功都会撤销会话**（第 7 节决策 3）。
+
+因此批量限定为**一个用户 × 多个角色**：重复授予幂等，且对**同一个**用户反复撤会话没有额外代价，部分失败后重试最便宜。部分失败时给出"已成功 X 个、失败 1 个（原因）"，结束后刷新列表，用户重试即可。**不做"一个角色 × 多个用户"**：部分失败会在只授了一半的情况下踢掉一批人。
+
+### 12.3 `api/` 保持扁平，`errorMessages` 不下沉
+
+`frontend/AGENTS.md` 的分层触发条件已满足（RBAC 是第二个领域模块），确认结论是**不分层**：
+
+- 只新增 `api/rbac.ts`，**不建 `api/core/`**。理由沿用 `frontend/AGENTS.md` 自己的论证：拆分会把"HTTP 层懂认证"这个必须显眼的事实藏起来；`auth.ts` / `rbac.ts` 是领域文件，`http.ts` / `pagination.ts` / `errorMessages.ts` 是基础设施，命名已经区分，拆分只增加 import 改动而信息量为零。
+- `errorMessages` 继续用**单一映射表**。按领域拆表会让"某个错误码的文案在哪"取决于你是否知道它属于哪个领域，反而更难找；补完后约 41 行，一张表一眼扫完。
+
+### 12.4 页面开工前必须补的两处既有缺口
+
+不补的话页面会直接露出裸编码或缺失标签：
+
+| 文件 | 缺什么 |
+| --- | --- |
+| `frontend/src/api/errorMessages.ts` | 6 个 RBAC 错误码：`ROLE_NOT_FOUND`、`PERMISSION_NOT_FOUND`、`GRANT_NOT_FOUND`、`ROLE_CODE_CONFLICT`、`PERMISSION_CODE_CONFLICT`、`RBAC_CONFLICT`——这正是新页面会撞上的全部错误 |
+| `frontend/src/constants/authorization.ts` | `permissionLabels` 缺 `RBAC_MANAGE`；并且要按 `RBAC_MANAGE` 在侧栏 `admin` 组新增四组维护页入口 |
+
+## 13. 依据文档
 
 - `docs/api-design.md` 8.1、8.2.1、9、10.2：接口契约、权限映射、错误码。
 - `docs/database-design.md` 17.2～17.5：表结构与审计列。
