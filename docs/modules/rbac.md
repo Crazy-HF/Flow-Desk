@@ -13,11 +13,12 @@
 - 四组接口共 16 个端点（见第 4 节），全部要求 `RBAC_MANAGE`。
 - 新增 Flyway 迁移 `V5`：补 `iam_role_permission` 的审计列、预置 `RBAC_MANAGE` 并只授予 `SYSTEM_ADMIN`。
 - 会话撤销：授予/撤销用户角色、以及变更角色权限后，撤销受影响用户的全部会话。
+- 管理端页面（`frontend/src/views/admin/`）：角色、权限与两组授权的在线维护页面，**2026-09-22 确认补做并计入 MVP 演示范围**（`TASK-060`）。
 
 **不做**（越界即停）：
 
 - 不扩展 `docs/api-design.md` 8.2.1 之外的权限模型：不做角色继承、不做数据级/组织级权限、不做权限与接口的自动映射。
-- 不做管理端页面（`frontend/src/views/admin/` 留给后续主题）。
+- 不做 RBAC 之外的管理端页面：用户管理、分类管理、管理性交接仍属完整版 backlog。
 - 不改已发布的历史迁移 `V1` / `V2` / `V4`。
 - 不新增独立审计日志表（见第 9 节"已知缺口"）。
 
@@ -33,6 +34,18 @@
 
   IAM 的服务只依赖端口，不知道 Redis 的存在；auth 侧只做转发，不做业务判断。
 - **为什么不让 IAM 直接调 `AuthSessionRepository`**：那会让 `iam → auth`，与现有单向依赖成环；端口属于"被调用方定义接口"，方向与 `auth → iam` 一致。
+- IAM 写授权审计（`granted_by`）需要"当前操作人用户 ID"，身份却由 auth 侧写入 `SecurityContext`，因此同样用一个端口隔离：
+
+  ```
+  iam/service/CurrentOperatorPort.java            long currentUserId()
+  auth/infrastructure/IamCurrentOperatorAdapter   @Component，从 SecurityContextHolder 取 AuthPrincipal 的 userId
+  ```
+
+  **为什么不用别的做法**（2026-09-22 确认方案 A）：
+  - IAM 的控制器若直接 `@AuthenticationPrincipal AuthPrincipal` 或 `import com.flowdesk.auth.domain.AuthPrincipal`，就产生 `iam → auth`，与上面的单向依赖冲突。
+  - `Authentication#getName()` 在本项目不可用：`JwtAuthenticationFilter` 装的是 record 型 principal，不是 `UserDetails`/`Principal`，`getName()` 会退化成 record 的 `toString()`。
+  - 把 `AuthPrincipal` 上提到 `common` 会让 `common` 承载身份模型，改动面最大；让 `AuthPrincipal` 实现 `java.security.Principal` 并把用户 ID 塞进 `getName()` 语义偏松。
+  - 两个端口（`SessionRevocationPort`、`CurrentOperatorPort`）形式一致，评审时不必重新论证依赖方向。
 - 控制器放在 `iam/controller`，与 `auth/controller` 平级；异常仍走 `common/exception/GlobalExceptionHandler`。
 
 ## 3. 类清单（最终形态）
@@ -44,6 +57,7 @@
 | vo（请求） | `IamRoleCreateVO`、`IamRoleUpdateVO`、`IamRoleQueryVO`、`IamPermissionCreateVO`、`IamPermissionUpdateVO`、`IamPermissionQueryVO`、`IamUserRoleGrantVO`、`IamUserRoleQueryVO`、`IamRolePermissionGrantVO`、`IamRolePermissionQueryVO` | 字段校验（`jakarta.validation`） |
 | bo（响应/服务间） | `IamRoleBO`、`IamPermissionBO`、`IamUserRoleBO`、`IamRolePermissionBO` | 对外字段；两类授权 BO 的字段固定见 4.3、4.4，**不含**任何密码或内部存储细节 |
 | 端口 | `SessionRevocationPort`（iam）+ `IamSessionRevocationAdapter`（auth） | 撤销某用户全部会话 |
+| 端口 | `CurrentOperatorPort`（iam）+ `IamCurrentOperatorAdapter`（auth） | 取当前操作人用户 ID，用于写 `granted_by` |
 
 命名沿用项目既有约定：请求体 `*VO`、响应与服务间 `*BO`（对照 `auth/domain/vo/AuthLoginVO` 与 `auth/domain/bo/AuthUserBO`）。
 查询参数里的分页复用 `common/web/PageQuery`，返回值复用 `common/web/PageResult`。
@@ -171,7 +185,7 @@
 
 ## 9. 审计
 
-- **落库的授权审计**：`iam_user_role` 沿用建表已有的 `granted_by` / `granted_at`；`iam_role_permission` 由 `V5` 补 `granted_by BIGINT UNSIGNED`、`granted_at DATETIME(6)`、授权人索引及指向 `iam_user(id)` 的外键。新授权必须同时写入两列，`granted_by` = 当前操作人的 `userId`。
+- **落库的授权审计**：`iam_user_role` 沿用建表已有的 `granted_by` / `granted_at`；`iam_role_permission` 由 `V5` 补 `granted_by BIGINT UNSIGNED`、`granted_at DATETIME(6)`、授权人索引及指向 `iam_user(id)` 的外键。新授权必须同时写入两列，`granted_by` = 经 `CurrentOperatorPort` 取得的当前操作人 `userId`（见第 2 节）。
 - **空值语义**：`granted_by IS NULL` 表示"没有具体操作人"（Flyway 预置或系统写入）；存量 `granted_at` 保持 `NULL`，不伪造时间。
 - **请求级审计**：`common/web/filter/RequestAuditFilter` + `TraceIdFilter` 已记录 `method/path/status/durationMs/traceId`，且刻意不记录请求头、Cookie、查询串与请求体。
 - **已知缺口**：被拒绝的操作（如"删除 `SYSTEM_ADMIN` 被拒"）不会在数据库留下痕迹，只能靠应用日志；"改了哪些字段"目前无处可查（日志不含请求体）。要覆盖这些，需要独立的只追加审计日志表——**不在本次范围**，需要单独确认。

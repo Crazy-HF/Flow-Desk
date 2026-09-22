@@ -210,7 +210,7 @@ MVP 最终完成定义：
 
 ### 9.1 完整动态 RBAC（2026-09-21 阶段设计确认，先于阶段 2）
 
-范围上限是 `docs/api-design.md` 8.2.1 的四组接口，不扩展到该节之外的权限模型。**本阶段只交付后端接口、迁移与测试证据，不做 RBAC 前端页面**（`frontend/src/views/admin/` 留给后续主题）。
+范围上限是 `docs/api-design.md` 8.2.1 的四组接口，不扩展到该节之外的权限模型。**本阶段计入求职 MVP 演示范围**：除后端接口、迁移与测试证据外，还包含 RBAC 管理端页面（`frontend/src/views/admin/`，`TASK-060`，2026-09-22 确认）。
 
 已确认的阶段设计决策：
 
@@ -223,19 +223,23 @@ MVP 最终完成定义：
 | 5 | 受保护角色与权限按 `code` 常量判定（`SYSTEM_ADMIN`、`RBAC_MANAGE`） | `code` 已有唯一约束，不新增"内置"标记列 |
 | 6 | 分页排序白名单：角色/权限为 `code,name,created_at`；用户角色为 `granted_at`；角色权限为 `role_id,permission_id` | 作为 `PageQuery.orderItems(...)` 的入参 |
 | 7 | 两组授权列表必须至少给出一个筛选（`userId`/`roleId`、`roleId`/`permissionId`），都不给返回 `400/VALIDATION_FAILED` | 避免无筛选的全表分页 |
-| 8 | 交付层级：本阶段记为第 3 步的后端能力；前端页面与"是否计入 MVP 演示范围"留待后续确认 | 见 `PROJECT_STATUS.md` 待确认事项 |
+| 8 | 交付层级：**计入求职 MVP 演示范围**，并在后端接口之外补 RBAC 管理端页面（`frontend/src/views/admin/`） | 2026-09-22 用户确认；页面成为本阶段交付物，不再是“留给后续主题” |
 | 9 | 两类授权列表与授予响应使用固定授权 BO | 用户角色返回用户 ID/用户名、角色 ID/编码/名称、授权人、授权时间；角色权限返回角色 ID/编码、权限 ID/编码/名称、授权人、授权时间；`grantedBy` 为可空的授权人用户 ID |
 | 10 | 角色权限实际变化时撤销该角色全部用户会话 | 持有角色锁后通过 `FOR UPDATE` 按用户 ID 升序取得受影响用户快照；重复授予不写库、不撤会话；任一撤销失败则 MySQL 回滚 |
 | 11 | RBAC 写操作使用固定悲观锁协议 | `SELECT ... FOR UPDATE`，顺序为角色 → 权限 → 用户 → 授权关系，同层按主键升序；锁后重查并校验，禁止反向加锁和带 Redis 副作用的自动重试 |
+| 12 | 安全链作用域修复（方案 A）：`AuthSecurityConfiguration` 的 `securityMatcher` 由 `/fd/v1/auth/**` 扩为 `/fd/v1/**` | 2026-09-22 确认。真实 HTTP 下 `/fd/v1/admin/**` 目前恒为 `401/AUTH_REQUIRED`——JWT 过滤器只装在 auth 链上，其余路径落到无认证过滤器的基础链；`@WithMockUser` 的 Web 测试覆盖不到该缺陷。见 `TASK-059` |
+| 13 | `TASK-058` 按 4 片推进：① 两组授权列表 ② 用户角色授予/撤销 ③ 角色权限授予/撤销 ④ 并发与真实栈收口 | 2026-09-22 用户确认 |
 
-任务拆分（每个任务独立验收，顺序即依赖顺序）：
+任务拆分（每个任务独立验收）。**执行顺序**：`TASK-059`（安全链修复，先做）→ `TASK-058`（四片）→ `TASK-060`（管理端页面）→ 阶段收口；编号按登记顺序，不代表执行顺序：
 
 | 任务 | 内容 | 关键产出 |
 | --- | --- | --- |
 | `TASK-055`（已完成） | `V5` 迁移：新增 `RBAC_MANAGE` 权限、授予 `SYSTEM_ADMIN`、为 `iam_role_permission` 补审计列、索引与外键；同步 `DatabaseMigrationIT`（版本 `1,2,4,5`、权限/关系各 14、`SYSTEM_ADMIN` 权限数 4、授权范围与物理结构） | 迁移脚本 + 迁移集成测试；2026-09-21 空库验证通过 |
-| `TASK-056` | 会话撤销端口与 adapter：`iam/service/SessionRevocationPort`（`void revokeAll(long userId)`）+ `auth/infrastructure/IamSessionRevocationAdapter` | 端口、adapter、转发单测 |
-| `TASK-057` | 角色与权限两组 CRUD：`/fd/v1/admin/roles`、`/fd/v1/admin/permissions` | Controller/Service/VO/BO + Web 测试 |
-| `TASK-058` | 用户角色与角色权限两组授权：`/fd/v1/admin/user-roles`、`/fd/v1/admin/role-permissions` | 固定授权 BO + 悲观锁协议 + 用户/角色范围会话撤销联动 + MySQL 真并发集成测试 |
+| `TASK-056`（已完成） | 会话撤销端口与 adapter：`iam/service/SessionRevocationPort`（`void revokeAll(long userId)`）+ `auth/infrastructure/IamSessionRevocationAdapter` | 端口、adapter、转发单测 |
+| `TASK-057`（已完成） | 角色与权限两组 CRUD：`/fd/v1/admin/roles`、`/fd/v1/admin/permissions` | Controller/Service/VO/BO + Web 测试；提交 `7dd5208`，`verify` 128 单元/Web + 30 集成全绿 |
+| `TASK-059`（已完成） | 安全链作用域修复（决策 12 方案 A）：`AuthSecurityConfiguration` 的 `securityMatcher` 扩为 `/fd/v1/**`；同步 `docs/modules/auth.md` §8.1 的链职责描述；补一条走真实过滤链（不使用 `@WithMockUser` 绕过）的 Web 测试，证明无令牌 401、有令牌放行、非 admin 403 | 配置改动 + 测试 + 文档；真实栈用 `admin` 令牌调 `/fd/v1/admin/roles` 应返回 `200`，不再 `401` |
+| `TASK-058` | 用户角色与角色权限两组授权（6 个端点），四片：① 两组授权列表（筛选二选一否则 `400`、固定授权 BO、排序白名单）② 用户角色授予/撤销（保护规则 5/6、审计两列、撤该用户全部会话、重复授予幂等）③ 角色权限授予/撤销（保护规则 7、持角色锁按 `user_id` 升序取用户快照、按角色范围撤会话、先撤 Redis 后提交）④ 并发与真实栈收口 | Controller/Service/VO/BO + 服务单测 + Web 矩阵 + Testcontainers MySQL 集成测试（含两条真并发）；注意两张授权表是复合主键、实体无 `@TableId`，只能用 wrapper 读写 |
+| `TASK-060` | RBAC 管理端页面（`frontend/src/views/admin/`）：角色、权限、用户角色授权、角色权限授权的在线维护页；路由与侧栏入口按 `RBAC_MANAGE` 显隐 | 页面 + `api/` 领域封装的落层决定 + 单测/E2E；按 `frontend/AGENTS.md` 的六态与「视觉决策契约」交付（含 Craft Read、signature、三抄测试） |
 
 阶段验收标准（可检查）：
 
@@ -244,6 +248,8 @@ MVP 最终完成定义：
 3. `DatabaseMigrationIT` 断言与 `V5` 一致，并能证明 `RBAC_MANAGE` 只授予 `SYSTEM_ADMIN`。
 4. 手工验证四条链路各留 `traceId` 与响应码：授予用户角色后目标用户旧会话失效、变更角色权限后该角色全部用户旧会话失效、撤销最后一个角色被拒、删除受保护角色被拒。
 5. `PROJECT_STATUS.md`、`README.md` 与 `AGENTS.md` 的当前阶段一致。
+6. 真实 HTTP 可用性（`TASK-059` 完成后）：用 `admin` 令牌调 `/fd/v1/admin/roles` 与 `/fd/v1/admin/permissions` 返回 `200`（不再是 `401/AUTH_REQUIRED`）；无令牌 `401`、非 admin 令牌 `403`。
+7. 管理端页面（`TASK-060`）：四组 RBAC 页面可完成一次真实闭环（建角色 → 授权限 → 给用户授角色），六态齐全、入口按 `RBAC_MANAGE` 显隐，前端 `typecheck`/`lint`/`build`/单测/E2E 全绿。
 
 动态 RBAC 已按 2026-09-21 的确认提前实施，实现范围以 `docs/api-design.md` 8.2.1 为上限，不扩展到该节之外的权限模型；`EMPLOYEE`、`IT_SUPPORT`、`SYSTEM_ADMIN` 三种内置角色继续保留且 `SYSTEM_ADMIN` 受保护。
 

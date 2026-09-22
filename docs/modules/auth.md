@@ -148,6 +148,16 @@ FlowDesk v1 是模块化单体，不引入 API Gateway。安全链由两层组�
 放行 `/actuator/health` 与 springdoc 路径，未认证请求经 `ApiErrorWriter` 统一返回 `401 / AUTH_REQUIRED` 错误信封。
 Auth 模块在此基础上叠加 JWT 解析与 Redis 会话校验，并决定哪些认证路径匿名放行、哪些受保护请求必须带有效的 Bearer Access Token。
 
+> **已实施（2026-09-22 方案 A，`TASK-059`）**：auth 链的 `securityMatcher` 由 `/fd/v1/auth/**` 扩为 `/fd/v1/**`。
+> 修复前只有 `/fd/v1/auth/**` 会经过 JWT 过滤器，其余业务路径（含 `/fd/v1/admin/**`）落到基础链，
+> 而基础链没有认证过滤器，因此恒为 `401 / AUTH_REQUIRED`；`@WithMockUser` 的 Web 测试覆盖不到该缺陷，
+> 回归证据为 `SecurityChainScopeWebTest`（用真实 Access Token + 会话快照构造身份，不注入 `SecurityContext`）。
+> 改动后基础链继续负责 `/actuator/**`、springdoc 等非 `/fd` 路径的放行与 401 信封。
+>
+> 真实栈复核（2026-09-22，`local` profile + `admin`/`employee` 演示账号）：`admin` 令牌调
+> `/fd/v1/admin/roles` 与 `/fd/v1/admin/permissions` 均返回 `200`；无令牌 `401/AUTH_REQUIRED`；
+> `employee` 令牌 `403/ACCESS_DENIED`。
+
 实际放行规则：
 
 | 路径 | 放行原因 |
