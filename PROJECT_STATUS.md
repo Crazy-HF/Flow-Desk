@@ -30,6 +30,9 @@
   - 响应同时复核了 `V5` 的库内结果：`RBAC_MANAGE` 为 `id=15`、权限总数 14、`SYSTEM_ADMIN` 的 `permissionIds=[10,11,12,15]`。
 - **排障记录（会复发，值得记住）**：用 `curl.exe` 验证时，PowerShell 5.1 下 `--data-binary "@(Join-Path ...)"` 里的 `@(...)` 在双引号中是**字面量**，curl 会去读一个不存在的文件名并返回 `400/VALIDATION_FAILED`；另外 `curl.exe` 的输出是行数组，直接喂 `ConvertFrom-Json` 会得到空对象，必须先 `-join ''`。这两点各制造了一次「令牌为空」的假象（`Authorization: Bearer ` 后面什么都没有），一度看起来像修复没生效。
 - **文档同步**：`docs/modules/auth.md` §8.1 的「待实施」改为「已实施」并补真实栈复核结论；`docs/implementation-plan.md` 9.1 的 `TASK-059` 行标注已完成；本文件「当前阻塞」清空。
+- **阶段起点基线（2026-09-22 本会话复跑，作为「只增不减」的比对基准）**：后端 `clean verify` → 单元/Web **132**、集成 **30**；前端 `typecheck`/`lint`/`build` 退出码 0、单元 **8 套件 33 项**、E2E **9 项**。
+- **另有两条真实栈证据（2026-09-22）**：① `DELETE /fd/v1/admin/roles/3` → `409/RBAC_CONFLICT`（`traceId=04cb2583-bc7d-4919-9aa6-a412c8cf9652`）、`DELETE /fd/v1/admin/permissions/15` → `409/RBAC_CONFLICT`（`traceId=41e91d3c-658e-4894-8e1a-928ab9779d5e`），拒绝后两个对象仍在，且这两条走的是**写路径**的真实过滤链；② 直接查库核对 `V5`：迁移版本 `1,2,4,5`、权限 14、授权 14、`SYSTEM_ADMIN` 权限 4、`RBAC_MANAGE` 仅授予 `SYSTEM_ADMIN`、无伪造存量审计、审计列与索引外键齐备。
+- **一处文档错误已更正**：`docs/modules/rbac.md` 第 10 节原写「用**真实 JWT** 构造身份」与代码不符——角色/权限 Web 测试用的是 `SecurityMockMvcRequestPostProcessors.user(...)`。已改为明文约束：每组端点至少保留一条真实过滤链用例。
 - **下一步**：`TASK-058`（用户角色、角色权限两组授权，四片）。分工确认为 **用户写生产代码、Codex 写测试**（与根 `AGENTS.md` 一致）。
 
 ## 2026-09-22 三项范围确认（安全链修复、TASK-058 切片、管理端页面）
@@ -414,17 +417,17 @@
 
 ## 当前任务必读
 
-开始 `TASK-059`（安全链作用域修复）与 `TASK-058`（两组授权）前，按以下顺序读取：
+开始 `TASK-058`（用户角色、角色权限两组授权六端点，四片）前按以下顺序读取；`TASK-059` 已完成（2026-09-22，见上方记录）：
 
 1. `AGENTS.md`
-2. `PROJECT_STATUS.md`（尤其 2026-09-22 三项确认与“当前阻塞”）
+2. `PROJECT_STATUS.md`（尤其 2026-09-22 三项确认、`TASK-059` 完成记录与“当前阻塞”）
 3. `docs/implementation-plan.md` 9.1（13 项设计决策、`TASK-055`～`TASK-060` 与阶段验收标准）
-4. `docs/modules/rbac.md`（第 4.3/4.4 节契约、第 6 节保护规则、第 7 节锁与撤销顺序、第 10 节测试矩阵、第 11 节验收命令）
+4. `docs/modules/rbac.md`（第 2 节的 `CurrentOperatorPort` 与依赖方向、第 4.3/4.4 节契约、第 6 节保护规则、第 7 节锁协议与撤销顺序、第 10.1 节覆盖矩阵的空白格、第 11 节验收命令与手工链路）
 5. `docs/api-design.md` 8.2.1（两组授权的请求/响应与错误码）
-6. `docs/modules/auth.md` 第 8 节（安全链结构，含 §8.1 的待实施说明）
+6. `docs/modules/auth.md` 第 8 节（安全链结构；§8.1 已记录 `securityMatcher` 扩为 `/fd/v1/**` 与真实栈复核结论）
 7. `docs/database-design.md` 17.2～17.5（两张授权表结构、复合主键与 `V5` 新增审计列）
 
-开工 `TASK-060`（管理端页面）前必读 `frontend/AGENTS.md`。`docs/kickoff.md` 已完成并作为业务规则来源；只有在业务模型无法回答具体流程或权限问题时，才回查对应小节。
+开工 `TASK-060`（管理端页面）前必读 `frontend/AGENTS.md`。它的**起点基线**（2026-09-22 本会话复跑）：`typecheck` / `lint` / `build` 退出码 0，单元 **8 套件 33 项**，E2E **9 项**；后端起点为 **132 项单元/Web + 30 项集成**。`docs/kickoff.md` 已完成并作为业务规则来源；只有在业务模型无法回答具体流程或权限问题时，才回查对应小节。
 
 ## 文档索引
 

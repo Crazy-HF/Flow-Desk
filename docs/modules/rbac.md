@@ -237,12 +237,17 @@ docker compose up -d mysql redis
 $env:JAVA_HOME='D:\Idea\Jdk\Jdk21'; .\mvnw.cmd spring-boot:run "-Dspring-boot.run.profiles=local"
 ```
 
-手工链路（每条留 `traceId` 与响应码）：
+手工链路。**清单与 `docs/implementation-plan.md` 9.1 阶段验收标准第 4 条一一对应**，每条都要留 `traceId` 与响应码：
 
-1. `admin` 登录 → 创建角色 `TEMP_AUDITOR` → 给 `employee` 授予该角色 → 用 `employee` 的旧 Access Token 调 `/fd/v1/auth/me`，期望 `401/AUTH_SESSION_INVALID`。
-2. 撤销 `employee` 的唯一角色 → 期望 `409/USER_ROLE_REQUIRED`。
-3. 删除 `SYSTEM_ADMIN` → 期望 `409/RBAC_CONFLICT`；撤销其 `RBAC_MANAGE` → 期望 `409/RBAC_CONFLICT`。
-4. 清理：撤销授权、删除 `TEMP_AUDITOR`，并把本机库恢复到与迁移一致的状态。
+| # | 链路 | 期望 |
+| --- | --- | --- |
+| 1 | `admin` 登录 → 给 `employee` 授予角色 → 用 `employee` 的**旧** Access Token 调 `/fd/v1/auth/me` | 授予前令牌可用；授予后 `401/AUTH_SESSION_INVALID` |
+| 2 | 变更某角色的权限（授予或撤销一条）→ 用该角色某个用户的**旧** Access Token 调受保护接口 | `401/AUTH_SESSION_INVALID`；该角色全部用户的会话都失效，不只是操作人自己 |
+| 3 | 撤销 `employee` 的唯一角色 | `409/USER_ROLE_REQUIRED` |
+| 4 | 删除 `SYSTEM_ADMIN` | `409/RBAC_CONFLICT` |
+| 5 | 清理：撤销授权、删除临时角色，并把本机库恢复到与迁移一致的状态 | 迁移版本、权限数、`SYSTEM_ADMIN` 权限数与 `DatabaseMigrationIT` 断言一致 |
+
+链路 4 之外，`DELETE /fd/v1/admin/permissions/15`（删 `RBAC_MANAGE` 本体）与「撤销 `SYSTEM_ADMIN` 的 `RBAC_MANAGE` 授权」是同一族保护规则的不同入口，收口时一并留证。
 
 ### 11.1 已留证的链路（2026-09-22，`local` profile + 演示账号）
 
