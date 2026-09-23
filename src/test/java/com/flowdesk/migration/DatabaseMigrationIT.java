@@ -50,6 +50,7 @@ class DatabaseMigrationIT {
             "uk_ticket_record_ticket_seq", "uk_ticket_attachment_storage_key",
             "uk_ticket_relation_source_type",
             "idx_iam_user_status", "idx_iam_user_role_role_user", "idx_iam_role_permission_permission_role",
+            "idx_iam_role_permission_granted_by",
             "idx_ticket_category_status_sort", "idx_ticket_requester_created",
             "idx_ticket_status_priority_created", "idx_ticket_assignee_status_updated",
             "idx_ticket_status_deadline", "idx_ticket_category_status",
@@ -60,7 +61,8 @@ class DatabaseMigrationIT {
             "TICKET_CREATE", "TICKET_VIEW_OWN", "TICKET_REQUESTER_ACTION",
             "TICKET_VIEW_QUEUE", "TICKET_CLAIM", "TICKET_VIEW_PARTICIPATED",
             "TICKET_PROCESS", "TICKET_TRANSFER", "TICKET_CLOSE",
-            "TICKET_ADMIN_HANDOFF", "USER_MANAGE", "CATEGORY_MANAGE", "DASHBOARD_VIEW");
+            "TICKET_ADMIN_HANDOFF", "USER_MANAGE", "CATEGORY_MANAGE", "DASHBOARD_VIEW",
+            "RBAC_MANAGE");
 
     private static JdbcTemplate jdbc;
 
@@ -81,7 +83,7 @@ class DatabaseMigrationIT {
         var history = jdbc.queryForList(
                 "SELECT version, success FROM flyway_schema_history ORDER BY installed_rank");
         assertThat(history).extracting(row -> String.valueOf(row.get("version")))
-                .containsExactly("1", "2", "4");
+                .containsExactly("1", "2", "4", "5");
         assertThat(history).allSatisfy(row ->
                 assertThat(row.get("success")).isEqualTo(Boolean.TRUE));
 
@@ -97,7 +99,7 @@ class DatabaseMigrationIT {
         var foreignKeys = jdbc.queryForList(
                 "SELECT constraint_name, delete_rule FROM information_schema.referential_constraints "
                         + "WHERE constraint_schema = DATABASE()");
-        assertThat(foreignKeys).hasSize(21);
+        assertThat(foreignKeys).hasSize(22);
         assertThat(foreignKeys).allSatisfy(row ->
                 assertThat(row.get("delete_rule")).isEqualTo("NO ACTION"));
 
@@ -108,6 +110,53 @@ class DatabaseMigrationIT {
                 String.class,
                 EXPECTED_INDEXES.toArray());
         assertThat(indexNames).containsExactlyInAnyOrderElementsOf(EXPECTED_INDEXES);
+
+        var grantedByColumnCount = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'iam_role_permission'
+                  AND column_name = 'granted_by'
+                  AND data_type = 'bigint'
+                  AND column_type = 'bigint unsigned'
+                  AND is_nullable = 'YES'
+                """, Integer.class);
+        assertThat(grantedByColumnCount).isEqualTo(1);
+
+        var grantedAtColumnCount = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'iam_role_permission'
+                  AND column_name = 'granted_at'
+                  AND data_type = 'datetime'
+                  AND datetime_precision = 6
+                  AND is_nullable = 'YES'
+                """, Integer.class);
+        assertThat(grantedAtColumnCount).isEqualTo(1);
+
+        var grantedByIndexCount = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM information_schema.statistics
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'iam_role_permission'
+                  AND index_name = 'idx_iam_role_permission_granted_by'
+                  AND column_name = 'granted_by'
+                  AND seq_in_index = 1
+                """, Integer.class);
+        assertThat(grantedByIndexCount).isEqualTo(1);
+
+        var grantedByForeignKeyCount = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM information_schema.key_column_usage
+                WHERE constraint_schema = DATABASE()
+                  AND table_name = 'iam_role_permission'
+                  AND constraint_name = 'fk_iam_role_permission_granted_by'
+                  AND column_name = 'granted_by'
+                  AND referenced_table_name = 'iam_user'
+                  AND referenced_column_name = 'id'
+                """, Integer.class);
+        assertThat(grantedByForeignKeyCount).isEqualTo(1);
     }
 
     @Test
@@ -116,15 +165,33 @@ class DatabaseMigrationIT {
         assertThat(roles).containsExactly("EMPLOYEE", "IT_SUPPORT", "SYSTEM_ADMIN");
 
         var permissions = jdbc.queryForList("SELECT code FROM iam_permission ORDER BY id", String.class);
-        assertThat(permissions).hasSize(13);
+        assertThat(permissions).hasSize(14);
         assertThat(permissions).containsExactlyInAnyOrderElementsOf(EXPECTED_PERMISSIONS);
 
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM iam_role_permission", Integer.class))
-                .isEqualTo(13);
+                .isEqualTo(14);
         assertThat(rolePermissionCount("EMPLOYEE")).isEqualTo(3);
         assertThat(rolePermissionCount("IT_SUPPORT")).isEqualTo(7);
-        // 系统管理员角色不包含查看具体工单内容的权限；动态 RBAC 不属于 MVP。
-        assertThat(rolePermissionCount("SYSTEM_ADMIN")).isEqualTo(3);
+        // 系统管理员角色不包含查看具体工单内容的权限，但独占动态 RBAC 管理权限。
+        assertThat(rolePermissionCount("SYSTEM_ADMIN")).isEqualTo(4);
+
+        var rbacManageRoleCodes = jdbc.queryForList("""
+                SELECT role.code
+                FROM iam_role_permission role_permission
+                JOIN iam_role role ON role.id = role_permission.role_id
+                JOIN iam_permission permission ON permission.id = role_permission.permission_id
+                WHERE permission.code = 'RBAC_MANAGE'
+                ORDER BY role.code
+                """, String.class);
+        assertThat(rbacManageRoleCodes).containsExactly("SYSTEM_ADMIN");
+
+        var seedGrantAuditNullCount = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM iam_role_permission
+                WHERE granted_by IS NULL
+                  AND granted_at IS NULL
+                """, Integer.class);
+        assertThat(seedGrantAuditNullCount).isEqualTo(14);
 
         // 公共迁移不创建任何用户或默认管理员
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM iam_user", Integer.class)).isZero();

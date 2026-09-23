@@ -3,6 +3,10 @@ package com.flowdesk.iam.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.flowdesk.iam.domain.IamPermission;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+
+import java.util.List;
 
 /**
  * <p>
@@ -15,4 +19,34 @@ import org.apache.ibatis.annotations.Mapper;
 @Mapper
 public interface IamPermissionMapper extends BaseMapper<IamPermission> {
 
+    /**根据ID查询权限，并加锁*/
+    @Select("""
+        SELECT id, code, name, description, created_at
+        FROM iam_permission
+        WHERE id = #{permissionId}
+        FOR UPDATE
+        """)
+    IamPermission selectByIdForUpdate(
+            @Param("permissionId") long permissionId
+    );
+
+    @Select("""
+        <script>
+        SELECT id, code, name, description, created_at
+        FROM iam_permission
+        WHERE id IN
+        <foreach collection="permissionIds"
+                 item="permissionId"
+                 open="("
+                 separator=","
+                 close=")">
+            #{permissionId}
+        </foreach>
+        ORDER BY id
+        FOR UPDATE
+        </script>
+        """)
+    List<IamPermission> selectByIdsForUpdate(
+            @Param("permissionIds") List<Long> permissionIds
+    );
 }
