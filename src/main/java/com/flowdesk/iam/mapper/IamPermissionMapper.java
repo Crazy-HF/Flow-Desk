@@ -6,6 +6,8 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
+import java.util.List;
+
 /**
  * <p>
  * 预置权限 Mapper 接口
@@ -26,5 +28,25 @@ public interface IamPermissionMapper extends BaseMapper<IamPermission> {
         """)
     IamPermission selectByIdForUpdate(
             @Param("permissionId") long permissionId
+    );
+
+    @Select("""
+        <script>
+        SELECT id, code, name, description, created_at
+        FROM iam_permission
+        WHERE id IN
+        <foreach collection="permissionIds"
+                 item="permissionId"
+                 open="("
+                 separator=","
+                 close=")">
+            #{permissionId}
+        </foreach>
+        ORDER BY id
+        FOR UPDATE
+        </script>
+        """)
+    List<IamPermission> selectByIdsForUpdate(
+            @Param("permissionIds") List<Long> permissionIds
     );
 }

@@ -3,11 +3,11 @@ package com.flowdesk.iam.controller;
 import com.flowdesk.FlowDeskApplication;
 import com.flowdesk.auth.infrastructure.AuthSessionRepository;
 import com.flowdesk.common.web.PageResult;
-import com.flowdesk.iam.domain.bo.IamRoleBO;
-import com.flowdesk.iam.domain.vo.IamRoleCreateVO;
-import com.flowdesk.iam.domain.vo.IamRoleQueryVO;
-import com.flowdesk.iam.domain.vo.IamRoleUpdateVO;
-import com.flowdesk.iam.service.IamRoleService;
+import com.flowdesk.iam.application.result.RoleResult;
+import com.flowdesk.iam.application.command.CreateRoleCommand;
+import com.flowdesk.iam.application.query.RoleQuery;
+import com.flowdesk.iam.application.command.UpdateRoleCommand;
+import com.flowdesk.iam.application.service.IamRoleService;
 import com.flowdesk.support.MockedPersistenceConfiguration;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -139,10 +139,10 @@ class IamRoleControllerWebTest {
                 .andExpect(jsonPath("$.data.items[0].code").value("AUDITOR"))
                 .andExpect(jsonPath("$.data.items[0].permissionIds[0]").value(10));
 
-        ArgumentCaptor<IamRoleQueryVO> queryCaptor =
-                ArgumentCaptor.forClass(IamRoleQueryVO.class);
+        ArgumentCaptor<RoleQuery> queryCaptor =
+                ArgumentCaptor.forClass(RoleQuery.class);
         verify(roleService).page(queryCaptor.capture());
-        IamRoleQueryVO query = queryCaptor.getValue();
+        RoleQuery query = queryCaptor.getValue();
         assertThat(query.getPageNo()).isEqualTo(2);
         assertThat(query.getPageSize()).isEqualTo(10);
         assertThat(query.getKeyword()).isEqualTo("audit");
@@ -177,16 +177,17 @@ class IamRoleControllerWebTest {
                 .andExpect(jsonPath("$.data.id").value(ROLE_ID))
                 .andExpect(jsonPath("$.data.code").value("AUDITOR"));
 
-        ArgumentCaptor<IamRoleCreateVO> requestCaptor =
-                ArgumentCaptor.forClass(IamRoleCreateVO.class);
+        ArgumentCaptor<CreateRoleCommand> requestCaptor =
+                ArgumentCaptor.forClass(CreateRoleCommand.class);
         verify(roleService).create(requestCaptor.capture());
         assertThat(requestCaptor.getValue())
-                .isEqualTo(new IamRoleCreateVO("AUDITOR", "审计员", "只读审计角色"));
+                .isEqualTo(new CreateRoleCommand(
+                        "AUDITOR", "审计员", "只读审计角色", List.of(10L, 20L)));
     }
 
     @Test
     void rbacManagerCanUpdateOnlyMutableRoleFields() throws Exception {
-        IamRoleBO updated = new IamRoleBO(
+        RoleResult updated = new RoleResult(
                 ROLE_ID, "AUDITOR", "高级审计员", null, CREATED_AT, List.of(10L));
         when(roleService.update(org.mockito.ArgumentMatchers.eq(ROLE_ID), any()))
                 .thenReturn(updated);
@@ -200,11 +201,11 @@ class IamRoleControllerWebTest {
                 .andExpect(jsonPath("$.data.code").value("AUDITOR"))
                 .andExpect(jsonPath("$.data.name").value("高级审计员"));
 
-        ArgumentCaptor<IamRoleUpdateVO> requestCaptor =
-                ArgumentCaptor.forClass(IamRoleUpdateVO.class);
+        ArgumentCaptor<UpdateRoleCommand> requestCaptor =
+                ArgumentCaptor.forClass(UpdateRoleCommand.class);
         verify(roleService).update(org.mockito.ArgumentMatchers.eq(ROLE_ID), requestCaptor.capture());
         assertThat(requestCaptor.getValue())
-                .isEqualTo(new IamRoleUpdateVO("高级审计员", null));
+                .isEqualTo(new UpdateRoleCommand("高级审计员", null));
     }
 
     @Test
@@ -248,8 +249,50 @@ class IamRoleControllerWebTest {
         verify(roleService, never()).create(any());
     }
 
-    private static IamRoleBO role() {
-        return new IamRoleBO(
+    @Test
+    void invalidPermissionIdListOnCreationIsRejectedBeforeServiceInvocation() throws Exception {
+        mockMvc.perform(post(ROLES)
+                        .with(rbacManager())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "code": "AUDITOR",
+                                  "name": "审计员",
+                                  "permissionIds": [0]
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+
+        verify(roleService, never()).create(any());
+    }
+
+    @Test
+    void rbacManagerCanCreateRoleWithoutPermissions() throws Exception {
+        when(roleService.create(any())).thenReturn(new RoleResult(
+                ROLE_ID, "AUDITOR", "审计员", null, CREATED_AT, List.of()));
+
+        mockMvc.perform(post(ROLES)
+                        .with(rbacManager())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "code": "AUDITOR",
+                                  "name": "审计员"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.permissionIds").isEmpty());
+
+        ArgumentCaptor<CreateRoleCommand> requestCaptor =
+                ArgumentCaptor.forClass(CreateRoleCommand.class);
+        verify(roleService).create(requestCaptor.capture());
+        assertThat(requestCaptor.getValue().permissionIds()).isNull();
+    }
+
+    private static RoleResult role() {
+        return new RoleResult(
                 ROLE_ID,
                 "AUDITOR",
                 "审计员",
@@ -269,7 +312,8 @@ class IamRoleControllerWebTest {
                 {
                   "code": "AUDITOR",
                   "name": "审计员",
-                  "description": "只读审计角色"
+                  "description": "只读审计角色",
+                  "permissionIds": [10, 20]
                 }
                 """;
     }

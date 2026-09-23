@@ -2,11 +2,11 @@ package com.flowdesk.iam.controller;
 
 import com.flowdesk.common.web.PageResult;
 import com.flowdesk.common.web.R;
-import com.flowdesk.iam.domain.bo.IamRoleBO;
-import com.flowdesk.iam.domain.vo.IamRoleCreateVO;
-import com.flowdesk.iam.domain.vo.IamRoleQueryVO;
-import com.flowdesk.iam.domain.vo.IamRoleUpdateVO;
-import com.flowdesk.iam.service.IamRoleService;
+import com.flowdesk.iam.application.result.RoleResult;
+import com.flowdesk.iam.application.command.CreateRoleCommand;
+import com.flowdesk.iam.application.query.RoleQuery;
+import com.flowdesk.iam.application.command.UpdateRoleCommand;
+import com.flowdesk.iam.application.service.IamRoleService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -40,8 +40,8 @@ public class IamRoleController {
      * @return {@code 200} 与角色分页结果（每项含已授权的 {@code permissionIds}）
      */
     @GetMapping
-    public R<PageResult<IamRoleBO>> page(
-            @Valid @ModelAttribute IamRoleQueryVO query) {
+    public R<PageResult<RoleResult>> page(
+            @Valid @ModelAttribute RoleQuery query) {
         return R.success(iamRoleService.page(query));
     }
 
@@ -52,20 +52,20 @@ public class IamRoleController {
      * @return {@code 200} 与角色详情（含已授权的 {@code permissionIds}）
      */
     @GetMapping("/{roleId}")
-    public R<IamRoleBO> getById(@PathVariable long roleId) {
+    public R<RoleResult> getById(@PathVariable long roleId) {
         return R.success(iamRoleService.getById(roleId));
     }
 
     /**
      * 创建角色。
      *
-     * @param request 请求体：{@code code}、{@code name} 与可选 {@code description}；
-     *                编码格式、长度由 {@code @Valid} 校验，重复由服务层判定
+     * @param request 请求体：{@code code}、{@code name}、可选 {@code description} 与
+     *                {@code permissionIds}；格式、长度由 {@code @Valid} 校验
      * @return {@code 201} 与创建后的角色；这是本控制器唯一的 {@code 201}
      */
     @PostMapping
-    public ResponseEntity<R<IamRoleBO>> create(
-            @Valid @RequestBody IamRoleCreateVO request) {
+    public ResponseEntity<R<RoleResult>> create(
+            @Valid @RequestBody CreateRoleCommand request) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(R.success(iamRoleService.create(request)));
     }
@@ -79,9 +79,9 @@ public class IamRoleController {
      * @return {@code 200} 与修改后的角色
      */
     @PutMapping("/{roleId}")
-    public R<IamRoleBO> update(
+    public R<RoleResult> update(
             @PathVariable long roleId,
-            @Valid @RequestBody IamRoleUpdateVO request) {
+            @Valid @RequestBody UpdateRoleCommand request) {
         return R.success(iamRoleService.update(roleId, request));
     }
 

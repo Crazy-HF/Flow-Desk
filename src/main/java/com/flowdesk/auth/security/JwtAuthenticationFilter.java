@@ -132,7 +132,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private void authenticate(AuthSession session) {
         // 身份取会话快照而不是令牌：这样撤销会话就能让用户与权限变更立即生效
         AuthPrincipal principal = new AuthPrincipal(
-                session.userId(), session.username(), session.displayName(), session.sessionId());
+                session.userId(), session.username(),  session.sessionId());
         // SimpleGrantedAuthority 是"一条权限"的包装，hasAuthority('TICKET_CREATE') 比的就是这些字符串
         List<SimpleGrantedAuthority> authorities = session.permissionCodes().stream()
                 .map(SimpleGrantedAuthority::new)

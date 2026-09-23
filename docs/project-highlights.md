@@ -173,7 +173,7 @@
 
 ### 设计方案
 
-- `IamRoleUpdateVO` 不声明 `code` 字段，从 HTTP 请求模型入口阻止客户端提交角色编码修改。
+- `UpdateRoleCommand` 不声明 `code` 字段，从 HTTP 请求模型入口阻止客户端提交角色编码修改。（2026-09-23 重构前的类名为 `IamRoleUpdateVO`；本次只改类名与包位置，设计不变。）
 - 更新 SQL 采用明确的字段白名单，只设置 `name` 和 `description`；即使未来请求模型被误扩展，当前持久化语句也不会顺带修改编码。
 - 角色修改在 Spring 事务中先通过 `SELECT ... FOR UPDATE` 读取并锁定目标角色，再执行更新；角色不存在时统一返回 `404/ROLE_NOT_FOUND`。
 - `FOR UPDATE` 必须与 `@Transactional` 配套使用，行锁才会持续到整个业务事务提交或回滚，而不是在查询语句结束后立即释放。

@@ -7,6 +7,10 @@ package com.flowdesk.auth.domain;
  * <p>只保留定位用户与展示所需的字段；{@link AuthSession} 中的 {@code refreshDigest}
  * 和会话时间属于会话存储细节，不进入本对象。</p>
  */
+/**只确保当前是谁 */
 public record AuthPrincipal(
-        long userId, String username, String displayName, String sessionId) {
+        long userId,
+        String username,
+        String sessionId
+) {
 }

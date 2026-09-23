@@ -383,18 +383,18 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 | --- | --- | --- |
 | 用户列表 | `GET /fd/v1/users` | 按关键词、状态和角色分页筛选 |
 | 用户详情 | `GET /fd/v1/users/{userId}` | 返回账号、角色、状态和版本，不返回密码摘要 |
-| 创建用户 | `POST /fd/v1/users` | 提交登录名、显示名称、初始密码和至少一个角色 |
+| 创建用户 | `POST /fd/v1/users` | 提交登录名、显示名称、初始密码和角色（允许零角色，见下方说明） |
 | 修改基本资料 | `PUT /fd/v1/users/{userId}` | 修改显示名称并携带 `version` |
 | 启用账号 | `POST /fd/v1/users/{userId}/actions/enable` | 携带 `version` |
 | 停用账号 | `POST /fd/v1/users/{userId}/actions/disable` | 携带版本和必要交接方案 |
 | 替换角色 | `PUT /fd/v1/users/{userId}/roles` | 携带版本、完整角色集合和必要交接方案 |
 | 管理员重置密码 | `POST /fd/v1/users/{userId}/actions/reset-password` | 携带版本，设置新密码并撤销目标用户全部会话 |
 | 当前用户修改密码 | `POST /fd/v1/auth/change-password` | 校验原密码，修改成功后撤销当前用户全部会话 |
-| 角色、权限与授权关系管理 | 见 8.2.1 | 完整版可选；MVP 不实现 |
+| 角色、权限与授权关系管理 | 见 8.2.1 | 已按 2026-09-21 确认提前实施，计入求职 MVP 演示范围 |
 
 **已确认**：密码长度为 8～64 个字符，不在接口文档或日志中返回密码；演示版不通过邮件发送初始密码或重置链接，由管理员通过项目演示场景之外的安全渠道告知用户。
 
-禁止停用最后一个启用的管理员，也禁止移除其管理员角色。每个用户至少保留一个角色；登录名创建后不可修改，避免身份引用和审计含义变化。MVP 只能从固定三角色中分配；若完整版启用自定义权限，权限编码也只有在后端已有对应授权检查时才产生实际访问能力，新增数据本身不会自动生成业务接口或安全规则。
+禁止停用最后一个启用的管理员，也禁止移除其管理员角色。**用户允许零角色（2026-09-22 确认，取代原「每个用户至少保留一个角色」）**：撤销全部角色后账号仍可登录，但没有任何业务权限，只能得到空结果或 `403/ACCESS_DENIED`；`USER_ROLE_REQUIRED` 随之废弃（见 10.2）。登录名创建后不可修改，避免身份引用和审计含义变化。MVP 只能从固定三角色中分配；若完整版启用自定义权限，权限编码也只有在后端已有对应授权检查时才产生实际访问能力，新增数据本身不会自动生成业务接口或安全规则。
 
 ### 8.2.1 自定义 RBAC 管理
 
@@ -402,12 +402,13 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 
 - **审计**：`iam_role_permission` 原无审计列，`V5` 为其补 `granted_by` / `granted_at`（允许为空，存量行不伪造时间）；新授权必须同时写入两列，`granted_by` 取当前操作人。`iam_user_role` 沿用建表时已有的同名两列。
 - **会话撤销**：授予或撤销用户角色成功后，撤销该用户全部会话；授予或撤销角色权限成功后，撤销当前拥有该角色的**全部用户**会话。两者都按“**先撤销 Redis 会话，后提交 MySQL 授权变更**”的顺序执行，与改密一致；角色权限变化时，在持有角色锁后通过 `FOR UPDATE` 按 `user_id` 升序取得受影响用户快照并逐个撤销。任一撤销失败则本次 MySQL 事务回滚。撤销会话经 IAM 定义的 `SessionRevocationPort` 完成，IAM 不依赖 auth 模块。
-- **幂等**：重复授予（同一 `userId`+`roleId` 或 `roleId`+`permissionId`）统一返回 `200`，与首次授予相同；`201` 只用于真正创建了新资源的接口（创建角色、创建权限）。
+- **批量增量授予与幂等**：用户角色授予采用“一个 `userId` + 多个 `roleIds`”，角色权限授予采用“一个 `roleId` + 多个 `permissionIds`”。服务端先对目标 ID 去重并升序归一化，只新增尚不存在的授权关系，已存在关系保持原 `grantedBy` / `grantedAt`；请求中的任一用户、角色或权限不存在时整批失败，不产生部分写入。两类授予统一返回 `200`；整批均已存在时不写库、不撤销会话。
 - **保护判定**：受保护角色与权限按 `code` 常量判定（`SYSTEM_ADMIN`、`RBAC_MANAGE`），不新增“内置”标记列。
+- **允许零角色（2026-09-22 确认）**：本轮新增的三个用户角色撤销入口（单条撤销、`POST /user-roles/actions/revoke` 批量撤销、`DELETE /user-roles/users/{userId}` 清空全部）都允许目标用户此后不再拥有任何角色；`409/USER_ROLE_REQUIRED` 已废弃，任何 RBAC 接口都不再返回它。用户侧唯一保留的保护是“不得移除最后一个启用管理员的 `SYSTEM_ADMIN` 角色” → `409/LAST_ADMIN_PROTECTED`。角色侧同样不设“至少一个权限”下限：允许把角色清空到零权限（`SYSTEM_ADMIN` 仍受 `RBAC_MANAGE` 授权保护约束）。
 - **分页与筛选**：排序白名单为角色/权限 `code,name,created_at`、用户角色 `granted_at`、角色权限 `role_id,permission_id`；两组授权列表必须至少给出一个筛选条件（`userId`/`roleId`、`roleId`/`permissionId`），都不给返回 `400/VALIDATION_FAILED`。
-- **并发锁定**：所有 RBAC 写用例使用同一 MySQL 事务和 `SELECT ... FOR UPDATE` 锁定参与校验的已有记录，固定顺序为 **角色 → 权限 → 用户 → 授权关系**；同一层需要多行时按主键升序。允许跳过不涉及的层级，但禁止反向加锁。取得锁后必须重新读取授权关系并校验“至少一个角色、最后启用管理员、受保护授权、引用关系”等不变量，不得用加锁前的查询结果作决定。数据库死锁或锁等待超时回滚并返回 `409/RBAC_CONFLICT`，不得自动重放包含 Redis 会话撤销的写用例。
+- **并发锁定**：所有 RBAC 写用例使用同一 MySQL 事务和 `SELECT ... FOR UPDATE` 锁定参与校验的已有记录，固定顺序为 **角色 → 权限 → 用户 → 授权关系**；同一层需要多行时按主键升序。允许跳过不涉及的层级，但禁止反向加锁。取得锁后必须重新读取授权关系并校验“最后启用管理员、受保护授权、引用关系”等不变量，不得用加锁前的查询结果作决定。数据库死锁或锁等待超时回滚并返回 `409/RBAC_CONFLICT`，不得自动重放包含 Redis 会话撤销的写用例。
 
-两类授权使用各自唯一的响应模型，列表项与授予成功后的 `data` 使用相同字段；重复授予返回原授权记录，不更新原 `grantedBy` / `grantedAt`，也不撤销会话：
+两类授权使用各自唯一的响应模型。列表项使用单个授权模型，批量授予成功后的 `data` 使用相同模型的列表，并按目标 ID 升序返回；已存在关系返回原审计字段，新建关系记录同一次请求的操作人和授权时间：
 
 | 响应模型 | 字段 |
 | --- | --- |
@@ -420,7 +421,7 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 | --- | --- | --- |
 | 角色列表 | `GET /fd/v1/admin/roles` | 支持 `keyword` 和标准 `PageQuery`；返回 `R<PageResult<RoleDetail>>` |
 | 角色详情 | `GET /fd/v1/admin/roles/{roleId}` | 返回角色字段及已授权 `permissionIds` |
-| 创建角色 | `POST /fd/v1/admin/roles` | Body：`code`、`name`、可选 `description`；返回 `201/R<RoleDetail>` |
+| 创建角色 | `POST /fd/v1/admin/roles` | Body：`code`、`name`、可选 `description`、可选 `permissionIds`（最多 100 个正整数）；角色与授权关系在同一事务内写入，任一权限不存在时整体回滚并返回 `404/PERMISSION_NOT_FOUND`；返回 `201/R<RoleDetail>` |
 | 修改角色 | `PUT /fd/v1/admin/roles/{roleId}` | Body：`name`、可选 `description`；`code` 创建后不可修改 |
 | 删除角色 | `DELETE /fd/v1/admin/roles/{roleId}` | 角色存在用户或权限授权关系时返回 `409`；`SYSTEM_ADMIN` 始终禁止删除 |
 | 权限列表 | `GET /fd/v1/admin/permissions` | 支持 `keyword` 和标准 `PageQuery`；返回 `R<PageResult<PermissionDetail>>` |
@@ -429,13 +430,18 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 | 修改权限 | `PUT /fd/v1/admin/permissions/{permissionId}` | Body：`name`、可选 `description`；`code` 创建后不可修改 |
 | 删除权限 | `DELETE /fd/v1/admin/permissions/{permissionId}` | 权限仍被角色引用时返回 `409`；不得删除 `RBAC_MANAGE` |
 | 用户角色授权列表 | `GET /fd/v1/admin/user-roles` | 至少提供 `userId` 或 `roleId` 之一，支持标准 `PageQuery`；返回 `R<PageResult<UserRoleGrant>>` |
-| 授予用户角色 | `POST /fd/v1/admin/user-roles` | Body：`userId`、`roleId`；返回 `200/R<UserRoleGrant>`；重复授权返回原记录，实际新增后撤销该用户全部会话 |
-| 撤销用户角色 | `DELETE /fd/v1/admin/user-roles/{userId}/{roleId}` | 返回 `200/R<Void>`；不得使用户失去最后一个角色，或使最后一个启用管理员失去管理员角色；成功后撤销全部会话 |
+| 批量授予用户角色 | `POST /fd/v1/admin/user-roles` | Body：`userId`、非空 `roleIds`（最多 100 个正整数）；返回 `200/R<List<UserRoleGrant>>`。去重排序后只新增缺失关系；只要实际新增至少一个角色，就在本次事务中仅撤销该用户全部会话一次 |
+| 单条撤销用户角色 | `DELETE /fd/v1/admin/user-roles/{userId}/{roleId}` | 返回 `200/R<Void>`；允许撤销后用户零角色，但不得使最后一个启用管理员失去管理员角色（`409/LAST_ADMIN_PROTECTED`）；成功后撤销该用户全部会话 |
+| 批量撤销用户角色 | `POST /fd/v1/admin/user-roles/actions/revoke` | Body：`userId`、非空 `roleIds`（最多 100 个正整数）；返回 `200/R<Void>`。任一关系不存在时整批失败（`404/GRANT_NOT_FOUND`）且不写库；允许撤销后用户零角色；发生实际删除时只撤销该用户全部会话一次 |
+| 清空用户全部角色 | `DELETE /fd/v1/admin/user-roles/users/{userId}` | 返回 `200/R<Void>`；目标用户当前无角色时幂等成功且不撤销会话；允许清空后用户零角色；发生实际删除时只撤销该用户全部会话一次 |
+| 一个角色授予多个用户 | `POST /fd/v1/admin/user-roles/actions/grant-users` | Body：`roleId`、非空 `userIds`（最多 100 个正整数）；返回 `200/R<List<UserRoleGrant>>`（按 `userId` 升序）。去重排序后只给缺少该角色的用户新增关系；每个实际新增的用户在写入其关系前各撤销一次会话 |
 | 角色权限授权列表 | `GET /fd/v1/admin/role-permissions` | 至少提供 `roleId` 或 `permissionId` 之一，支持标准 `PageQuery`；返回 `R<PageResult<RolePermissionGrant>>` |
-| 授予角色权限 | `POST /fd/v1/admin/role-permissions` | Body：`roleId`、`permissionId`；返回 `200/R<RolePermissionGrant>`；重复授权返回原记录，实际新增后撤销该角色全部用户会话 |
-| 撤销角色权限 | `DELETE /fd/v1/admin/role-permissions/{roleId}/{permissionId}` | 返回 `200/R<Void>`；不得撤销 `SYSTEM_ADMIN` 的 `RBAC_MANAGE` 授权；成功后撤销该角色全部用户会话 |
+| 批量授予角色权限 | `POST /fd/v1/admin/role-permissions` | Body：`roleId`、非空 `permissionIds`（最多 100 个正整数）；返回 `200/R<List<RolePermissionGrant>>`。去重排序后只新增缺失关系；只要实际新增至少一个权限，就在本次事务中撤销该角色全部用户会话一次 |
+| 单条撤销角色权限 | `DELETE /fd/v1/admin/role-permissions/{roleId}/{permissionId}` | 返回 `200/R<Void>`；不得撤销 `SYSTEM_ADMIN` 的 `RBAC_MANAGE` 授权；成功后撤销该角色全部用户会话 |
+| 批量撤销角色权限 | `POST /fd/v1/admin/role-permissions/actions/revoke` | Body：`roleId`、非空 `permissionIds`（最多 100 个正整数）；返回 `200/R<Void>`。任一关系不存在时整批失败（`404/GRANT_NOT_FOUND`）且不写库；`SYSTEM_ADMIN` 的 `RBAC_MANAGE` 落在批次内时返回 `409/RBAC_CONFLICT`；发生实际删除时对受影响用户各撤销一次会话 |
+| 清空角色全部权限 | `DELETE /fd/v1/admin/role-permissions/roles/{roleId}` | 返回 `200/R<Void>`；目标角色当前无权限时幂等成功且不撤销会话；`SYSTEM_ADMIN` 仍包含 `RBAC_MANAGE` 时返回 `409/RBAC_CONFLICT`；发生实际删除时对受影响用户各撤销一次会话 |
 
-`iam_user_role` 与 `iam_role_permission` 都是只有复合主键和审计字段的授权关系，没有独立可编辑的业务字段；因此这两组接口采用“查询、授予、撤销”，而非没有实际语义的 `PUT`。资源不存在分别返回 `404/ROLE_NOT_FOUND`、`404/PERMISSION_NOT_FOUND` 或 `404/GRANT_NOT_FOUND`；编码重复返回 `409/ROLE_CODE_CONFLICT` 或 `409/PERMISSION_CODE_CONFLICT`；违反保护或引用约束返回 `409/RBAC_CONFLICT`。
+`iam_user_role` 与 `iam_role_permission` 都是只有复合主键和审计字段的授权关系，没有独立可编辑的业务字段；因此这两组接口采用“查询、授予、撤销”，而非没有实际语义的 `PUT`。撤销按粒度分三档：路径参数指定的单条关系、请求体给出的多条关系（`actions/revoke`）、以及清空某主体全部关系；后两档是**整批原子**语义，任一目标关系缺失就整批失败，已存在的关系不会被改写。资源不存在分别返回 `404/ROLE_NOT_FOUND`、`404/PERMISSION_NOT_FOUND`、`404/USER_NOT_FOUND` 或 `404/GRANT_NOT_FOUND`；编码重复返回 `409/ROLE_CODE_CONFLICT` 或 `409/PERMISSION_CODE_CONFLICT`；违反保护或引用约束返回 `409/RBAC_CONFLICT`。
 
 ### 8.3 活动工单与管理性交接
 
@@ -510,7 +516,7 @@ MySQL 与 Redis 之间不存在天然原子事务。工程准备阶段必须明�
 | `TICKET_TRANSFER` | 转交及候选人 | 当前负责人、允许状态、接收人资格和版本 |
 | `TICKET_CLOSE` | 手动关闭 | 当前负责人、处理中、关闭原因及版本 |
 | `TICKET_ADMIN_HANDOFF` | 最小交接元数据、候选人和管理性交接 | 不授予工单正文访问 |
-| `USER_MANAGE` | 用户、角色、账号及密码管理 | 用户版本、至少一个角色、最后管理员保护 |
+| `USER_MANAGE` | 用户、角色、账号及密码管理 | 用户版本、最后管理员保护（用户允许零角色，见 8.2） |
 | `RBAC_MANAGE` | 角色、权限、用户角色及角色权限管理 | 内置管理员保护、编码唯一、引用约束和会话撤销 |
 | `CATEGORY_MANAGE` | 分类管理 | 分类版本、名称唯一和引用约束 |
 | `DASHBOARD_VIEW` | 工单数据概览 | 复用 IT 工单可见范围 |
@@ -550,7 +556,7 @@ MySQL 与 Redis 之间不存在天然原子事务。工程准备阶段必须明�
 | `409` | `TICKET_CONFLICT` | 工单版本、状态或负责人已变化 |
 | `409` | `USERNAME_CONFLICT` | 登录名已存在 |
 | `409` | `USER_CONFLICT` | 用户版本或状态已变化 |
-| `409` | `USER_ROLE_REQUIRED` | 操作会移除用户最后一个角色 |
+| `409` | ~~`USER_ROLE_REQUIRED`~~（已废弃，2026-09-22） | 原用于“操作会移除用户最后一个角色”；现允许用户零角色，所有接口都不再返回该编码，保留此行仅为追溯 |
 | `409` | `LAST_ADMIN_PROTECTED` | 操作会失去最后一个启用管理员 |
 | `409` | `ADMIN_HANDOFF_REQUIRED` | 缺少完整的活动工单交接方案 |
 | `409` | `ADMIN_HANDOFF_CONFLICT` | 交接期间用户、工单或候选资格变化 |
@@ -559,7 +565,7 @@ MySQL 与 Redis 之间不存在天然原子事务。工程准备阶段必须明�
 | `409` | `CATEGORY_CONFLICT` | 分类版本或状态已变化 |
 | `409` | `ROLE_CODE_CONFLICT` | 角色编码已存在 |
 | `409` | `PERMISSION_CODE_CONFLICT` | 权限编码已存在 |
-| `409` | `RBAC_CONFLICT` | 违反内置管理员保护或授权引用约束（删除 `SYSTEM_ADMIN`、删除 `RBAC_MANAGE`、删除仍被引用的角色或权限、撤销 `SYSTEM_ADMIN` 的 `RBAC_MANAGE`），或 RBAC 写事务发生锁等待超时/死锁 |
+| `409` | `RBAC_CONFLICT` | 违反内置管理员保护或授权引用约束（删除 `SYSTEM_ADMIN`、删除 `RBAC_MANAGE`、删除仍被引用的角色或权限、撤销或清空 `SYSTEM_ADMIN` 的 `RBAC_MANAGE`），或 RBAC 写事务发生锁等待超时/死锁及批量删除行数与请求不一致 |
 | `413` | `ATTACHMENT_TOO_LARGE` | 单文件、数量或总大小超过限制 |
 | `415` | `ATTACHMENT_TYPE_UNSUPPORTED` | 文件类型不在白名单或检测不一致 |
 | `500` | `INTERNAL_ERROR` | 未预期错误；对外隐藏内部细节 |

@@ -10,11 +10,17 @@ import com.flowdesk.auth.infrastructure.AuthSessionRepository;
 import com.flowdesk.auth.security.JwtTokenService;
 import com.flowdesk.auth.security.RefreshTokenUtils;
 import com.flowdesk.common.web.R;
+import com.flowdesk.iam.domain.IamPermission;
+import com.flowdesk.iam.domain.IamRole;
+import com.flowdesk.iam.domain.IamRolePermission;
 import com.flowdesk.iam.domain.IamUser;
 import com.flowdesk.iam.domain.IamUserRole;
-import com.flowdesk.iam.domain.IamRolePermission;
 import com.flowdesk.iam.domain.IamUserStatus;
+import com.flowdesk.iam.mapper.IamPermissionMapper;
+import com.flowdesk.iam.mapper.IamRoleMapper;
+import com.flowdesk.iam.mapper.IamRolePermissionMapper;
 import com.flowdesk.iam.mapper.IamUserMapper;
+import com.flowdesk.iam.mapper.IamUserRoleMapper;
 import com.flowdesk.support.MockedPersistenceConfiguration;
 import com.flowdesk.support.MybatisPlusTestMetadata;
 import jakarta.servlet.http.Cookie;
@@ -88,6 +94,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import({AuthWebTest.ProbeConfiguration.class, MockedPersistenceConfiguration.class})
 class AuthWebTest {
 
+    private static final String LOGIN = "/fd/v1/auth/login";
     private static final String ME = "/fd/v1/auth/me";
     private static final String REFRESH = "/fd/v1/auth/refresh";
     private static final String LOGOUT = "/fd/v1/auth/logout";
@@ -104,6 +111,8 @@ class AuthWebTest {
     private static final String RAW_REFRESH_TOKEN = "raw-refresh-token-for-test";
     private static final String CURRENT_PASSWORD = "123456";
     private static final String NEW_PASSWORD = "Updated#FlowDesk2026";
+    private static final long ROLE_ID = 10L;
+    private static final long PERMISSION_ID = 100L;
 
     @Autowired
     private MockMvc mockMvc;
@@ -124,6 +133,18 @@ class AuthWebTest {
     @Autowired
     private IamUserMapper iamUserMapper;
 
+    @Autowired
+    private IamUserRoleMapper iamUserRoleMapper;
+
+    @Autowired
+    private IamRoleMapper iamRoleMapper;
+
+    @Autowired
+    private IamRolePermissionMapper iamRolePermissionMapper;
+
+    @Autowired
+    private IamPermissionMapper iamPermissionMapper;
+
     /** 本上下文排除了 Redis 自动配置，会话仓储以替身提供。 */
     @MockitoBean
     private AuthSessionRepository authSessionRepository;
@@ -139,11 +160,12 @@ class AuthWebTest {
 
     /**
      * Mapper 替身由 {@link MockedPersistenceConfiguration} 提供，不是 {@code @MockitoBean}，
-     * 因此不会在测试之间自动清理：重置它以免上一个用例的调用记录污染 {@code never()} 断言。
+     * 因此不会在测试之间自动清理：重置它们以免上一个用例的调用记录与桩污染当前用例。
      */
     @BeforeEach
     void resetIdentityPersistenceMock() {
-        reset(iamUserMapper);
+        reset(iamUserMapper, iamUserRoleMapper, iamRoleMapper,
+                iamRolePermissionMapper, iamPermissionMapper);
     }
 
     // ---------- 当前身份 / 请求认证 ----------
@@ -201,6 +223,49 @@ class AuthWebTest {
                 .andExpect(jsonPath("$.data.permissions", contains("TICKET_CREATE", "TICKET_VIEW_OWN")));
     }
 
+    /**
+     * 会话快照里不再有显示名称：改名后无需重新登录即可在 {@code /auth/me} 上看到最新值。
+     */
+    @Test
+    void meReadsDisplayNameFromLiveProfileInsteadOfSessionSnapshot() throws Exception {
+        when(authSessionRepository.findById(SESSION_ID))
+                .thenReturn(Optional.of(session(Instant.now().plus(Duration.ofDays(7)))));
+        stubProfile(IamUserStatus.ENABLED, "改名后的员工");
+
+        mockMvc.perform(get(ME).header(HttpHeaders.AUTHORIZATION, bearer(accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.displayName").value("改名后的员工"))
+                .andExpect(jsonPath("$.data.roles", contains("EMPLOYEE")));
+    }
+
+    /** 用户已被删除时，会话必须一并失效，不能只返回一个缺了资料的 200。 */
+    @Test
+    void meWithMissingProfileIsRejectedAsSessionInvalidAndRevokesEverySession() throws Exception {
+        when(authSessionRepository.findById(SESSION_ID))
+                .thenReturn(Optional.of(session(Instant.now().plus(Duration.ofDays(7)))));
+        when(iamUserMapper.selectProfileById(USER_ID)).thenReturn(null);
+
+        mockMvc.perform(get(ME).header(HttpHeaders.AUTHORIZATION, bearer(accessToken())))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_SESSION_INVALID"));
+
+        verify(authSessionRepository).revokeAll(USER_ID);
+    }
+
+    /** 账号被停用后，未过期的 Access Token 也不能继续换取身份。 */
+    @Test
+    void meWithDisabledProfileIsRejectedAsSessionInvalidAndRevokesEverySession() throws Exception {
+        when(authSessionRepository.findById(SESSION_ID))
+                .thenReturn(Optional.of(session(Instant.now().plus(Duration.ofDays(7)))));
+        stubProfile(IamUserStatus.DISABLED, DISPLAY_NAME);
+
+        mockMvc.perform(get(ME).header(HttpHeaders.AUTHORIZATION, bearer(accessToken())))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_SESSION_INVALID"));
+
+        verify(authSessionRepository).revokeAll(USER_ID);
+    }
+
     @Test
     void sessionPermissionsReachMethodSecurity() throws Exception {
         stubActiveSession();
@@ -218,6 +283,83 @@ class AuthWebTest {
         mockMvc.perform(get(PROBE_ADMIN).header(HttpHeaders.AUTHORIZATION, bearer(accessToken())))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+    }
+
+    // ---------- 登录 ----------
+
+    @Test
+    void loginReturnsAccessTokenAndKeepsRefreshTokenInCookieOnly() throws Exception {
+        stubLoginIdentity(IamUserStatus.ENABLED);
+
+        MvcResult result = mockMvc.perform(post(LOGIN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody(USERNAME, CURRENT_PASSWORD)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.accessToken").exists())
+                .andExpect(jsonPath("$.data.tokenType").value("Bearer"))
+                .andExpect(jsonPath("$.data.expiresIn")
+                        .value(jwtProperties.expiration().toSeconds()))
+                .andExpect(jsonPath("$.data.user.id").value(USER_ID))
+                .andExpect(jsonPath("$.data.user.username").value(USERNAME))
+                .andExpect(jsonPath("$.data.user.displayName").value(DISPLAY_NAME))
+                .andExpect(jsonPath("$.data.user.roles", contains("EMPLOYEE")))
+                .andExpect(jsonPath("$.data.user.permissions", contains("TICKET_CREATE")))
+                .andReturn();
+
+        String issuedCookie = result.getResponse().getCookie(cookieName()).getValue();
+        // Refresh Token 只允许出现在 Cookie 里；响应体也不得回显口令或密码摘要
+        assertThat(result.getResponse().getContentAsString())
+                .doesNotContain(issuedCookie, "password", CURRENT_PASSWORD);
+
+        ArgumentCaptor<AuthSession> saved = ArgumentCaptor.forClass(AuthSession.class);
+        verify(authSessionRepository).save(saved.capture());
+        assertThat(saved.getValue().userId()).isEqualTo(USER_ID);
+        assertThat(saved.getValue().username()).isEqualTo(USERNAME);
+        assertThat(saved.getValue().refreshDigest())
+                .isEqualTo(RefreshTokenUtils.digest(issuedCookie));
+        assertThat(saved.getValue().roleCodes()).containsExactly("EMPLOYEE");
+        assertThat(saved.getValue().permissionCodes()).containsExactly("TICKET_CREATE");
+        assertThat(saved.getValue().expiresAt()).isAfter(saved.getValue().createdAt());
+    }
+
+    /** 用户不存在、账号停用与密码错误共用同一出口，且都不能留下半成品会话。 */
+    @Test
+    void loginWithUnknownUsernameIsRejectedWithoutCreatingSession() throws Exception {
+        when(iamUserMapper.selectOne(any())).thenReturn(null);
+
+        mockMvc.perform(post(LOGIN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody("nobody", CURRENT_PASSWORD)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_INVALID_CREDENTIALS"));
+
+        verify(authSessionRepository, never()).save(any());
+    }
+
+    @Test
+    void loginWithDisabledUserIsRejectedWithoutCreatingSession() throws Exception {
+        stubLoginIdentity(IamUserStatus.DISABLED);
+
+        mockMvc.perform(post(LOGIN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody(USERNAME, CURRENT_PASSWORD)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_INVALID_CREDENTIALS"));
+
+        verify(authSessionRepository, never()).save(any());
+    }
+
+    @Test
+    void loginWithWrongPasswordIsRejectedWithoutCreatingSession() throws Exception {
+        stubLoginIdentity(IamUserStatus.ENABLED);
+
+        mockMvc.perform(post(LOGIN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody(USERNAME, "WrongPassword#2026")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_INVALID_CREDENTIALS"));
+
+        verify(authSessionRepository, never()).save(any());
     }
 
     // ---------- 刷新 ----------
@@ -407,10 +549,63 @@ class AuthWebTest {
 
     // ---------- 辅助 ----------
 
-    /** 会话快照有效：令牌验签通过且 Redis 里能查到未过期的会话。 */
+    /**
+     * 会话快照有效：令牌验签通过且 Redis 里能查到未过期的会话。
+     *
+     * <p>2026-09-23 重构后会话快照不再保存显示名称，登录与 {@code /auth/me} 的响应都改由
+     * IAM 实时读取用户资料，因此"会话有效"还必须同时满足"用户存在且启用"。</p>
+     */
     private void stubActiveSession() {
         when(authSessionRepository.findById(SESSION_ID))
                 .thenReturn(Optional.of(session(Instant.now().plus(Duration.ofDays(7)))));
+        stubProfile(IamUserStatus.ENABLED, DISPLAY_NAME);
+    }
+
+    /** 实时用户资料替身：{@code displayName} 与状态由它提供，而不是来自会话快照。 */
+    private void stubProfile(IamUserStatus status, String displayName) {
+        IamUser profile = new IamUser();
+        profile.setId(USER_ID);
+        profile.setUsername(USERNAME);
+        profile.setDisplayName(displayName);
+        profile.setStatus(status);
+        when(iamUserMapper.selectProfileById(USER_ID)).thenReturn(profile);
+    }
+
+    /** 登录链路替身：用户资料、用户角色、角色权限与权限编码各一层，覆盖真实 {@code IamAuthServiceImpl} 的读取顺序。 */
+    private void stubLoginIdentity(IamUserStatus status) {
+        IamUser user = new IamUser();
+        user.setId(USER_ID);
+        user.setUsername(USERNAME);
+        user.setDisplayName(DISPLAY_NAME);
+        user.setPassword(passwordEncoder.encode(CURRENT_PASSWORD));
+        user.setStatus(status);
+        user.setVersion(0L);
+        when(iamUserMapper.selectOne(any())).thenReturn(user);
+
+        IamUserRole grant = new IamUserRole();
+        grant.setUserId(USER_ID);
+        grant.setRoleId(ROLE_ID);
+        when(iamUserRoleMapper.selectList(any())).thenReturn(List.of(grant));
+
+        IamRole role = new IamRole();
+        role.setId(ROLE_ID);
+        role.setCode("EMPLOYEE");
+        role.setName("普通员工");
+        when(iamRoleMapper.selectByIds(List.of(ROLE_ID))).thenReturn(List.of(role));
+
+        IamRolePermission rolePermission = new IamRolePermission();
+        rolePermission.setRoleId(ROLE_ID);
+        rolePermission.setPermissionId(PERMISSION_ID);
+        when(iamRolePermissionMapper.selectList(any())).thenReturn(List.of(rolePermission));
+
+        IamPermission permission = new IamPermission();
+        permission.setId(PERMISSION_ID);
+        permission.setCode("TICKET_CREATE");
+        permission.setName("创建工单");
+        when(iamPermissionMapper.selectByIds(List.of(PERMISSION_ID)))
+                .thenReturn(List.of(permission));
+
+        stubProfile(status, DISPLAY_NAME);
     }
 
     private void stubUserWithCurrentPassword() {
@@ -438,7 +633,7 @@ class AuthWebTest {
 
     /** 会话快照里的摘要必须等于当前 Refresh Token 的摘要，这是登录与轮换共同维持的不变量。 */
     private static AuthSession session(Instant expiresAt) {
-        return new AuthSession(SESSION_ID, USER_ID, USERNAME, DISPLAY_NAME,
+        return new AuthSession(SESSION_ID, USER_ID, USERNAME,
                 RefreshTokenUtils.digest(RAW_REFRESH_TOKEN),
                 List.of("EMPLOYEE"), PERMISSIONS, Instant.now().minus(Duration.ofHours(1)), expiresAt);
     }
@@ -461,6 +656,10 @@ class AuthWebTest {
 
     private static String passwordBody(String currentPassword, String newPassword) {
         return "{\"currentPassword\":\"" + currentPassword + "\",\"newPassword\":\"" + newPassword + "\"}";
+    }
+
+    private static String loginBody(String username, String password) {
+        return "{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}";
     }
 
     @TestConfiguration(proxyBeanMethods = false)

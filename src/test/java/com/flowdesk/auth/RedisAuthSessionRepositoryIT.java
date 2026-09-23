@@ -105,6 +105,35 @@ class RedisAuthSessionRepositoryIT {
         assertThat(found).isEmpty();
     }
 
+    /**
+     * 2026-09-23 重构把 {@code displayName} 从会话快照里移出。升级时 Redis 中已存在的快照
+     * 仍带这个字段，必须照样能读出——否则所有在线用户会被强制重新登录。
+     *
+     * <p>容忍旧字段靠 {@code AuthSession} 上的 {@code @JsonIgnoreProperties(ignoreUnknown = true)}；
+     * 去掉该注解这条用例即失败（未知字段会让 {@code readValue} 抛异常，进而被当成会话不存在）。</p>
+     */
+    @Test
+    void sessionSnapshotWrittenBeforeDisplayNameRemovalIsStillReadable() {
+        String sessionId = "legacy-session-shape";
+        String legacyJson = """
+                {"sessionId":"%s","userId":%d,"username":"employee","displayName":"演示员工",\
+                "refreshDigest":"digest-legacy-shape","roleCodes":["EMPLOYEE"],\
+                "permissionCodes":["TICKET_VIEW_OWN"],\
+                "createdAt":"2026-09-22T07:00:00Z","expiresAt":"2026-09-29T07:00:00Z"}"""
+                .formatted(sessionId, USER_ID);
+        redis.opsForValue().set(SESSION_KEY_PREFIX + sessionId, legacyJson, Duration.ofDays(7));
+
+        Optional<AuthSession> restored = repository.findById(sessionId);
+
+        assertThat(restored).isPresent();
+        assertThat(restored.get().sessionId()).isEqualTo(sessionId);
+        assertThat(restored.get().userId()).isEqualTo(USER_ID);
+        assertThat(restored.get().username()).isEqualTo("employee");
+        assertThat(restored.get().refreshDigest()).isEqualTo("digest-legacy-shape");
+        assertThat(restored.get().roleCodes()).containsExactly("EMPLOYEE");
+        assertThat(restored.get().permissionCodes()).containsExactly("TICKET_VIEW_OWN");
+    }
+
     /** 键存在但不是本项目写入的类型时也要按会话无效处理，不能把请求变成 500。 */
     @Test
     void sessionKeyOfForeignTypeIsTreatedAsMissing() {
@@ -208,7 +237,7 @@ class RedisAuthSessionRepositoryIT {
 
     private static AuthSession session(String tag, long userId) {
         Instant createdAt = Instant.now().minus(Duration.ofMinutes(5));
-        return new AuthSession("session-" + tag, userId, "employee", "演示员工", "digest-" + tag,
+        return new AuthSession("session-" + tag, userId, "employee", "digest-" + tag,
                 List.of("EMPLOYEE"), List.of("TICKET_CREATE", "TICKET_VIEW_OWN"),
                 createdAt, createdAt.plus(Duration.ofDays(7)));
     }

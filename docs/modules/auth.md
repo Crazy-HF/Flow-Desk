@@ -33,12 +33,20 @@ Auth*Service（登录、刷新、退出、当前身份、改密）
 | --- | --- | --- |
 | `auth.config` | `JwtProperties`、`AuthProperties` 类型安全配置 | 切片 1 已完成 |
 | `auth.controller` | 暴露 `/fd/v1/auth/**` 接口、校验来源、读取 Cookie 与写入 Cookie | 切片 1～6 接口全部完成 |
-| `auth.service` | 编排认证用例，不承载 HTTP 细节 | 登录、刷新、退出、当前身份、改密全部完成 |
-| `auth.domain` | 会话、JWT 声明、请求身份、Refresh 摘要状态与请求/响应对象 | 切片 1～6 所需部分已完成 |
+| `auth.application.command` | 写用例入参：`LoginCommand`（`toString` 脱敏密码）、`ChangePasswordCommand` | 2026-09-23 重构后 |
+| `auth.application.result` | 出参：`LoginResult`、`IssuedSessionResult`、`AuthenticatedUserResult` | 2026-09-23 重构后 |
+| `auth.application.service`（`impl`） | 编排认证用例，不承载 HTTP 细节 | 登录、刷新、退出、当前身份、改密全部完成 |
+| `auth.domain` | 会话、JWT 声明、请求身份、Refresh 摘要状态等核心概念；**不放 BO/VO** | 切片 1～6 所需部分已完成 |
 | `auth.security` | JWT 签发与验证、请求认证过滤器、401 出口、Cookie 与安全过滤链 | 切片 4 已完成 |
-| `auth.infrastructure` | Redis 会话与 Refresh Token 摘要读写 | 读取、写入、轮换与撤销已完成 |
+| `auth.infrastructure` | Redis 会话与 Refresh Token 摘要读写、`iam` 侧端口的 adapter | 读取、写入、轮换与撤销已完成 |
 
 `common` 保留通用响应、异常、时钟和公共配置；`iam` 保留用户、角色、权限及其持久化模型。
+
+**2026-09-23 重构记录（只改结构，不改契约）**：
+
+- 原 `auth.service` / `auth.service.impl` 移到 `auth.application.service` / `auth.application.service.impl`；原 `auth.domain` 中的请求/响应对象按用途拆到 `auth.application.command` 与 `auth.application.result`，`auth/domain/bo` 与 `auth/domain/vo` 已删除。
+- 身份快照瘦身：`AuthPrincipal` 去掉 `displayName`（只留 `userId`、`username`、`sessionId`），`AuthSession` 同步去掉 `displayName` 并加 `@JsonIgnoreProperties(ignoreUnknown = true)`（兼容 Redis 中的旧快照）。
+- 对外契约不变：`GET /fd/v1/auth/me` 与登录响应仍返回 `displayName`，改由 `IamAuthService.findProfileById` 读取实时用户资料（`AuthServiceImpl.currentUserView`）；这样用户改名后无需等会话过期即可生效，停用用户则撤销全部会话并返回 `401`。
 
 会话键空间：
 
@@ -210,7 +218,7 @@ Bearer 解析 → JWT 验签、有效期与 issuer 校验 → 查询 Redis 会�
 
 1. **失败分流**：Token 缺失，或头部存在但验签、有效期与 issuer 校验失败时，过滤器不设置身份、继续链，由受保护路径的入口点给出 `401 / AUTH_REQUIRED`；只有"签名有效但 Redis 会话不存在、快照已过期"才由过滤器直接返回 `401 / AUTH_SESSION_INVALID` 并中断。这样 `/auth/refresh`、`/auth/logout` 不会被浏览器残留的过期 Token 打断。
 2. **401 出口**：收敛为一个 `AuthenticationEntryPoint`（auth 安全包内），过滤器与安全链都委托它，不各自拼错误响应；错误信封仍走 `ApiErrorWriter`，`AUTH_REQUIRED` 沿用现有文案。过滤器抛出的 `ApiException` 不会被 `GlobalExceptionHandler` 处理（它在 DispatcherServlet 之前运行），因此不得依赖抛异常产出 401。
-3. **身份对象**：新增 `auth/domain/AuthPrincipal`（`userId`、`username`、`displayName`、`sessionId`）作为 principal，authorities 只写权限裸码（与 `hasAuthority('TICKET_CREATE')` 对齐），角色编码保留在 principal 中供展示。
+3. **身份对象**：新增 `auth/domain/AuthPrincipal`（`userId`、`username`、`displayName`、`sessionId`）作为 principal，authorities 只写权限裸码（与 `hasAuthority('TICKET_CREATE')` 对齐），角色编码保留在 principal 中供展示。（**2026-09-23 更正**：重构后 `AuthPrincipal` 只剩 `userId`、`username`、`sessionId`，`displayName` 改为从 IAM 实时读取，见第 2 节重构记录；本条其余内容属于当时的实现记录，保留不改。）
 
 过滤器必须挂进安全链内部（`addFilterBefore(..., UsernamePasswordAuthenticationFilter.class)`），且**不得声明为 `@Component` 或 `@Bean` 的 `Filter`**：Spring Boot 会把容器中的 Filter Bean 自动注册到 Servlet 链，默认顺序排在 `springSecurityFilterChain`（-100）之后，导致授权结束后才执行过滤器、认证完全不生效。推荐在 `AuthSecurityConfiguration` 内直接 `new` 出该过滤器。
 

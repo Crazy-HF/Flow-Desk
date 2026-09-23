@@ -37,7 +37,7 @@ FlowDesk 是一个企业工单协作平台，由开发者与 Codex 协作完成�
 
 项目启动分析、业务模型、总体架构、数据库逻辑与物理模型、API 契约、工程准备检查和 M0 工程底座已经完成。后续分为“求职 MVP”和“完整版”两层；MVP 阶段 1 Auth 身份入口（`TASK-010`～`TASK-011`）已经完成，当前先实施已确认提前的完整动态 RBAC，随后进入阶段 2 员工创建与查询。
 
-MVP 主链固定使用普通员工、IT 支持人员、系统管理员三种内置角色，先完成认证，再交付“员工创建 → IT 领取和处理 → 员工确认”的核心工单闭环；附件、完整状态机、管理端页面和数据概览放入完整版。动态 RBAC 后端能力已于 2026-09-21 确认提前到阶段 2 之前实施，但是否计入 MVP 演示范围仍待确认。详细顺序见 `docs/implementation-plan.md`。
+MVP 主链固定使用普通员工、IT 支持人员、系统管理员三种内置角色，先完成认证，再交付“员工创建 → IT 领取和处理 → 员工确认”的核心工单闭环；附件、完整状态机、用户管理与分类管理等管理端页面、数据概览放入完整版（**RBAC 管理端页面除外**，它是当前阶段的交付物）。动态 RBAC 后端能力已于 2026-09-21 确认提前到阶段 2 之前实施，并已于 2026-09-22 确认**计入 MVP 演示范围**（含 RBAC 管理端页面）；用户角色授权取消“至少一个角色”约束，**允许用户零角色**。详细顺序见 `docs/implementation-plan.md`。
 
 ## 协作说明
 
@@ -79,4 +79,4 @@ pnpm --dir frontend dev
 
 后端健康检查位于 `http://localhost:8081/actuator/health`，前端开发入口位于 `http://localhost:5173`。前端将 `/fd` 请求代理到后端。普通停止使用 `docker compose down`，不要附加 `-v`，以免删除本地数据卷。
 
-MVP 阶段 1 Auth 身份入口已完成并通过 PR #5 合并进入 `main`：访问 `http://localhost:5173` 会被引导到 `/login`，用演示账号登录后进入受保护首页（显示当前身份与按权限展示的能力清单）。登录后的应用壳按四层职责组织——整幅顶栏（品牌位 + 搜索位 + 全屏 + 账号菜单）、按权限生成的侧栏、表达当前位置的面包屑、主体内容；导航条目与面包屑层级共用 `frontend/src/constants/authorization.ts` 的同一份声明。下一步先实施系统管理端 RBAC（角色、权限、用户角色与角色权限的在线管理）：阶段设计 2026-09-21 确认、2026-09-22 补充至 13 项设计决策，任务拆分见 `docs/implementation-plan.md` 9.1——`TASK-055`～`TASK-057` 与 `TASK-059`（安全链作用域修复）已完成，下一步 `TASK-058`（两组授权）→ `TASK-060`（**RBAC 管理端页面；本阶段计入 MVP 演示范围**）。随后是员工工单主链路；其余业务页面（工单、队列、数据概览、用户与分类管理）分批在后续阶段实现。演示账号见 `src/main/resources/db/demo/R__seed_demo_data.sql` 头部注释。
+MVP 阶段 1 Auth 身份入口已完成并通过 PR #5 合并进入 `main`：访问 `http://localhost:5173` 会被引导到 `/login`，用演示账号登录后进入受保护首页（显示当前身份与按权限展示的能力清单）。登录后的应用壳按四层职责组织——整幅顶栏（品牌位 + 搜索位 + 全屏 + 账号菜单）、按权限生成的侧栏、表达当前位置的面包屑、主体内容；导航条目与面包屑层级共用 `frontend/src/constants/authorization.ts` 的同一份声明。当前正在实施系统管理端 RBAC：`TASK-055`～`TASK-057` 与 `TASK-059` 已完成；`TASK-058` 的实现与测试均已完成（两组授权共 11 个端点，`verify` 278 单元/Web + 63 集成全绿，零角色为合法终态），仅剩手工真实栈链路验证；**`auth`、`iam` 生产代码已于 2026-09-23 完成应用层重构**（`application.command` / `query` / `result` / `service`，实现入 `service.impl`，跨模块接口入 `iam.application.port`，Controller 直接收发 Command/Query/Result，`domain` 不再放 BO/VO；接口地址、JSON 字段与业务行为不变，见 `docs/technical-architecture.md` 5.1 与 `PROJECT_STATUS.md`），重构后主代码编译通过、测试代码待补齐。下一步是 `TASK-060`（**RBAC 管理端页面；本阶段计入 MVP 演示范围**）。随后是员工工单主链路；其余业务页面分批在后续阶段实现。演示账号见 `src/main/resources/db/demo/R__seed_demo_data.sql` 头部注释。

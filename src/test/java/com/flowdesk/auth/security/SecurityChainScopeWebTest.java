@@ -4,28 +4,38 @@ import com.flowdesk.FlowDeskApplication;
 import com.flowdesk.auth.domain.AuthSession;
 import com.flowdesk.auth.infrastructure.AuthSessionRepository;
 import com.flowdesk.common.web.PageResult;
-import com.flowdesk.iam.service.IamRoleService;
+import com.flowdesk.iam.application.service.IamRolePermissionService;
+import com.flowdesk.iam.application.service.IamRoleService;
+import com.flowdesk.iam.application.service.IamUserRoleService;
 import com.flowdesk.support.MockedPersistenceConfiguration;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -72,9 +82,55 @@ class SecurityChainScopeWebTest {
     @MockitoBean
     private IamRoleService roleService;
 
+    @MockitoBean
+    private IamUserRoleService userRoleService;
+
+    @MockitoBean
+    private IamRolePermissionService rolePermissionService;
+
     /** 排除 Redis 自动配置后，用替身满足认证模块的依赖。 */
     @MockitoBean
     private AuthSessionRepository authSessionRepository;
+
+    /** 四组 RBAC 端点（含新增的批量与清空端点）：每组至少一条真实过滤链用例。 */
+    static Stream<Arguments> adminRequests() {
+        return Stream.of(
+                Arguments.of("list roles", get(ADMIN_ROLES)),
+                Arguments.of("list permissions", get("/fd/v1/admin/permissions")),
+                Arguments.of("list user roles", get("/fd/v1/admin/user-roles?userId=3")),
+                Arguments.of("list role permissions", get("/fd/v1/admin/role-permissions?roleId=3")),
+                Arguments.of("grant user roles", post("/fd/v1/admin/user-roles")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userId\":3,\"roleIds\":[1]}")),
+                Arguments.of("batch revoke user roles",
+                        post("/fd/v1/admin/user-roles/actions/revoke")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"userId\":3,\"roleIds\":[1]}")),
+                Arguments.of("clear all user roles",
+                        delete("/fd/v1/admin/user-roles/users/3")),
+                Arguments.of("grant one role to users",
+                        post("/fd/v1/admin/user-roles/actions/grant-users")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"roleId\":1,\"userIds\":[3]}")),
+                Arguments.of("batch revoke role permissions",
+                        post("/fd/v1/admin/role-permissions/actions/revoke")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"roleId\":3,\"permissionIds\":[1]}")),
+                Arguments.of("clear all role permissions",
+                        delete("/fd/v1/admin/role-permissions/roles/3"))
+        );
+    }
+
+    @ParameterizedTest(name = "{0} without token is rejected before controller")
+    @MethodSource("adminRequests")
+    void everyAdminEndpointWithoutTokenIsRejectedBeforeController(
+            String endpoint, MockHttpServletRequestBuilder request) throws Exception {
+        mockMvc.perform(request)
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_REQUIRED"));
+
+        verifyNoInteractions(roleService, userRoleService, rolePermissionService);
+    }
 
     @Test
     void businessPathWithoutTokenIsRejectedBeforeController() throws Exception {
@@ -100,15 +156,17 @@ class SecurityChainScopeWebTest {
     }
 
     /** 会话里的权限码必须能作用到方法级授权：同一条链、同一个端点，缺权限就是 403 而不是 401。 */
-    @Test
-    void businessPathWithTokenButWithoutPermissionIsForbidden() throws Exception {
+    @ParameterizedTest(name = "{0} with token but without RBAC_MANAGE returns 403")
+    @MethodSource("adminRequests")
+    void businessPathWithTokenButWithoutPermissionIsForbidden(
+            String endpoint, MockHttpServletRequestBuilder request) throws Exception {
         stubSession(EMPLOYEE_PERMISSIONS);
 
-        mockMvc.perform(get(ADMIN_ROLES).header(HttpHeaders.AUTHORIZATION, bearer(accessToken())))
+        mockMvc.perform(request.header(HttpHeaders.AUTHORIZATION, bearer(accessToken())))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
 
-        verifyNoInteractions(roleService);
+        verifyNoInteractions(roleService, userRoleService, rolePermissionService);
     }
 
     @Test
@@ -128,7 +186,7 @@ class SecurityChainScopeWebTest {
     private void stubSession(List<String> permissionCodes) {
         when(authSessionRepository.findById(SESSION_ID))
                 .thenReturn(Optional.of(new AuthSession(
-                        SESSION_ID, USER_ID, "admin", "系统管理员",
+                        SESSION_ID, USER_ID, "admin",
                         RefreshTokenUtils.digest(RAW_REFRESH_TOKEN),
                         List.of("SYSTEM_ADMIN"), permissionCodes,
                         Instant.now().minus(Duration.ofHours(1)),

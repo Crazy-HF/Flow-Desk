@@ -91,7 +91,7 @@ Spring Boot 模块化单体
 
 每个业务模块根据实际需要包含：
 
-- `web`：HTTP 入口、输入格式校验和响应转换。
+- `controller`：HTTP 入口、输入格式校验和响应转换。
 - `application`：用例编排、事务边界和权限协调。
 - `domain`：状态变化、业务规则和核心概念。
 - `infrastructure`：数据库、Redis、文件系统及外部技术实现。
@@ -99,6 +99,33 @@ Spring Boot 模块化单体
 不是每个简单模块都必须机械地建立全部目录。公共代码只保存真正跨模块的基础能力，例如统一错误格式、时间来源和当前用户上下文，不建立无边界的 `utils` 包。
 
 该结构比全项目统一的 `controller/service/repository` 横向目录更容易看出业务归属，同时避免为 v1 引入完整六边形架构或复杂领域驱动框架。
+
+### 5.1 application 层与命名约定（2026-09-23 重构后为唯一真源）
+
+`auth` 与 `iam` 的生产代码已按“中等复杂度”方案重构，本节登记重构后的实际结构与命名。它与代码冲突时以代码为准，并先修正本节。
+
+| 包 | 职责 | 命名 |
+| --- | --- | --- |
+| `{module}.controller` | 路由、参数绑定、`@Valid`、`@PreAuthorize`、HTTP 状态码 | `{Module}Controller` |
+| `{module}.application.command` | 写用例的入参 | `CreateXCommand`、`UpdateXCommand`、`GrantXCommand` 等 |
+| `{module}.application.query` | 读用例的入参（筛选与分页） | `XQuery`，继承 `common.web.PageQuery` |
+| `{module}.application.result` | 出参：HTTP 响应体与跨模块读取结果 | `XResult` |
+| `{module}.application.service` | 用例接口 | `XService` |
+| `{module}.application.service.impl` | 用例实现、事务边界与业务规则 | `XServiceImpl` |
+| `{module}.application.port` | 本模块需要、由别的模块实现的出口 | `XPort`；实现放调用方模块的 `infrastructure` |
+| `{module}.domain` | 实体、枚举、会话与身份快照等核心概念 | 只放领域概念，**不放 BO/VO** |
+| `{module}.infrastructure` | Redis、数据库仓储与跨模块 adapter | `RedisXRepository`、`XAdapter` |
+| `{module}.mapper` | MyBatis-Plus 映射与手写 SQL | `XMapper` |
+| `{module}.config`、`{module}.security` | 模块配置与安全过滤链 | |
+
+四条硬约束：
+
+1. **Controller 直接接收 Command/Query、直接返回 Result**，不再有独立的 Request/Response 传输类型；不允许为了“分层好看”再造一组与 Command/Result 字段重复的类型。
+2. **跨模块出口定义在被依赖方模块的 `application.port`**，实现放在调用方模块的 `infrastructure`（例：`iam.application.port.SessionRevocationPort` + `auth.infrastructure.IamSessionRevocationAdapter`），以此保持依赖单向。
+3. **`domain` 不再存放 BO/VO**：原 `auth/domain/bo`、`auth/domain/vo`、`iam/domain/bo`、`iam/domain/vo` 四个包已随本次重构删除，其内容分别落到 `application.command`、`application.query`、`application.result`。
+4. **接口地址、JSON 字段名与业务行为保持不变**：本次重构只改包结构、类型名与依赖方向，不改对外契约。已逐一核对 `docs/api-design.md` 3.2、8.1～8.2.1 的路径与字段。
+
+约定边界：`common` 只提供响应信封（`R`、`PageResult`、`PageQuery`）、异常、时钟与公共配置；业务模型一律留在所属模块的 `domain` 或 `application`。
 
 ## 6. 数据与状态存储
 

@@ -3,11 +3,11 @@ package com.flowdesk.iam.controller;
 import com.flowdesk.FlowDeskApplication;
 import com.flowdesk.auth.infrastructure.AuthSessionRepository;
 import com.flowdesk.common.web.PageResult;
-import com.flowdesk.iam.domain.bo.IamPermissionBO;
-import com.flowdesk.iam.domain.vo.IamPermissionCreateVO;
-import com.flowdesk.iam.domain.vo.IamPermissionQueryVO;
-import com.flowdesk.iam.domain.vo.IamPermissionUpdateVO;
-import com.flowdesk.iam.service.IamPermissionService;
+import com.flowdesk.iam.application.result.PermissionResult;
+import com.flowdesk.iam.application.command.CreatePermissionCommand;
+import com.flowdesk.iam.application.query.PermissionQuery;
+import com.flowdesk.iam.application.command.UpdatePermissionCommand;
+import com.flowdesk.iam.application.service.IamPermissionService;
 import com.flowdesk.support.MockedPersistenceConfiguration;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -139,10 +139,10 @@ class IamPermissionControllerWebTest {
                 .andExpect(jsonPath("$.data.items[0].code").value("TICKET_VIEW"))
                 .andExpect(jsonPath("$.data.items[0].roleIds[0]").value(10));
 
-        ArgumentCaptor<IamPermissionQueryVO> queryCaptor =
-                ArgumentCaptor.forClass(IamPermissionQueryVO.class);
+        ArgumentCaptor<PermissionQuery> queryCaptor =
+                ArgumentCaptor.forClass(PermissionQuery.class);
         verify(permissionService).page(queryCaptor.capture());
-        IamPermissionQueryVO query = queryCaptor.getValue();
+        PermissionQuery query = queryCaptor.getValue();
         assertThat(query.getPageNo()).isEqualTo(2);
         assertThat(query.getPageSize()).isEqualTo(10);
         assertThat(query.getKeyword()).isEqualTo("ticket");
@@ -178,16 +178,16 @@ class IamPermissionControllerWebTest {
                 .andExpect(jsonPath("$.data.id").value(PERMISSION_ID))
                 .andExpect(jsonPath("$.data.code").value("TICKET_VIEW"));
 
-        ArgumentCaptor<IamPermissionCreateVO> requestCaptor =
-                ArgumentCaptor.forClass(IamPermissionCreateVO.class);
+        ArgumentCaptor<CreatePermissionCommand> requestCaptor =
+                ArgumentCaptor.forClass(CreatePermissionCommand.class);
         verify(permissionService).create(requestCaptor.capture());
-        assertThat(requestCaptor.getValue()).isEqualTo(new IamPermissionCreateVO(
+        assertThat(requestCaptor.getValue()).isEqualTo(new CreatePermissionCommand(
                 "TICKET_VIEW", "查看工单", "允许查看工单"));
     }
 
     @Test
     void rbacManagerCanUpdateOnlyMutablePermissionFields() throws Exception {
-        IamPermissionBO updated = new IamPermissionBO(
+        PermissionResult updated = new PermissionResult(
                 PERMISSION_ID,
                 "TICKET_VIEW",
                 "查看全部工单",
@@ -207,13 +207,13 @@ class IamPermissionControllerWebTest {
                 .andExpect(jsonPath("$.data.code").value("TICKET_VIEW"))
                 .andExpect(jsonPath("$.data.name").value("查看全部工单"));
 
-        ArgumentCaptor<IamPermissionUpdateVO> requestCaptor =
-                ArgumentCaptor.forClass(IamPermissionUpdateVO.class);
+        ArgumentCaptor<UpdatePermissionCommand> requestCaptor =
+                ArgumentCaptor.forClass(UpdatePermissionCommand.class);
         verify(permissionService).update(
                 org.mockito.ArgumentMatchers.eq(PERMISSION_ID),
                 requestCaptor.capture());
         assertThat(requestCaptor.getValue())
-                .isEqualTo(new IamPermissionUpdateVO("查看全部工单", null));
+                .isEqualTo(new UpdatePermissionCommand("查看全部工单", null));
     }
 
     @Test
@@ -258,8 +258,8 @@ class IamPermissionControllerWebTest {
         verify(permissionService, never()).create(any());
     }
 
-    private static IamPermissionBO permission() {
-        return new IamPermissionBO(
+    private static PermissionResult permission() {
+        return new PermissionResult(
                 PERMISSION_ID,
                 "TICKET_VIEW",
                 "查看工单",

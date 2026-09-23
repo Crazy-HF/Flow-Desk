@@ -1,6 +1,6 @@
 package com.flowdesk.auth.infrastructure;
 
-import com.flowdesk.iam.service.SessionRevocationPort;
+import com.flowdesk.iam.application.port.SessionRevocationPort;
 import org.springframework.stereotype.Component;
 
 /**

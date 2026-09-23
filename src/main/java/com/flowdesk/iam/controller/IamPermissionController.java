@@ -2,11 +2,11 @@ package com.flowdesk.iam.controller;
 
 import com.flowdesk.common.web.PageResult;
 import com.flowdesk.common.web.R;
-import com.flowdesk.iam.domain.bo.IamPermissionBO;
-import com.flowdesk.iam.domain.vo.IamPermissionCreateVO;
-import com.flowdesk.iam.domain.vo.IamPermissionQueryVO;
-import com.flowdesk.iam.domain.vo.IamPermissionUpdateVO;
-import com.flowdesk.iam.service.IamPermissionService;
+import com.flowdesk.iam.application.result.PermissionResult;
+import com.flowdesk.iam.application.command.CreatePermissionCommand;
+import com.flowdesk.iam.application.query.PermissionQuery;
+import com.flowdesk.iam.application.command.UpdatePermissionCommand;
+import com.flowdesk.iam.application.service.IamPermissionService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -42,8 +42,8 @@ public class IamPermissionController {
      * @return 权限分页结果
      */
     @GetMapping
-    public R<PageResult<IamPermissionBO>> page(
-            @Valid @ModelAttribute IamPermissionQueryVO query){
+    public R<PageResult<PermissionResult>> page(
+            @Valid @ModelAttribute PermissionQuery query){
         return R.success(iamPermissionService.page(query));
     }
 
@@ -54,7 +54,7 @@ public class IamPermissionController {
      * @return 权限详情
      */
     @GetMapping("/{permissionId}")
-    public R<IamPermissionBO> getById(
+    public R<PermissionResult> getById(
             @PathVariable long permissionId){
         return R.success(iamPermissionService.getById(permissionId));
     }
@@ -66,8 +66,8 @@ public class IamPermissionController {
      * @return 已创建的权限，HTTP 状态码为 201
      */
     @PostMapping
-    public ResponseEntity<R<IamPermissionBO>> create(
-            @Valid @RequestBody IamPermissionCreateVO request){
+    public ResponseEntity<R<PermissionResult>> create(
+            @Valid @RequestBody CreatePermissionCommand request){
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(R.success(iamPermissionService.create(request)));
     }
@@ -80,9 +80,9 @@ public class IamPermissionController {
      * @return 更新后的权限详情
      */
     @PutMapping("/{permissionId}")
-    public R<IamPermissionBO> update(
+    public R<PermissionResult> update(
             @PathVariable long permissionId,
-            @Valid @RequestBody IamPermissionUpdateVO request){
+            @Valid @RequestBody UpdatePermissionCommand request){
         return R.success(iamPermissionService.update(permissionId, request));
     }
 

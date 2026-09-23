@@ -219,12 +219,12 @@ MVP 最终完成定义：
 | 1 | `iam_role_permission` 在 `V5` 中补 `granted_by BIGINT UNSIGNED` / `granted_at DATETIME(6)` | 契约要求审计，而该表原本一行审计列都没有；两列允许为空，表示 Flyway 预置或历史授权没有具体操作人/时间；在线授权必须同时填写 |
 | 2 | IAM 定义 `SessionRevocationPort`，auth 提供 adapter 实现 | 保持现有单向依赖 `auth → iam`，IAM 不感知 Redis |
 | 3 | 撤销会话与提交 MySQL 的顺序：**先撤 Redis，后提交授权变更** | 与改密的既有顺序一致；宁可让用户重登一次，也不让旧权限在旧会话里继续可用 |
-| 4 | 授予接口统一返回 `200`（首次与重复都是） | 授予是幂等放置语义；`201` 只用于真正创建了新资源 |
+| 4 | 两组批量授予接口统一返回 `200`（全部已存在与实际新增都是） | 授予采用增量幂等语义；请求去重排序后只新增缺失关系，整批均已存在时不写库、不撤会话；`201` 只用于真正创建了新资源 |
 | 5 | 受保护角色与权限按 `code` 常量判定（`SYSTEM_ADMIN`、`RBAC_MANAGE`） | `code` 已有唯一约束，不新增"内置"标记列 |
 | 6 | 分页排序白名单：角色/权限为 `code,name,created_at`；用户角色为 `granted_at`；角色权限为 `role_id,permission_id` | 作为 `PageQuery.orderItems(...)` 的入参 |
 | 7 | 两组授权列表必须至少给出一个筛选（`userId`/`roleId`、`roleId`/`permissionId`），都不给返回 `400/VALIDATION_FAILED` | 避免无筛选的全表分页 |
 | 8 | 交付层级：**计入求职 MVP 演示范围**，并在后端接口之外补 RBAC 管理端页面（`frontend/src/views/admin/`） | 2026-09-22 用户确认；页面成为本阶段交付物，不再是“留给后续主题” |
-| 9 | 两类授权列表与授予响应使用固定授权 BO | 用户角色返回用户 ID/用户名、角色 ID/编码/名称、授权人、授权时间；角色权限返回角色 ID/编码、权限 ID/编码/名称、授权人、授权时间；`grantedBy` 为可空的授权人用户 ID |
+| 9 | 两类授权列表使用固定授权结果对象（`UserRoleResult` / `RolePermissionResult`），批量授予响应返回同一结果的列表 | 用户角色返回用户 ID/用户名、角色 ID/编码/名称、授权人、授权时间；角色权限返回角色 ID/编码、权限 ID/编码/名称、授权人、授权时间；结果按目标 ID 升序，`grantedBy` 为可空的授权人用户 ID |
 | 10 | 角色权限实际变化时撤销该角色全部用户会话 | 持有角色锁后通过 `FOR UPDATE` 按用户 ID 升序取得受影响用户快照；重复授予不写库、不撤会话；任一撤销失败则 MySQL 回滚 |
 | 11 | RBAC 写操作使用固定悲观锁协议 | `SELECT ... FOR UPDATE`，顺序为角色 → 权限 → 用户 → 授权关系，同层按主键升序；锁后重查并校验，禁止反向加锁和带 Redis 副作用的自动重试 |
 | 12 | 安全链作用域修复（方案 A）：`AuthSecurityConfiguration` 的 `securityMatcher` 由 `/fd/v1/auth/**` 扩为 `/fd/v1/**` | 2026-09-22 确认。修复前真实 HTTP 下 `/fd/v1/admin/**` 恒为 `401/AUTH_REQUIRED`——JWT 过滤器只装在 auth 链上，其余路径落到无认证过滤器的基础链；`@WithMockUser` 的 Web 测试覆盖不到该缺陷。见 `TASK-059`（已于 2026-09-22 实施并完成真实栈复核） |
@@ -235,18 +235,18 @@ MVP 最终完成定义：
 | 任务 | 内容 | 关键产出 |
 | --- | --- | --- |
 | `TASK-055`（已完成） | `V5` 迁移：新增 `RBAC_MANAGE` 权限、授予 `SYSTEM_ADMIN`、为 `iam_role_permission` 补审计列、索引与外键；同步 `DatabaseMigrationIT`（版本 `1,2,4,5`、权限/关系各 14、`SYSTEM_ADMIN` 权限数 4、授权范围与物理结构） | 迁移脚本 + 迁移集成测试；2026-09-21 空库验证通过 |
-| `TASK-056`（已完成） | 会话撤销端口与 adapter：`iam/service/SessionRevocationPort`（`void revokeAll(long userId)`）+ `auth/infrastructure/IamSessionRevocationAdapter` | 端口、adapter、转发单测 |
-| `TASK-057`（已完成） | 角色与权限两组 CRUD：`/fd/v1/admin/roles`、`/fd/v1/admin/permissions` | Controller/Service/VO/BO + Web 测试；提交 `7dd5208`，`verify` 128 单元/Web + 30 集成全绿 |
+| `TASK-056`（已完成） | 会话撤销端口与 adapter：`iam/application/port/SessionRevocationPort`（`void revokeAll(long userId)`）+ `auth/infrastructure/IamSessionRevocationAdapter` | 端口、adapter、转发单测 |
+| `TASK-057`（已完成） | 角色与权限两组 CRUD：`/fd/v1/admin/roles`、`/fd/v1/admin/permissions` | Controller/Service/Command/Query/Result + Web 测试；提交 `7dd5208`，`verify` 128 单元/Web + 30 集成全绿（2026-09-23 重构后类名见 `docs/modules/rbac.md` 第 3 节） |
 | `TASK-059`（已完成） | 安全链作用域修复（决策 12 方案 A）：`AuthSecurityConfiguration` 的 `securityMatcher` 扩为 `/fd/v1/**`；同步 `docs/modules/auth.md` §8.1 的链职责描述；补一条走真实过滤链（不使用 `@WithMockUser` 绕过）的 Web 测试，证明无令牌 401、有令牌放行、非 admin 403 | 配置改动 + 测试 + 文档；真实栈用 `admin` 令牌调 `/fd/v1/admin/roles` 应返回 `200`，不再 `401` |
-| `TASK-058` | 用户角色与角色权限两组授权（6 个端点），四片：① 两组授权列表（筛选二选一否则 `400`、固定授权 BO、排序白名单）② 用户角色授予/撤销（保护规则 5/6、审计两列、撤该用户全部会话、重复授予幂等）③ 角色权限授予/撤销（保护规则 7、持角色锁按 `user_id` 升序取用户快照、按角色范围撤会话、先撤 Redis 后提交）④ 并发与真实栈收口 | Controller/Service/VO/BO + 服务单测 + Web 矩阵 + Testcontainers MySQL 集成测试（含两条真并发）；注意两张授权表是复合主键、实体无 `@TableId`，只能用 wrapper 读写 |
+| `TASK-058`（实现与自动化测试已完成；手工真实栈链路待补） | 用户角色与角色权限两组授权（**当前共 11 个端点**：四片设计里的 6 个 + 本轮追加的批量撤销、清空全部、一个角色授予多个用户、建角色带权限），四片：① 两组授权列表（筛选二选一否则 `400`、固定授权结果对象、排序白名单）② 用户角色批量增量授予（`userId + roleIds`）/单条撤销（**保护规则 6**、审计两列、实际新增时仅撤该用户全部会话一次；保护规则 5 已于 2026-09-22 废弃，允许零角色）③ 角色权限批量增量授予（`roleId + permissionIds`）/单条撤销（保护规则 7、持角色锁按 `user_id` 升序取用户快照、实际新增时按角色范围撤会话一次、先撤 Redis 后提交）④ 并发与真实栈收口 | Controller/Service/Command/Query/Result 已写入；批量列表非空、最多 100 个正整数，服务端去重排序，只新增缺失关系，任一目标不存在则整批回滚；两张授权表是复合主键、实体无 `@TableId`，只能用 wrapper 读写。**2026-09-22 补齐测试（最终一轮）**：`IamUserRoleServiceImplTest`(40)、`IamRolePermissionServiceImplTest`(32)、`IamRoleServiceImplTest`(22，含建角色带权限)、`IamUserRoleControllerWebTest`(25)、`IamRolePermissionControllerWebTest`(21)、`IamRoleControllerWebTest`(19)、`IamCurrentOperatorAdapterTest`(4)，`SecurityChainScopeWebTest`(23，四组端点的读写请求各一条真实过滤链)；集成侧 `IamUserRoleServiceIT`(17，含两条真并发)、`IamRolePermissionServiceIT`(14)、`IamRoleServiceIT`(9，含建角色带权限与回滚)、`IamPermissionServiceIT`(6)、`RedisAuthSessionRepositoryIT`(13)、`DatabaseMigrationIT`(4)。`./mvnw -B clean verify` → 单元/Web **278** + 集成 **63**，`Failures: 0, Errors: 0, BUILD SUCCESS`。覆盖矩阵逐格证据见 `docs/modules/rbac.md` 10.1。**尚未完成**：验收标准第 4 条的逐条手工真实栈链路（每条留 `traceId` 与响应码） |
 | `TASK-060` | RBAC 管理端页面（`frontend/src/views/admin/`）：角色、权限、用户角色授权、角色权限授权的在线维护页；路由与侧栏入口按 `RBAC_MANAGE` 显隐 | 页面 + `api/` 领域封装的落层决定 + 单测/E2E；按 `frontend/AGENTS.md` 的六态与「视觉决策契约」交付（含 Craft Read、signature、三抄测试） |
 
 阶段验收标准（可检查）：
 
 1. `./mvnw -B verify` 全绿，且相对阶段起点只增不减（起点：单元/Web 55 项 + 集成 17 项）。
-2. 四组接口 × {成功、400、401、403、404、409、幂等} **每一格都有用例**；用户角色的“至少一个角色”和“最后启用管理员”竞争路径必须在 MySQL 集成测试中做真并发，证明固定锁顺序下无死锁且不变量不被突破；mock 返回 0 只能补充分支。
+2. 四组接口 × {成功、400、401、403、404、409、幂等} **每一格都有用例**；用户角色侧必须在 MySQL 集成测试中做真并发，证明固定锁顺序下无死锁：① 并发撤销同一用户的全部角色时两次都成功且终态零授权（**零角色是合法终态**，2026-09-22 起废弃 `409/USER_ROLE_REQUIRED`）；② 两个启用管理员并发撤销各自 `SYSTEM_ADMIN` 时只能有一个成功，终态仍有一个启用管理员。mock 返回 0 只能补充分支。
 3. `DatabaseMigrationIT` 断言与 `V5` 一致，并能证明 `RBAC_MANAGE` 只授予 `SYSTEM_ADMIN`。
-4. 手工验证四条链路各留 `traceId` 与响应码：授予用户角色后目标用户旧会话失效、变更角色权限后该角色全部用户旧会话失效、撤销最后一个角色被拒、删除受保护角色被拒。
+4. 手工验证四条链路各留 `traceId` 与响应码：授予用户角色后目标用户旧会话失效、变更角色权限后该角色全部用户旧会话失效、**清空某用户全部角色后该用户零授权（2026-09-22 起零角色为合法终态，不再期望 `409/USER_ROLE_REQUIRED`）**、删除受保护角色被拒。
 5. `PROJECT_STATUS.md`、`README.md` 与 `AGENTS.md` 的当前阶段一致。
 6. 真实 HTTP 可用性（`TASK-059` 完成后）：用 `admin` 令牌调 `/fd/v1/admin/roles` 与 `/fd/v1/admin/permissions` 返回 `200`（不再是 `401/AUTH_REQUIRED`）；无令牌 `401`、非 admin 令牌 `403`。
 7. 管理端页面（`TASK-060`）：四组 RBAC 页面可完成一次真实闭环（建角色 → 授权限 → 给用户授角色），六态齐全、入口按 `RBAC_MANAGE` 显隐，前端 `typecheck`/`lint`/`build`/单测/E2E 全绿。

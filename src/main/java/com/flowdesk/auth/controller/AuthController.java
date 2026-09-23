@@ -2,13 +2,13 @@ package com.flowdesk.auth.controller;
 
 import com.flowdesk.auth.config.AuthProperties;
 import com.flowdesk.auth.domain.AuthPrincipal;
-import com.flowdesk.auth.domain.bo.AuthLoginBO;
-import com.flowdesk.auth.domain.bo.AuthServiceBO;
-import com.flowdesk.auth.domain.bo.AuthUserBO;
-import com.flowdesk.auth.domain.vo.AuthChangePwdVO;
-import com.flowdesk.auth.domain.vo.AuthLoginVO;
+import com.flowdesk.auth.application.result.LoginResult;
+import com.flowdesk.auth.application.result.IssuedSessionResult;
+import com.flowdesk.auth.application.result.AuthenticatedUserResult;
+import com.flowdesk.auth.application.command.ChangePasswordCommand;
+import com.flowdesk.auth.application.command.LoginCommand;
 import com.flowdesk.auth.security.AuthCookieFactory;
-import com.flowdesk.auth.service.AuthService;
+import com.flowdesk.auth.application.service.AuthService;
 import com.flowdesk.common.exception.ApiException;
 import com.flowdesk.common.web.R;
 import jakarta.servlet.http.Cookie;
@@ -43,8 +43,8 @@ public class AuthController {
      * <p>失败统一返回 {@code 401 / AUTH_INVALID_CREDENTIALS}，不区分用户不存在、账号停用或密码错误。</p>
      */
     @PostMapping("/login")
-    public ResponseEntity<R<AuthLoginBO>> login(@Valid @RequestBody AuthLoginVO authLoginVO) {
-        AuthServiceBO result = authService.login(authLoginVO);
+    public ResponseEntity<R<LoginResult>> login(@Valid @RequestBody LoginCommand loginCommand) {
+        IssuedSessionResult result = authService.login(loginCommand);
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE,
                         authCookieFactory.refreshTokenCookie(result.refreshToken()).toString())
@@ -57,10 +57,10 @@ public class AuthController {
      * <p>失败统一返回 {@code 401 / AUTH_SESSION_INVALID}；来源不在白名单时返回 {@code 403 / ORIGIN_NOT_ALLOWED}。</p>
      */
     @PostMapping("/refresh")
-    public ResponseEntity<R<AuthLoginBO>> refresh(HttpServletRequest request,
+    public ResponseEntity<R<LoginResult>> refresh(HttpServletRequest request,
                                                   @RequestHeader(name = HttpHeaders.ORIGIN, required = false) String origin) {
         validateOrigin(origin);
-        AuthServiceBO result = authService.refresh(readRefreshCookie(request));
+        IssuedSessionResult result = authService.refresh(readRefreshCookie(request));
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE,
                         authCookieFactory.refreshTokenCookie(result.refreshToken()).toString())
@@ -104,7 +104,7 @@ public class AuthController {
      * 当前身份：前端刷新页面后用它恢复菜单与路由所需的信息。
      */
     @GetMapping("/me")
-    public R<AuthUserBO> me(@AuthenticationPrincipal AuthPrincipal principal) {
+    public R<AuthenticatedUserResult> me(@AuthenticationPrincipal AuthPrincipal principal) {
         return R.success(authService.currentUser(principal));
     }
 
@@ -115,8 +115,8 @@ public class AuthController {
      */
     @PostMapping("/change-password")
     public ResponseEntity<R<Void>> changePassword(@AuthenticationPrincipal AuthPrincipal principal,
-                                                  @Valid @RequestBody AuthChangePwdVO request) {
-        authService.changePassword(principal, request.currentPassword(), request.newPassword());
+                                                  @Valid @RequestBody ChangePasswordCommand command) {
+        authService.changePassword(principal, command);
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, authCookieFactory.clearedRefreshTokenCookie().toString())
                 .body(R.success());
