@@ -159,13 +159,20 @@ M0 工程底座（已完成，PR #4）
 
 ### 6.1 阶段 2 小步实施（2026-09-28 用户确认）
 
-已确认：业务代码由用户编写，Agent 负责测试的设计、维护、执行与 review。沿用现有 Command/Query/Result 和 Mapper 约定，不修改历史迁移。每步通过对应验证再继续；Git 提交与交接另需明确授权。
+已确认（2026-09-28 最新分工）：基础 domain、Controller、Mapper、Command/Query/Result、服务接口由 Agent 直接写入；ServiceImpl 业务逻辑先用文字和流程图说明，再提供完整代码供用户编写，不直接写入。本阶段按用户指示不新增测试类，使用编译和真实栈验收。沿用现有 Command/Query/Result 和 Mapper 约定，不修改历史迁移。每步通过对应验证再继续；Git 提交与交接另需明确授权。
 
-- [ ] ① 启用分类选项（当前步骤）：`GET /fd/v1/categories/options`，允许 `TICKET_CREATE` 或 `TICKET_PROCESS`；仅返回启用分类的 `id/name`，按 `sort_order ASC, id ASC` 排序，无数据返回空列表。
-- [ ] ② 创建基础：校验标题、描述、分类、优先级和 UUID；提交人来自认证上下文；同一事务插入工单与创建记录。验收：`PENDING`、`version=0`、`record_seq=1`，异常时两表均回滚。
-- [ ] ③ 创建幂等：使用已有 `(requester_id, submission_key)` 唯一约束；同用户同键返回首次结果。Agent 用真实 MySQL 验证并发重复只产生一张工单、一条创建记录；区分提交键冲突与编号冲突。②③一起通过才算创建完成。
-- [ ] ④ 我的列表：先实现 `REQUESTED_BY_ME`，复用分页信封，固定排序编码、稳定 ID 次序、合法筛选；当前用户由后端确定。验收：不返回他人工单或正文。
-- [ ] ⑤ 其他范围：补齐 `PENDING_QUEUE`、`ASSIGNED_TO_ME`、`PARTICIPATED_BY_ME` 的权限与资源关系测试，不增加 IT 写动作。
+- [x] ① 启用分类选项（2026-09-28 编译与真实接口验收通过；按用户指示不新增测试）：`GET /fd/v1/categories/options`，允许 `TICKET_CREATE` 或 `TICKET_PROCESS`；仅返回启用分类的 `id/name`，按 `sort_order ASC, id ASC` 排序，无数据返回空列表。
+- [x] ② 创建基础（2026-09-28 真实栈验收通过）：校验标题、描述、分类、优先级和 UUID；提交人来自认证上下文；同一事务插入工单与创建记录。验收：`PENDING`、`version=0`、`record_seq=1`，异常时两表均回滚。
+  - **编号方案已确认并实现（2026-09-28）**：`FD-yyyyMMdd-001`，按北京时间每日递增，与工单 ID 无关；V6 每日序号表 + 原子 upsert，在创建事务中领取序号并直接插入正式编号。编译及真实 MySQL 临时库验证通过（8 路并发不重复、回滚、第二天从 1、超过 999、旧编号回填）；未新增测试类。
+  - **本轮真实栈验收**：用户已补齐认证适配器组件注册；在 8082 启动 local 服务（V6 自动迁移成功）。合法创建 201/`FD-20260928-001`；401/403；空白、超长标题/描述、非法 UUID/优先级、停用/不存在分类共 8 例 400；查库确认提交人、PENDING/version=0/record_seq=1 和首条 CREATE 记录；定向临时触发器注入记录写入失败，工单及序号均回滚，未写 participant。临时触发器、工单/记录/序号已清理。
+- [x] ③ 创建幂等（2026-09-28 功能验收通过）：使用已有 `(requester_id, submission_key)` 唯一约束；同用户同键返回首次结果。用户已写入 ServiceImpl，编译与真实栈功能校验通过：8 路同键并发全 201，仅一张工单/一条记录/序号增加一次；顺序重试、用户隔离、UUID 规范化、首次结果稳定性、分类停用后重试、编号冲突不误判及回滚均通过。临时数据已清理。同轮用户已删除 create 方法多余的外层 `@Transactional`，重新编译通过；仍有未使用 import 可清理，Agent 未改写 ServiceImpl。本轮先解释事务机制，不提前开始步骤④。
+- [x] ④ 我的列表（2026-09-28 真实栈验收通过）：先实现 `REQUESTED_BY_ME`，复用分页信封，固定排序编码、稳定 ID 次序、合法筛选；当前用户由后端确定。验收：不返回他人工单或正文。
+  - 基础代码由 Agent 写入：TicketQuery、scope/status/priority/sort 枚举、列表与摘要 Result、TicketListRow SQL 投影、TicketQueryService、GET Controller 和分页 Mapper。Query 将契约 page/size 映射到现有 PageQuery；时间范围含起止端点；关键词按字面子串搜索，转义 LIKE 通配符；列表分类摘要保留停用分类。ServiceImpl 在对话提供、不写入，待用户补齐后真实栈验收；此前缺少查询服务 Bean，不能启动完整应用。
+  - **基础验证（2026-09-28）**：`./mvnw.cmd -B -DskipTests compile` 通过；临时 JShell 探针验证 WebDataBinder 的 page/size、多值状态/优先级、带时区时间绑定，以及 MyBatis 四种排序动态 SQL 生成。未新增测试类；尚未运行 GET 真实接口验收。ServiceImpl 计划使用只读事务协调分页 count/items 查询。
+  - **真实栈验收（同日接续）**：用户已完成查询 ServiceImpl；8082 local 启动与编译通过。定向临时数据验证本人行/总数隔离、最小字段与停用分类展示、四种排序/同时间 ID 次序、分页/超出末页、组合筛选、带时区时间边界、LIKE 字面通配符、伪造用户 ID 不改变范围、空集通过；13 例非法/缺少/未支持参数 400，401/403 通过。临时工单清理，验收用服务停止。用户当前使用普通 @Transactional（不是 readOnly），功能不受影响；下一步给出的 page 方法采用 readOnly。
+- [ ] ⑤ 其他范围（当前步骤）：补齐 `PENDING_QUEUE`、`ASSIGNED_TO_ME`、`PARTICIPATED_BY_ME` 的权限与资源关系验证，不增加 IT 写动作。
+  - **同日接续阻塞**：用户已写 page 统一查询，整体编译因分类服务新增的六个管理方法未实现而失败（首先报告 delete(long,long)）。用户自己编写分类 ServiceImpl，要求先列缺少方法；步骤⑤真实栈验收待分类恢复编译后执行。详情仅预备 Mapper/Result/投影/权限适配，未验证、未接入 Controller 或服务接口，暂缓推进。
+  - Agent 已写 Controller 的 scope 精确权限表达式、Mapper 的四范围分支（参与关系使用 EXISTS、防止重复分页，缺少范围 WHERE 1=0）、队列默认优先级排序；编译及四范围 SQL/权限表达式探针通过。selectRequestedByMePage 保留兼容别名，新的统一入口为 selectScopedPage。ServiceImpl 仅在对话提供替换 page 方法，尚未写入；当前用户代码仍拒绝非 REQUESTED_BY_ME，步骤⑤真实接口尚未验收。
 - [ ] ⑥ 详情与时间线：外部 `ticketNo` 定位；共同校验可见性；无权与不存在统一 `404/TICKET_NOT_FOUND`；时间线按 `sequenceNo` 正序分页。阶段 2 没有已实现的工单写动作，`allowedActions=[]`；后续阶段实现动作时再开放，不能展示不可调用的操作。
 - [ ] ⑦ 员工页面：后端闭环通过后明确页面交互；新建、列表、详情和时间线，失败重试复用同一 `submissionKey`。沿用项目内视觉交接材料；验收真实 E2E 与桌面/窄屏截图。
 - [ ] ⑧ 阶段验收：后端完整 verify、前端 typecheck/lint/build/单测/E2E 串行执行；证明防重复、数据隔离、刷新恢复并清理临时数据；同步文档后提示分支交接。
@@ -236,7 +243,7 @@ MVP 最终完成定义：
 1. **完整工单状态机**：请求补充、员工补充、撤回请求、未解决退回、员工撤销、IT 转交和异常关闭。
 2. **附件与关联**：受控上传/下载、类型与大小限制、临时文件原子移动、失败补偿、孤儿对账、后续/重复工单关系。
 3. **自动化**：待确认自动完成、待补充自动关闭、停机恢复和幂等扫描。
-4. **系统管理**：~~用户与固定角色分配、账号启停、管理员重置密码~~、活动工单管理性交接、分类管理。**其中用户管理（列表、详情、创建、改资料、启停、替换角色、重置密码）已于 2026-09-24 随第 3 步提前实施并计入 MVP 演示范围（`TASK-061` 后端 / `TASK-062` 管理端页面）；管理性交接与分类管理仍留完整版。**
+4. **系统管理**：~~用户与固定角色分配、账号启停、管理员重置密码~~、活动工单管理性交接、~~分类管理~~。**其中用户管理（列表、详情、创建、改资料、启停、替换角色、重置密码）已于 2026-09-24 随第 3 步提前实施并计入 MVP 演示范围（`TASK-061` 后端 / `TASK-062` 管理端页面）；分类管理已于 2026-09-28 经用户当轮指示提前实施（`TASK-063` 后端 / `TASK-064` 管理端页面，见 9.2）；管理性交接仍留完整版。**
 5. **数据概览**：IT 权限范围内的状态、优先级、分类和负责人统计。
 6. **动态 RBAC（已于 2026-09-21 确认实施，先于阶段 2）**：**已完成并合并**（PR #8，合并提交 `f15468c`）；任务拆分、切片顺序与验收标准见第 9.1 节。
 
@@ -288,6 +295,35 @@ MVP 最终完成定义：
 7. 管理端页面（`TASK-060` + `TASK-062`）：四组 RBAC 页面可完成一次真实闭环（建角色 → 授权限 → 给用户授角色），六态齐全、入口分别按 `RBAC_MANAGE` 与 `USER_MANAGE` 显隐，前端 `typecheck`/`lint`/`build`/单测/E2E 全绿。
 
 动态 RBAC 已按 2026-09-21 的确认提前实施，实现范围以 `docs/api-design.md` 8.2.1 为上限，不扩展到该节之外的权限模型；`EMPLOYEE`、`IT_SUPPORT`、`SYSTEM_ADMIN` 三种内置角色继续保留且 `SYSTEM_ADMIN` 受保护。
+
+### 9.2 分类管理（2026-09-28 用户指示插入实施）
+
+**来源**：用户 2026-09-28 直接要求"分类管理页面实现"。分类管理原记在 9 节 backlog 第 4 项（完整版），本轮经用户指示提前实施，与阶段 2 同在 `flow-desk/ticket-employee-flow` 分支推进。**契约不新增**：全部按 `docs/api-design.md` 8.4 的六个端点落地，不扩展到该节之外。
+
+**范围与交付层级**：与用户管理同口径——后端接口 + 管理端页面一起交付，计入 MVP 演示范围（管理端页面已是既定交付物，不做"入口存在但接口不存在"的假入口，见 `frontend/AGENTS.md`）。
+
+**分工（沿用 2026-09-28 分工补充）**：基础 domain、Mapper、Controller、Command/Query/Result、服务接口由 Agent 直接写入；`CategoryServiceImpl` 的六项业务逻辑以文字与流程图说明后，在对话中提供完整代码供用户编写，不直接写入。本阶段按用户指示不新增测试类，使用编译、现有检查与真实栈验收。
+
+| 任务 | 内容 | 关键产出 |
+| --- | --- | --- |
+| `TASK-063`（**进行中**） | 分类管理后端接口（`GET /fd/v1/admin/categories`、`POST /`、`PUT /{categoryId}`、`POST /{categoryId}/actions/enable`、`POST /{categoryId}/actions/disable`、`DELETE /{categoryId}?version=`），全部要求 `CATEGORY_MANAGE` | Agent 已写入：`CategoryQuery`、`CategoryResult`、`CreateCategoryCommand`、`UpdateCategoryCommand`、`CategoryStatusChangeCommand`、`CategoryService`（新增 6 个方法）、`AdminCategoryController`、`TicketCategoryMapper.selectByIdForUpdate`，以及 `GlobalExceptionHandler` 对缺失/类型不符请求参数的 `400/VALIDATION_FAILED` 映射。**待用户补齐 `CategoryServiceImpl` 后才能编译** |
+| `TASK-064`（**进行中**） | 分类管理端页面（`frontend/src/views/admin/CategoryListView.vue`，路由 `/admin/categories`，要求 `CATEGORY_MANAGE`）：列表与筛选（名称、状态）、新建、改名与排序值、启停、删除；入口按权限显隐 | Agent 已写入：页面 + `api/categories.ts`；`router` 的 `/admin/categories` 由占位页改为真实页面；`main.css` 补上一直被三个页面引用却缺失的 `.admin-form-control` 规则。**尚未跑 `typecheck` / `lint` / `build`，也未截图自查** |
+
+已确认的落地口径（与 8.4 契约一致，需要时可在此处继续追加）：
+
+1. **列表默认排序 `sort_order ASC, id ASC`**：与 `GET /fd/v1/categories/options` 的员工端下拉顺序一致，管理和被管理两侧看到的是同一个顺序；排序白名单只放 `name, sort_order, status, created_at, id`。
+2. **创建即启用**：`CreateCategoryCommand` 不含 `status`，避免出现"建完就是停用"的入口；停用是业务动作，只走启停端点。
+3. **写操作全部带 `version`**：先 `SELECT ... FOR UPDATE` 锁目标行，锁内判版本，再按 `id + version` 条件更新；影响行数不为 1 时返回 `409/CATEGORY_CONFLICT`。启停的版本校验放在幂等短路之前（与 `IamUserServiceImpl.enable/disable` 同序）。
+4. **删除只靠外键判引用**：分类模块不跨模块读 `ticket` 表；`ticket.category_id` 的限制删除外键拒绝删除时转 `409/CATEGORY_IN_USE`。取到行锁后不会有新工单引用到该分类（插入子行要对父行取共享锁），因此这一条在并发下也成立。
+5. **名称唯一由 `uk_ticket_category_name` 兜底**：预检查给出确定的 `409/CATEGORY_NAME_CONFLICT`，并发插入落库失败时由 `DuplicateKeyException` 转成同一错误码。
+
+验收标准（可检查，全部待执行）：
+
+1. `./mvnw.cmd -B -DskipTests compile` 通过（2026-09-28 后端提交检查已通过；`CategoryServiceImpl` 已补齐）。
+2. 真实栈（`local` profile + MySQL/Redis）逐条核对六个端点的成功与失败路径：`CATEGORY_MANAGE` 缺失时 `403/ACCESS_DENIED`、无令牌 `401`、非正整数 ID `404/CATEGORY_NOT_FOUND`、重名 `409/CATEGORY_NAME_CONFLICT`、过期 `version` `409/CATEGORY_CONFLICT`、删除被引用分类 `409/CATEGORY_IN_USE`、`DELETE` 缺 `version` 参数 `400/VALIDATION_FAILED`。
+3. 停用某分类后 `GET /fd/v1/categories/options` 不再返回它，历史工单仍显示原分类；重新启用后恢复可选。
+4. 前端 `pnpm typecheck` / `pnpm lint`（含 stylelint 闸门）/ `pnpm build` 退出码为 0；`/admin/categories` 在 1440 与 375 两个宽度下无整页横向溢出，六态齐全。
+5. 临时分类与工单数据清理干净（演示库回到角色 3 / 权限 14 / 分类数不变）。
 
 ## 10. 全局完成与范围控制
 
