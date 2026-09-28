@@ -7,6 +7,21 @@
 - 本文档不是开发阶段的默认必读文件。只有新增亮点、准备简历或面试复盘时才读取。
 - 设计完成不等于已经实现；每条亮点必须明确当前状态，实际编码和测试完成后才能表述为“已实现”。
 
+## 当前状态总览（2026-09-28 核对）
+
+各条目正文的“当前状态”是写入当时的事实，按上一条规则不逐条改写；下表是截至 2026-09-28 的真实状态与证据位置。
+
+| 编号 | 条目 | 当前状态 | 证据 |
+| --- | --- | --- | --- |
+| HL-001 | 创建工单的幂等防重 | **设计已确认，尚未实现**（工单链路属阶段 2，尚未开工） | `docs/implementation-plan.md` 6 节 `TASK-021-MVP`；`docs/database-design.md` 的 `(requester_id, submission_key)` 唯一约束 |
+| HL-002 | 账号启停的幂等与并发安全 | **已实现，并有自动化证据**；正文所列后续项（`expectedVersion` 契约、最后一个启用管理员保护、会话撤销、并发测试）已全部完成 | `IamUserServiceImplTest`(58)、`IamUserControllerWebTest`(45)、`IamUserServiceIT`(24，含“并发创建同一登录名”与“并发停用只放行一个”两条真并发)；`PROJECT_STATUS.md` 2026-09-23 记录 |
+| HL-003 | 应用壳导航唯一真源与层级面包屑 | **已实现，并有自动化证据**；四段外壳与声明唯一真源保持不变。补充：`AppPage` 于 2026-09-27～28 新增 `layout="list"` 变体（用户管理页打样用），窄屏外壳版式已有 375px 截图核对 | 前端单测 17 套件 74 项、E2E 13 项全绿（2026-09-28）；`.ui-craft/reviews/2026-09-27-admin-redesign/`；`PROJECT_STATUS.md` 2026-09-21、2026-09-28 记录 |
+| HL-004 | 角色编码唯一性的并发双重防线 | **已实现，并有自动化证据** | `IamRoleServiceImplTest`(22)、`IamRoleControllerWebTest`(19)、`IamRoleServiceIT`(9) 与 `DatabaseMigrationIT`(4)；`docs/modules/rbac.md` 10.1 覆盖矩阵 |
+| HL-005 | RBAC 稳定编码与事务行锁边界 | **已实现，并有自动化证据**（类名已按 2026-09-23 重构为 `UpdateRoleCommand`） | 同上（服务单测断言 `selectByIdForUpdate`，集成测试验证 `description` 可显式置空与失败回滚） |
+| HL-006 | 角色安全删除的分层防线 | **已实现，并有自动化证据** | `IamRoleServiceImplTest`、`IamRoleServiceIT`、`DatabaseMigrationIT`；真实栈上删除受保护角色/权限的五种入口一律 `409/RBAC_CONFLICT`（`docs/modules/rbac.md` 11.2 链路 4） |
+
+**对外表述口径**：HL-002、HL-003、HL-004、HL-005、HL-006 可以作为“已实现并验证”的成果写入简历或面试讲解；HL-001 只能讲“设计”，等阶段 2 完成后按实际证据再改口径。
+
 ## HL-001 创建工单的幂等防重设计
 
 ### 当前状态

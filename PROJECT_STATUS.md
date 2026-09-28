@@ -18,6 +18,8 @@
 - **交接内容与遗留项**：本阶段（`TASK-055`～`TASK-062`）全部完成，无未完成验收项。**唯一遗留**是前端视觉改版的收尾——用户管理页首轮打样已实现并验证，但**用户逐项视觉反馈未取得、其他四页未按新语言推广**；按用户本轮指示不阻塞交接，留待下一分支按 `.ui-craft/frontend-redesign-handoff.md` 与 `.ui-craft/reviews/2026-09-27-admin-redesign/report.md` 继续。
 - **交接执行结果（2026-09-28）**：提交 `2a3d444`（`feat(rbac): 管理端五页与用户管理页、管理端视觉打样、手工验收脚本收口`，65 文件、+6954/-120）推送到 `origin/flow-desk/rbac-admin-pages`；合并请求 **PR #8** <https://github.com/Crazy-HF/Flow-Desk/pull/8>，三个 job（`backend-verify`、`frontend-verify`、`core-e2e`）全绿后以 `merge_method=merge` 合并，合并提交 **`f15468c`**；本地 `main` 已 `pull --ff-only` 快进至 `f15468c` 与 `origin/main` 一致；下一主题分支 **`flow-desk/ticket-employee-flow`** 从 `f15468c` 创建，用于阶段 2 `TASK-020`～`TASK-023-MVP` 员工工单创建与查询。已存在的旧分支 `flow-desk/employee-ticket-flow`（仅 `7f6c72c` 一条文档同步）不用于本轮开发。
 
+- **文档同步（2026-09-28 同日追加）**：合并完成后核对全仓库文档与实际状态，修正 6 处漂移——`docs/implementation-plan.md`（第 1 节仍写“当前处于 MVP 阶段 1”、阶段顺序图、`TASK-058`/`TASK-060`/`TASK-062` 状态、9.1 缺交付结论、§11 开工入口仍是 Auth 切片 4）、`docs/api-design.md` 8.1 实现状态、`docs/engineering-readiness.md` 第 12 节（“待首次合并请求运行记录”与实际不符）、`docs/project-highlights.md`（新增「当前状态总览」：HL-002/003/004/005/006 改为已实现并给出证据，HL-001 仍标未实现）、`README.md` 当前状态段、`docs/modules/auth.md` 与 `.ui-craft/`（brief、handoff、surfaces、review report）四处的“待反馈/未提交”表述。历史小节（如本文 2026-09-22 的 278+63 记录、2026-09-24 的“未提交”记录）刻意保留原样，不追改。
+
 > 本文件用于新机器、任务恢复和工作交接时快速定位项目，不替代详细设计文档。
 
 ## 快速定位
