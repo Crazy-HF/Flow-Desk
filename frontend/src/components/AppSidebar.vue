@@ -119,7 +119,7 @@ function groupHasActiveEntry(entries: { name: string; activeRouteNames?: string[
     </nav>
 
     <p class="app-sidebar__notice">
-      菜单按当前权限显示，接口授权以后端校验为准。
+      FlowDesk · 企业工单协作
     </p>
   </aside>
 </template>

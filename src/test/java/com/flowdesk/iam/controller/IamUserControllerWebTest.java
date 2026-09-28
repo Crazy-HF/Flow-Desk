@@ -58,8 +58,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * <p>使用真实安全过滤链与方法级授权，用户服务替换为 mock：本类只验证 HTTP 状态、响应信封、
  * 请求绑定、校验失败与 {@code USER_MANAGE} 权限边界，业务规则由 {@code IamUserServiceImplTest} 覆盖。</p>
  *
- * <p>注意：8.2 表里"替换角色"写的是 {@code PUT /fd/v1/users/{userId}/roles}，当前实现是单数
- * {@code /role}；本类按实现断言，差异已登记待确认，改成复数时需同步改这里。</p>
+ * <p>替换角色路径按 8.2 契约使用复数 {@code PUT /fd/v1/users/{userId}/roles}；
+ * 实现曾短暂使用单数 {@code /role}，2026-09-23 经用户裁决改为跟随契约，本类同步断言。</p>
  */
 @ActiveProfiles("test")
 @SpringBootTest(
@@ -132,7 +132,7 @@ class IamUserControllerWebTest {
                 Arguments.of("disable user", post(USERS + "/" + USER_ID + "/actions/disable")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(statusBody())),
-                Arguments.of("replace roles", put(USERS + "/" + USER_ID + "/role")
+                Arguments.of("replace roles", put(USERS + "/" + USER_ID + "/roles")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(replaceRolesBody())),
                 Arguments.of("reset password", post(USERS + "/" + USER_ID + "/actions/reset-password")
@@ -454,7 +454,7 @@ class IamUserControllerWebTest {
     void userManagerCanReplaceRolesAndBodyReachesService() throws Exception {
         when(userService.replaceRoles(anyLong(), any())).thenReturn(sampleUser());
 
-        mockMvc.perform(put(USERS + "/" + USER_ID + "/role")
+        mockMvc.perform(put(USERS + "/" + USER_ID + "/roles")
                         .with(userManager())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(replaceRolesBody()))
@@ -474,7 +474,7 @@ class IamUserControllerWebTest {
     void replaceRolesAcceptsEmptyRoleSet() throws Exception {
         when(userService.replaceRoles(anyLong(), any())).thenReturn(sampleUser());
 
-        mockMvc.perform(put(USERS + "/" + USER_ID + "/role")
+        mockMvc.perform(put(USERS + "/" + USER_ID + "/roles")
                         .with(userManager())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -490,7 +490,7 @@ class IamUserControllerWebTest {
 
     @Test
     void replaceRolesRejectsMissingVersionAndNonPositiveRoleId() throws Exception {
-        mockMvc.perform(put(USERS + "/" + USER_ID + "/role")
+        mockMvc.perform(put(USERS + "/" + USER_ID + "/roles")
                         .with(userManager())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -499,7 +499,7 @@ class IamUserControllerWebTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
 
-        mockMvc.perform(put(USERS + "/" + USER_ID + "/role")
+        mockMvc.perform(put(USERS + "/" + USER_ID + "/roles")
                         .with(userManager())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -517,7 +517,7 @@ class IamUserControllerWebTest {
                 .thenThrow(new ApiException(HttpStatus.CONFLICT, "LAST_ADMIN_PROTECTED",
                         "不能移除最后一个启用管理员的管理员角色"));
 
-        mockMvc.perform(put(USERS + "/" + USER_ID + "/role")
+        mockMvc.perform(put(USERS + "/" + USER_ID + "/roles")
                         .with(userManager())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(replaceRolesBody()))
@@ -530,7 +530,7 @@ class IamUserControllerWebTest {
         when(userService.replaceRoles(anyLong(), any()))
                 .thenThrow(new ApiException(HttpStatus.NOT_FOUND, "ROLE_NOT_FOUND", "角色不存在"));
 
-        mockMvc.perform(put(USERS + "/" + USER_ID + "/role")
+        mockMvc.perform(put(USERS + "/" + USER_ID + "/roles")
                         .with(userManager())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(replaceRolesBody()))

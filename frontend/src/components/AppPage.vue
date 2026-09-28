@@ -2,6 +2,7 @@
 defineProps<{
   title: string
   description?: string
+  layout?: 'card' | 'list'
 }>()
 </script>
 
@@ -9,9 +10,10 @@ defineProps<{
   <main
     id="main-content"
     class="page"
+    :class="{ 'page--list': layout === 'list' }"
     tabindex="-1"
   >
-    <section class="page__card">
+    <section :class="layout === 'list' ? 'page__workspace' : 'page__card'">
       <header class="page__header">
         <h1>{{ title }}</h1>
         <p

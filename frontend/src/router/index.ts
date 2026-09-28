@@ -1,6 +1,11 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import { useAuthStore } from '@/stores/auth'
+import PermissionListView from '@/views/admin/PermissionListView.vue'
+import RoleListView from '@/views/admin/RoleListView.vue'
+import RolePermissionGrantView from '@/views/admin/RolePermissionGrantView.vue'
+import UserListView from '@/views/admin/UserListView.vue'
+import UserRoleGrantView from '@/views/admin/UserRoleGrantView.vue'
 import LoginView from '@/views/auth/LoginView.vue'
 import ForbiddenView from '@/views/error/ForbiddenView.vue'
 import NotFoundView from '@/views/error/NotFoundView.vue'
@@ -55,14 +60,38 @@ const router = createRouter({
     {
       path: '/admin/users',
       name: 'admin-users',
-      component: PlannedWorkView,
-      meta: { title: '用户管理', permission: 'USER_MANAGE', plannedTask: '完整版 backlog：系统管理' },
+      component: UserListView,
+      meta: { title: '用户管理', permission: 'USER_MANAGE' },
     },
     {
       path: '/admin/users/:userId',
       name: 'admin-user-detail',
       component: PlannedWorkView,
-      meta: { title: '用户详情', permission: 'USER_MANAGE', plannedTask: '完整版 backlog：系统管理' },
+      meta: { title: '用户详情', permission: 'USER_MANAGE', plannedTask: '完整版 backlog：用户详情' },
+    },
+    {
+      path: '/admin/roles',
+      name: 'admin-roles',
+      component: RoleListView,
+      meta: { title: '角色管理', permission: 'RBAC_MANAGE' },
+    },
+    {
+      path: '/admin/permissions',
+      name: 'admin-permissions',
+      component: PermissionListView,
+      meta: { title: '权限管理', permission: 'RBAC_MANAGE' },
+    },
+    {
+      path: '/admin/user-roles',
+      name: 'admin-user-roles',
+      component: UserRoleGrantView,
+      meta: { title: '用户角色授权', permission: 'RBAC_MANAGE' },
+    },
+    {
+      path: '/admin/role-permissions',
+      name: 'admin-role-permissions',
+      component: RolePermissionGrantView,
+      meta: { title: '角色权限授权', permission: 'RBAC_MANAGE' },
     },
     {
       path: '/admin/categories',

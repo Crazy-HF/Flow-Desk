@@ -81,7 +81,7 @@ public class IamUserController {
     /**
      * 替换角色
      */
-    @PutMapping("/{userId}/role")
+    @PutMapping("/{userId}/roles")
     public R<UserResult> replaceRole(
             @PathVariable long userId,
             @Valid @RequestBody ReplaceUserRolesCommand request) {

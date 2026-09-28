@@ -24,6 +24,24 @@ export const permissionLabels: Record<string, string> = {
   USER_MANAGE: '用户管理',
   CATEGORY_MANAGE: '分类管理',
   DASHBOARD_VIEW: '数据概览',
+  RBAC_MANAGE: '角色与权限管理',
+}
+
+/**
+ * 受保护对象编码（`docs/api-design.md` 8.2.1「保护判定」）。
+ *
+ * <p>保护规则按 `code` 常量判定，后端不新增"内置"标记列；界面用同两个常量决定
+ * 是否给出行内保护标记、是否禁用删除入口。**界面禁用只是提示，后端仍会独立拒绝。**</p>
+ */
+export const PROTECTED_ROLE_CODE = 'SYSTEM_ADMIN'
+export const PROTECTED_PERMISSION_CODE = 'RBAC_MANAGE'
+
+export function isProtectedRole(code: string): boolean {
+  return code === PROTECTED_ROLE_CODE
+}
+
+export function isProtectedPermission(code: string): boolean {
+  return code === PROTECTED_PERMISSION_CODE
 }
 
 /** 侧栏一级栏目。面包屑与侧栏共用这一份声明，两处不会各写一遍栏目名。 */
@@ -70,6 +88,20 @@ export const navigationEntries: NavigationEntry[] = [
     group: 'admin',
     activeRouteNames: ['admin-user-detail'],
     permission: 'USER_MANAGE',
+  },
+  { name: 'admin-roles', label: '角色管理', group: 'admin', permission: 'RBAC_MANAGE' },
+  { name: 'admin-permissions', label: '权限管理', group: 'admin', permission: 'RBAC_MANAGE' },
+  {
+    name: 'admin-user-roles',
+    label: '用户角色授权',
+    group: 'admin',
+    permission: 'RBAC_MANAGE',
+  },
+  {
+    name: 'admin-role-permissions',
+    label: '角色权限授权',
+    group: 'admin',
+    permission: 'RBAC_MANAGE',
   },
   { name: 'admin-categories', label: '分类管理', group: 'admin', permission: 'CATEGORY_MANAGE' },
 ]

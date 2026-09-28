@@ -14,6 +14,10 @@ const entryDescriptions: Record<string, string> = {
   'ticket-new': '提交新的问题或服务请求，并补充处理所需信息。',
   dashboard: '查看工单协作过程中的关键趋势与概览。',
   'admin-users': '维护账号状态、角色与可用权限。',
+  'admin-roles': '维护角色信息，以及每个角色持有的权限。',
+  'admin-permissions': '维护权限编码与说明，供角色授权引用。',
+  'admin-user-roles': '给用户批量授予或撤销角色，并查看授权来源。',
+  'admin-role-permissions': '给角色批量授予或撤销权限，并查看授权来源。',
   'admin-categories': '维护受理分类与工单归属规则。',
 }
 

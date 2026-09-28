@@ -948,3 +948,459 @@ h1 {
     margin-left: 0;
   }
 }
+
+/* ============================================================
+ * 管理端（frontend/src/views/admin/，TASK-060 / TASK-062）
+ * 五页共用一种构图：工具带 → 列表 → 分页；列与操作留在各页里。
+ * signature：受保护对象标记（.protected-mark），贯穿用户 / 角色 / 权限三张表。
+ * ============================================================ */
+
+/* 宽容器 + `min-width: 0`：`.page` 是网格，表格的 min-content（固定列宽之和）
+   会把自动轨道撑宽，窄屏就整页横向溢出。允许收缩后由表格自己横向滚动。 */
+.admin-page .page__card {
+  width: min(var(--fd-page-wide-max), 100%);
+  min-width: 0;
+}
+
+/* 用户管理首轮打样：独立查询区与数据区。默认 card 页面保持原布局。 */
+.page--list {
+  display: block;
+  padding: var(--fd-admin-gutter);
+}
+
+.page__workspace {
+  width: 100%;
+  min-width: 0;
+}
+
+.page--list .page__header {
+  margin-bottom: var(--fd-space-4);
+}
+
+.user-list-page .admin-filter-card {
+  padding: var(--fd-space-5) var(--fd-space-6);
+  border-radius: var(--fd-radius-sm);
+  box-shadow: var(--fd-shadow-sm);
+}
+
+.user-list-page .admin-filter-input--wide {
+  width: 17rem;
+}
+
+.user-list-page .admin-filter-input--narrow {
+  width: 12rem;
+}
+
+.user-list-data {
+  min-width: 0;
+  margin-top: var(--fd-space-4);
+  border: thin solid var(--fd-color-border);
+  border-radius: var(--fd-radius-sm);
+  background: var(--fd-color-surface);
+  box-shadow: var(--fd-shadow-sm);
+}
+
+.user-list-data .admin-action-bar {
+  padding: var(--fd-space-4) var(--fd-space-5);
+  border-bottom: thin solid var(--fd-color-border);
+}
+
+.user-list-data .admin-action-bar .el-button {
+  margin-left: 0;
+}
+
+.user-list-data .admin-panel {
+  min-height: var(--fd-admin-body-min);
+  padding: var(--fd-space-5);
+}
+
+.user-list-data .admin-table {
+  font-size: var(--fd-font-size-base);
+}
+
+.user-list-data .admin-ident {
+  font-family: var(--fd-font-family);
+}
+
+.user-list-data .admin-row-actions {
+  justify-content: center;
+  gap: var(--fd-space-1);
+}
+
+.user-list-data .admin-row-actions .el-button {
+  margin-left: 0;
+  padding: var(--fd-space-2);
+}
+
+.user-list-data .admin-pagination {
+  padding: var(--fd-space-4) var(--fd-space-5);
+  border-top: thin solid var(--fd-color-border-subtle);
+}
+
+.user-list-dialog {
+  max-width: calc(100vw - var(--fd-space-7));
+}
+
+@media (max-width: 52rem) {
+  .page--list {
+    padding: var(--fd-space-4);
+  }
+
+  .user-list-page .admin-filter-card {
+    padding: var(--fd-space-4);
+  }
+
+  .user-list-page .admin-filter-fields {
+    display: grid;
+    gap: var(--fd-space-4);
+  }
+
+  .user-list-page .admin-filter-field {
+    display: grid;
+    gap: var(--fd-space-2);
+  }
+
+  .user-list-page .admin-filter-input--wide,
+  .user-list-page .admin-filter-input--narrow {
+    width: 100%;
+  }
+
+  .user-list-data .admin-action-bar,
+  .user-list-data .admin-panel,
+  .user-list-data .admin-pagination {
+    padding: var(--fd-space-3);
+  }
+
+  .user-list-data .el-button {
+    min-height: var(--fd-control-size-lg);
+  }
+}
+
+/* 业务页标题用 lg 而不是全局 h1 的展示级刻度：这些页面要读表，不是要读标题。 */
+.admin-page .page__header h1 {
+  font-size: var(--fd-font-size-lg);
+  line-height: var(--fd-line-height-tight);
+}
+
+/* 筛选卡片：一条筛选栏被单独的白底卡片包住，标签写在控件左侧（参考后台的常规做法）。
+   这不是"把每个 section 都包成卡片"——一页只有这一张，且它承载的是查询条件而不是内容。 */
+.admin-filter-card {
+  padding: var(--fd-space-4) var(--fd-space-5);
+  border: 1px solid var(--fd-color-border);
+  border-radius: var(--fd-radius-md);
+  background: var(--fd-color-surface);
+}
+
+.admin-filter-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--fd-space-3) var(--fd-space-5);
+}
+
+.admin-filter-field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fd-space-2);
+  color: var(--fd-color-text-muted);
+  font-size: var(--fd-font-size-base);
+  white-space: nowrap;
+}
+
+/* 控件宽度用自定义类而不是选中 `.el-input`：不碰 Element Plus 内部选择器。 */
+.admin-filter-input {
+  width: 12rem;
+}
+
+.admin-filter-input--wide {
+  width: 15rem;
+}
+
+.admin-filter-input--narrow {
+  width: 9rem;
+}
+
+.admin-filter-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--fd-space-2);
+  margin-left: auto;
+}
+
+/* 工具栏：左侧是对象级动作（新增 / 修改 / 删除），右侧是列表级动作（刷新）。
+   与筛选卡片分成两行，是参考后台的固定节奏：先查，再改。 */
+.admin-action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--fd-space-2);
+  padding: var(--fd-space-4) 0 var(--fd-space-3);
+}
+
+.admin-action-bar__end {
+  display: flex;
+  align-items: center;
+  gap: var(--fd-space-2);
+  margin-left: auto;
+}
+
+.admin-panel {
+  min-width: 0;
+  min-height: 12rem;
+  padding-top: var(--fd-space-4);
+}
+
+.admin-panel__skeleton {
+  display: grid;
+  gap: var(--fd-space-2);
+}
+
+.admin-panel__skeleton-row {
+  height: var(--fd-control-size-lg);
+  border-radius: var(--fd-radius-sm);
+}
+
+.admin-panel__error {
+  padding: var(--fd-space-5);
+  border-left: var(--fd-space-hairline) solid var(--fd-color-danger);
+  border-radius: var(--fd-radius-sm);
+  background: var(--fd-color-danger-soft);
+}
+
+.admin-panel__error h2 {
+  margin: 0;
+  color: var(--fd-color-text-strong);
+  font-size: var(--fd-font-size-md);
+}
+
+.admin-panel__error p {
+  margin: var(--fd-space-2) 0 var(--fd-space-4);
+  color: var(--fd-color-text-muted);
+}
+
+/* Element Plus 表格只走变量映射：`:deep()` 被闸门禁止，也不需要。
+   边框用常规档而不是 subtle 档：这一版按参考后台把表格画成完整网格，行与列的边界要看得见。 */
+.admin-table {
+  --el-table-border-color: var(--fd-color-border);
+  --el-table-header-bg-color: var(--fd-color-surface-subtle);
+  --el-table-header-text-color: var(--fd-color-text-muted);
+  --el-table-row-hover-bg-color: var(--fd-color-surface-subtle);
+  --el-table-text-color: var(--fd-color-text);
+  width: 100%;
+}
+
+/* 标识锚点列：登录名、角色编码、权限编码都用等宽族，窄屏横向滚动时固定在左侧。
+   时间不进列表列：它是审计信息，多一列就把表推出视口，可扫读性反而下降。 */
+.admin-ident {
+  color: var(--fd-color-text-strong);
+  font-family: var(--fd-font-family-mono);
+  font-size: var(--fd-font-size-base);
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-muted {
+  color: var(--fd-color-text-subtle);
+}
+
+.admin-count {
+  color: var(--fd-color-text-strong);
+  font-family: var(--fd-font-family-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-time {
+  color: var(--fd-color-text-muted);
+  font-family: var(--fd-font-family-mono);
+  font-size: var(--fd-font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 角色名是普通文字，不是胶囊标签堆：一行里出现多个同规格色块是模板感的主要来源之一。 */
+.admin-role-list {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--fd-space-2);
+  color: var(--fd-color-text);
+}
+
+.admin-role-list__mark {
+  margin-left: var(--fd-space-2);
+}
+
+/* signature：受保护对象标记。中性色，不占用强调色预算——它表达"不可变"而不是"危险"。 */
+.protected-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fd-space-hairline);
+  margin-left: var(--fd-space-2);
+  padding: var(--fd-space-hairline) var(--fd-space-2);
+  border-radius: var(--fd-radius-xs);
+  background: var(--fd-color-surface-subtle);
+  color: var(--fd-color-text-muted);
+  font-size: var(--fd-font-size-xs);
+  white-space: nowrap;
+}
+
+.protected-mark__icon {
+  font-size: var(--fd-font-size-xs);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.admin-row-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--fd-space-1);
+}
+
+.admin-pagination {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: var(--fd-space-5);
+}
+
+.admin-hint {
+  margin: var(--fd-space-2) 0 0;
+  color: var(--fd-color-text-subtle);
+  font-size: var(--fd-font-size-sm);
+  line-height: var(--fd-line-height-relaxed);
+}
+
+.admin-error {
+  margin: var(--fd-space-3) 0 0;
+  color: var(--fd-color-danger);
+  font-size: var(--fd-font-size-base);
+}
+
+/* ---- 两组授权页：关系行 ----
+ * 一条授权就是一条责任记录（谁 → 什么 → 何时由谁授予），与工单时间线同源，
+ * 所以不做成普通数据表：主体、关系轴、客体、审计四段横排。整块按参考后台的
+ * 表格语言处理——带边框、带表头带、行间横线，列宽只在 .grant-list 上声明一次。 */
+.grant-list {
+  --grant-columns: minmax(0, 1fr) var(--fd-space-7) minmax(0, 1.2fr) minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: 1px solid var(--fd-color-border);
+  border-radius: var(--fd-radius-md);
+}
+
+.grant-list-head {
+  display: grid;
+  grid-template-columns: var(--grant-columns);
+  align-items: center;
+  gap: var(--fd-space-3);
+  padding: var(--fd-space-2) var(--fd-space-4);
+  background: var(--fd-color-surface-subtle);
+  color: var(--fd-color-text-muted);
+  font-size: var(--fd-font-size-sm);
+}
+
+.grant-list-body {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.grant-row {
+  display: grid;
+  grid-template-columns: var(--grant-columns);
+  align-items: center;
+  gap: var(--fd-space-3);
+  padding: var(--fd-space-3) var(--fd-space-4);
+  border-top: 1px solid var(--fd-color-border);
+}
+
+.grant-row:hover {
+  background: var(--fd-color-surface-subtle);
+}
+
+.grant-row__subject,
+.grant-row__object,
+.grant-row__audit {
+  display: grid;
+  min-width: 0;
+  gap: var(--fd-space-hairline);
+}
+
+.grant-row__name {
+  color: var(--fd-color-text-strong);
+  font-weight: var(--fd-font-weight-semibold);
+}
+
+.grant-row__code {
+  color: var(--fd-color-text-muted);
+  font-size: var(--fd-font-size-sm);
+}
+
+.grant-row__meta {
+  color: var(--fd-color-text-subtle);
+  font-size: var(--fd-font-size-xs);
+}
+
+/* 关系轴：一条细线，右端一个节点表示方向（左=主体，右=客体）。 */
+.grant-row__axis {
+  position: relative;
+  height: var(--fd-space-hairline);
+  background: var(--fd-color-border-strong);
+}
+
+.grant-row__axis::after {
+  position: absolute;
+  top: calc(var(--fd-space-2) / -2 + var(--fd-space-hairline) / 2);
+  right: 0;
+  width: var(--fd-space-2);
+  height: var(--fd-space-2);
+  border-radius: var(--fd-radius-full);
+  background: var(--fd-color-border-strong);
+  content: '';
+}
+
+@media (max-width: 52rem) {
+  .admin-filter-field,
+  .admin-filter-input,
+  .admin-filter-input--wide,
+  .admin-filter-input--narrow {
+    width: 100%;
+  }
+
+  .admin-filter-field {
+    flex-wrap: wrap;
+  }
+
+  .admin-filter-actions,
+  .admin-action-bar__end {
+    margin-left: 0;
+  }
+
+  .grant-list {
+    --grant-columns: minmax(0, 1fr);
+  }
+
+  .grant-list-head {
+    display: none;
+  }
+
+  .grant-row {
+    gap: var(--fd-space-2);
+  }
+
+  .grant-row__axis {
+    display: none;
+  }
+
+  .grant-row__action {
+    justify-self: start;
+  }
+
+  .admin-pagination {
+    justify-content: center;
+  }
+}

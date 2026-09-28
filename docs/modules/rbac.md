@@ -15,11 +15,12 @@
 - 新增 Flyway 迁移 `V5`：补 `iam_role_permission` 的审计列、预置 `RBAC_MANAGE` 并只授予 `SYSTEM_ADMIN`。
 - 会话撤销：授予/撤销用户角色、以及变更角色权限后，撤销受影响用户的全部会话。
 - 管理端页面（`frontend/src/views/admin/`）：角色、权限与两组授权的在线维护页面，**2026-09-22 确认补做并计入 MVP 演示范围**（`TASK-060`）。
+- **2026-09-24 追加范围**：`docs/api-design.md` 8.2 的用户管理正式登记为 `TASK-061`（后端八个 `/fd/v1/users` 端点，已实现并有完整测试）与 `TASK-062`（`frontend/src/views/admin/UserListView.vue`，路由 `/admin/users`，入口按 `USER_MANAGE` 显隐），与 `TASK-060` 同批交付；替换角色路径按 8.2 契约统一为 `PUT /fd/v1/users/{userId}/roles`。
 
 **不做**（越界即停）：
 
 - 不扩展 `docs/api-design.md` 8.2.1 之外的权限模型：不做角色继承、不做数据级/组织级权限、不做权限与接口的自动映射。
-- 不做 RBAC 之外的管理端页面：用户管理、分类管理、管理性交接仍属完整版 backlog。
+- 不做 RBAC 之外的管理端页面：管理性交接与分类管理仍属完整版 backlog（用户管理已于 2026-09-24 登记为 `TASK-061`/`TASK-062`，见上）。
 - 不改已发布的历史迁移 `V1` / `V2` / `V4`。
 - 不新增独立审计日志表（见第 9 节"已知缺口"）。
 
@@ -285,9 +286,11 @@ $env:JAVA_HOME='D:\Idea\Jdk\Jdk21'; .\mvnw.cmd spring-boot:run "-Dspring-boot.ru
 
 链路 4 之外，`DELETE /fd/v1/admin/permissions/15`（删 `RBAC_MANAGE` 本体）、`DELETE /fd/v1/admin/role-permissions/3/15`（撤销授权）、`POST /fd/v1/admin/role-permissions/actions/revoke`（批量撤销把该授权包在批次里）与 `DELETE /fd/v1/admin/role-permissions/roles/3`（清空 `SYSTEM_ADMIN` 全部权限）是同一族保护规则的不同入口，收口时一并留证——其中"清空"入口能同时证明批量/清空路径也走同一保护判定。
 
-### 11.1 已留证的链路（2026-09-22，`local` profile + 演示账号）
+### 11.1 首轮局部留证（2026-09-22，`local` profile + 演示账号）
 
-链路 1、2 与链路 3 的"撤销 `RBAC_MANAGE`"部分依赖 `TASK-058` 的端点，尚未执行。链路 3 的期望已在 2026-09-22 由 `409/USER_ROLE_REQUIRED` 改为"允许零角色"，收口时必须按新期望留证。**已经执行并留证的部分**：
+> **状态更新（2026-09-28）**：本节是当时的局部证据。链路 1、2、3、5 以及链路 4 的另外四个保护入口现已全部执行并通过，完整证据见 11.2；本节保留作为 09-22 的首次痕迹。
+
+当时链路 1、2 与链路 3 的"撤销 `RBAC_MANAGE`"部分依赖 `TASK-058` 的端点，尚未执行。链路 3 的期望已在 2026-09-22 由 `409/USER_ROLE_REQUIRED` 改为"允许零角色"。**当时已经执行并留证的部分**：
 
 | 步骤 | 响应 | `traceId` |
 | --- | --- | --- |
@@ -300,18 +303,78 @@ $env:JAVA_HOME='D:\Idea\Jdk\Jdk21'; .\mvnw.cmd spring-boot:run "-Dspring-boot.ru
 
 `TASK-059` 的完整真实验证矩阵（无令牌 `401`、`admin` `200`、`employee` `403`，各 2 个端点）记在 `PROJECT_STATUS.md` 的 2026-09-22 小节与 `docs/modules/auth.md` §8.1。
 
+### 11.2 阶段收口复跑：四条链路全部通过（2026-09-28）
+
+**这是验收标准第 4 条的最终证据，五条链路（含清理）在同一轮真实栈上连续执行并逐条断言通过。**
+环境：`local` profile（`spring.profiles.group.local=demo`）+ MySQL 3308 + Redis 6380 + 后端 8081；
+演示账号 `admin` / `employee` / `it`（密码 `123456`，见 `db/demo/R__seed_demo_data.sql`）。
+
+脚本：`scripts/manual-rbac-acceptance.ps1`（可重复执行；兼容 Windows PowerShell 5.1，HTTP 走 `System.Net.Http.HttpClient`）。
+它用三个互相隔离的 Cookie 容器分别代表 `admin` / `employee` / `it`，全程只创建**临时**角色与临时权限（编码带时间戳后缀），
+结束时删除临时对象并把库还原；`traceId` 直接取自每个响应的 `X-Trace-Id` 头（`TraceIdFilter` 写入，无需翻日志）。
+
+| # | 链路 | 步骤 | 响应 | `traceId` |
+| --- | --- | --- | --- | --- |
+| — | 前置 | `admin` 登录 | `200/OK` | `a8508e85-166d-4d9f-9654-1081c3f4134e` |
+| 1 | 授予角色后旧令牌失效 | `employee` 登录取旧令牌 | `200/OK` | `72a001c7-a7e1-400a-aef0-e32a2e503c83` |
+| 1 | | 旧令牌调 `/auth/me`（授予前） | `200/OK` | `09251204-8290-46e7-a6c4-079a23e49b15` |
+| 1 | | `admin` 给 `employee` 授予临时角色 R1 | `200/OK` | `57749bb9-2808-448c-b997-1ac62bcc0a00` |
+| 1 | | **同一旧令牌**调 `/auth/me`（授予后） | `401/AUTH_SESSION_INVALID` | `21599740-5607-4e81-bad1-6cc4ec82e943` |
+| 1 | | 撤销 R1 | `200/OK` | `21ba156a-f358-4b04-8207-2e9a633c18df` |
+| 2 | 变更角色权限后**该角色全部用户**旧令牌失效 | 把临时角色 R2 授予 `employee` 与 `it` | `200/OK` | `7e608432-6157-4b21-87f8-e5c15b082b7b` |
+| 2 | | `employee`、`it` 登录取旧令牌，各调 `/auth/me` | 两条 `200/OK` | `1f6b19da-…`（employee）、`a6078c56-…`（it） |
+| 2 | | 给 R2 授予一条临时权限 | `200/OK` | `c293ec51-b09c-40ed-a113-700970c9a637` |
+| 2 | | `employee` 旧令牌调 `/auth/me` | `401/AUTH_SESSION_INVALID` | `0405e1c7-12e5-4993-a295-b01888f44989` |
+| 2 | | `it` 旧令牌调 `/auth/me` | `401/AUTH_SESSION_INVALID` | `e3b0eedc-cb5b-426e-99cf-1d678baba253` |
+| 2 | | 操作人 `admin` 自己的令牌（不持有 R2） | `200/OK` | `9f29e392-40a1-4d0b-9e93-ef05be079709` |
+| 3 | 清空全部角色 → 零角色合法终态 | `employee` 登录取旧令牌，清空前调 `/auth/me` | `200/OK` | `fa12523e-2c5b-431f-acfe-ec69e6923572` |
+| 3 | | `DELETE /user-roles/users/1` 清空 | `200/OK` | `3e38c239-e7e4-4789-a222-76d707154413` |
+| 3 | | 旧令牌调 `/auth/me` | `401/AUTH_SESSION_INVALID` | `404b192f-ea0a-44d0-9c9c-4bc0642cf424` |
+| 3 | | 重新登录：`/auth/me` 返回 `roles=[]`、`permissions=[]` | `200/OK` | `cb2230f1-0ccc-44f3-92ab-cba97ecc246e` |
+| 3 | | 零权限访问 `/admin/roles` | `403/ACCESS_DENIED` | `c01cd849-2491-4d8a-915a-391f56101c65` |
+| 4 | 受保护对象不可破坏 | `DELETE /admin/roles/3`（`SYSTEM_ADMIN`） | `409/RBAC_CONFLICT` | `77543244-c63d-418c-8e7d-b7a81df0a162` |
+| 4 | | `DELETE /admin/permissions/15`（`RBAC_MANAGE`） | `409/RBAC_CONFLICT` | `756e4ed6-da61-46ef-b469-a17fb66cc410` |
+| 4 | | `DELETE /admin/role-permissions/3/15`（单条撤销） | `409/RBAC_CONFLICT` | `95f70de9-f157-45a9-94c1-311ac69f8861` |
+| 4 | | `POST /admin/role-permissions/actions/revoke`（批量撤销把该授权包在批次里） | `409/RBAC_CONFLICT` | `f4e982ec-645c-4285-a1f5-c68a1bd0209d` |
+| 4 | | `DELETE /admin/role-permissions/roles/3`（清空该角色全部权限） | `409/RBAC_CONFLICT` | `ed2cca51-ed44-4736-8063-a0cadb276c81` |
+| 4 | | 拒绝后核对：`GET /roles/3`、`GET /permissions/15` 仍在 | 两条 `200/OK` | `7a3e111a-…`、`22956a20-…` |
+| 4 | | 拒绝后核对：`SYSTEM_ADMIN` 权限数仍为 4（`items=4`、`totalElements=4`） | `200/OK` | `8bd83e27-eb43-41fe-a855-0341d5f08253` |
+| 5 | 清理与还原 | 恢复 `employee` 的 `EMPLOYEE` 角色 | `200/OK` | `75b1266f-82aa-4987-8c8a-1282c8d22ebe` |
+| 5 | | 删除临时角色 R1 / R2、临时权限 P，清空 R2 权限、撤销 `it` 的 R2 | 六步全部 `200/OK` | `5c7d3f13-…`、`7ec5ef9c-…`、`b590d88c-…`、`f77e9029-…`、`624b1ae4-…` |
+
+补充说明：
+
+- **链路 2 是"全部用户"而不是"只有操作人"的正证据**：两个不同用户（`employee`、`it`）的旧令牌在给该角色授权限后同时变为 `401`，
+  而**不持有该角色的操作人 `admin` 的令牌仍然是 `200`**——说明撤销范围是按"持有该角色的用户集合"算的，不是把所有人都踢下线，也不是只撤操作人自己。
+- **链路 3 证明零角色是合法终态**：清空返回 `200/OK` 而不是 `409/USER_ROLE_REQUIRED`；
+  该用户重新登录成功但 `roles` 与 `permissions` 均为空数组，访问受保护接口得到 `403/ACCESS_DENIED`（而**不是** `401`，即身份有效、权限不足）。
+- **链路 1/2/3 顺带构成写路径的真实过滤链证据**：这些 `POST` / `DELETE` 都经过 `JwtAuthenticationFilter` 并真的到达控制器。
+- **链路 5 的库侧核对（脚本执行后直接查库）**：Flyway 成功版本 `1,2,4,5`；角色 3 个（`EMPLOYEE`、`IT_SUPPORT`、`SYSTEM_ADMIN`）；
+  权限 14 个；`iam_role_permission` 14 行且分布 `EMPLOYEE` 3 / `IT_SUPPORT` 7 / `SYSTEM_ADMIN` 4；
+  `RBAC_MANAGE` 仅授予 `SYSTEM_ADMIN`；`granted_by`、`granted_at` 全为 `NULL` 的种子行 **14**；
+  表 12 张（11 业务表 + `flyway_schema_history`）、外键 22 个；`iam_user` 3 行、`iam_user_role` 5 行（`admin` 持有三个角色，与演示种子一致）；
+  `MANUAL_VERIFY%` 临时角色与临时权限残留 **0**。以上与 `DatabaseMigrationIT` 的断言口径一致。
+
 ## 12. 管理端页面（`TASK-060`）实现细则
 
-三个交互与落层决策由用户 **2026-09-22 一次确认**（原为 `PROJECT_STATUS.md` 的待确认事项），结论如下。
+三个交互与落层决策由用户 **2026-09-22 一次确认**（原为 `PROJECT_STATUS.md` 的待确认事项），结论如下；
+其中 12.1 的前提已被 `TASK-061` 推翻，2026-09-24 由用户重新裁定，改法记在该节末尾。
 
-### 12.1 用户选择器：数字用户 ID + 候选下拉
+### 12.1 用户选择器：数字用户 ID + 候选下拉（**2026-09-24 已被远程检索取代**）
 
-**代码事实**：`GET /fd/v1/users` **未实现**——`IamUserController` 只有一个空的 `@RequestMapping("/fd/v1/iam/user")` 壳，一个方法都没有，连路径都与 `docs/api-design.md` 8.2 的 `/fd/v1/users` 不一致；用户管理按 8.2 与本文第 1 节属**完整版 backlog**。因此"给用户授角色"没有可用的用户检索数据源。
+**当时的代码事实**：`GET /fd/v1/users` **未实现**——`IamUserController` 只有一个空的
+`@RequestMapping("/fd/v1/iam/user")` 壳，一个方法都没有；用户管理按 8.2 与本文第 1 节属**完整版 backlog**。
+因此"给用户授角色"当时没有可用的用户检索数据源。
 
-- 用户输入**数字用户 ID**，输入框旁明确说明"后端暂无用户查询接口，用户管理属完整版"。**不做可点击的假搜索框**——与 `.ui-craft/brief.md` 对顶栏搜索位的既有纠正同一条原则。
-- 候选下拉只提供**当前列表里已经出现过的**用户（来自 `UserRoleResult.userId` / `username`）；它是便利，不是数据源，不能因此让首屏依赖它。
-- 角色选择器正常实现，数据源是 `GET /fd/v1/admin/roles`（支持 `keyword` + `PageQuery`）。
+- 原结论：用户输入**数字用户 ID**，旁注"后端暂无用户查询接口，用户管理属完整版"；候选下拉只提供当前列表里出现过的用户。
+  两者都是当时缺数据源的权宜做法，**不做可点击的假搜索框**这一原则继续有效。
+- 角色选择器数据源是 `GET /fd/v1/admin/roles`（支持 `keyword` + `PageQuery`）。
 - 权限选择器（角色权限授予页）数据源是 `GET /fd/v1/admin/permissions`（`keyword` 同时匹配 `code` 与 `name`），据此实现"权限码搜索"的远程检索。
+
+**2026-09-24 修正（用户确认）**：`TASK-061` 落地后 `GET /fd/v1/users` 已支持 `keyword` 分页检索，
+"后端没有用户查询接口"这一前提不再成立，因此用户角色授权页的用户选择器改为**远程检索**
+（`el-select` 的 `remote` + `remote-method` 调 `listUsers({ keyword })`），不再要求手输数字 ID。
+页面上也不再出现"后端暂无用户查询接口，用户管理属完整版"这类已经失真的说明。
 
 ### 12.2 批量授权语义：后端单事务增量授予
 
@@ -333,8 +396,8 @@ $env:JAVA_HOME='D:\Idea\Jdk\Jdk21'; .\mvnw.cmd spring-boot:run "-Dspring-boot.ru
 
 `frontend/AGENTS.md` 的分层触发条件已满足（RBAC 是第二个领域模块），确认结论是**不分层**：
 
-- 只新增 `api/rbac.ts`，**不建 `api/core/`**。理由沿用 `frontend/AGENTS.md` 自己的论证：拆分会把"HTTP 层懂认证"这个必须显眼的事实藏起来；`auth.ts` / `rbac.ts` 是领域文件，`http.ts` / `pagination.ts` / `errorMessages.ts` 是基础设施，命名已经区分，拆分只增加 import 改动而信息量为零。
-- `errorMessages` 继续用**单一映射表**。按领域拆表会让"某个错误码的文案在哪"取决于你是否知道它属于哪个领域，反而更难找；补完后约 41 行，一张表一眼扫完。
+- 只新增领域文件，**不建 `api/core/`**：`api/rbac.ts`（四组 RBAC 资源）与 `api/users.ts`（8.2 账号管理，2026-09-24 随 `TASK-062` 新增）。理由沿用 `frontend/AGENTS.md` 自己的论证：拆分会把"HTTP 层懂认证"这个必须显眼的事实藏起来；`auth.ts` / `rbac.ts` / `users.ts` 是领域文件，`http.ts` / `pagination.ts` / `errorMessages.ts` 是基础设施，命名已经区分，拆分只增加 import 改动而信息量为零。
+- `errorMessages` 继续用**单一映射表**。按领域拆表会让"某个错误码的文案在哪"取决于你是否知道它属于哪个领域，反而更难找；一张表一眼扫完。
 
 ### 12.4 页面开工前必须补的两处既有缺口
 
@@ -344,6 +407,26 @@ $env:JAVA_HOME='D:\Idea\Jdk\Jdk21'; .\mvnw.cmd spring-boot:run "-Dspring-boot.ru
 | --- | --- |
 | `frontend/src/api/errorMessages.ts` | 6 个 RBAC 错误码：`ROLE_NOT_FOUND`、`PERMISSION_NOT_FOUND`、`GRANT_NOT_FOUND`、`ROLE_CODE_CONFLICT`、`PERMISSION_CODE_CONFLICT`、`RBAC_CONFLICT`——这正是新页面会撞上的全部错误。**另需清理**：已有条目 `USER_ROLE_REQUIRED`（"至少需要保留一个角色"）自 2026-09-22 起已废弃，后端不再返回该编码，留在表里会误导页面文案 |
 | `frontend/src/constants/authorization.ts` | `permissionLabels` 缺 `RBAC_MANAGE`；并且要按 `RBAC_MANAGE` 在侧栏 `admin` 组新增四组维护页入口 |
+
+### 12.5 页面落地结果与两个实测缺陷（2026-09-24）
+
+五个页面已在 `frontend/src/views/admin/` 落地并通过全套验证（`typecheck` / `lint` / `build` / 单测 74 项 / E2E 13 项 / 后端 `clean verify` 394 + 88）。
+
+- **共享件与分层**：`components/ProtectedMark.vue`（受保护对象标记，本组页面唯一的 signature）、`components/AdminListPanel.vue`（loading / error / empty 三态容器）、`views/admin/useAdminList.ts`（取数状态机 + 服务端分页）。三者只服务这一层，因此没有新开顶层 `composables/` 目录（`frontend/AGENTS.md` 要求先判断现有分层）。
+- **列表密度决定**：三张表都不设"创建时间"列。列宽之和必须落在容器内，多一列就横向溢出；时间属审计信息，交给后续详情页，列表只保留可扫读的身份、状态与关系计数。
+- **缺陷 1（会复发，已写进 `frontend/AGENTS.md`）**：`el-table` 的 `width` / `min-width` 被 `parseInt` 解析，`width="7rem"` 得到 **7px**；症状是列被压成一条、行高被逐字换行撑到 **353px**。首版截图暴露该问题，改为无单位像素数后行高回到 49px。
+- **缺陷 2**：`.page` 是网格，表格的 min-content（固定列宽之和）会把自动轨道撑宽，窄屏（768px）整页横向溢出 130px。给 `.admin-page .page__card` 与 `.admin-panel` 加 `min-width: 0` 后，横向滚动交回表格自己，文档宽度回到视口宽度（已加窄屏 E2E 断言）。
+- **E2E 写库与清理**：三条新用例会创建临时角色（编码带时间戳后缀）并授予 `employee`，结束时逐层撤销并删除；收口后直接查库确认 `E2E_%` 角色与相关授权均为 0 行、角色总数回到 3。
+
+### 12.6 管理端视觉语言二次改版（2026-09-24）
+
+用户提供两张同类企业后台截图，要求按该审美调整。**采用**：筛选卡片（标签在控件左侧，查询/重置贴右）、
+工具栏按钮组（新增/修改/删除 + 右侧刷新图标）、全边框密排表格（`size="small"`，行高约 40px）、
+状态用开关（带 `aria-label`）、操作列图标按钮（`aria-label` + tooltip）、右下分页含"共 N 条 / 条页 / 前往 N 页"。
+**未采用并记录理由**：多标签页导航（属 TagsView，需单独确认）、导出与批量删除（后端无对应端点，不做假入口）、
+多色按钮组（收敛为蓝=主动作、红=破坏性动作，守住"一个强调色"）。
+**保留**：受保护对象标记（signature）与两组授权页的关系行列表——它们表达的是本产品独有的业务不变量与
+"授权即责任记录"，不是参考图里的元素。完整对照表与 E2E 定位教训见 `.ui-craft/surfaces/admin-rbac.md` 第 6 节。
 
 ## 13. 依据文档
 

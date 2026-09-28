@@ -1,5 +1,11 @@
 # AGENTS.md
 
+## 前端视觉改版接续入口（2026-09-27）
+
+- 用户要求将认可的视觉参考与改版要求保存在项目内，供新会话使用。涉及前端审美或管理页改版时，必须读取 `.ui-craft/frontend-redesign-handoff.md`，并实际查看 `.ui-craft/references/` 图片；不要求用户重新上传已有素材。
+- `02-admin-list-primary.png` 是管理列表主参考，`03-flowdesk-before-rejected.png` 是用户明确不满意的旧效果。最新反馈取代旧管理页的70rem居中大卡片方案；安全、接口与业务约束不变。
+- 2026-09-27开始、09-28接续实施用户管理页首轮打样；证据见 `.ui-craft/reviews/2026-09-27-admin-redesign/report.md`。**用户逐项视觉反馈仍未取得**，但用户已于 2026-09-28 授权把本阶段整体提交并交接，因此该页代码与证据已随分支提交；**其他四页未按新语言推广**，推广与逐项微调在后续分支按同一份交接与证据继续，不重开一轮打样。按单页打样 → 截图检查 → 用户视觉反馈 → 推广的顺序执行。
+
 ## 项目与协作目标
 
 - 项目名称：FlowDesk，定位为企业工单协作平台。
@@ -77,8 +83,8 @@
 
 ## 当前阶段限制
 
-- 项目分为“求职 MVP”和“完整版”两个交付层级，当前只执行求职 MVP；M0 工程底座已通过 PR #4 合并进入 `main`，MVP 阶段 1 Auth 身份入口已完成。后续路线按用户 2026-09-21 指示调整为四步：① 收口并提交前端外壳与页面骨架工作项（已完成）② 完成该工作项交接（已完成）③ **系统业务：完整动态 RBAC**（分支 `flow-desk/dynamic-rbac`；设计与任务见 `docs/implementation-plan.md` 9.1）。`TASK-055`～`TASK-057` 与 `TASK-059` 已完成；`TASK-058` 的实现与测试均已完成（用户角色与角色权限两组授权共 11 个端点，`./mvnw -B clean verify` 为 278 单元/Web + 63 集成全绿；保护规则 5「用户至少保留一个角色」已于 2026-09-22 废弃，零角色为合法终态），仅剩验收标准第 4 条的逐条手工真实栈链路；**下一步 `TASK-060`（RBAC 管理端页面）→ 阶段收口**。本阶段计入求职 MVP 演示范围并包含管理端页面 ④ 阶段 2 员工创建与查询（`TASK-020`～`TASK-023-MVP`）。
-- **应用层结构（2026-09-23 重构后为硬约束）**：`auth`、`iam` 生产代码统一为 `application.command` / `query` / `result` / `service`，实现入 `application.service.impl`；跨模块接口定义在被依赖方模块的 `application.port`、由调用方 `infrastructure` 实现；Controller 直接接收 Command/Query、直接返回 Result；`domain` 不放 BO/VO，也不额外制造与 Command/Result 重复的 Request/Response 类型。完整约定见 `docs/technical-architecture.md` 5.1。该重构**已落地但未提交**：13 个测试类已由 Agent 于 2026-09-23 完成新包对齐并移动到镜像包；用户同日完成了用户管理 `/fd/v1/users` 八个端点（含 `disable` 与替换角色），Agent 已为该模块补齐测试。`./mvnw -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → 单元/Web **394** + 集成 **88** 全绿（两条本机沙箱限制与处置见 `PROJECT_STATUS.md`「环境前置」）。用户管理的范围登记与 `docs/api-design.md` 8.2 的单复数路径差异仍待用户裁决，详见 `PROJECT_STATUS.md` 2026-09-23 记录。
+- 项目分为“求职 MVP”和“完整版”两个交付层级，当前只执行求职 MVP；M0 工程底座已通过 PR #4 合并进入 `main`，MVP 阶段 1 Auth 身份入口已完成。后续路线按用户 2026-09-21 指示调整为四步：① 收口并提交前端外壳与页面骨架工作项（已完成）② 完成该工作项交接（已完成）③ **系统业务：完整动态 RBAC**（分支 `flow-desk/rbac-admin-pages`；设计与任务见 `docs/implementation-plan.md` 9.1）——`TASK-055`～`TASK-062` 全部完成，验收标准第 4 条的四条手工真实栈链路已于 2026-09-28 在真实栈上执行并通过（逐条留 `traceId`，见 `docs/modules/rbac.md` 11.2），经用户 2026-09-28 授权执行阶段交接（提交 → 推送 → PR → 合并 → 同步 `main` → 建下一分支）④ **阶段 2 员工创建与查询**（`TASK-020`～`TASK-023-MVP`）。2026-09-24 用户确认：用户管理正式登记为 `TASK-061`（后端）/`TASK-062`（管理端页面），替换角色路径以契约的复数 `/roles` 为准，前端页面由 Agent 直接实现。本阶段计入求职 MVP 演示范围并包含管理端页面。**阶段 3 的唯一遗留**是前端视觉改版收尾（用户管理页首轮打样已实现并验证，但用户逐项视觉反馈未取得、其他四页未按新语言推广），按用户指示不阻塞交接，留待下一分支继续。
+- **应用层结构（2026-09-23 重构后为硬约束）**：`auth`、`iam` 生产代码统一为 `application.command` / `query` / `result` / `service`，实现入 `application.service.impl`；跨模块接口定义在被依赖方模块的 `application.port`、由调用方 `infrastructure` 实现；Controller 直接接收 Command/Query、直接返回 Result；`domain` 不放 BO/VO，也不额外制造与 Command/Result 重复的 Request/Response 类型。完整约定见 `docs/technical-architecture.md` 5.1。该重构与用户管理模块已随 PR #7 合并进入 `main`；`./mvnw -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → 单元/Web **394** + 集成 **88** 全绿（两条本机沙箱限制与处置见 `PROJECT_STATUS.md`「环境前置」）。
 - 阶段 1 按 `docs/implementation-plan.md` 实施 `TASK-010`～`TASK-011`：认证、会话、密码安全以及 Vue 登录外壳与身份恢复。
 - 三种内置角色 `EMPLOYEE`、`IT_SUPPORT`、`SYSTEM_ADMIN` 仍是权限基线，`SYSTEM_ADMIN` 始终受保护；允许一个用户拥有多个角色。**完整动态 RBAC 已于 2026-09-21 经用户确认，作为第 3 步实施**：按 `docs/api-design.md` 8.2.1 开放角色、权限、用户角色授权与角色权限授权四组 CRUD，并新增 Flyway 迁移预置 `RBAC_MANAGE`（下一个可用版本号为 `V5`），配套内置管理员与引用保护、会话撤销、审计和测试；不得修改已发布的历史迁移。
 - `TASK-010` 五个后端接口与 `TASK-011` Vue 登录外壳、身份恢复均已完成并通过验收；后端 `verify` 共 53 项单元/Web 测试与 17 项集成测试全绿，前端 22 项单元测试及类型检查、Lint、构建、7 项 E2E 全绿。阶段 1 已通过 PR #5 合并进入 `main`。

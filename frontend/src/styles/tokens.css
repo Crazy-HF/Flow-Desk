@@ -121,6 +121,9 @@
   --fd-focus-ring: 0 0 0 3px rgb(37 99 235 / 18%);
 
   /* ---- 布局尺度 ---- */
+  --fd-admin-row-height: 3rem; /* 管理列表基准行高 */
+  --fd-admin-body-min: 16rem; /* 少量数据时的表体空间 */
+  --fd-admin-gutter: var(--fd-space-6);
   --fd-page-max: 52rem; /* 业务页内容宽度 */
   --fd-page-wide-max: 70rem; /* 首页等宽业务页上限 */
   --fd-sidebar-width: 14rem; /* 桌面应用壳侧栏 */

@@ -204,13 +204,13 @@ MVP 最终完成定义：
 1. **完整工单状态机**：请求补充、员工补充、撤回请求、未解决退回、员工撤销、IT 转交和异常关闭。
 2. **附件与关联**：受控上传/下载、类型与大小限制、临时文件原子移动、失败补偿、孤儿对账、后续/重复工单关系。
 3. **自动化**：待确认自动完成、待补充自动关闭、停机恢复和幂等扫描。
-4. **系统管理**：用户与固定角色分配、账号启停、管理员重置密码、活动工单管理性交接、分类管理。
+4. **系统管理**：~~用户与固定角色分配、账号启停、管理员重置密码~~、活动工单管理性交接、分类管理。**其中用户管理（列表、详情、创建、改资料、启停、替换角色、重置密码）已于 2026-09-24 随第 3 步提前实施并计入 MVP 演示范围（`TASK-061` 后端 / `TASK-062` 管理端页面）；管理性交接与分类管理仍留完整版。**
 5. **数据概览**：IT 权限范围内的状态、优先级、分类和负责人统计。
 6. **动态 RBAC（已于 2026-09-21 确认实施，先于阶段 2）**：任务拆分、切片顺序与验收标准见第 9.1 节。
 
 ### 9.1 完整动态 RBAC（2026-09-21 阶段设计确认，先于阶段 2）
 
-范围上限是 `docs/api-design.md` 8.2.1 的四组接口，不扩展到该节之外的权限模型。**本阶段计入求职 MVP 演示范围**：除后端接口、迁移与测试证据外，还包含 RBAC 管理端页面（`frontend/src/views/admin/`，`TASK-060`，2026-09-22 确认）。
+范围上限是 `docs/api-design.md` 8.2.1 的四组接口，不扩展到该节之外的权限模型。**本阶段计入求职 MVP 演示范围**：除后端接口、迁移与测试证据外，还包含 RBAC 管理端页面（`frontend/src/views/admin/`，`TASK-060`，2026-09-22 确认）与用户管理端页面（同目录，`TASK-062`，2026-09-24 确认）。**2026-09-24 范围登记**：8.2 的 `/fd/v1/users` 八个端点经用户确认正式登记为 `TASK-061`（后端，已实现并有完整测试）与 `TASK-062`（管理端页面），用户管理因此从完整版 backlog 移出；替换角色路径按 8.2 契约统一为复数 `/roles`。
 
 已确认的阶段设计决策：
 
@@ -230,7 +230,7 @@ MVP 最终完成定义：
 | 12 | 安全链作用域修复（方案 A）：`AuthSecurityConfiguration` 的 `securityMatcher` 由 `/fd/v1/auth/**` 扩为 `/fd/v1/**` | 2026-09-22 确认。修复前真实 HTTP 下 `/fd/v1/admin/**` 恒为 `401/AUTH_REQUIRED`——JWT 过滤器只装在 auth 链上，其余路径落到无认证过滤器的基础链；`@WithMockUser` 的 Web 测试覆盖不到该缺陷。见 `TASK-059`（已于 2026-09-22 实施并完成真实栈复核） |
 | 13 | `TASK-058` 按 4 片推进：① 两组授权列表 ② 用户角色授予/撤销 ③ 角色权限授予/撤销 ④ 并发与真实栈收口 | 2026-09-22 用户确认 |
 
-任务拆分（每个任务独立验收）。**执行顺序**：`TASK-059`（安全链修复，先做）→ `TASK-058`（四片）→ `TASK-060`（管理端页面）→ 阶段收口；编号按登记顺序，不代表执行顺序：
+任务拆分（每个任务独立验收）。**执行顺序**：`TASK-059`（安全链修复，先做）→ `TASK-058`（四片）→ `TASK-060`（管理端页面）→ 阶段收口；编号按登记顺序，不代表执行顺序。`TASK-061`/`TASK-062`（用户管理）于 2026-09-24 登记，与 `TASK-060` 同批交付：
 
 | 任务 | 内容 | 关键产出 |
 | --- | --- | --- |
@@ -240,6 +240,8 @@ MVP 最终完成定义：
 | `TASK-059`（已完成） | 安全链作用域修复（决策 12 方案 A）：`AuthSecurityConfiguration` 的 `securityMatcher` 扩为 `/fd/v1/**`；同步 `docs/modules/auth.md` §8.1 的链职责描述；补一条走真实过滤链（不使用 `@WithMockUser` 绕过）的 Web 测试，证明无令牌 401、有令牌放行、非 admin 403 | 配置改动 + 测试 + 文档；真实栈用 `admin` 令牌调 `/fd/v1/admin/roles` 应返回 `200`，不再 `401` |
 | `TASK-058`（实现与自动化测试已完成；手工真实栈链路待补） | 用户角色与角色权限两组授权（**当前共 11 个端点**：四片设计里的 6 个 + 本轮追加的批量撤销、清空全部、一个角色授予多个用户、建角色带权限），四片：① 两组授权列表（筛选二选一否则 `400`、固定授权结果对象、排序白名单）② 用户角色批量增量授予（`userId + roleIds`）/单条撤销（**保护规则 6**、审计两列、实际新增时仅撤该用户全部会话一次；保护规则 5 已于 2026-09-22 废弃，允许零角色）③ 角色权限批量增量授予（`roleId + permissionIds`）/单条撤销（保护规则 7、持角色锁按 `user_id` 升序取用户快照、实际新增时按角色范围撤会话一次、先撤 Redis 后提交）④ 并发与真实栈收口 | Controller/Service/Command/Query/Result 已写入；批量列表非空、最多 100 个正整数，服务端去重排序，只新增缺失关系，任一目标不存在则整批回滚；两张授权表是复合主键、实体无 `@TableId`，只能用 wrapper 读写。**2026-09-22 补齐测试（最终一轮）**：`IamUserRoleServiceImplTest`(40)、`IamRolePermissionServiceImplTest`(32)、`IamRoleServiceImplTest`(22，含建角色带权限)、`IamUserRoleControllerWebTest`(25)、`IamRolePermissionControllerWebTest`(21)、`IamRoleControllerWebTest`(19)、`IamCurrentOperatorAdapterTest`(4)，`SecurityChainScopeWebTest`(23，四组端点的读写请求各一条真实过滤链)；集成侧 `IamUserRoleServiceIT`(17，含两条真并发)、`IamRolePermissionServiceIT`(14)、`IamRoleServiceIT`(9，含建角色带权限与回滚)、`IamPermissionServiceIT`(6)、`RedisAuthSessionRepositoryIT`(13)、`DatabaseMigrationIT`(4)。`./mvnw -B clean verify` → 单元/Web **278** + 集成 **63**，`Failures: 0, Errors: 0, BUILD SUCCESS`。覆盖矩阵逐格证据见 `docs/modules/rbac.md` 10.1。**尚未完成**：验收标准第 4 条的逐条手工真实栈链路（每条留 `traceId` 与响应码） |
 | `TASK-060` | RBAC 管理端页面（`frontend/src/views/admin/`）：角色、权限、用户角色授权、角色权限授权的在线维护页；路由与侧栏入口按 `RBAC_MANAGE` 显隐 | 页面 + `api/` 领域封装的落层决定 + 单测/E2E；按 `frontend/AGENTS.md` 的六态与「视觉决策契约」交付（含 Craft Read、signature、三抄测试） |
+| `TASK-061`（已完成） | 用户与账号管理后端接口（`docs/api-design.md` 8.2）：`GET /fd/v1/users`（分页 + keyword/status/roleId 筛选）、`GET /{userId}`、`POST /`（201）、`PUT /{userId}`、`POST /{userId}/actions/enable`、`POST /{userId}/actions/disable`、`PUT /{userId}/roles`（替换完整角色集合，复数路径按契约）、`POST /{userId}/actions/reset-password`；全部要求 `USER_MANAGE` | Controller/Command/Query/Result + `IamUserService` 用户管理方法；测试：`IamUserServiceImplTest`(58)、`IamUserControllerWebTest`(45)、`IamUserServiceIT`(24，含"并发创建同一登录名"与"并发停用只放行一个"两条真并发)。**2026-09-24 登记并确认；`/role` → `/roles` 同日按契约修正**。管理性交接（8.3）仍是 `TODO`，属完整版 |
+| `TASK-062` | 用户管理端页面（`frontend/src/views/admin/UserListView.vue`，路由 `/admin/users`）：列表与筛选、创建、改资料、启停、重置密码；入口按 `USER_MANAGE` 显隐 | 页面 + 单测/E2E；与 `TASK-060` 同批交付，六态与「视觉决策契约」要求同 `TASK-060` |
 
 阶段验收标准（可检查）：
 
@@ -249,7 +251,7 @@ MVP 最终完成定义：
 4. 手工验证四条链路各留 `traceId` 与响应码：授予用户角色后目标用户旧会话失效、变更角色权限后该角色全部用户旧会话失效、**清空某用户全部角色后该用户零授权（2026-09-22 起零角色为合法终态，不再期望 `409/USER_ROLE_REQUIRED`）**、删除受保护角色被拒。
 5. `PROJECT_STATUS.md`、`README.md` 与 `AGENTS.md` 的当前阶段一致。
 6. 真实 HTTP 可用性（`TASK-059` 完成后）：用 `admin` 令牌调 `/fd/v1/admin/roles` 与 `/fd/v1/admin/permissions` 返回 `200`（不再是 `401/AUTH_REQUIRED`）；无令牌 `401`、非 admin 令牌 `403`。
-7. 管理端页面（`TASK-060`）：四组 RBAC 页面可完成一次真实闭环（建角色 → 授权限 → 给用户授角色），六态齐全、入口按 `RBAC_MANAGE` 显隐，前端 `typecheck`/`lint`/`build`/单测/E2E 全绿。
+7. 管理端页面（`TASK-060` + `TASK-062`）：四组 RBAC 页面可完成一次真实闭环（建角色 → 授权限 → 给用户授角色），六态齐全、入口分别按 `RBAC_MANAGE` 与 `USER_MANAGE` 显隐，前端 `typecheck`/`lint`/`build`/单测/E2E 全绿。
 
 动态 RBAC 已按 2026-09-21 的确认提前实施，实现范围以 `docs/api-design.md` 8.2.1 为上限，不扩展到该节之外的权限模型；`EMPLOYEE`、`IT_SUPPORT`、`SYSTEM_ADMIN` 三种内置角色继续保留且 `SYSTEM_ADMIN` 受保护。
 
