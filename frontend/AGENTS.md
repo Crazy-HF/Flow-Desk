@@ -1,9 +1,15 @@
 # 前端规范（Vue 3 + Element Plus）
 
+## 最新视觉反馈与入口（2026-09-27）
+
+做管理页视觉改版前，必须读取仓库根 `.ui-craft/frontend-redesign-handoff.md` 和 `.ui-craft/references/README.md`，用图片工具查看已保存原图，无需用户再上传。主参考为 `02-admin-list-primary.png`，负面基线为 `03-flowdesk-before-rejected.png`。管理列表改为利用工作区宽度、明确筛选与数据分区、恢复合理控件尺度；旧70rem居中大卡片方案不再作为要求。下文“卡片只用于同级集合项”不得被误读成禁止有明确职责的筛选面板与数据面板。signature 不要求装饰或刻意布局突破；保护标记不能替代视觉验收。安全与契约规则继续有效。第一轮只打样用户管理页并已随 2026-09-28 阶段交接提交（用户逐项视觉反馈尚未取得）；推广其他四页前仍应先取得反馈，或由用户明确指示按同一套语言推广。
+
 本文件是 `frontend/` 目录的实现约束，只管"怎么写前端"。协作方式、阶段边界和 Git 流程以仓库根目录的 `AGENTS.md` 为准；
 两者冲突时先服从根文件，再回来修正本文件。
 
 ## 技术栈
+
+用户管理页首轮打样使用 AppPage 的 `layout="list"`，拆分独立筛选与数据面板；其他页面保留默认 card 模式。截图、真实交互与验证证据见仓库根 `.ui-craft/reviews/2026-09-27-admin-redesign/report.md`。该页已随 2026-09-28 阶段交接提交；**用户逐项视觉反馈尚未取得**，推广其他四个管理页前应先取得反馈或由用户明确指示。
 
 - Vue 3.5 + `<script setup>` + Composition API + TypeScript + Vite 8 + pnpm。
 - Element Plus 2.14（组件用 `el-` 前缀）。禁止 Vue 2 语法，禁止 Element UI（Vue 2 版）的 API。
@@ -63,6 +69,11 @@
 - `tokens.css` 必须在 `element-plus` 样式之后引入（`src/main.ts` 已按此顺序排列），否则 `--el-*` 覆盖不生效。
 - 数字一律加 `font-variant-numeric: tabular-nums`，避免表格与指标跳动。
 - 动效只动 `transform` 与 `opacity`，时长用 `--fd-duration-*`、缓动用 `--fd-ease-standard`；禁止 `transition: all`，必须列出具体属性。
+- 以上不是口头约定：`pnpm lint` 已包含 `stylelint`（规则见 `frontend/stylelint.config.js`），
+  颜色 / 间距 / 字号 / 圆角 / 阴影 / 动效六个轴的属性，值里必须出现 `var(--fd-*)` 或 `var(--el-*)`。
+  字面量的合法归宿只有 `tokens.css` 与 `styles/element/var-override.scss` 两个文件；其余位置确实无法
+  用变量解决时，用 `stylelint-disable-next-line declaration-property-value-allowed-list -- 理由`
+  行内豁免并写明理由，**不要直接改配置放宽规则**（规则为何这样定见 `.ui-craft/tokens.md` 第 9 条）。
 
 ## 硬规则（违反即重做）
 
@@ -81,6 +92,9 @@
 - 输入框 / 数字框 / 文本域用"请输入…"；选择器 / 日期 / 树选择用"请选择…"。有默认值就显示真实默认值，禁止用 placeholder 冒充。
 - 必填项标红色星号；失焦校验当前字段，提交时校验全部并阻止无效提交。
 - 详情页相邻模块间距统一用 `--fd-space-4`。
+- 表格列宽写**无单位像素数**：`el-table` 内部用 `parseInt` 解析 `width` / `min-width`，写 `width="7rem"` 只会得到 `7px`——
+  列被压成一条、行高被逐字换行撑到数百像素。需要贴合刻度时按 `1rem = 16px` 换算，并把列宽集中成一个 `COLUMN` 常量。
+  另：表格所在的网格容器要允许收缩（`min-width: 0`），否则表格的 min-content 会在窄屏把整页撑宽。
 - 顶部栏（`components/AppHeader.vue`）禁止用纯黑底；用背景色微差区分层级。若将来引入侧边栏，同样禁止全黑。
 
 ## 反 AI 味禁列表
@@ -175,7 +189,7 @@
 
 ## 设计上下文
 
-`.ui-craft/` 保存跨会话的设计上下文：`brief.md`（产品身份、设计意图、已记录的设计纠正）、
+**仓库根的 `.ui-craft/`（不在 `frontend/` 下）** 保存跨会话的设计上下文：`brief.md`（产品身份、设计意图、已记录的设计纠正）、
 `tokens.md`（token 决定与理由）。**动手做页面前先读 `brief.md`**，其中的 learned constraints
 与本节硬规则同级生效。注意：token 数值的唯一真源始终是 `src/styles/tokens.css`，
 `.ui-craft/` 只记决定与理由，不复制数值，避免两处漂移。

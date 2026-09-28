@@ -1,6 +1,12 @@
 # FlowDesk 设计上下文（brief）
 
+## 最新用户反馈（2026-09-27，优先于旧视觉方案）
+
+用户认可宽布局的企业管理列表，明确拒绝当前用户管理页的居中窄面板、过小控件和疏松版式。完整要求与文件清单见 `frontend-redesign-handoff.md`；原图已保存到 `references/`，必须实际查看。管理列表以 `02-admin-list-primary.png` 为主参考，`03-flowdesk-before-rejected.png` 仅为负面基线。布局比例、密度和分区优先于“独特签名”描述；不再沿用70rem居中大卡片默认方案，允许有职责清晰的筛选与数据面板。现有受保护标记继续服务业务，但不是审美达标的证明。用户管理页已实施首轮打样，采用独立筛选区与宽数据区；其他四页待用户视觉反馈后推广。证据见 `reviews/2026-09-27-admin-redesign/report.md`（9月27日开始，28日完成验证）。
+
 > 本文件是跨会话的设计上下文入口，配合 `tokens.md` 使用。
+> **位置：仓库根的 `.ui-craft/`，不在 `frontend/` 下**；`frontend/AGENTS.md` 里写的 `.ui-craft/`
+> 指的就是这里。会话或工具的工作目录若在 `frontend/`，相对路径会找不到本目录。
 > **token 数值的唯一真源始终是 `frontend/src/styles/tokens.css`**，本目录只记决定与理由，不复制数值。
 > 做任何页面前先读本文件；第 6 节的 learned constraints 与 `frontend/AGENTS.md` 的硬规则同级生效。
 
@@ -38,6 +44,8 @@ FlowDesk，企业工单协作平台。核心闭环：员工提交请求 → IT �
 | `.ui-craft/tokens.md` | token 决定与理由（不复制数值） | 需要动 token 时 |
 | `frontend/src/styles/tokens.css` | token 数值唯一真源 | 写样式时 |
 | `frontend/AGENTS.md` | 硬规则与「视觉决策契约」 | 每次做页面前 |
+| `frontend/stylelint.config.js` | 六个轴的 token 校验规则（闸门本体，见 `tokens.md` 第 9 条） | 写样式时 |
+| `.ui-craft/surfaces/admin-rbac.md` | 管理端五页（`TASK-060` / `TASK-062`）的 Craft Read、signature、六态与落层决定 | 改管理端页面时 |
 
 ## 6. Learned constraints
 
@@ -110,8 +118,13 @@ FlowDesk，企业工单协作平台。核心闭环：员工提交请求 → IT �
 
 ## 8. 当前待办与已知张力
 
-- 首页刚完成重做（骨架屏 / 错误重试 / 三阶段入口 / 权限侧栏），**尚未走一次 Craft Read**；
-  按新契约，它需要在下一轮补交五段产出，并回答"三抄测试"能否成立。
+- **当前阶段（2026-09-23）**：前端外壳与页面骨架构图已随 PR #6 收口合并；第 3 步 RBAC 的
+  `TASK-060`（分支 `flow-desk/rbac-admin-pages`）已落地四组维护页，并与 `TASK-062`
+  （用户管理页）同批交付；五页的 Craft Read、signature、六态落点记在
+  `.ui-craft/surfaces/admin-rbac.md`。本节其余条目里凡写"下一轮"的，都按这里的阶段重新理解。
+- 首页与登录页**至今没有留下任何一次 Craft Read**（2026-09-23 复核：除管理端五页已记在
+  `.ui-craft/surfaces/admin-rbac.md` 之外，首页与登录页没有任何一次实际产出）；
+  按新契约，它们需要在下一轮补交五段产出，并回答"三抄测试"能否成立。
 - 顶栏品牌位目前是等宽字体的 `FlowDesk` 文本，没有品牌标记。
   `frontend/AGENTS.md` 明确禁止"给文字加宽字距来假装品牌标记"，最终方案需要一次
   正式的 monogram / 标记决定，属于独立一轮。2026-09-21 的版式重排定了它的**位置与宽度**

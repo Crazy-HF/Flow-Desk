@@ -1,5 +1,7 @@
 # FlowDesk token 决定记录
 
+> **2026-09-27 改版接续**：管理列表70rem居中上限不是新的视觉目标。用户管理页已采用 AppPage 的 list 模式；新增管理页边距、基准行高与少量数据的表体空间 token，数值仍只在 `frontend/src/styles/tokens.css`。其他默认 card 页面保持原尺度。
+
 > **数值不在这里。** 唯一真源是 `frontend/src/styles/tokens.css`。
 > 本文件只记录"为什么这样定"，以及新增刻度时必须遵守的判断。改 token 前先读这里。
 
@@ -78,10 +80,28 @@
   "内边距撑高"的原有实现后，该 token 随之删除——同一原则：不留只在定义处出现的刻度。
 - **推论**：侧栏行高继续复用 `--fd-control-size-lg`（触控目标下限），不为对照项目的 50px 另开刻度。
 
-## 改 token 时的检查顺序
+### 9. token 靠闸门执行，不靠记性
+
+- **决定**：`pnpm lint` 现在包含 `stylelint`（规则见 `frontend/stylelint.config.js`）。
+  颜色、间距、字号、圆角、阴影、动效这六个轴的属性，值里必须出现 `var(--fd-*)` 或 `var(--el-*)`；
+  另外禁止 `:deep()`、禁止十六进制与具名颜色（含 `border` / `background` 简写）、禁止 `transition: all`。
+- **理由**：本文件第 3 条记录过——`tokens.css` 头部的约定**已经被绕过两次**（`main.css` 里出现过
+  `0.18em`、`0.08em` 两处硬编码字距）。"只有约定、没有闸门"时约定必然失守；而 CI 的 `frontend-verify`
+  job 直接跑 `pnpm lint`，所以这道闸门不需要人记得执行。
+- **例外只有两个文件**：`tokens.css` 与 `styles/element/var-override.scss`——它们是字面量的合法归宿。
+  其余位置确实无法用变量解决时，用
+  `stylelint-disable-next-line declaration-property-value-allowed-list -- 理由`
+  行内豁免，让每个例外都能被 grep 到；**不要改配置放宽规则**。
+- **刻意不纳入并说明理由**：尺寸类（`width` / `height` / `min-*` / `max-*`）与断点数值是布局约束，
+  不是设计刻度——`min-width: 0` 的 flex 复位、`min-width: 320px` 的视口下限、`@media (max-width: 52rem)`。
+  为它们造 token 会直接违反本文件第 8 条「只在定义处出现的刻度应当删除」（`320px` 只有一个引用处）。
+
+
 
 1. 这个值真的需要成为刻度吗？一次性特例说明构图没想清楚，不要往 token 里塞。
 2. 新刻度是否强化了对比轴（紧的一侧 / 松的一侧），还是又插了一个中间档？
 3. 改动既有取值前，先统计 `main.css` 里的引用处数与影响面（含 `--el-*` 的连带影响），
    并准备截图核对——token 改值会同时影响所有已有页面。
 4. 改完必须跑 `pnpm typecheck` / `pnpm lint` / `pnpm build`，并截图核对登录页与首页。
+5. 第 4 条的 `pnpm lint` 已包含第 9 条的样式闸门。它报错时先判断是"规则太窄"还是"刻度缺失"：
+   后者就补刻度；确实属于一次性特例的，走行内豁免并写明理由，不要动配置。
