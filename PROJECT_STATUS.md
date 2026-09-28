@@ -16,6 +16,7 @@
 - **演示库核对（复跑后直接查库）**：角色 **3**、权限 **14**、`iam_role_permission` **14**、`iam_user_role` **5**、`employee` 角色数 **1**；`MANUAL%` 与 `E2E%` 临时角色/权限残留均为 **0**，与迁移和 demo 种子一致。
 - **本轮踩到的两条本机资源限制（会复发）**：① **内存不足会杀死构建**——本会话先同时跑后端 `clean verify` 与前端单测时，后端进程在 `IamUserServiceIT` 启动 Testcontainers 时被系统杀掉（16 GB 机器空闲内存一度降到 0.4 GB，`Get-CimInstance Win32_OperatingSystem` 可核对）；**测试要串行跑，不要并行压测容器与 vitest**。② **后台任务被取消时 Maven 子进程会留下**——`job_kill` 后 `java` 子进程仍持有 8081 端口并继续跑测试，需要 `netstat -ano | Select-String ":8081"` 核对并按 PID `Stop-Process`，否则后续 `clean verify` 会因端口占用失败。
 - **交接内容与遗留项**：本阶段（`TASK-055`～`TASK-062`）全部完成，无未完成验收项。**唯一遗留**是前端视觉改版的收尾——用户管理页首轮打样已实现并验证，但**用户逐项视觉反馈未取得、其他四页未按新语言推广**；按用户本轮指示不阻塞交接，留待下一分支按 `.ui-craft/frontend-redesign-handoff.md` 与 `.ui-craft/reviews/2026-09-27-admin-redesign/report.md` 继续。
+- **交接执行结果（2026-09-28）**：提交 `2a3d444`（`feat(rbac): 管理端五页与用户管理页、管理端视觉打样、手工验收脚本收口`，65 文件、+6954/-120）推送到 `origin/flow-desk/rbac-admin-pages`；合并请求 **PR #8** <https://github.com/Crazy-HF/Flow-Desk/pull/8>，三个 job（`backend-verify`、`frontend-verify`、`core-e2e`）全绿后以 `merge_method=merge` 合并，合并提交 **`f15468c`**；本地 `main` 已 `pull --ff-only` 快进至 `f15468c` 与 `origin/main` 一致；下一主题分支 **`flow-desk/ticket-employee-flow`** 从 `f15468c` 创建，用于阶段 2 `TASK-020`～`TASK-023-MVP` 员工工单创建与查询。已存在的旧分支 `flow-desk/employee-ticket-flow`（仅 `7f6c72c` 一条文档同步）不用于本轮开发。
 
 > 本文件用于新机器、任务恢复和工作交接时快速定位项目，不替代详细设计文档。
 
@@ -24,9 +25,9 @@
 - 最后更新：2026-09-28
 - 远程仓库：`git@github.com:Crazy-HF/Flow-Desk.git`
 - 稳定分支：`main`
-- 当前基线分支：`main`（阶段 1、前端外壳与第 3 步 RBAC 后端均已合并，最新合并提交 `6a65dd8`，即 PR #7）
-- 当前工作分支：`flow-desk/rbac-admin-pages`（从 PR #7 合并后的最新 `main` `6a65dd8` 创建，用于 `TASK-060` RBAC 管理端页面与 `TASK-062` 用户管理页；**阶段工作已全部完成并在工作区全套验证通过，2026-09-28 用户授权提交与交接**）
-- 下一次创建分支：本文档四步路线的第 4 步（阶段 2 `TASK-020`～`TASK-023-MVP`）在本阶段交接完成后从最新 `main` 创建。已存在的 `flow-desk/employee-ticket-flow` 只含 `7f6c72c` 一条文档同步提交，不用于本轮开发
+- 当前基线分支：`main`（阶段 1、前端外壳、第 3 步 RBAC 后端与 RBAC 管理端五页均已合并，最新合并提交 `f15468c`，即 PR #8）
+- 当前工作分支：`flow-desk/ticket-employee-flow`（从 PR #8 合并后的最新 `main` `f15468c` 创建，用于阶段 2 `TASK-020`～`TASK-023-MVP` 员工工单创建与查询；**尚未推送**）
+- 下一次创建分支：阶段 2 完成并交接后，从当时最新的 `main` 创建下一主题分支。已存在的旧分支 `flow-desk/employee-ticket-flow` 只含 `7f6c72c` 一条文档同步提交，不用于开发
 - 当前阶段：第 3 步 **系统业务：完整动态 RBAC** 已**完成并交接**（四步路线的 ① 收口前端外壳与 ② 交接已于 2026-09-21 完成，工作项经 PR #6 合并进入 `main`）。**阶段设计 2026-09-21 确认、2026-09-22 补充 3 项、2026-09-24 登记用户管理**：13 项设计决策与 `TASK-055`～`TASK-062` 任务拆分、验收标准见 `docs/implementation-plan.md` 9.1。`TASK-055`～`TASK-062` **全部完成**；管理端五页（用户、角色、权限、用户角色授权、角色权限授权）可走通真实闭环；**验收标准第 4 条的四条手工真实栈链路已于 2026-09-28 全部执行并通过（含清理，逐条留 `traceId`）**，见下方 2026-09-28 记录与 `docs/modules/rbac.md` 11.2。本阶段计入求职 MVP 演示范围并包含管理端页面。
 - 最新完成（2026-09-28，**已提交本分支，随本次交接合并**）：**验收标准第 4 条手工真实栈链路复跑通过 + 全套验证复跑**——`scripts/manual-rbac-acceptance.ps1` 在 `local` profile + 真实 MySQL/Redis 栈上逐条断言通过（链路 1 授予角色后旧令牌 `401/AUTH_SESSION_INVALID`、链路 2 变更角色权限后该角色**全部**持有者令牌失效而操作人令牌仍 `200`、链路 3 清空角色后零角色合法终态且访问受保护接口 `403/ACCESS_DENIED`、链路 4 五个保护入口全部 `409/RBAC_CONFLICT`、链路 5 清理还原），证据见 `docs/modules/rbac.md` 11.2；后端 `./mvnw -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → 单元/Web **394** + 集成 **88** 全绿；前端 `typecheck` / `lint`（含 stylelint 闸门）/ `build` 退出码 0、单测 **17 套件 74 项**、E2E **13 项**全绿；复跑后演示库回到基线（角色 3、权限 14、`iam_role_permission` 14、`iam_user_role` 5、`MANUAL%`/`E2E%` 残留 0）。
 - 前一项完成（2026-09-24，**已提交本分支，随本次交接合并**）：**`TASK-060` RBAC 管理端四页 + `TASK-062` 用户管理页 + `TASK-061` 契约对齐**——`frontend/src/views/admin/` 五页（用户管理、角色管理、权限管理、用户角色授权、角色权限授权）、`api/rbac.ts` 与 `api/users.ts`、`ProtectedMark` / `AdminListPanel` 两个共享件与 `useAdminList` 取数状态机；用户管理在 `docs/implementation-plan.md` 正式登记为 `TASK-061`/`TASK-062` 并移出完整版 backlog；替换角色路径按 8.2 契约由 `/role` 改为 `/roles`（后端 + Web 测试 + 文档同步）。**验证**：`./mvnw -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → 单元/Web **394** + 集成 **88** 全绿；前端 `typecheck` / `lint`（含 stylelint 闸门）/ `build` 退出码 0、单测 **17 套件 74 项**、E2E **13 项**全绿（含三条新增：RBAC 真实闭环、用户角色闭环、入口按权限显隐与窄屏），演示库经查无 `E2E_*` 残留。见下方 2026-09-24 记录。
