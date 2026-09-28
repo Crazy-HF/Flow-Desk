@@ -1,0 +1,482 @@
+{
+  "checks": [
+    {
+      "label": "roles @1440",
+      "overflow": 0,
+      "viewport": 1440,
+      "filterCard": {
+        "width": 1168,
+        "left": 248,
+        "right": 1416,
+        "scrollWidth": 1166,
+        "clientWidth": 1166
+      },
+      "dataPanel": {
+        "width": 1168,
+        "left": 248,
+        "right": 1416,
+        "scrollWidth": 1166,
+        "clientWidth": 1166
+      },
+      "table": {
+        "width": 1126,
+        "left": 269,
+        "right": 1395,
+        "scrollWidth": 1126,
+        "clientWidth": 1126
+      },
+      "pagination": {
+        "width": 1166,
+        "left": 249,
+        "right": 1415,
+        "scrollWidth": 1166,
+        "clientWidth": 1166
+      },
+      "grantList": null,
+      "firstRow": {
+        "width": 1126,
+        "left": 269,
+        "right": 1395,
+        "scrollWidth": 1126,
+        "clientWidth": 1126
+      }
+    },
+    {
+      "label": "roles default-blue",
+      "value": []
+    },
+    {
+      "label": "permissions @1440",
+      "overflow": 0,
+      "viewport": 1440,
+      "filterCard": {
+        "width": 1168,
+        "left": 248,
+        "right": 1416,
+        "scrollWidth": 1166,
+        "clientWidth": 1166
+      },
+      "dataPanel": {
+        "width": 1168,
+        "left": 248,
+        "right": 1416,
+        "scrollWidth": 1166,
+        "clientWidth": 1166
+      },
+      "table": {
+        "width": 1126,
+        "left": 269,
+        "right": 1395,
+        "scrollWidth": 1126,
+        "clientWidth": 1126
+      },
+      "pagination": {
+        "width": 1166,
+        "left": 249,
+        "right": 1415,
+        "scrollWidth": 1166,
+        "clientWidth": 1166
+      },
+      "grantList": null,
+      "firstRow": {
+        "width": 1126,
+        "left": 269,
+        "right": 1395,
+        "scrollWidth": 1126,
+        "clientWidth": 1126
+      }
+    },
+    {
+      "label": "permissions default-blue",
+      "value": []
+    },
+    {
+      "label": "user-roles @1440",
+      "overflow": 0,
+      "viewport": 1440,
+      "filterCard": {
+        "width": 1168,
+        "left": 248,
+        "right": 1416,
+        "scrollWidth": 1166,
+        "clientWidth": 1166
+      },
+      "dataPanel": {
+        "width": 1168,
+        "left": 248,
+        "right": 1416,
+        "scrollWidth": 1166,
+        "clientWidth": 1166
+      },
+      "table": null,
+      "pagination": null,
+      "grantList": null,
+      "firstRow": null
+    },
+    {
+      "label": "user-roles default-blue",
+      "value": []
+    },
+    {
+      "label": "role-permissions @1440",
+      "overflow": 0,
+      "viewport": 1440,
+      "filterCard": {
+        "width": 1168,
+        "left": 248,
+        "right": 1416,
+        "scrollWidth": 1166,
+        "clientWidth": 1166
+      },
+      "dataPanel": {
+        "width": 1168,
+        "left": 248,
+        "right": 1416,
+        "scrollWidth": 1166,
+        "clientWidth": 1166
+      },
+      "table": null,
+      "pagination": null,
+      "grantList": null,
+      "firstRow": null
+    },
+    {
+      "label": "role-permissions default-blue",
+      "value": []
+    },
+    {
+      "label": "user-roles-granted @1440",
+      "overflow": 0,
+      "viewport": 1440,
+      "filterCard": {
+        "width": 1168,
+        "left": 248,
+        "right": 1416,
+        "scrollWidth": 1166,
+        "clientWidth": 1166
+      },
+      "dataPanel": {
+        "width": 1168,
+        "left": 248,
+        "right": 1416,
+        "scrollWidth": 1166,
+        "clientWidth": 1166
+      },
+      "table": null,
+      "pagination": {
+        "width": 1166,
+        "left": 249,
+        "right": 1415,
+        "scrollWidth": 1166,
+        "clientWidth": 1166
+      },
+      "grantList": {
+        "width": 1126,
+        "left": 269,
+        "right": 1395,
+        "scrollWidth": 1124,
+        "clientWidth": 1124
+      },
+      "firstRow": {
+        "width": 1124,
+        "left": 270,
+        "right": 1394,
+        "scrollWidth": 1124,
+        "clientWidth": 1124
+      }
+    },
+    {
+      "label": "role-permissions-granted @1440",
+      "overflow": 0,
+      "viewport": 1440,
+      "filterCard": {
+        "width": 1168,
+        "left": 248,
+        "right": 1416,
+        "scrollWidth": 1166,
+        "clientWidth": 1166
+      },
+      "dataPanel": {
+        "width": 1168,
+        "left": 248,
+        "right": 1416,
+        "scrollWidth": 1166,
+        "clientWidth": 1166
+      },
+      "table": null,
+      "pagination": {
+        "width": 1166,
+        "left": 249,
+        "right": 1415,
+        "scrollWidth": 1166,
+        "clientWidth": 1166
+      },
+      "grantList": {
+        "width": 1126,
+        "left": 269,
+        "right": 1395,
+        "scrollWidth": 1124,
+        "clientWidth": 1124
+      },
+      "firstRow": {
+        "width": 1124,
+        "left": 270,
+        "right": 1394,
+        "scrollWidth": 1124,
+        "clientWidth": 1124
+      }
+    },
+    {
+      "label": "roles-error @1440",
+      "overflow": 0,
+      "viewport": 1440,
+      "filterCard": {
+        "width": 1168,
+        "left": 248,
+        "right": 1416,
+        "scrollWidth": 1166,
+        "clientWidth": 1166
+      },
+      "dataPanel": {
+        "width": 1168,
+        "left": 248,
+        "right": 1416,
+        "scrollWidth": 1166,
+        "clientWidth": 1166
+      },
+      "table": null,
+      "pagination": null,
+      "grantList": null,
+      "firstRow": null
+    },
+    {
+      "label": "roles-dialog @1440",
+      "overflow": 0,
+      "viewport": 1440,
+      "filterCard": {
+        "width": 1168,
+        "left": 248,
+        "right": 1416,
+        "scrollWidth": 1166,
+        "clientWidth": 1166
+      },
+      "dataPanel": {
+        "width": 1168,
+        "left": 248,
+        "right": 1416,
+        "scrollWidth": 1166,
+        "clientWidth": 1166
+      },
+      "table": {
+        "width": 1126,
+        "left": 269,
+        "right": 1395,
+        "scrollWidth": 1126,
+        "clientWidth": 1126
+      },
+      "pagination": {
+        "width": 1166,
+        "left": 249,
+        "right": 1415,
+        "scrollWidth": 1166,
+        "clientWidth": 1166
+      },
+      "grantList": null,
+      "firstRow": {
+        "width": 1126,
+        "left": 269,
+        "right": 1395,
+        "scrollWidth": 1126,
+        "clientWidth": 1126
+      }
+    },
+    {
+      "label": "protected-delete-disabled",
+      "value": true
+    },
+    {
+      "label": "roles @375",
+      "overflow": 0,
+      "viewport": 375,
+      "filterCard": {
+        "width": 343,
+        "left": 16,
+        "right": 359,
+        "scrollWidth": 341,
+        "clientWidth": 341
+      },
+      "dataPanel": {
+        "width": 343,
+        "left": 16,
+        "right": 359,
+        "scrollWidth": 341,
+        "clientWidth": 341
+      },
+      "table": {
+        "width": 317,
+        "left": 29,
+        "right": 346,
+        "scrollWidth": 317,
+        "clientWidth": 317
+      },
+      "pagination": {
+        "width": 341,
+        "left": 17,
+        "right": 358,
+        "scrollWidth": 341,
+        "clientWidth": 341
+      },
+      "grantList": null,
+      "firstRow": {
+        "width": 828,
+        "left": 29,
+        "right": 857,
+        "scrollWidth": 828,
+        "clientWidth": 828
+      }
+    },
+    {
+      "label": "permissions @375",
+      "overflow": 0,
+      "viewport": 375,
+      "filterCard": {
+        "width": 343,
+        "left": 16,
+        "right": 359,
+        "scrollWidth": 341,
+        "clientWidth": 341
+      },
+      "dataPanel": {
+        "width": 343,
+        "left": 16,
+        "right": 359,
+        "scrollWidth": 341,
+        "clientWidth": 341
+      },
+      "table": {
+        "width": 317,
+        "left": 29,
+        "right": 346,
+        "scrollWidth": 317,
+        "clientWidth": 317
+      },
+      "pagination": {
+        "width": 341,
+        "left": 17,
+        "right": 358,
+        "scrollWidth": 341,
+        "clientWidth": 341
+      },
+      "grantList": null,
+      "firstRow": {
+        "width": 852,
+        "left": 29,
+        "right": 881,
+        "scrollWidth": 852,
+        "clientWidth": 852
+      }
+    },
+    {
+      "label": "user-roles @375",
+      "overflow": 0,
+      "viewport": 375,
+      "filterCard": {
+        "width": 343,
+        "left": 16,
+        "right": 359,
+        "scrollWidth": 341,
+        "clientWidth": 341
+      },
+      "dataPanel": {
+        "width": 343,
+        "left": 16,
+        "right": 359,
+        "scrollWidth": 341,
+        "clientWidth": 341
+      },
+      "table": null,
+      "pagination": null,
+      "grantList": null,
+      "firstRow": null
+    },
+    {
+      "label": "role-permissions @375",
+      "overflow": 0,
+      "viewport": 375,
+      "filterCard": {
+        "width": 343,
+        "left": 16,
+        "right": 359,
+        "scrollWidth": 341,
+        "clientWidth": 341
+      },
+      "dataPanel": {
+        "width": 343,
+        "left": 16,
+        "right": 359,
+        "scrollWidth": 341,
+        "clientWidth": 341
+      },
+      "table": null,
+      "pagination": null,
+      "grantList": null,
+      "firstRow": null
+    },
+    {
+      "label": "user-roles-granted @375",
+      "overflow": 0,
+      "viewport": 375,
+      "filterCard": {
+        "width": 343,
+        "left": 16,
+        "right": 359,
+        "scrollWidth": 341,
+        "clientWidth": 341
+      },
+      "dataPanel": {
+        "width": 343,
+        "left": 16,
+        "right": 359,
+        "scrollWidth": 341,
+        "clientWidth": 341
+      },
+      "table": null,
+      "pagination": {
+        "width": 341,
+        "left": 17,
+        "right": 358,
+        "scrollWidth": 341,
+        "clientWidth": 341
+      },
+      "grantList": {
+        "width": 317,
+        "left": 29,
+        "right": 346,
+        "scrollWidth": 315,
+        "clientWidth": 315
+      },
+      "firstRow": {
+        "width": 315,
+        "left": 30,
+        "right": 345,
+        "scrollWidth": 315,
+        "clientWidth": 315
+      }
+    },
+    {
+      "label": "dialog @375",
+      "value": {
+        "x": 16,
+        "y": 121.796875,
+        "width": 343,
+        "height": 432.1875
+      },
+      "viewportWidth": 375,
+      "viewportHeight": 812
+    }
+  ],
+  "jsErrors": [
+    "console: Failed to load resource: net::ERR_FAILED",
+    "console: Failed to load resource: net::ERR_FAILED"
+  ]
+}

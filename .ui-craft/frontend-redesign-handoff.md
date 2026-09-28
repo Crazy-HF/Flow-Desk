@@ -1,6 +1,6 @@
 # FlowDesk 前端视觉改版：新会话交接与执行说明
 
-日期：2026-09-27；09-28接续。当前状态：用户管理页首轮打样已实施，真实交互与截图证据见 `reviews/2026-09-27-admin-redesign/report.md`；**该页已随阶段 3 收口经 PR #8 合并 `main`（合并提交 `f15468c`），但用户逐项视觉反馈仍未取得、其他四页未按新语言推广**。下文是本次执行依据，原始交接保存素材时尚未改版。
+日期：2026-09-27；09-28 接续。用户管理首轮打样已随 PR #8 合并 main；其余四个 RBAC 管理页于 09-28 经用户明确授权推广，并保存 reviews/2026-09-28-admin-pages/report.md 证据。推广代码仍在工作区未提交，用户逐项视觉反馈仍待取得。分类页面已写入工作区，但其专属检查与截图尚未完成。下文原始打样步骤仅作历史依据，接续从当前页面与报告开始。
 
 ## 1. 用户请求与授权
 
@@ -61,8 +61,8 @@
 | `frontend/src/views/admin/UserListView.vue` | **第一轮唯一打样页面**：去技术文案，调整结构、控件、操作表达，保持真实接口行为 |
 | `frontend/src/components/AdminListPanel.vue` | 必要时调整数据区布局与四态容器，保留错误、空态与重试 |
 | `frontend/src/components/AppSidebar.vue`、`AppHeader.vue`、`AppBreadcrumb.vue`、`frontend/src/layout/index.vue` | 仅有必要时调整导航尺度/图标/对齐，不重做身份或路由体系 |
-| `frontend/src/views/admin/RoleListView.vue`、`PermissionListView.vue` | 打样得到用户视觉反馈后，再推广列表规则 |
-| `frontend/src/views/admin/UserRoleGrantView.vue`、`RolePermissionGrantView.vue` | 之后适配授权业务，不强行改成与 CRUD 同样的表格 |
+| `frontend/src/views/admin/RoleListView.vue`、`PermissionListView.vue` | 已获授权推广、工作区已实现；按报告与当前代码继续微调 |
+| `frontend/src/views/admin/UserRoleGrantView.vue`、`RolePermissionGrantView.vue` | 已获授权推广，保留关系行结构；继续按授权业务微调 |
 | `frontend/src/views/admin/*.test.ts`、`frontend/e2e/admin-rbac.spec.ts`、`frontend/e2e/shell.spec.ts` | 必要的组件与真实交互回归；避免仅为了布局变化写镜像测试 |
 | `.ui-craft/brief.md`、`tokens.md`、`surfaces/admin-rbac.md`、`frontend/AGENTS.md` | 实施后同步最终视觉决定，旧方案标历史，不能留下互相矛盾的约束 |
 
@@ -79,7 +79,7 @@
 - [ ] 检查查询/重置、分页、新增/编辑、启停、重置密码与已有授权入口；不可凭前端隐藏代替后端授权。
 - [ ] 截图自查后修正：正文可读、输入按钮不过小、布局充分使用工作区域、导航与数据层级清楚、无整页横向溢出。桌面至少保存正常态，窄屏保存正常态，另保存一项异常态。
 - [ ] 在 `frontend/` 执行 `pnpm typecheck`、`pnpm lint`、`pnpm build`、`pnpm test:unit --run`、`pnpm test:e2e`。现有 E2E 基于构建后的4173 preview并需要后端服务；先满足真实栈前置，不能把环境缺失报告成通过。
-- [ ] 用户管理页展示截图并请求用户视觉反馈。用户认可后推广其他管理页；未经反馈不批量重做五页。此为本次明确的单页打样流程。
+- [ ] 用户管理页展示截图并请求用户视觉反馈。其余四页已于 2026-09-28 获用户明确授权推广；本项剩余为逐项视觉反馈，不再作为已授权推广的前置条件。
 - [ ] 更新设计文档与 `PROJECT_STATUS.md`，分别报告代码检查、真实交互、视觉验收状态。未执行的检查列明原因，不称完成；Git交接仍需用户明确授权。
 
 验收产物保存到 `.ui-craft/reviews/2026-09-27-admin-redesign/`（如实际改版在其他日期，采用实际日期），至少包含 `user-list-desktop-1920.png`、`user-list-desktop-1440.png`、`user-list-mobile-375.png`、`user-list-state.png`、`report.md`。截图只保留脱敏演示数据，不保存密码、密钥、私人数据。

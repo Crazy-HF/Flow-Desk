@@ -1,15 +1,28 @@
 # 前端规范（Vue 3 + Element Plus）
 
-## 最新视觉反馈与入口（2026-09-27）
+## 管理页统一视觉语言（2026-09-28 已推广到五页）
 
-做管理页视觉改版前，必须读取仓库根 `.ui-craft/frontend-redesign-handoff.md` 和 `.ui-craft/references/README.md`，用图片工具查看已保存原图，无需用户再上传。主参考为 `02-admin-list-primary.png`，负面基线为 `03-flowdesk-before-rejected.png`。管理列表改为利用工作区宽度、明确筛选与数据分区、恢复合理控件尺度；旧70rem居中大卡片方案不再作为要求。下文“卡片只用于同级集合项”不得被误读成禁止有明确职责的筛选面板与数据面板。signature 不要求装饰或刻意布局突破；保护标记不能替代视觉验收。安全与契约规则继续有效。第一轮只打样用户管理页并已随 2026-09-28 阶段交接提交（用户逐项视觉反馈尚未取得）；推广其他四页前仍应先取得反馈，或由用户明确指示按同一套语言推广。
+做管理页视觉改版前，必须读取仓库根 `.ui-craft/frontend-redesign-handoff.md` 和 `.ui-craft/references/README.md`，用图片工具查看已保存原图，无需用户再上传。主参考为 `02-admin-list-primary.png`，负面基线为 `03-flowdesk-before-rejected.png`。管理列表改为利用工作区宽度、明确筛选与数据分区、恢复合理控件尺度；旧70rem居中大卡片方案不再作为要求。下文“卡片只用于同级集合项”不得被误读成禁止有明确职责的筛选面板与数据面板。signature 不要求装饰或刻意布局突破；保护标记不能替代视觉验收。安全与契约规则继续有效。
+
+**五页现状（2026-09-28）**：用户管理页 09-27 打样、09-28 按用户要求改成有色按钮与图标行操作；其余四页（角色、权限、用户角色授权、角色权限授权）经用户同日明确授权按同一套语言推广，全部改用 `AppPage layout="list"`、独立的筛选/授予面板 + 单一数据面板、默认尺寸控件、语义色按钮与统一分页。**用户逐项视觉反馈仍未取得**，本轮是"授权推广"而不是"审美验收"；证据见仓库根 `.ui-craft/reviews/2026-09-28-admin-pages/report.md`。
+
+管理端五页的共享约定（改页面前先照此对齐，不要再各页自创）：
+
+- 结构：`AppPage layout="list"`；筛选/授予区 `.admin-filter-card`（授权页加 `.grant-form`）；数据区 `.admin-data`，内部依次是 `.admin-action-bar`、`AdminListPanel`、`.admin-pagination`。工具栏、表格/关系行、分页同属一个面板。
+- 宽度：`.admin-data` 与筛选卡跟随工作区宽度（`--fd-admin-list-max`），不再有居中上限。
+- 按钮语义：primary = 查询 / 新增 / 授权；success = 编辑 / 保存 / 启用；danger = 删除 / 停用 / 撤销；warning = 重置密码等需提醒的操作；info = 重置筛选 / 刷新 / 取消 / 次级导航。次操作加 `plain`。
+- 操作列：**只显示图标**（`plain` + `circle`），必须同时有 `aria-label` 与 `el-tooltip`；查询、工具栏、弹窗按钮保留图标配文字。
+- 分页：宽屏 `total, sizes, prev, pager, next, jumper`，窄屏用 `useCompactPagination()` 收敛为 `total, prev, pager, next`；不要把断点写成两份（阈值常量与 `main.css` 的 52rem 媒体查询需同步改）。
+- 弹窗加 `class="admin-dialog"`，宽度由 `main.css` 限制在视口内。
+- 禁用态与保护原因不能省：受保护对象仍需 `ProtectedMark` 与禁用入口，文案写"为什么不能动"，不写接口、编码常量或"后端裁决"。
+- 表格内不写 `size="small"`：默认尺寸才是本次统一后的密度（行高走 `--fd-admin-row-height`）。
 
 本文件是 `frontend/` 目录的实现约束，只管"怎么写前端"。协作方式、阶段边界和 Git 流程以仓库根目录的 `AGENTS.md` 为准；
 两者冲突时先服从根文件，再回来修正本文件。
 
 ## 技术栈
 
-用户管理页首轮打样使用 AppPage 的 `layout="list"`，拆分独立筛选与数据面板；其他页面保留默认 card 模式。截图、真实交互与验证证据见仓库根 `.ui-craft/reviews/2026-09-27-admin-redesign/report.md`。该页已随 2026-09-28 阶段交接提交；**用户逐项视觉反馈尚未取得**，推广其他四个管理页前应先取得反馈或由用户明确指示。
+2026-09-28 用户明确要求管理页按钮使用 Element Plus 有色按钮与 icon；五页按操作采用 primary/success/warning/danger/info 语义色，次操作用 plain，优先于旧单强调色和中性行操作约定。操作列只显示图标，保留 tooltip 与 aria-label；查询、工具栏、弹窗仍图标配文字。
 
 - Vue 3.5 + `<script setup>` + Composition API + TypeScript + Vite 8 + pnpm。
 - Element Plus 2.14（组件用 `el-` 前缀）。禁止 Vue 2 语法，禁止 Element UI（Vue 2 版）的 API。

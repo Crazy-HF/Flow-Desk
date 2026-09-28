@@ -3,17 +3,37 @@
 ## 后端实现提交检查点（2026-09-28）
 
 - 用户已授权仅提交、推送当前后端实现；不创建合并请求、不合并，继续使用 `flow-desk/ticket-employee-flow`。
-- 本次范围：分类选项与分类管理后端、工单创建/幂等/每日编号、多范围列表、详情基础类型与权限/持久化适配器、V6 迁移及配套文档。前端代码和视觉材料留在工作区，未纳入本次提交。
+- 本次范围：分类选项与分类管理后端、工单创建/幂等/每日编号、多范围列表、详情基础类型与权限/持久化适配器、V6 迁移及配套文档。前端代码留在工作区，未纳入后端提交；后续文档同步单独保存设计记录与截图证据。
 - 当前代码已补齐分类管理六项 ServiceImpl 方法与工单多范围查询；详情接口尚未接入。阶段 2 仍在实施，分类六端点与步骤⑤真实栈验收待执行。
-- 本轮检查：`./mvnw.cmd -B -DskipTests compile`；现有 `./mvnw.cmd -B test "-DargLine=-Djdk.attach.allowAttachSelf=true"` 执行 394 项，0 断言失败、185 错误。根因是测试上下文排除数据库配置后，共享 Mock 配置缺少新增的 `TicketCategoryMapper`；不把该提交作为全量测试通过或阶段验收完成。
+- 本轮检查：`./mvnw.cmd -B -DskipTests compile` → BUILD SUCCESS；现有 `./mvnw.cmd -B test "-DargLine=-Djdk.attach.allowAttachSelf=true"` 执行 394 项，0 断言失败、185 错误。根因是测试上下文排除数据库配置后，共享 Mock 配置缺少新增的 `TicketCategoryMapper`；不把该提交作为全量测试通过或阶段验收完成。
 
+
+## 分类管理提前实施（2026-09-28，后端已提交，页面未提交）
+
+- **已确认**：分类管理经用户指示提前实施，登记为 `TASK-063`（后端）/`TASK-064`（页面），沿用 API 8.4 六端点与原表结构。
+- **后端当前状态**：Command/Query/Result、Controller、Mapper 与用户编写的 `CategoryServiceImpl` 六项管理方法均已写入，随 `8af82ca` 提交并推送。生产代码编译通过；分类六端点真实栈验收仍待执行，任务保持进行中。
+- **行为口径**：`CATEGORY_MANAGE` 授权；默认 `sort_order, id` 升序；创建即启用；写操作锁定分类并检查版本；重名由数据库唯一约束兜底；已被工单引用的分类由外键禁止删除并映射 `CATEGORY_IN_USE`。缺失或类型错误的请求参数返回 `400/VALIDATION_FAILED`。
+- **前端当前状态**：`api/categories.ts`、`CategoryListView.vue`、路由及共享表单样式已写入工作区，未提交。分类页面的 typecheck/lint/build、六态交互与 1440/375 截图仍待补跑；此前 RBAC 四页的验证不能替代分类页验收。
+- **已解除的历史阻塞**：此前子进程启动失败及分类实现缺少方法均不再是当前编译阻塞。本轮能执行 Git/Maven，编译成功；现有测试仍因共享 Mock 配置缺少新增 Mapper 而失败，见上方检查点。
+- **下一步验收**：按实施计划 9.2 完成六端点权限、输入、版本、重名与引用保护，确认分类启停对员工选项及历史工单的影响；临时数据清理后记录结果。
+## 管理端四页视觉推广（2026-09-28，工作区未提交）
+
+- **来源**：用户当轮明确授权「以当前用户管理页为基准，完成其余四个 RBAC 管理页的视觉改版、真实交互检查及截图自查」，并明确**直接改代码、推广现有设计，不重开单页打样、不逐页等待确认**。这解除了 09-27 打样报告里「推广其他四页前先取得用户反馈」的前提限制。
+- **改动范围（前端视觉层，未触碰后端）**：`RoleListView.vue`、`PermissionListView.vue`、`UserRoleGrantView.vue`、`RolePermissionGrantView.vue` 四页改用 `AppPage layout="list"` 与独立筛选/授予面板 + 单一 `.admin-data` 数据面板；`tokens.css` 新增 `--fd-admin-list-max`（管理列表不再有 70rem 居中上限）；`main.css` 新增 `.admin-data`、`.admin-dialog`、`.grant-form`、`.grant-row__action` 与五页共用的窄屏规则；新增共享件 `views/admin/useCompactPagination.ts`（分页窄屏收敛，用户页同步改用它）；文案去掉接口/token/编码常量/"后端裁决"类实现说明。**两组授权页保留关系行结构**，只统一宽度、分区、密度、按钮与分页语言。
+- **实跑验证（全部通过）**：`vue-tsc -b`、`eslint . --max-warnings=0`、`stylelint` 闸门、`vite build` 退出码均为 **0**；`vitest run --maxWorkers=1` → **17 套件 74 项全绿**；`playwright test` 在真实栈（MySQL 3308 / Redis 6380 / 后端 8081 / preview 4173）→ **13 项全绿**，其中 4 条 RBAC 用例直接覆盖本轮改过的四页。**本机 `pnpm` 本身无法启动**（`pnpm.mjs` 的 Windows shim 解析失败），故用 `package.json` 里的等价 `node` 入口执行，见 review 报告第 3 节。
+- **过程中修掉的真实缺陷**：`useCompactPagination` 直接调用 `window.matchMedia`，而 jsdom 未实现它，导致 5 个页面测试文件、24 项用例在 setup 阶段一起失败——改为能力探测并退回宽屏分页，**未改动任何测试文件**。另有两处业务化文案撞上既有断言（"迁移预置"、"SYSTEM_ADMIN 的 RBAC_MANAGE"），按"不改测试"的边界回退。
+- **实测与截图**：14 个场景（1440 与 375、正常/错误/弹窗/禁用）**整页横向溢出全部为 0**，无 Element Plus 默认蓝残留，375px 弹窗实测 343×432 完全在视口内；19 张截图 + `checks.json` 存于 `.ui-craft/reviews/2026-09-28-admin-pages/`，报告见同目录 `report.md`。
+- **演示库**：采集脚本只读；e2e 写入的临时角色自清理。复核结果回到基线——角色 3、权限 14、`E2E%`/`MANUAL%` 残留 0、`employee`(1)/`it`(2)/`admin`(3) 角色数为 1/1/3、`SYSTEM_ADMIN` 权限 4 项，**原有演示授权未被修改**。
+- **仍未取得 / 未做**：**用户逐项视觉反馈仍未取得**（本轮是授权推广，不等于审美验收）；未跑后端 `mvnw clean verify`（本轮未改后端代码、未新增测试类）；未跑 1920px 截图（本轮要求 1440 与 375）。未提交、未推送、未建 PR——工作区保留全部原有未提交与暂存改动。
+- **一次副作用已还原**：首次调用 `pnpm` 时 pnpm 12 的 packageManager 自管理逻辑往 `frontend/pnpm-lock.yaml` 写入了 `@pnpm/exe@12.3.4`，与本次改版无关，已 `git checkout` 还原（该文件现无改动）。
+- **同步的文档**：`frontend/AGENTS.md`（新增「管理页统一视觉语言」共享约定段）、`.ui-craft/brief.md`、`.ui-craft/tokens.md`（第 10 条：管理列表宽度与分页断点的决定与理由）、`.ui-craft/surfaces/admin-rbac.md`（当前状态段 + 新增 4.1 实测缺陷表）、本文件。
 
 ## 前端视觉改版打样（2026-09-27 开始，09-28 接续，已随阶段提交）
 
 - 用户已提供两张认可的管理后台参考与一张不满意的 FlowDesk 效果，素材保存在 `.ui-craft/references/`，另保存认可的 Help Scout 工单列表与 Freshservice 详情参考。无需新会话重复上传。
 - 完整实施说明、需调整文件、旧规则冲突与验收路径：`.ui-craft/frontend-redesign-handoff.md`。前端改版会话将该文件、`frontend/AGENTS.md`、`.ui-craft/brief.md` 与本地参考原图加入必读。
 - **用户管理页首轮打样已实施并已随本阶段提交**：工作区宽列表、独立筛选/数据区、默认尺寸控件、带文字行操作与窄屏内滚动。默认 card 页面兼容，其他四页未推广。真实交互、截图与最终验证见 `.ui-craft/reviews/2026-09-27-admin-redesign/report.md`。
-- **遗留项（不阻塞阶段收口，转入阶段 2 处理）**：该页**用户逐项视觉反馈尚未取得**，其他四页（角色、权限、两组授权）未按新语言推广；用户 2026-09-28 授权直接提交并交接本阶段后，推广与微调留待下一分支按同一套规则继续，不重开一轮打样。
+- **遗留项（不阻塞阶段收口，转入阶段 2 处理）**：该页**用户逐项视觉反馈尚未取得**；其他四页（角色、权限、两组授权）当时未按新语言推广。**09-28 同日后续已由用户明确授权完成推广**（见本文首节），因此本条现在只剩"用户逐项视觉反馈未取得"仍然成立。
 - **本轮实跑（09-28）**：typecheck/lint/build退出0；单测17套件74项通过（maxWorkers=1），E2E13项通过。真实用户新增/编辑/启停/重置密码/授权入口、查询重置、翻页和错误重试均验证；临时数据清理为0。1920/1440/375截图已检查，未获用户视觉认可前不推广。
 
 ## 2026-09-28 阶段收口：验收标准第 4 条手工真实栈链路复跑通过 + 全套验证复跑（用户授权提交与交接）
@@ -23,7 +43,7 @@
 - **验证复跑（2026-09-28 本会话实跑）**：后端 `.\mvnw.cmd -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → 单元/Web **394**、集成 **88**，`Failures: 0, Errors: 0`（集成侧 7 个 IT 类全部完成，`failsafe-summary.xml` 记录 `completed 88 / errors 0 / failures 0`）；前端 `pnpm typecheck` / `pnpm lint`（含 stylelint 闸门）/ `pnpm build` 退出码 **0**（既有大 chunk 警告不影响退出码）、`pnpm test:unit --run --maxWorkers=1` → **17 套件 74 项**、`pnpm test:e2e` → **13 项**全绿（28.3s，含 RBAC 真实闭环、用户角色闭环、入口按权限显隐与窄屏）。
 - **演示库核对（复跑后直接查库）**：角色 **3**、权限 **14**、`iam_role_permission` **14**、`iam_user_role` **5**、`employee` 角色数 **1**；`MANUAL%` 与 `E2E%` 临时角色/权限残留均为 **0**，与迁移和 demo 种子一致。
 - **本轮踩到的两条本机资源限制（会复发）**：① **内存不足会杀死构建**——本会话先同时跑后端 `clean verify` 与前端单测时，后端进程在 `IamUserServiceIT` 启动 Testcontainers 时被系统杀掉（16 GB 机器空闲内存一度降到 0.4 GB，`Get-CimInstance Win32_OperatingSystem` 可核对）；**测试要串行跑，不要并行压测容器与 vitest**。② **后台任务被取消时 Maven 子进程会留下**——`job_kill` 后 `java` 子进程仍持有 8081 端口并继续跑测试，需要 `netstat -ano | Select-String ":8081"` 核对并按 PID `Stop-Process`，否则后续 `clean verify` 会因端口占用失败。
-- **交接内容与遗留项**：本阶段（`TASK-055`～`TASK-062`）全部完成，无未完成验收项。**唯一遗留**是前端视觉改版的收尾——用户管理页首轮打样已实现并验证，但**用户逐项视觉反馈未取得、其他四页未按新语言推广**；按用户本轮指示不阻塞交接，留待下一分支按 `.ui-craft/frontend-redesign-handoff.md` 与 `.ui-craft/reviews/2026-09-27-admin-redesign/report.md` 继续。
+- **交接内容与遗留项**：本阶段（`TASK-055`～`TASK-062`）全部完成，无未完成验收项。**唯一遗留**是前端视觉改版的收尾——用户管理页首轮打样已实现并验证，但**当时用户逐项视觉反馈未取得、其他四页未按新语言推广（历史交接状态；同日后续已获授权推广，见本文前方当前记录）**；按用户本轮指示不阻塞交接，留待下一分支按 `.ui-craft/frontend-redesign-handoff.md` 与 `.ui-craft/reviews/2026-09-27-admin-redesign/report.md` 继续。
 - **交接执行结果（2026-09-28）**：提交 `2a3d444`（`feat(rbac): 管理端五页与用户管理页、管理端视觉打样、手工验收脚本收口`，65 文件、+6954/-120）推送到 `origin/flow-desk/rbac-admin-pages`；合并请求 **PR #8** <https://github.com/Crazy-HF/Flow-Desk/pull/8>，三个 job（`backend-verify`、`frontend-verify`、`core-e2e`）全绿后以 `merge_method=merge` 合并，合并提交 **`f15468c`**；本地 `main` 已 `pull --ff-only` 快进至 `f15468c` 与 `origin/main` 一致；下一主题分支 **`flow-desk/ticket-employee-flow`** 从 `f15468c` 创建，用于阶段 2 `TASK-020`～`TASK-023-MVP` 员工工单创建与查询。已存在的旧分支 `flow-desk/employee-ticket-flow`（仅 `7f6c72c` 一条文档同步）不用于本轮开发。
 
 - **文档同步（2026-09-28 同日追加）**：合并完成后核对全仓库文档与实际状态，修正 6 处漂移——`docs/implementation-plan.md`（第 1 节仍写“当前处于 MVP 阶段 1”、阶段顺序图、`TASK-058`/`TASK-060`/`TASK-062` 状态、9.1 缺交付结论、§11 开工入口仍是 Auth 切片 4）、`docs/api-design.md` 8.1 实现状态、`docs/engineering-readiness.md` 第 12 节（“待首次合并请求运行记录”与实际不符）、`docs/project-highlights.md`（新增「当前状态总览」：HL-002/003/004/005/006 改为已实现并给出证据，HL-001 仍标未实现）、`README.md` 当前状态段、`docs/modules/auth.md` 与 `.ui-craft/`（brief、handoff、surfaces、review report）四处的“待反馈/未提交”表述。历史小节（如本文 2026-09-22 的 278+63 记录、2026-09-24 的“未提交”记录）刻意保留原样，不追改。
@@ -36,18 +56,18 @@
 - 远程仓库：`git@github.com:Crazy-HF/Flow-Desk.git`
 - 稳定分支：`main`
 - 当前基线分支：`main`（阶段 1、前端外壳、第 3 步 RBAC 后端与 RBAC 管理端五页均已合并，最新合并提交 `f15468c`，即 PR #8）
-- 当前工作分支：`flow-desk/ticket-employee-flow`（从 PR #8 合并后的最新 `main` `f15468c` 创建，用于阶段 2 `TASK-020`～`TASK-023-MVP` 员工工单创建与查询；**尚未推送**）
+- 当前工作分支：`flow-desk/ticket-employee-flow`（从 PR #8 合并后的最新 `main` `f15468c` 创建，用于阶段 2 `TASK-020`～`TASK-023-MVP` 员工工单创建与查询；**已关联远程同名分支**）
 - 下一次创建分支：阶段 2 完成并交接后，从当时最新的 `main` 创建下一主题分支。已存在的旧分支 `flow-desk/employee-ticket-flow` 只含 `7f6c72c` 一条文档同步提交，不用于开发
-- 当前阶段：第 3 步 **系统业务：完整动态 RBAC** 已**完成并交接**（四步路线的 ① 收口前端外壳与 ② 交接已于 2026-09-21 完成，工作项经 PR #6 合并进入 `main`）。**阶段设计 2026-09-21 确认、2026-09-22 补充 3 项、2026-09-24 登记用户管理**：13 项设计决策与 `TASK-055`～`TASK-062` 任务拆分、验收标准见 `docs/implementation-plan.md` 9.1。`TASK-055`～`TASK-062` **全部完成**；管理端五页（用户、角色、权限、用户角色授权、角色权限授权）可走通真实闭环；**验收标准第 4 条的四条手工真实栈链路已于 2026-09-28 全部执行并通过（含清理，逐条留 `traceId`）**，见下方 2026-09-28 记录与 `docs/modules/rbac.md` 11.2。本阶段计入求职 MVP 演示范围并包含管理端页面。
-- 最新完成（2026-09-28，**已提交本分支，随本次交接合并**）：**验收标准第 4 条手工真实栈链路复跑通过 + 全套验证复跑**——`scripts/manual-rbac-acceptance.ps1` 在 `local` profile + 真实 MySQL/Redis 栈上逐条断言通过（链路 1 授予角色后旧令牌 `401/AUTH_SESSION_INVALID`、链路 2 变更角色权限后该角色**全部**持有者令牌失效而操作人令牌仍 `200`、链路 3 清空角色后零角色合法终态且访问受保护接口 `403/ACCESS_DENIED`、链路 4 五个保护入口全部 `409/RBAC_CONFLICT`、链路 5 清理还原），证据见 `docs/modules/rbac.md` 11.2；后端 `./mvnw -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → 单元/Web **394** + 集成 **88** 全绿；前端 `typecheck` / `lint`（含 stylelint 闸门）/ `build` 退出码 0、单测 **17 套件 74 项**、E2E **13 项**全绿；复跑后演示库回到基线（角色 3、权限 14、`iam_role_permission` 14、`iam_user_role` 5、`MANUAL%`/`E2E%` 残留 0）。
-- 前一项完成（2026-09-24，**已提交本分支，随本次交接合并**）：**`TASK-060` RBAC 管理端四页 + `TASK-062` 用户管理页 + `TASK-061` 契约对齐**——`frontend/src/views/admin/` 五页（用户管理、角色管理、权限管理、用户角色授权、角色权限授权）、`api/rbac.ts` 与 `api/users.ts`、`ProtectedMark` / `AdminListPanel` 两个共享件与 `useAdminList` 取数状态机；用户管理在 `docs/implementation-plan.md` 正式登记为 `TASK-061`/`TASK-062` 并移出完整版 backlog；替换角色路径按 8.2 契约由 `/role` 改为 `/roles`（后端 + Web 测试 + 文档同步）。**验证**：`./mvnw -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → 单元/Web **394** + 集成 **88** 全绿；前端 `typecheck` / `lint`（含 stylelint 闸门）/ `build` 退出码 0、单测 **17 套件 74 项**、E2E **13 项**全绿（含三条新增：RBAC 真实闭环、用户角色闭环、入口按权限显隐与窄屏），演示库经查无 `E2E_*` 残留。见下方 2026-09-24 记录。
+- 当前阶段：阶段 2 员工创建与查询（TASK-020～TASK-023-MVP）进行中；步骤①～④已有真实栈验收记录，步骤⑤已写入、待验收，详情与时间线尚未接入。第 3 步动态 RBAC 已经 PR #8 合并 main；分类管理 TASK-063/064 经用户指示提前实施，仍待完整验收。
+- 最新提交：`8af82ca` 后端实现已推送至当前同名远程分支，未合并。生产代码编译通过；现有测试 394 项中 185 个上下文启动错误，不能作为阶段验收完成。PR #8 时的 394 单元/Web + 88 集成全绿属于此前 RBAC 基线，不能代表当前新增后端。
+- 前一项完成（2026-09-24，**历史成果，已随 PR #8 合并 main**）：**`TASK-060` RBAC 管理端四页 + `TASK-062` 用户管理页 + `TASK-061` 契约对齐**——`frontend/src/views/admin/` 五页（用户管理、角色管理、权限管理、用户角色授权、角色权限授权）、`api/rbac.ts` 与 `api/users.ts`、`ProtectedMark` / `AdminListPanel` 两个共享件与 `useAdminList` 取数状态机；用户管理在 `docs/implementation-plan.md` 正式登记为 `TASK-061`/`TASK-062` 并移出完整版 backlog；替换角色路径按 8.2 契约由 `/role` 改为 `/roles`（后端 + Web 测试 + 文档同步）。**验证**：`./mvnw -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → 单元/Web **394** + 集成 **88** 全绿；前端 `typecheck` / `lint`（含 stylelint 闸门）/ `build` 退出码 0、单测 **17 套件 74 项**、E2E **13 项**全绿（含三条新增：RBAC 真实闭环、用户角色闭环、入口按权限显隐与窄屏），演示库经查无 `E2E_*` 残留。见下方 2026-09-24 记录。
 - 前一项完成（2026-09-23，**已提交 `b13f421`**）：**用户管理模块测试补齐 + 测试代码对齐应用层重构**——用户管理 `/fd/v1/users` 八个端点（列表、详情、创建、改资料、启用、停用、替换角色、重置密码）现有完整测试：服务单测 `IamUserServiceImplTest`(58)、Web 契约 `IamUserControllerWebTest`(45)、真实 MySQL 集成 `IamUserServiceIT`(24，含两条真并发)；13 个 RBAC/auth 测试类同时对齐 `application.*` 新包并移动到镜像包，修好重构引入的 2 项 `AuthWebTest` 失败并补 13 项新测试。`./mvnw -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → 单元/Web **394** + 集成 **88**，`Failures: 0, Errors: 0`，`BUILD SUCCESS`。见下方 2026-09-23 两条记录。
 - 本轮完成（2026-09-23，**未提交**）：**前端样式闸门（ui-craft rung 3 · Enforce）**——新增 `frontend/stylelint.config.js` 并把它挂进 `pnpm lint`，AGENTS.md 点名的六个轴（颜色 / 间距 / 字号 / 圆角 / 阴影 / 动效）从"书面约定"变成可执行规则；新增 3 个 devDependency（`stylelint` 17.15.0、`postcss-html` 2.0.0、`postcss-scss` 4.0.9），CI 未改动即获得覆盖。同时按用户同日指示把 `.ui-craft/` 文档与项目现状对齐。详见下方同名小节。
 - 前一项完成（2026-09-23，**已提交 `ba298c2`**）：**auth、iam 生产代码应用层重构**——应用层统一为 `application.command` / `query` / `result` / `service`，实现入 `application.service.impl`，跨模块接口入 `iam.application.port`，Controller 直接收发 Command/Query/Result，`domain` 不再存放 BO/VO，且未新增重复的 Request/Response 类型。**接口地址、JSON 字段与业务行为不变**。原阻塞「13 个测试类引用已删除旧包导致 `test-compile` 失败」已由测试对齐解除。
 - 已确认的范围调整：项目分为“求职 MVP”和“完整版”；三种内置角色 `EMPLOYEE`、`IT_SUPPORT`、`SYSTEM_ADMIN` 仍是权限基线，`SYSTEM_ADMIN` 始终受保护。**2026-09-21 用户确认把「完整动态 RBAC」定为第 3 步实施**：按 `docs/api-design.md` 8.2.1 开放角色、权限、用户角色授权、角色权限授权四组 CRUD，新增 Flyway 迁移 `V5` 预置 `RBAC_MANAGE` 并授予受保护的 `SYSTEM_ADMIN`，配套保护规则、会话撤销与审计；不得修改已发布的历史迁移。该能力已于 2026-09-22 确认计入求职 MVP 演示范围，并包含管理端页面。
 - 前一项完成：**`TASK-058` 测试补齐与全量验证**（2026-09-22）——用户角色与角色权限两组授权现共 **11 个端点**（原 6 个 + 批量撤销 `POST /actions/revoke`、清空全部 `DELETE /users/{userId}` 与 `DELETE /roles/{roleId}`、一个角色授予多个用户 `POST /actions/grant-users`、建角色时带 `permissionIds`）。按用户 2026-09-22 确认，**保护规则 5「用户至少保留一个角色」废弃**，零角色成为合法终态（`USER_ROLE_REQUIRED` 不再产生），仅保留「最后一个启用管理员」与「`SYSTEM_ADMIN` 的 `RBAC_MANAGE` 授权」保护。测试侧新增/扩展 8 个测试类，`./mvnw -B clean verify` → 单元/Web **278** + 集成 **63**，`Failures: 0, Errors: 0, BUILD SUCCESS`（阶段起点 132 + 30，只增不减）。覆盖矩阵逐格证据见 `docs/modules/rbac.md` 10.1。此前的 `TASK-059` 成果：`AuthSecurityConfiguration` 的 `securityMatcher` 扩为 `/fd/v1/**`，`/fd/v1/admin/**` 不再恒为 `401`，并用真实 Access Token 补了回归测试。
-- 下一步（四步路线，2026-09-21 用户指示）：① ~~收口并提交前端外壳与页面骨架工作项~~ **已完成**；② ~~完成该工作项交接（推送 → 合并请求 → 合并 `main` → 同步 → 建下一分支）~~ **已完成**；③ ~~**系统业务：完整动态 RBAC**（分支 `flow-desk/rbac-admin-pages`）~~ **已完成并交接**——`TASK-055`～`TASK-062` 全部完成、验收标准第 4 条手工链路 2026-09-28 复跑通过，按 2026-09-28 用户授权执行交接（提交 → 推送 → PR → 合并 → 同步 `main` → 建阶段 2 分支）；④ **阶段 2 员工创建与查询**（`TASK-020`～`TASK-023-MVP`）——在新分支上先确认接口与数据模型落地顺序，再按切片实施。
-- 当前阻塞：**无**。原先的两个阻塞均已消除：① 「真实 HTTP 下 `/fd/v1/admin/**` 恒为 `401/AUTH_REQUIRED`」由 `TASK-059` 修复并经真实栈复核；② 「验收标准第 4 条四条手工链路未执行」已于 2026-09-28 在真实栈上执行并通过。两条本机限制仍作为「环境前置」记录（Mockito 自附加参数、Testcontainers 需要 Docker 命名管道），另新增两条 2026-09-28 实测的资源类限制（见下方 2026-09-28 记录）。
+- 下一步：完成阶段 2 步骤⑤四范围真实接口验收与分类管理六端点验收；随后按已确认顺序继续详情、时间线和前端闭环。前端推广代码待单独提交，逐项视觉反馈待取得；当前不执行合并。
+- 当前阻塞：现有 Web/启动测试的共享 Mock 配置未覆盖新增 Mapper，394 项测试中 185 个上下文错误；生产代码编译通过。步骤⑤、分类管理及分类页面验收未完成。此前 RBAC 鉴权与会话失效链路阻塞已经解决，旧全绿结果只对应历史基线。
 - 环境前置：JDK 21.0.12、Node.js 24.20.0、pnpm 12.3.4、Docker 29.7.2 已验证；本机已有 `redis:8.8.0`、`mysql:8.4.11` 镜像。**跑后端测试的两个必备参数（2026-09-23 实测，会复发）**：① 受限沙箱下 Mockito inline mock maker 无法自附加，必须加 `-DargLine=-Djdk.attach.allowAttachSelf=true`，否则所有 Spring 测试一起报 `Could not self-attach to current VM using external process`（看起来像代码回归）；② Testcontainers 集成测试需要访问 Docker 命名管道 `\\.\pipe\docker_engine`，受限沙箱会报 `Could not find a valid Docker environment` / `AccessDeniedException`，需在放宽文件策略的会话里执行。完整验收命令：`.\mvnw.cmd -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"`。本地启动 profile 用 `local` 即可（`spring.profiles.group.local=demo` 已配置）。演示账号 `employee` / `it` / `admin`，密码统一为 `123456`（见 `db/demo/R__seed_demo_data.sql` 头部注释，2026-09-20 由 `demo.*` 改名）。本机已有过两类运行障碍并已修复：① Flyway 校验失败——历史表残留已删除的 V3 迁移记录，处置为删除该行（等价 `flyway repair`）；② Redis 残留旧实现写入的 hash 类型会话键，会让"撤销全部会话"抛 `WRONGTYPE`，已清理。另需注意：本机 Argon2id 校验约 2 秒/次（并发登录可拖到十几秒），前端 e2e 因此串行执行并放宽超时；跑 e2e 需要 `FLOWDESK_ALLOWED_ORIGINS` 包含 `http://127.0.0.1:4173`（本地 `.env` 已加）；③ `frontend/node_modules` 若缺 `.modules.yaml`，`pnpm add` 会报 `ERR_PNPM_PACKAGE_MANAGER_REMOVE_MODULES_DIR`，而受限沙箱的写受限令牌删不掉该目录里的预存文件（批量 `Access to the path is denied`）——处置是在放宽文件策略的会话里删掉 `node_modules` 后重装，不要在残缺目录上反复重试。
 - 待确认事项：① Element Plus 目前是**全量引入**（打包约 1.07 MB / gzip 348 KB），是否改为按需引入（需新增 `unplugin-vue-components`、`unplugin-auto-import` 两个 dev 依赖）；② ~~登录页占位文案~~ **2026-09-24 复核：登录页与 E2E 已统一为「请输入登录名」「请输入密码」，与本条描述不符，视为已解决**；③ 首页 `h1`「欢迎回来」用的是展示级字号 `clamp(1.75rem, 5vw, 2.5rem)`，是否收小到页面标题刻度（管理端五页已改用业务页标题刻度 `--fd-font-size-lg`，首页仍待用户决定）；④ ~~用户管理是否登记为正式任务条目、8.1/8.2 与 `rbac.md` 第 1 节的 backlog 表述~~ **2026-09-24 用户确认：登记**——已写入 `TASK-061`（后端）/`TASK-062`（管理端页面），`docs/api-design.md` 8.1/8.2 与 `docs/modules/rbac.md` 第 1 节同步改写，用户管理从完整版 backlog 移出；⑤ ~~`disable` 与替换角色是否属于本次补齐范围~~ **已包含**；⑥ ~~测试职责口径~~ **2026-09-23 已澄清：测试由 Agent（本会话执行者）负责**；⑦ ~~替换角色路径单复数~~ **2026-09-24 用户裁决：以契约 8.2 的复数 `/roles` 为准**——后端 `IamUserController` 已改为 `@PutMapping("/{userId}/roles")`，`IamUserControllerWebTest` 七处断言同步，`docs/api-design.md` 8.2 与实现一致；新增 ⑧ **`USER_ROLE_REQUIRED` 已从 `frontend/src/api/errorMessages.ts` 删除**（后端自 2026-09-22 不再返回该编码），如需保留映射请告知。`TASK-060` 的页面交互、批量授权、权限码搜索与 `api/` 落层均已确认并落地。历史处置：JaCoCo 覆盖率门禁已确认取消（2026-09-19），`pom.xml` 只保留 `jacoco:report` 供 CI 上传工件。
 
@@ -566,33 +586,27 @@
 
 任务：阶段 2 员工创建与查询，当前步骤⑤其他工单查询范围。
 
-- **当前实现状态**：分类管理六项方法与步骤⑤ page 方法已写入；此前缺少实现的编译阻塞已解除。步骤⑤与分类管理真实栈验收尚未完成，详情仍为预备代码。
+- **当前待办**：分类服务缺少方法的编译阻塞已解除；步骤⑤多范围查询已写入，只读事务与统一 Mapper 入口已接通，真实栈验收未完成。详情仍只有权限端口/适配器、Result/投影及 Mapper 预备代码，未接入 Controller 或服务接口。现有测试的新增 Mapper Mock 配置缺失待处理。
 
 - **已确认（2026-09-28）**：按实施计划 6.1 的八步推进；创建仅写工单与首条记录，不写提交人到 IT 参与表；无附件创建保留 multipart JSON ticket 部分；阶段 2 `allowedActions=[]`。
 - **步骤①已验收（2026-09-28）**：六个生产文件由用户完成；Agent review 与 `./mvnw.cmd -B -DskipTests compile` 通过。真实 MySQL/Redis/后端验证员工和 IT 各 200、无认证 401、零权限 403、仅 id/name、停用过滤、同 sort_order 按 ID 排序、空集 200/[]。临时分类及用户角色数据已还原。
 - **步骤②已验收（2026-09-28）**：用户补齐认证适配器组件注册；真实栈 8082 启动成功、V6 迁移成功；创建 201/每日编号、工单与首条记录初值、401/403、8 例非法输入/分类 400 均通过；定向触发器注入记录失败验证工单与每日序号一起回滚，未写 participant。临时数据与触发器已清理。编号此前已验证并发、北京时间切日、次日从 1、1000 和旧编号回填。
 - **最新分工已确认**：Agent 直接写基础 domain/Controller/Mapper/Command/Query/Result/服务接口；ServiceImpl 逐项先给文字和流程图，再给完整代码供用户编写，不写入。本阶段不新增测试类，使用编译和真实栈验收，规则已同步 AGENTS.md。
 - **步骤③校验（2026-09-28）**：用户已写入 ServiceImpl；编译/启动通过。真实栈校验顺序重试、UUID 大小写规范化、同用户不同键、不同用户同键、合法正文变化不覆盖、分类停用后重试、状态/版本变化后仍返回首次创建结果均通过；8 路并发全部 201，仅一张工单/一条记录/序号增加一次；人工编号冲突返回 500 并回滚，没有误判成幂等成功（traceId `cc2e80b2-0293-48f4-85e1-94bf52155613`，日志确认 `DuplicateKeyException` / `uk_ticket_no`）。临时数据清理后 ticket/record/daily_sequence 均为 0，验收用 8082 服务已停止。**同轮复核**：用户已删除 create 方法外层 `@Transactional`，重新编译通过；尚有不影响运行的未使用 import 可清理。Agent 未改 ServiceImpl。步骤③功能验收通过；本轮先解释事务机制，步骤④待后续推进。
-- 当前分支 `flow-desk/ticket-employee-flow`；本轮已授权提交与推送，不合并。
+- 当前分支 `flow-desk/ticket-employee-flow`；后端已以 `8af82ca` 提交并推送；本轮仅授权提交与推送，不创建或合并 PR。
 - **步骤④已验收（2026-09-28）**：用户已写查询 ServiceImpl，真实栈编译/启动通过；本人数据与 count 隔离、筛选、四种排序与稳定 ID 次序、分页/超出末页、时间转换与边界、LIKE 字面转义、停用分类/最小字段/空集、13 例非法参数 400、401/403 均通过。定向临时工单清理，验收用 8082 服务停止。当前用户用普通 @Transactional，下一步示例改 readOnly；Agent 未改写 ServiceImpl。
-- **步骤⑤实现已写入、待验收**：Controller 按 scope 授权，Mapper 按提交人、待受理、负责人和历史参与关系筛选；ServiceImpl 已使用 selectScopedPage。四范围真实接口验收待执行。
+- **步骤⑤已实现、待验收**：Controller 按 scope 精确授权；Mapper 按提交人、待受理、负责人及 EXISTS 历史参与关系筛选，缺少范围 WHERE 1=0；队列默认 PRIORITY_DESC_CREATED_ASC。ServiceImpl 已使用 selectScopedPage 与只读事务；四范围真实接口验收待执行。
 - 前端视觉遗留按原交接材料继续，不阻塞当前后端步骤。
 
 ## 当前任务必读
 
-开始 `TASK-060`（RBAC 管理端页面）前按以下顺序读取；`TASK-058` 后端实现与测试已完成（手工链路待补），`auth`/`iam` 已于 2026-09-23 完成应用层重构但测试代码待用户补齐：
+1. AGENTS.md 与本文快速定位、下一步任务。
+2. docs/implementation-plan.md 第 6 节与 6.1（已确认口径、顺序、当前文件与测试清单）。
+3. docs/api-design.md 5.3（当前列表契约）；现有 TicketQuery、TicketMapper、TicketController 与 PageQuery/PageResult。
+4. docs/database-design.md 18/19；src/main/resources/db/migration/V1__create_schema.sql 的 ticket_category 表（不得修改历史迁移）。
+5. docs/technical-architecture.md 5.1 与现有 iam 的 Controller/Result/Service/Mapper 作为命名参考。
 
-1. `AGENTS.md`
-2. `PROJECT_STATUS.md`（尤其 2026-09-23 重构记录、「当前阻塞」、「待确认事项」④⑤与 `TASK-060` 开工规格）
-3. `docs/technical-architecture.md` 5.1（重构后的包结构与命名约定，唯一真源）
-4. `docs/implementation-plan.md` 9.1（13 项设计决策、`TASK-055`～`TASK-060` 与阶段验收标准）
-5. `docs/modules/rbac.md`（第 3 节类清单、第 4.3/4.4 节批量契约与第 12 节管理端实现细则）
-6. `docs/api-design.md` 8.2.1（两组授权的请求/响应与错误码）
-7. `frontend/AGENTS.md`
-8. `.ui-craft/brief.md`
-
-`TASK-060` 的三项已确认决策是：用户输入使用数字 ID + 当前列表候选下拉；两组授权均调用后端批量增量端点；`api/` 保持扁平。页面开工前还需补 6 个 RBAC 错误码与 `RBAC_MANAGE` 标签。此前记录的起点基线为：前端 `typecheck` / `lint` / `build` 退出码 0，单元 8 套件 33 项、E2E 9 项；后端 132 项单元/Web + 30 项集成。按用户当前指示不执行测试，该数字仅作为历史基线，不代表 `TASK-058` 当前状态。
-
+涉及前端时另读 frontend/AGENTS.md、.ui-craft/frontend-redesign-handoff.md，并实际查看 .ui-craft/references/ 原图。
 ## 文档索引
 
 | 文件 | 状态 | 用途 |

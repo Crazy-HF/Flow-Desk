@@ -171,8 +171,8 @@ M0 工程底座（已完成，PR #4）
   - **基础验证（2026-09-28）**：`./mvnw.cmd -B -DskipTests compile` 通过；临时 JShell 探针验证 WebDataBinder 的 page/size、多值状态/优先级、带时区时间绑定，以及 MyBatis 四种排序动态 SQL 生成。未新增测试类；尚未运行 GET 真实接口验收。ServiceImpl 计划使用只读事务协调分页 count/items 查询。
   - **真实栈验收（同日接续）**：用户已完成查询 ServiceImpl；8082 local 启动与编译通过。定向临时数据验证本人行/总数隔离、最小字段与停用分类展示、四种排序/同时间 ID 次序、分页/超出末页、组合筛选、带时区时间边界、LIKE 字面通配符、伪造用户 ID 不改变范围、空集通过；13 例非法/缺少/未支持参数 400，401/403 通过。临时工单清理，验收用服务停止。用户当前使用普通 @Transactional（不是 readOnly），功能不受影响；下一步给出的 page 方法采用 readOnly。
 - [ ] ⑤ 其他范围（当前步骤）：补齐 `PENDING_QUEUE`、`ASSIGNED_TO_ME`、`PARTICIPATED_BY_ME` 的权限与资源关系验证，不增加 IT 写动作。
-  - **同日接续阻塞**：用户已写 page 统一查询，整体编译因分类服务新增的六个管理方法未实现而失败（首先报告 delete(long,long)）。用户自己编写分类 ServiceImpl，要求先列缺少方法；步骤⑤真实栈验收待分类恢复编译后执行。详情仅预备 Mapper/Result/投影/权限适配，未验证、未接入 Controller 或服务接口，暂缓推进。
-  - Agent 已写 Controller 的 scope 精确权限表达式、Mapper 的四范围分支（参与关系使用 EXISTS、防止重复分页，缺少范围 WHERE 1=0）、队列默认优先级排序；编译及四范围 SQL/权限表达式探针通过。selectRequestedByMePage 保留兼容别名，新的统一入口为 selectScopedPage。ServiceImpl 仅在对话提供替换 page 方法，尚未写入；当前用户代码仍拒绝非 REQUESTED_BY_ME，步骤⑤真实接口尚未验收。
+  - **当前实现状态（2026-09-28 提交检查）**：用户已补齐分类服务六项方法，生产代码编译通过；步骤⑤ page 统一查询已写入，使用只读事务和 selectScopedPage。真实栈验收待执行；详情只有预备 Mapper/Result/投影/权限适配，未接入 Controller 或服务接口。
+  - Controller 已写 scope 精确权限表达式；Mapper 已写四范围分支（EXISTS 防止重复分页，缺少范围 WHERE 1=0）及队列默认排序；ServiceImpl 已接通 selectScopedPage。当前编译通过，SQL/权限探针属于此前检查记录，步骤⑤仍待真实接口验收。
 - [ ] ⑥ 详情与时间线：外部 `ticketNo` 定位；共同校验可见性；无权与不存在统一 `404/TICKET_NOT_FOUND`；时间线按 `sequenceNo` 正序分页。阶段 2 没有已实现的工单写动作，`allowedActions=[]`；后续阶段实现动作时再开放，不能展示不可调用的操作。
 - [ ] ⑦ 员工页面：后端闭环通过后明确页面交互；新建、列表、详情和时间线，失败重试复用同一 `submissionKey`。沿用项目内视觉交接材料；验收真实 E2E 与桌面/窄屏截图。
 - [ ] ⑧ 阶段验收：后端完整 verify、前端 typecheck/lint/build/单测/E2E 串行执行；证明防重复、数据隔离、刷新恢复并清理临时数据；同步文档后提示分支交接。
@@ -306,7 +306,7 @@ MVP 最终完成定义：
 
 | 任务 | 内容 | 关键产出 |
 | --- | --- | --- |
-| `TASK-063`（**进行中**） | 分类管理后端接口（`GET /fd/v1/admin/categories`、`POST /`、`PUT /{categoryId}`、`POST /{categoryId}/actions/enable`、`POST /{categoryId}/actions/disable`、`DELETE /{categoryId}?version=`），全部要求 `CATEGORY_MANAGE` | Agent 已写入：`CategoryQuery`、`CategoryResult`、`CreateCategoryCommand`、`UpdateCategoryCommand`、`CategoryStatusChangeCommand`、`CategoryService`（新增 6 个方法）、`AdminCategoryController`、`TicketCategoryMapper.selectByIdForUpdate`，以及 `GlobalExceptionHandler` 对缺失/类型不符请求参数的 `400/VALIDATION_FAILED` 映射。**待用户补齐 `CategoryServiceImpl` 后才能编译** |
+| `TASK-063`（**进行中**） | 分类管理后端接口（`GET /fd/v1/admin/categories`、`POST /`、`PUT /{categoryId}`、`POST /{categoryId}/actions/enable`、`POST /{categoryId}/actions/disable`、`DELETE /{categoryId}?version=`），全部要求 `CATEGORY_MANAGE` | Agent 已写入：`CategoryQuery`、`CategoryResult`、`CreateCategoryCommand`、`UpdateCategoryCommand`、`CategoryStatusChangeCommand`、`CategoryService`（新增 6 个方法）、`AdminCategoryController`、`TicketCategoryMapper.selectByIdForUpdate`，以及 `GlobalExceptionHandler` 对缺失/类型不符请求参数的 `400/VALIDATION_FAILED` 映射。**用户已补齐 CategoryServiceImpl 六项方法，后端已提交推送且编译通过；六端点真实栈验收待执行，现有测试受新增 Mapper Mock 配置缺失阻塞** |
 | `TASK-064`（**进行中**） | 分类管理端页面（`frontend/src/views/admin/CategoryListView.vue`，路由 `/admin/categories`，要求 `CATEGORY_MANAGE`）：列表与筛选（名称、状态）、新建、改名与排序值、启停、删除；入口按权限显隐 | Agent 已写入：页面 + `api/categories.ts`；`router` 的 `/admin/categories` 由占位页改为真实页面；`main.css` 补上一直被三个页面引用却缺失的 `.admin-form-control` 规则。**尚未跑 `typecheck` / `lint` / `build`，也未截图自查** |
 
 已确认的落地口径（与 8.4 契约一致，需要时可在此处继续追加）：

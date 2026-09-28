@@ -13,7 +13,7 @@
 
 | 编号 | 条目 | 当前状态 | 证据 |
 | --- | --- | --- | --- |
-| HL-001 | 创建工单的幂等防重 | **设计已确认，尚未实现**（工单链路属阶段 2，尚未开工） | `docs/implementation-plan.md` 6 节 `TASK-021-MVP`；`docs/database-design.md` 的 `(requester_id, submission_key)` 唯一约束 |
+| HL-001 | 创建工单的幂等防重 | **创建幂等已实现，已有阶段 2 步骤③真实栈验收记录**（当前分支整体尚未验收） | `docs/implementation-plan.md` 6 节 `TASK-021-MVP`；`docs/database-design.md` 的 `(requester_id, submission_key)` 唯一约束 |
 | HL-002 | 账号启停的幂等与并发安全 | **已实现，并有自动化证据**；正文所列后续项（`expectedVersion` 契约、最后一个启用管理员保护、会话撤销、并发测试）已全部完成 | `IamUserServiceImplTest`(58)、`IamUserControllerWebTest`(45)、`IamUserServiceIT`(24，含“并发创建同一登录名”与“并发停用只放行一个”两条真并发)；`PROJECT_STATUS.md` 2026-09-23 记录 |
 | HL-003 | 应用壳导航唯一真源与层级面包屑 | **已实现，并有自动化证据**；四段外壳与声明唯一真源保持不变。补充：`AppPage` 于 2026-09-27～28 新增 `layout="list"` 变体（用户管理页打样用），窄屏外壳版式已有 375px 截图核对 | 前端单测 17 套件 74 项、E2E 13 项全绿（2026-09-28）；`.ui-craft/reviews/2026-09-27-admin-redesign/`；`PROJECT_STATUS.md` 2026-09-21、2026-09-28 记录 |
 | HL-004 | 角色编码唯一性的并发双重防线 | **已实现，并有自动化证据** | `IamRoleServiceImplTest`(22)、`IamRoleControllerWebTest`(19)、`IamRoleServiceIT`(9) 与 `DatabaseMigrationIT`(4)；`docs/modules/rbac.md` 10.1 覆盖矩阵 |
@@ -26,7 +26,7 @@
 
 ### 当前状态
 
-**设计已确认，尚未实现和测试。**
+**创建幂等已实现，已有步骤③真实栈验收记录；见 PROJECT_STATUS.md 与文末 2026-09-28 状态补充。当前新增后端的全量测试与阶段验收尚未完成。**
 
 ### 问题背景
 
@@ -260,7 +260,7 @@
 
 ### 当前状态
 
-**创建基础已通过真实栈验收；幂等方案已说明、Mapper 查询已写入，ServiceImpl 幂等逻辑尚未落地和验收。** 本条补充取代状态总览中“阶段 2 尚未开工”的旧描述，尚不能作为已实现的幂等成果对外表述。
+**创建基础与幂等逻辑已实现，已有步骤②③真实栈验收记录。** 下文描述记录了实施时的方案推导，计划措辞按文末状态补充理解；当前分支整体尚未通过全量测试或阶段验收。
 
 ### 响应丢失为什么需要复用提交键
 
