@@ -1,7 +1,9 @@
 # FlowDesk 项目状态
 
-## 当前结论：阶段 2 验收通过，完整交接已授权（2026-09-29）
+## 当前结论：阶段 2 已合并 main，阶段 3 分支已准备（2026-09-29）
 
+- **交接已完成**：[PR #9](https://github.com/Crazy-HF/Flow-Desk/pull/9) 已使用 merge commit 合并，main 合并提交 `5b9a96156c9fffc8dd0949029fb74f8c48b0682d`；分支头 `36504ae222c90bf1820544d074aa4cb9f05845ed` 的 GitHub CI `backend-verify`、`frontend-verify`、`core-e2e` 全部 success（run 36551131354）。本地 main 已仅快进同步，确认合并后代码树与本轮验证分支完全一致。
+- **当前工作分支**：`flow-desk/ticket-it-flow`，从上述最新 main 创建；本次仅记录交接与准备分支，阶段 3 业务实现尚未开工。下一步先按第 7 节给出领取切片的规则、流程、文件与验收目标。
 - **本次交接复核**：当前工作树重新执行后端 clean verify、前端 typecheck/eslint/stylelint/build、23 套件 124 单测和 15 E2E 全部通过；临时数据与临时用户会话清理后基线仍为 5/0/0/0/0/3/3/14。新证据 docs/acceptance/stage2-handoff-20260929.json，原始失败与收口证据保留。
 - **四项收尾完成**：脚本要求的后端 verify、前端 typecheck/lint/build/单测和真实栈 E2E 闸门全部取得通过证据；防重复、本人数据隔离、刷新恢复已实测；清理 SQL 已执行并恢复演示基线；步骤⑧及截图报告已同步。
 - **结果**：后端单元/Web **394**、集成 **88**，失败/错误均 0；前端单测 **23 套件 / 124 项**；全部 **15 项 E2E**通过。最后仅调整证据采集与截图等待的工单/分类用例又定向通过 **2 项**。分类管理创建、改名、停用、启用、删除也已浏览器验证。
@@ -9,8 +11,8 @@
 - **数据库**：执行 `docs/acceptance/stage2-cleanup-2026-09-29.sql`；分类 5 / 工单 0 / 记录 0 / 参与者 0 / 日序号 0 / 用户 3 / 角色 3 / 权限 14，回到实测初始基线；临时员工及失败运行遗留会话一并清理。逐工单 SQL 证明每个验收标题仅一单一条创建记录，证据 `docs/acceptance/stage2-cleanup-evidence.json`。
 - **浏览器与截图**：`.ui-craft/reviews/2026-09-29-tickets/runtime-evidence.json` 与 `category-runtime-evidence.json` 记录状态码、traceId、隔离与刷新结果；该目录 1440/375 截图已实际查看，横向溢出为 0。运行时验收通过不替代用户逐项审美反馈。
 - **本次修正范围**：现有后端测试配置补事务管理器替身、迁移断言跟进 V6；现有前端测试修正时间线上下文字段和组件清理；工单列表窄屏日期范围收缩；E2E 增加真实隔离账号及分类 CRUD 证明。未代写 ServiceImpl 业务逻辑。
-- **交接授权已确认（2026-09-29）**：用户明确要求当前代码提交、推送、创建 PR 并合并 main，本次范围包含后端、员工工单三页、分类页面、RBAC 视觉推广、现有测试修正与验收/设计证据。按检查 → 提交 → 推送 → PR/合并 → main 仅快进同步执行；以本分支 PR 的实际合并状态为交接结果。此前只提交后端、不合并的限制不再适用于本次。
-- **下一分支**：合并后从最新 main 创建 `flow-desk/ticket-it-flow`，供阶段 3 使用；仅准备分支，不提前实现业务。
+- **授权范围与结果**：当前后端、前端、测试支撑与验收/设计文档已按用户授权提交、推送，并经 PR #9 合并 main；原工作分支保留。合并后的交接记录在下一分支补充，不提前开展阶段 3 业务。
+- **分支交接记录**：完整证据 docs/acceptance/stage2-handoff-20260929.json；合并与本地同步结果 docs/acceptance/stage2-git-handoff-20260929.json。
 - **下一大步骤**：阶段 3 IT 处理闭环（`TASK-030-MVP` / `TASK-032-MVP` / `TASK-033-MVP`）：公共队列与领取 → 当前负责人处理与提交解决 → 提交人确认完成；后端必须同时校验权限、资源关系、状态和版本，真并发领取只有一个成功，每个动作追加不可变时间线。先按 `docs/implementation-plan.md` 第 7 节及已有契约给出首个领取切片的文件、规则、流程和验收，再进入实现；尚未开工。
 - **非阻塞遗留**：共享列表组合函数仍位于 admin 目录；列表请求竞态与可空响应类型统一属于后续技术债；构建有大 chunk 提示。既有 RBAC 页用户逐项视觉反馈仍待取得。
 
@@ -204,7 +206,7 @@
 
 - **合并**：PR #7（`flow-desk/dynamic-rbac` → `main`）<https://github.com/Crazy-HF/Flow-Desk/pull/7>，`merge_method=merge`（沿用仓库既有风格），合并提交 `6a65dd8`；分支头 `603479d` 上 CI 三个 job 全绿：`backend-verify` success、`frontend-verify` success、`core-e2e` success。
 - **同步**：本地切回 `main` 并 `git pull --ff-only` 快进到 `6a65dd8`，与 `origin/main` 一致。
-- **下一分支**：`flow-desk/rbac-admin-pages`，从最新 `main` 的 `6a65dd8` 创建，用于 `TASK-060`（RBAC 管理端页面），**尚未推送**。
+- **分支交接记录**：完整证据 docs/acceptance/stage2-handoff-20260929.json；合并与本地同步结果 docs/acceptance/stage2-git-handoff-20260929.json。
 - **本机推送与 API 的一处环境事实（会复发）**：受限沙箱下 `schannel` 取不到 TLS 凭证（`SEC_E_NO_CREDENTIALS`），Git 凭据助手又需要命名管道，因此推送与 GitHub REST API 调用须用 `git -c http.sslBackend=openssl -c http.proxy=http://127.0.0.1:12000 ...`（代理端口 12000 已确认可用），并在放宽文件策略的会话里执行。
 - **`gh` 仍未登录**：PR #7 的创建与合并继续走 GitHub REST API（`git credential fill` 取令牌，未落盘、未打印）。
 
@@ -370,7 +372,7 @@
 
 - **合并**：PR #6 `flow-desk/frontend-shell` → `main`，合并提交 `2993a2a`，`merge_method=merge`（与 PR #5 的风格一致）；合并前分支头 `a7aa41f` 上 `backend-verify` / `frontend-verify` / `core-e2e` 三个 job 全绿。
 - **同步**：本地切回 `main` 并 `git pull --ff-only` 快进到 `2993a2a`，与 `origin/main` 一致。
-- **下一分支**：`flow-desk/dynamic-rbac`（第 3 步「系统业务：完整动态 RBAC」），从最新 `main` 创建，**尚未推送**——按仓库惯例，推送发生在该阶段完成检查、准备合并时。
+- **分支交接记录**：完整证据 docs/acceptance/stage2-handoff-20260929.json；合并与本地同步结果 docs/acceptance/stage2-git-handoff-20260929.json。
 - **环境事实**：本机 `gh` 未登录，本次建 PR 与合并都通过 GitHub REST API 完成，用的是 push 已使用的同一份 git 凭据（`git credential fill`），令牌未落盘、未打印；以后要在命令行直接建 PR / 合并，先在本机执行一次 `gh auth login`。
 - **开工前置**：第 3 步的阶段设计（任务拆分、切片顺序、`V5` 迁移内容、保护规则、会话撤销与审计、验收标准）尚未产出，需先集中确认再动代码。
 
@@ -492,7 +494,7 @@
 
 - **合并请求**：PR #5 `flow-desk/auth-foundation` → `main`（7 个提交、123 个文件、+5833/−585），CI 三个 job 全绿。
 - **合并与同步**：合并提交 `5c6cca0`；本地 `main` 仅快进拉取后与 `origin/main` 一致。
-- **下一分支**：已从最新 `main` 创建 `flow-desk/employee-ticket-flow`；按仓库惯例，推送发生在阶段 2 完成检查、准备合并时。
+- **分支交接记录**：完整证据 docs/acceptance/stage2-handoff-20260929.json；合并与本地同步结果 docs/acceptance/stage2-git-handoff-20260929.json。
 - **说明**：PR 中包含 2026-09-07～09-09 的三条 IAM groundwork 提交，那批 IAM 管理代码后来按范围收敛清空重写，历史保留供追溯；阶段 1 的实际成果为 `40a1264`、`e571a5d`、`df80c86` 三条提交。
 - **未开始的工作**：阶段 2（`TASK-020`～`TASK-023-MVP`）尚未动工，开工前先确认接口与数据模型的落地顺序。
 

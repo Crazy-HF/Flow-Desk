@@ -11,7 +11,7 @@
 - **阶段 1 Auth 身份入口**（`TASK-010`、`TASK-011`）已完成，经 PR #5 合并 `main`。
 - **前端外壳与页面骨架**已完成，经 PR #6 合并 `main`。
 - **第 3 步 完整动态 RBAC**（`TASK-055`～`TASK-062`，本文件 9.1）已完成：后端四组接口与用户管理八个端点、`V5` 迁移、管理端五页（角色 / 权限 / 用户角色授权 / 角色权限授权 / 用户管理）、`frontend/src/views/admin/` 页面与真实闭环 E2E 全部交付；验收标准第 4 条的四条手工真实栈链路已于 2026-09-28 在 `local` profile 真实栈上执行并通过（逐条 `traceId` 见 `docs/modules/rbac.md` 11.2），经 PR #8 合并 `main`（合并提交 `f15468c`）。
-- **当前阶段：阶段 2 员工创建与查询已验收通过、本次完整交接已授权**（`TASK-020`～`TASK-023-MVP`），分支 `flow-desk/ticket-employee-flow`。最终证据 `docs/acceptance/stage2-closeout-20260929.json`。下一大步骤为阶段 3 IT 处理闭环（第 7 节），尚未开工。
+- **当前阶段：阶段 2 员工创建与查询已验收通过并经 PR #9 合并 main；下一分支 flow-desk/ticket-it-flow 已准备**（`TASK-020`～`TASK-023-MVP`），已交接分支 `flow-desk/ticket-employee-flow`。最终证据 `docs/acceptance/stage2-closeout-20260929.json`。下一大步骤为阶段 3 IT 处理闭环（第 7 节），尚未开工。
 - 第 1 节原先"不提供角色、权限及授权关系的在线 CRUD"这一表述已被 2026-09-21 的确认取代：三种内置角色仍是权限基线，同时在 9.1 范围内开放了动态 RBAC 与用户管理的在线维护。
 
 ## 2. 两个版本的边界
