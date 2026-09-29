@@ -22,6 +22,9 @@ public class CategoryController {
         this.categoryService = categoryService;
     }
 
+    /**
+     * 获取分类选项。
+     */
     @GetMapping("/options")
     @PreAuthorize("hasAnyAuthority('TICKET_CREATE', 'TICKET_PROCESS')")
     public R<List<CategoryOptionResult>> options() {

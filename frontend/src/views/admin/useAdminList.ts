@@ -7,9 +7,15 @@ import type { PageResult } from '@/api/pagination'
 /**
  * 管理端列表的取数状态机：loading / ready / error + 服务端分页。
  *
- * <p>放在 `views/admin/` 而不是新开顶层 `composables/`：它只服务这一层的五个页面，
+ * <p>放在 `views/admin/` 而不是新开顶层 `composables/`：它当初只服务这一层的五个页面，
  * `frontend/AGENTS.md` 要求"判断属于哪个现有分层，不要新开目录"。页面自己持有筛选条件，
  * 通过闭包把当前查询交给 `request`，因此这里不需要知道任何一页的查询字段。</p>
+ *
+ * <p>**2026-09-29 变化**：工单列表（`views/work/TicketListView.vue`）也复用了它和
+ * `useCompactPagination`——两者都不含管理业务，是"查询 + 列表 + 分页"的通用机制。
+ * 因此"只服务管理端五页"这条理由已经失效，正确的位置是共享层。本次没有移动文件：
+ * 当时执行环境里 shell 不可用，`git mv` 无法执行，而新建文件又删不掉旧文件，
+ * 硬做会留下两个同名实现。迁移已登记在 `PROJECT_STATUS.md`，等能执行 Git 时一次做掉。</p>
  */
 export interface AdminListRequest {
   pageNo: number

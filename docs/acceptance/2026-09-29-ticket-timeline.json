@@ -1,0 +1,655 @@
+{
+  "tag": "TL3798a4a604",
+  "baseline": "3\t5\t5\t0\t0\t0\t3\t14",
+  "checks": [
+    {
+      "method": "POST",
+      "path": "/fd/v1/auth/login",
+      "status": 200,
+      "code": "OK",
+      "traceId": "4a30b9f5-3178-4bd7-be80-adfe26e4eda7",
+      "expected": 200
+    },
+    {
+      "method": "POST",
+      "path": "/fd/v1/auth/login",
+      "status": 200,
+      "code": "OK",
+      "traceId": "e5ed7514-cde6-49df-afcd-f6b3f7ebd5f7",
+      "expected": 200
+    },
+    {
+      "method": "POST",
+      "path": "/fd/v1/auth/login",
+      "status": 200,
+      "code": "OK",
+      "traceId": "e01cb709-96d1-44c8-b325-02ace028f2c4",
+      "expected": 200
+    },
+    {
+      "method": "POST",
+      "path": "/fd/v1/auth/login",
+      "status": 200,
+      "code": "OK",
+      "traceId": "4d0148f3-0250-4655-8a72-3166862042a0",
+      "expected": 200
+    },
+    {
+      "method": "POST",
+      "path": "/fd/v1/auth/login",
+      "status": 200,
+      "code": "OK",
+      "traceId": "34575299-069e-4b23-8966-1356175aca51",
+      "expected": 200
+    },
+    {
+      "method": "POST",
+      "path": "/fd/v1/auth/login",
+      "status": 200,
+      "code": "OK",
+      "traceId": "71a6930c-ac8e-43a3-be8c-da3d1d642baf",
+      "expected": 200
+    },
+    {
+      "method": "POST",
+      "path": "/fd/v1/admin/categories",
+      "status": 201,
+      "code": "OK",
+      "traceId": "27403819-a643-4b80-aef8-e2335e1f896b",
+      "expected": 201
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-assigned/records",
+      "status": 200,
+      "code": "OK",
+      "traceId": "4bbe4a73-42f6-4635-82c0-1a63c619a67f",
+      "expected": 200
+    },
+    {
+      "assertion": "default page envelope",
+      "passed": true
+    },
+    {
+      "assertion": "sequence order despite timestamps/insert order",
+      "passed": true
+    },
+    {
+      "assertion": "context whitelist CREATE",
+      "passed": true
+    },
+    {
+      "assertion": "actor summary CREATE",
+      "passed": true
+    },
+    {
+      "assertion": "UTC timestamp CREATE",
+      "passed": true
+    },
+    {
+      "assertion": "context whitelist CLAIM",
+      "passed": true
+    },
+    {
+      "assertion": "actor summary CLAIM",
+      "passed": true
+    },
+    {
+      "assertion": "UTC timestamp CLAIM",
+      "passed": true
+    },
+    {
+      "assertion": "context whitelist PROCESS",
+      "passed": true
+    },
+    {
+      "assertion": "actor summary PROCESS",
+      "passed": true
+    },
+    {
+      "assertion": "UTC timestamp PROCESS",
+      "passed": true
+    },
+    {
+      "assertion": "context whitelist REQUESTER_SUPPLEMENT",
+      "passed": true
+    },
+    {
+      "assertion": "actor summary REQUESTER_SUPPLEMENT",
+      "passed": true
+    },
+    {
+      "assertion": "UTC timestamp REQUESTER_SUPPLEMENT",
+      "passed": true
+    },
+    {
+      "assertion": "context whitelist CATEGORY_CHANGE",
+      "passed": true
+    },
+    {
+      "assertion": "actor summary CATEGORY_CHANGE",
+      "passed": true
+    },
+    {
+      "assertion": "UTC timestamp CATEGORY_CHANGE",
+      "passed": true
+    },
+    {
+      "assertion": "context whitelist PRIORITY_CHANGE",
+      "passed": true
+    },
+    {
+      "assertion": "actor summary PRIORITY_CHANGE",
+      "passed": true
+    },
+    {
+      "assertion": "UTC timestamp PRIORITY_CHANGE",
+      "passed": true
+    },
+    {
+      "assertion": "context whitelist TRANSFER",
+      "passed": true
+    },
+    {
+      "assertion": "actor summary TRANSFER",
+      "passed": true
+    },
+    {
+      "assertion": "UTC timestamp TRANSFER",
+      "passed": true
+    },
+    {
+      "assertion": "context whitelist ADMIN_HANDOFF",
+      "passed": true
+    },
+    {
+      "assertion": "actor summary ADMIN_HANDOFF",
+      "passed": true
+    },
+    {
+      "assertion": "UTC timestamp ADMIN_HANDOFF",
+      "passed": true
+    },
+    {
+      "assertion": "context whitelist SUPPLEMENT_REQUEST",
+      "passed": true
+    },
+    {
+      "assertion": "actor summary SUPPLEMENT_REQUEST",
+      "passed": true
+    },
+    {
+      "assertion": "UTC timestamp SUPPLEMENT_REQUEST",
+      "passed": true
+    },
+    {
+      "assertion": "context whitelist RESOLUTION",
+      "passed": true
+    },
+    {
+      "assertion": "actor summary RESOLUTION",
+      "passed": true
+    },
+    {
+      "assertion": "UTC timestamp RESOLUTION",
+      "passed": true
+    },
+    {
+      "assertion": "context whitelist SUPPLEMENT_REQUEST_WITHDRAWN",
+      "passed": true
+    },
+    {
+      "assertion": "actor summary SUPPLEMENT_REQUEST_WITHDRAWN",
+      "passed": true
+    },
+    {
+      "assertion": "UTC timestamp SUPPLEMENT_REQUEST_WITHDRAWN",
+      "passed": true
+    },
+    {
+      "assertion": "context whitelist UNSATISFIED_FEEDBACK",
+      "passed": true
+    },
+    {
+      "assertion": "actor summary UNSATISFIED_FEEDBACK",
+      "passed": true
+    },
+    {
+      "assertion": "UTC timestamp UNSATISFIED_FEEDBACK",
+      "passed": true
+    },
+    {
+      "assertion": "context whitelist CANCELLATION",
+      "passed": true
+    },
+    {
+      "assertion": "actor summary CANCELLATION",
+      "passed": true
+    },
+    {
+      "assertion": "UTC timestamp CANCELLATION",
+      "passed": true
+    },
+    {
+      "assertion": "context whitelist COMPLETION",
+      "passed": true
+    },
+    {
+      "assertion": "actor summary COMPLETION",
+      "passed": true
+    },
+    {
+      "assertion": "UTC timestamp COMPLETION",
+      "passed": true
+    },
+    {
+      "assertion": "context whitelist CLOSURE",
+      "passed": true
+    },
+    {
+      "assertion": "actor summary CLOSURE",
+      "passed": true
+    },
+    {
+      "assertion": "UTC timestamp CLOSURE",
+      "passed": true
+    },
+    {
+      "assertion": "system actor preserved by left join",
+      "passed": true
+    },
+    {
+      "assertion": "null context fields omitted",
+      "passed": true
+    },
+    {
+      "assertion": "minimal records no internal IDs",
+      "passed": true
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-assigned/records?page=1&size=5",
+      "status": 200,
+      "code": "OK",
+      "traceId": "c22a2807-7fa4-4ce3-a72b-aba02340ba87",
+      "expected": 200
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-assigned/records?page=2&size=5",
+      "status": 200,
+      "code": "OK",
+      "traceId": "a5f064cb-843e-4e3a-ad66-f8b7c8f8f1ec",
+      "expected": 200
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-assigned/records?page=3&size=5",
+      "status": 200,
+      "code": "OK",
+      "traceId": "e334bd2d-084b-4ea7-ba9a-35a3eda7e84c",
+      "expected": 200
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-assigned/records?page=4&size=5",
+      "status": 200,
+      "code": "OK",
+      "traceId": "0a25f898-9346-4298-9183-034b8f9cdfa0",
+      "expected": 200
+    },
+    {
+      "assertion": "paginated no skips or duplicates",
+      "passed": true
+    },
+    {
+      "assertion": "last page size",
+      "passed": true
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-assigned/records?page=10&size=5",
+      "status": 200,
+      "code": "OK",
+      "traceId": "126e1eac-877a-4107-a85f-a856e9a9255e",
+      "expected": 200
+    },
+    {
+      "assertion": "beyond page empty",
+      "passed": true
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-empty/records",
+      "status": 200,
+      "code": "OK",
+      "traceId": "f89f5aa3-2fce-452d-8c8e-d55001dfa986",
+      "expected": 200
+    },
+    {
+      "assertion": "accessible empty timeline returns 200",
+      "passed": true
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-assigned/records",
+      "status": 200,
+      "code": "OK",
+      "traceId": "4747a0d8-f365-456e-9525-ab5d7a1fb082",
+      "expected": 200
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-history/records",
+      "status": 200,
+      "code": "OK",
+      "traceId": "aad88880-c5ac-40e1-a8ec-96235f1b4ecf",
+      "expected": 200
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-pending/records",
+      "status": 200,
+      "code": "OK",
+      "traceId": "1c877bf2-2439-42cb-bccc-40c2c6f6f3e4",
+      "expected": 200
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-unrelated/records",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "55de83d9-f6ef-48f4-8e77-04b4f56cd24b",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-empty/records",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "30c08f4a-be48-49ca-a0fa-0678e0ca15bb",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-history/records",
+      "status": 200,
+      "code": "OK",
+      "traceId": "6a9bd0a4-4794-4742-be2f-3626eaf2fa33",
+      "expected": 200
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-pending/records",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "920cc627-cb93-4ddb-b60f-2044060c3d8b",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-assigned/records",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "a5394dbd-55f1-4fb3-b752-7325835d83bd",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-history/records",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "b538563b-6d05-4cb4-9e6b-8a9009043b04",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-pending/records",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "78333998-d89e-4d2c-9c9a-7d427766b590",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-empty/records",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "ac9300d4-dbf0-4b78-b728-9d42d4f29ab1",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-missing/records",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "9ed00487-c5f1-4cee-84dc-939d5be889b6",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-assigned/records",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "bd78fb83-3ad2-4acf-a865-e60f05f59e95",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-history/records",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "b2ae2c85-319f-4c98-b688-dabf13f73ece",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-pending/records",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "6bdc1e3a-8268-4b30-b0e2-f31bdd5eb073",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-empty/records",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "f29e2e59-fe20-4165-8152-74eafb45d5db",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-missing/records",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "2c65848d-c753-4cd8-a221-eb654478c27c",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-assigned/records",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "b7c7dde9-55b8-4eb7-9677-46f5d8aef426",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-history/records",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "1bfa77dc-1ad5-409d-b8ed-d1516b57ca64",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-pending/records",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "7cd1e0f4-b7e3-4bc3-b17c-7ec1b6c498f1",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-empty/records",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "4acdbddd-66f4-4506-b392-33164fb1e22a",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-missing/records",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "9463ba10-4abf-47b4-be06-aad687b9258b",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-missing/records",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "5257a6ee-1eaa-4d79-861d-5195cfb7d5a1",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-missing/records",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "15a486f8-d67f-4028-907c-92be07ca6673",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-missing/records",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "4f7202f2-69bf-447b-9188-2a3024c9308a",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-assigned/records",
+      "status": 401,
+      "code": "AUTH_REQUIRED",
+      "traceId": "bfc32677-885f-4145-b3d7-b4a9f9b2eb2f",
+      "expected": 401
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-assigned/records?userId=1&requesterId=1&ticketId=46",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "26801153-445d-498a-b92c-446bccfaeb6e",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-assigned/records?page=0",
+      "status": 400,
+      "code": "VALIDATION_FAILED",
+      "traceId": "b2829912-61c4-4cae-a3c9-76b7e3179dff",
+      "expected": 400
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-assigned/records?size=0",
+      "status": 400,
+      "code": "VALIDATION_FAILED",
+      "traceId": "0004f5d8-c878-4845-9584-d2ba3a0b88f3",
+      "expected": 400
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-assigned/records?size=101",
+      "status": 400,
+      "code": "VALIDATION_FAILED",
+      "traceId": "daad109f-89bd-4056-826d-ee746bf5cda9",
+      "expected": 400
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-assigned/records?page=bad",
+      "status": 400,
+      "code": "VALIDATION_FAILED",
+      "traceId": "3a7018c1-6824-4cc4-83a9-cc7366c95ba9",
+      "expected": 400
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-assigned/records?size=bad",
+      "status": 400,
+      "code": "VALIDATION_FAILED",
+      "traceId": "89f289fd-e35f-4a9d-ac3a-6e1e0bc0f260",
+      "expected": 400
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-assigned/records?orderBy=id",
+      "status": 400,
+      "code": "VALIDATION_FAILED",
+      "traceId": "b6a4a2b3-5550-4ca1-9bff-f16803c0501b",
+      "expected": 400
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-assigned/records?orderDirection=desc",
+      "status": 400,
+      "code": "VALIDATION_FAILED",
+      "traceId": "cf0a01d5-6178-460c-9d40-93103ed686b5",
+      "expected": 400
+    },
+    {
+      "method": "POST",
+      "path": "/fd/v1/admin/categories/20/actions/disable",
+      "status": 200,
+      "code": "OK",
+      "traceId": "65594493-e2ee-4b5b-a7d3-67465cf53685",
+      "expected": 200
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/TL3798a4a604-assigned/records",
+      "status": 200,
+      "code": "OK",
+      "traceId": "16e7c473-fbdf-49f8-b054-60f67ce35e3c",
+      "expected": 200
+    },
+    {
+      "assertion": "disabled category timeline readable",
+      "passed": true
+    },
+    {
+      "assertion": "daily numbering unchanged",
+      "passed": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/fd/v1/admin/categories/20?version=1",
+      "status": 200,
+      "code": "OK",
+      "traceId": "612ed34d-7ab3-4f24-8a6f-87fce1db2e77",
+      "expected": 200
+    },
+    {
+      "assertion": "temporary Redis session cleaned 21",
+      "passed": true
+    },
+    {
+      "assertion": "temporary Redis session cleaned 22",
+      "passed": true
+    },
+    {
+      "assertion": "temporary Redis session cleaned 23",
+      "passed": true
+    },
+    {
+      "assertion": "all SQL baseline counts restored",
+      "passed": true
+    }
+  ],
+  "failures": []
+}

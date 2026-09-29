@@ -25,6 +25,9 @@ public record AuthSession(
         Instant createdAt,
         Instant expiresAt
 ) {
+    /**
+     *
+     */
     public AuthSession withRefreshDigest(String refreshDigest) {
         return new AuthSession(
                 sessionId, userId, username, refreshDigest,

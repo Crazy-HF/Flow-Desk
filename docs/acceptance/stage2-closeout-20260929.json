@@ -1,0 +1,96 @@
+{
+  "stage": "Stage 2 closeout",
+  "result": "PASS",
+  "finishedAt": "2026-09-29T17:29:32.0153616+08:00",
+  "branch": "flow-desk/ticket-employee-flow",
+  "head": "6fa50d57a0a770873c4de3a86d777d4252f769cf",
+  "provenance": "Aggregate of successful script gates and affected gate reruns; original failed script run remains unchanged. Backend and unit tests unchanged after their passing run; CSS required lint/build/full E2E reruns.",
+  "steps": [
+    {
+      "name": "后端 clean verify",
+      "ok": true,
+      "exitCode": 0,
+      "source": "stage2-acceptance-20260929170146.json",
+      "sourceFinishedAt": "2026-09-29T17:10:29"
+    },
+    {
+      "name": "前端 typecheck",
+      "ok": true,
+      "exitCode": 0,
+      "source": "stage2-acceptance-20260929170146.json",
+      "sourceFinishedAt": "2026-09-29T17:10:29"
+    },
+    {
+      "name": "前端 lint（含 stylelint 六轴闸门）",
+      "ok": true,
+      "exitCode": 0,
+      "source": "stage2-acceptance-20260929170146.json",
+      "sourceFinishedAt": "2026-09-29T17:10:29"
+    },
+    {
+      "name": "前端 build",
+      "ok": true,
+      "exitCode": 0,
+      "source": "stage2-acceptance-20260929170146.json",
+      "sourceFinishedAt": "2026-09-29T17:10:29"
+    },
+    {
+      "name": "前端单测",
+      "ok": true,
+      "exitCode": 0,
+      "source": "stage2-acceptance-20260929170146.json",
+      "sourceFinishedAt": "2026-09-29T17:10:29"
+    },
+    {
+      "name": "Full lint after CSS fix",
+      "ok": true,
+      "exitCode": 0,
+      "source": "stage2-final-lint.log"
+    },
+    {
+      "name": "Build and typecheck after CSS fix",
+      "ok": true,
+      "exitCode": 0,
+      "source": "stage2-final-build.log"
+    },
+    {
+      "name": "Full E2E",
+      "ok": true,
+      "exitCode": 0,
+      "passed": 15,
+      "source": "stage2-final-e2e.log"
+    },
+    {
+      "name": "Final evidence-only E2E and scoped eslint",
+      "ok": true,
+      "exitCode": 0,
+      "passed": 2,
+      "source": "stage2-ticket-e2e.log"
+    }
+  ],
+  "counts": {
+    "backendIntegration": 88,
+    "focusedFinalE2E": 2,
+    "backendUnitWeb": 394,
+    "fullE2E": 15,
+    "frontendUnit": 124
+  },
+  "ticketEvidence": "../../.ui-craft/reviews/2026-09-29-tickets/runtime-evidence.json",
+  "categoryEvidence": "../../.ui-craft/reviews/2026-09-29-tickets/category-runtime-evidence.json",
+  "cleanupEvidence": "stage2-cleanup-evidence.json",
+  "screenshots": [
+    "category-list-1440.png",
+    "category-list-375.png",
+    "ticket-create-1440.png",
+    "ticket-create-375.png",
+    "ticket-detail-1440.png",
+    "ticket-detail-375.png",
+    "ticket-isolation-404.png",
+    "ticket-list-1440.png",
+    "ticket-list-375.png",
+    "ticket-list-searched-1440.png"
+  ],
+  "screenshotsViewed": true,
+  "gitActionsExecuted": [],
+  "nextStage": "Stage 3 IT claim, process, solve, requester confirm; not started"
+}

@@ -83,7 +83,6 @@ public class CategoryServiceImpl implements CategoryService {
         return ticketCategoryMapper.selectCount(wrapper) > 0;
     }
 
-
     /**
      * 分页查询分类。
      */
@@ -173,8 +172,8 @@ public class CategoryServiceImpl implements CategoryService {
         String name = normalizeName(request.name());
         validateSortOrder(request.sortOrder());
 
-        //2.根据Id锁定当前分类行
-        TicketCategory category = ticketCategoryMapper.selectByIdForUpdate(categoryId);
+        // 2. 锁定分类；不存在时返回 404。
+        TicketCategory category = requireCategoryForUpdate(categoryId);
 
         //3.判断分类是否存在
         checkVersion(category, request.version());

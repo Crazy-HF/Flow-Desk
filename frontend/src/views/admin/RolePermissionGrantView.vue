@@ -18,9 +18,15 @@ import type { PermissionDetail, RoleDetail, RolePermissionGrant } from '@/api/rb
 import AdminListPanel from '@/components/AdminListPanel.vue'
 import AppPage from '@/components/AppPage.vue'
 import EmptyState from '@/components/EmptyState.vue'
-import { isProtectedPermission, isProtectedRole } from '@/constants/authorization'
+import {
+  isProtectedPermission,
+  isProtectedRole,
+  PROTECTED_PERMISSION_CODE,
+  PROTECTED_ROLE_CODE,
+} from '@/constants/authorization'
 import { formatDateTime } from '@/utils/format'
 import { useAdminList } from './useAdminList'
+import { useCompactPagination } from './useCompactPagination'
 
 /**
  * 角色权限授权（`docs/api-design.md` 8.2.1，`TASK-060`）。
@@ -29,6 +35,7 @@ import { useAdminList } from './useAdminList'
  * 权限选择器按 `keyword` 检索编码或名称，权限码搜索因此是远程检索而不是本地过滤。</p>
  */
 const route = useRoute()
+const compactPagination = useCompactPagination()
 
 const subject = ref<RoleDetail | null>(null)
 const subjectOptions = shallowRef<RoleDetail[]>([])
@@ -167,11 +174,12 @@ onMounted(async () => {
 <template>
   <AppPage
     class="admin-page"
-    description="一个角色 × 多个权限的批量增量授予。权限变更后，持有该角色的全部用户会话会立即失效。"
+    description="一个角色可以同时持有多个权限：权限变更后，持有该角色的全部用户需要重新登录。"
+    layout="list"
     title="角色权限授权"
   >
     <section
-      class="admin-filter-card"
+      class="admin-filter-card grant-form"
       aria-label="授予角色权限"
     >
       <div class="admin-filter-fields">
@@ -239,24 +247,24 @@ onMounted(async () => {
           </el-button>
         </div>
       </div>
+
+      <p
+        v-if="grantError"
+        class="admin-error"
+        role="alert"
+      >
+        {{ grantError }}
+      </p>
     </section>
 
-    <p
-      v-if="grantError"
-      class="admin-error"
-      role="alert"
+    <section
+      class="admin-data"
+      aria-label="角色权限授权数据"
     >
-      {{ grantError }}
-    </p>
-
-    <EmptyState
-      v-if="!subject"
-      title="先选择要授权的角色"
-      description="选定角色后，这里会显示它当前持有的权限与每条授权的来源。"
-    />
-
-    <template v-else>
-      <div class="admin-action-bar">
+      <div
+        v-if="subject"
+        class="admin-action-bar"
+      >
         <el-popconfirm
           title="清空后该角色不再有任何权限，持有它的用户会话会失效。确定清空？"
           cancel-button-text="取消"
@@ -270,11 +278,12 @@ onMounted(async () => {
               :disabled="clearsProtectedGrant()"
               :icon="Delete"
               :title="
-                clearsProtectedGrant() ? 'SYSTEM_ADMIN 仍包含 RBAC_MANAGE 时不能清空' : undefined
+                clearsProtectedGrant()
+                  ? `${PROTECTED_ROLE_CODE} 仍持有 ${PROTECTED_PERMISSION_CODE} 时不能清空`
+                  : undefined
               "
-              plain
-              size="small"
               type="danger"
+              plain
             >
               清空全部权限
             </el-button>
@@ -290,15 +299,22 @@ onMounted(async () => {
               :icon="Refresh"
               :loading="retrying"
               aria-label="刷新列表"
-              circle
-              size="small"
+              type="info"
+              plain
               @click="search"
             />
           </el-tooltip>
         </div>
       </div>
 
+      <EmptyState
+        v-if="!subject"
+        description="选定角色后，这里会显示它当前持有的权限与每条授权的来源。"
+        title="先选择要授权的角色"
+      />
+
       <AdminListPanel
+        v-else
         empty-description="允许把角色清空到零权限；SYSTEM_ADMIN 的 RBAC_MANAGE 授权除外。"
         empty-title="该角色当前没有权限"
         :error-message="errorMessage"
@@ -308,6 +324,17 @@ onMounted(async () => {
         :retrying="retrying"
         @retry="search"
       >
+        <template #retry-action>
+          <el-button
+            :icon="Refresh"
+            :loading="retrying"
+            type="primary"
+            @click="search"
+          >
+            重新加载
+          </el-button>
+        </template>
+
         <div class="grant-list">
           <div class="grant-list-head">
             <span>角色</span>
@@ -354,13 +381,15 @@ onMounted(async () => {
                       :disabled="!canRevoke(grant)"
                       :icon="Delete"
                       :title="
-                        canRevoke(grant) ? '撤销授权' : 'SYSTEM_ADMIN 的 RBAC_MANAGE 授权不可撤销'
+                        canRevoke(grant)
+                          ? '撤销授权'
+                          : `${PROTECTED_ROLE_CODE} 的 ${PROTECTED_PERMISSION_CODE} 授权不可撤销`
                       "
                       aria-label="撤销"
-                      circle
                       size="small"
-                      text
                       type="danger"
+                      plain
+                      circle
                     />
                   </template>
                 </el-popconfirm>
@@ -371,21 +400,21 @@ onMounted(async () => {
       </AdminListPanel>
 
       <div
-        v-if="phase === 'ready' && items.length > 0"
+        v-if="subject && phase === 'ready' && items.length > 0"
         class="admin-pagination"
       >
         <el-pagination
           background
           :current-page="pageNo"
-          layout="total, sizes, prev, pager, next, jumper"
+          :layout="compactPagination ? 'total, prev, pager, next' : 'total, sizes, prev, pager, next, jumper'"
+          :pager-count="5"
           :page-size="pageSize"
           :page-sizes="[10, 20, 50]"
-          size="small"
           :total="total"
           @current-change="changePage"
           @size-change="changePageSize"
         />
       </div>
-    </template>
+    </section>
   </AppPage>
 </template>

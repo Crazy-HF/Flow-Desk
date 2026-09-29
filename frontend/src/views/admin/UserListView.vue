@@ -2,7 +2,7 @@
 import { Check, CircleClose, Edit, Key, Plus, Refresh, Search, Share } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
-import { computed, onMounted, onUnmounted, reactive, ref, shallowRef } from 'vue'
+import { computed, onMounted, reactive, ref, shallowRef } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { describeError } from '@/api/errorMessages'
@@ -23,22 +23,19 @@ import ProtectedMark from '@/components/ProtectedMark.vue'
 import { isProtectedRole } from '@/constants/authorization'
 import { useAuthStore } from '@/stores/auth'
 import { useAdminList } from './useAdminList'
+import { useCompactPagination } from './useCompactPagination'
 
 /** 用户管理（`docs/api-design.md` 8.2，`TASK-062`）。 */
 const auth = useAuthStore()
 const router = useRouter()
-const compactPagination = ref(false)
-function syncPagination(): void {
-  compactPagination.value = window.innerWidth <= 832
-}
-onUnmounted(() => window.removeEventListener('resize', syncPagination))
+const compactPagination = useCompactPagination()
 
 /**
  * 列宽。
  *
  * <p>`el-table` 用 `parseInt` 解析 `width` / `min-width`，写成 `7rem` 只会得到 7px，
  * 列会被压扁成一条、行高被逐字换行撑到数百像素（本页首版即如此，已实测修正）。
- * 所以这里给无单位像素数：勾选列 44、标识锚点 200，操作列容纳带文字的 3 个动作取 288。</p>
+ * 所以这里给无单位像素数：勾选列 44、标识锚点 176，操作列容纳 3 个图标按钮取 144。</p>
  */
 const COLUMN = {
   select: 44,
@@ -46,7 +43,7 @@ const COLUMN = {
   name: 144,
   roles: 280,
   status: 96,
-  actions: 288,
+  actions: 144,
 } as const
 
 const keyword = ref('')
@@ -346,8 +343,6 @@ function holdsProtectedRole(row: UserDetail): boolean {
 }
 
 onMounted(() => {
-  syncPagination()
-  window.addEventListener('resize', syncPagination)
   void loadRoleOptions()
   void search()
 })
@@ -424,12 +419,15 @@ onMounted(() => {
         <div class="admin-filter-actions">
           <el-button
             :icon="Search"
+            type="primary"
             @click="search"
           >
             查询
           </el-button>
           <el-button
             :icon="Refresh"
+            type="info"
+            plain
             @click="resetFilters"
           >
             重置
@@ -453,6 +451,8 @@ onMounted(() => {
         <el-button
           :disabled="!selectedOne"
           :icon="Edit"
+          type="success"
+          plain
           @click="selectedOne && openEdit(selectedOne)"
         >
           编辑
@@ -473,6 +473,7 @@ onMounted(() => {
             <el-button
               :disabled="!selectedOne"
               :icon="selectedOne?.status === 'ENABLED' ? CircleClose : Check"
+              :type="selectedOne?.status === 'DISABLED' ? 'success' : 'danger'"
               plain
             >
               {{ statusActionLabel }}
@@ -482,6 +483,7 @@ onMounted(() => {
         <el-button
           :disabled="!selectedOne"
           :icon="Key"
+          type="warning"
           plain
           @click="selectedOne && openReset(selectedOne)"
         >
@@ -496,6 +498,8 @@ onMounted(() => {
             <el-button
               :icon="Refresh"
               :loading="retrying"
+              type="info"
+              plain
               aria-label="刷新列表"
               @click="search"
             />
@@ -513,6 +517,16 @@ onMounted(() => {
         :retrying="retrying"
         @retry="search"
       >
+        <template #retry-action>
+          <el-button
+            :icon="Refresh"
+            :loading="retrying"
+            type="primary"
+            @click="search"
+          >
+            重新加载
+          </el-button>
+        </template>
         <el-table
           :data="items"
           row-key="id"
@@ -611,11 +625,11 @@ onMounted(() => {
                     :icon="Edit"
                     aria-label="编辑资料"
                     size="small"
-                    text
+                    type="success"
+                    plain
+                    circle
                     @click="openEdit(row)"
-                  >
-                    编辑
-                  </el-button>
+                  />
                 </el-tooltip>
                 <el-tooltip
                   content="重置密码"
@@ -625,11 +639,11 @@ onMounted(() => {
                     :icon="Key"
                     aria-label="重置密码"
                     size="small"
-                    text
+                    type="warning"
+                    plain
+                    circle
                     @click="openReset(row)"
-                  >
-                    重置密码
-                  </el-button>
+                  />
                 </el-tooltip>
                 <el-tooltip
                   content="角色授权"
@@ -640,11 +654,11 @@ onMounted(() => {
                     :icon="Share"
                     aria-label="角色授权"
                     size="small"
-                    text
+                    type="primary"
+                    plain
+                    circle
                     @click="openGrants(row)"
-                  >
-                    角色授权
-                  </el-button>
+                  />
                 </el-tooltip>
               </div>
             </template>
@@ -755,11 +769,17 @@ onMounted(() => {
       </el-form>
 
       <template #footer>
-        <el-button @click="createVisible = false">
+        <el-button
+          :icon="CircleClose"
+          type="info"
+          plain
+          @click="createVisible = false"
+        >
           取消
         </el-button>
         <el-button
           :loading="creating"
+          :icon="Plus"
           type="primary"
           @click="submitCreate"
         >
@@ -806,11 +826,17 @@ onMounted(() => {
       </el-form>
 
       <template #footer>
-        <el-button @click="editing = null">
+        <el-button
+          :icon="CircleClose"
+          type="info"
+          plain
+          @click="editing = null"
+        >
           取消
         </el-button>
         <el-button
           :loading="saving"
+          :icon="Check"
           type="primary"
           @click="submitEdit"
         >
@@ -870,12 +896,18 @@ onMounted(() => {
       </el-form>
 
       <template #footer>
-        <el-button @click="resetting = null">
+        <el-button
+          :icon="CircleClose"
+          type="info"
+          plain
+          @click="resetting = null"
+        >
           取消
         </el-button>
         <el-button
           :loading="resettingPassword"
-          type="primary"
+          :icon="Key"
+          type="warning"
           @click="submitReset"
         >
           重置

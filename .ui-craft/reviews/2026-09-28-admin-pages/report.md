@@ -44,7 +44,7 @@
 | `vitest run --maxWorkers=1`（= `pnpm test:unit --run`） | **17 套件 74 项全绿**，退出码 0 |
 | `vite build`（= `pnpm build`） | 退出码 **0**；`dist/assets/index-*.js` 1148.70 kB / gzip 366.97 kB，仅有既有的大 chunk 提示 |
 | `playwright test`（= `pnpm test:e2e`，真实栈） | **13 项全绿**，23.9s，退出码 0 |
-| `node .ui-craft/reviews/2026-09-28-admin-pages/capture.mjs` | 采集 19 张截图 + 布局探针，退出码 0；采集脚本留在本机工作区，本次同步报告、探针结果及截图 |
+| `node .ui-craft/reviews/2026-09-28-admin-pages/capture.mjs` | 采集 19 张截图 + 布局探针，退出码 0；采集脚本、报告、探针结果及截图纳入 2026-09-29 完整交接 |
 
 > 说明：本会话 `pnpm` 本身无法启动（`pnpm.mjs` 的 Windows shim 解析失败），因此上表的 pnpm 脚本按其
 > `package.json` 中的等价命令，用 `node node_modules/...` 直接执行；`pnpm typecheck` = `vue-tsc -b`、

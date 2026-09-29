@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class TicketReadPermissionAdapter implements TicketReadPermissionPort {
 
+    /** 判断当前请求是否具有指定的业务权限。 */
     @Override
     public boolean hasAuthority(String authority) {
         Authentication authentication =

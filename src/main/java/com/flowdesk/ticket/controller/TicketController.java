@@ -3,7 +3,10 @@ package com.flowdesk.ticket.controller;
 import com.flowdesk.common.web.R;
 import com.flowdesk.common.web.PageResult;
 import com.flowdesk.ticket.application.query.TicketQuery;
+import com.flowdesk.ticket.application.query.TicketRecordQuery;
+import com.flowdesk.ticket.application.result.TicketRecordResult;
 import com.flowdesk.ticket.application.result.TicketListItemResult;
+import com.flowdesk.ticket.application.result.TicketDetailResult;
 import com.flowdesk.ticket.application.service.TicketQueryService;
 import com.flowdesk.ticket.application.command.CreateTicketCommand;
 import com.flowdesk.ticket.application.result.TicketCreatedResult;
@@ -16,6 +19,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
@@ -47,6 +51,20 @@ public class TicketController {
     public R<PageResult<TicketListItemResult>> page(
             @Valid @ModelAttribute TicketQuery query) {
         return R.success(ticketQueryService.page(query));
+    }
+
+    /** 可见性由服务同时校验权限与工单关系，无权与不存在统一返回 404。 */
+    @GetMapping("/{ticketNo}")
+    public R<TicketDetailResult> detail(@PathVariable String ticketNo) {
+        return R.success(ticketQueryService.detail(ticketNo));
+    }
+
+    /** 先由服务校验工单可见性，再分页读取记录。 */
+    @GetMapping("/{ticketNo}/records")
+    public R<PageResult<TicketRecordResult>> records(
+            @PathVariable String ticketNo,
+            @Valid @ModelAttribute TicketRecordQuery query) {
+        return R.success(ticketQueryService.records(ticketNo, query));
     }
 
     /**创建工单*/

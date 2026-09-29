@@ -1,0 +1,819 @@
+{
+  "tag": "DT0d976df2a1",
+  "baseline": "3\t5\t5\t0\t0\t0\t3\t14",
+  "checks": [
+    {
+      "method": "POST",
+      "path": "/fd/v1/auth/login",
+      "status": 200,
+      "code": "OK",
+      "traceId": "ea6d8d84-6062-4d37-838f-5371adc7f7f6",
+      "expected": 200
+    },
+    {
+      "method": "POST",
+      "path": "/fd/v1/auth/login",
+      "status": 200,
+      "code": "OK",
+      "traceId": "5ad780e7-639d-4eb8-b6ae-de5568964a24",
+      "expected": 200
+    },
+    {
+      "method": "POST",
+      "path": "/fd/v1/auth/login",
+      "status": 200,
+      "code": "OK",
+      "traceId": "ccbfd094-bc2c-4be6-ae30-50910f002bc8",
+      "expected": 200
+    },
+    {
+      "method": "POST",
+      "path": "/fd/v1/auth/login",
+      "status": 200,
+      "code": "OK",
+      "traceId": "7b4e7ff2-1f2f-4a12-b5a2-1e24fce5adb3",
+      "expected": 200
+    },
+    {
+      "method": "POST",
+      "path": "/fd/v1/auth/login",
+      "status": 200,
+      "code": "OK",
+      "traceId": "063345c4-f27b-4920-ba26-62305757960e",
+      "expected": 200
+    },
+    {
+      "method": "POST",
+      "path": "/fd/v1/auth/login",
+      "status": 200,
+      "code": "OK",
+      "traceId": "a621ebac-b84a-4cf2-b432-e4be943606a2",
+      "expected": 200
+    },
+    {
+      "method": "POST",
+      "path": "/fd/v1/auth/login",
+      "status": 200,
+      "code": "OK",
+      "traceId": "a119ea9f-36a4-4217-8710-b115f856c554",
+      "expected": 200
+    },
+    {
+      "method": "POST",
+      "path": "/fd/v1/admin/categories",
+      "status": 201,
+      "code": "OK",
+      "traceId": "5f9a8c0a-2259-400f-bd67-26ec0c65f96f",
+      "expected": 201
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-pending",
+      "status": 200,
+      "code": "OK",
+      "traceId": "523edfb6-072c-4e08-a677-0d219356a5bc",
+      "expected": 200
+    },
+    {
+      "assertion": "pending full content / fixed fields",
+      "passed": true
+    },
+    {
+      "assertion": "pending no internal fields",
+      "passed": true
+    },
+    {
+      "assertion": "pending UTC dates",
+      "passed": true
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-pending",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "d8b6a88c-d9a7-4ab0-bb4b-96a5245b2dc8",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-pending",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "fb20348d-6ca4-4a95-8d83-e10b968847a0",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-pending",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "3ec159d0-f5c2-4eb2-9d7a-9e55b582c1a0",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-pending",
+      "status": 401,
+      "code": "AUTH_REQUIRED",
+      "traceId": "87a24dfb-e477-490d-bd83-56a402534a94",
+      "expected": 401
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-processing",
+      "status": 200,
+      "code": "OK",
+      "traceId": "ecb73951-5557-4d92-9ed1-9adf3f9a77e8",
+      "expected": 200
+    },
+    {
+      "assertion": "processing full content / fixed fields",
+      "passed": true
+    },
+    {
+      "assertion": "processing no internal fields",
+      "passed": true
+    },
+    {
+      "assertion": "processing UTC dates",
+      "passed": true
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-processing",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "5fdc85ab-1ca9-4797-839f-e5c07652a6be",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-processing",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "92cd5d70-52f8-4c8a-ba23-6ea52f3e7abb",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-processing",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "5def2783-4e38-4d83-a313-25b0fc2c1c27",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-processing",
+      "status": 401,
+      "code": "AUTH_REQUIRED",
+      "traceId": "bc481a25-a40e-49c4-917c-1ddbb52c5ad3",
+      "expected": 401
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-history",
+      "status": 200,
+      "code": "OK",
+      "traceId": "7fc18418-0192-44b9-8642-23f7022a15f8",
+      "expected": 200
+    },
+    {
+      "assertion": "history full content / fixed fields",
+      "passed": true
+    },
+    {
+      "assertion": "history no internal fields",
+      "passed": true
+    },
+    {
+      "assertion": "history UTC dates",
+      "passed": true
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-history",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "c1d63e72-bb9d-414b-83d6-3aa41613b3d8",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-history",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "99c27fcf-cf97-4cc9-a255-e5a500a33555",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-history",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "1a4f7d71-8170-4bdb-b6d1-f8e3c4cfce16",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-history",
+      "status": 401,
+      "code": "AUTH_REQUIRED",
+      "traceId": "16acc62f-d507-4ce5-9278-6f5023a818ab",
+      "expected": 401
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-unrelated",
+      "status": 200,
+      "code": "OK",
+      "traceId": "0b3ff832-effa-4d90-b427-9ea11319a830",
+      "expected": 200
+    },
+    {
+      "assertion": "unrelated full content / fixed fields",
+      "passed": true
+    },
+    {
+      "assertion": "unrelated no internal fields",
+      "passed": true
+    },
+    {
+      "assertion": "unrelated UTC dates",
+      "passed": true
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-unrelated",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "bb663f4f-1fc1-4d6c-9540-1cfd720d58a4",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-unrelated",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "b50d144b-8e8f-419d-9b20-fb34eb719984",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-unrelated",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "9e265167-173d-4f13-ade4-63eb8c6d416b",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-unrelated",
+      "status": 401,
+      "code": "AUTH_REQUIRED",
+      "traceId": "ac815540-606a-476e-88a0-c1419f83573d",
+      "expected": 401
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-waitSupplement",
+      "status": 200,
+      "code": "OK",
+      "traceId": "62fe96eb-3e88-4d15-8a8d-77d26d85265d",
+      "expected": 200
+    },
+    {
+      "assertion": "waitSupplement full content / fixed fields",
+      "passed": true
+    },
+    {
+      "assertion": "waitSupplement no internal fields",
+      "passed": true
+    },
+    {
+      "assertion": "waitSupplement UTC dates",
+      "passed": true
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-waitSupplement",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "e1b27bfb-2141-411e-b65c-f0bdd652afd0",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-waitSupplement",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "7e667824-77b2-437b-9fc9-d4437480d743",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-waitSupplement",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "095d933c-7803-4d37-a04e-c139dce4b9ce",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-waitSupplement",
+      "status": 401,
+      "code": "AUTH_REQUIRED",
+      "traceId": "d2565bb0-7552-4c3c-8e19-76440299d1da",
+      "expected": 401
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-waitConfirm",
+      "status": 200,
+      "code": "OK",
+      "traceId": "a962a9d7-c8b0-407b-a672-9078eb5e3016",
+      "expected": 200
+    },
+    {
+      "assertion": "waitConfirm full content / fixed fields",
+      "passed": true
+    },
+    {
+      "assertion": "waitConfirm no internal fields",
+      "passed": true
+    },
+    {
+      "assertion": "waitConfirm UTC dates",
+      "passed": true
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-waitConfirm",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "177c836b-0e4a-42f5-9fd5-57114a218ab2",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-waitConfirm",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "b5ac89d2-32e5-483c-83d4-b205f3f72547",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-waitConfirm",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "06b78be3-b248-4567-ae3c-055c352b8726",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-waitConfirm",
+      "status": 401,
+      "code": "AUTH_REQUIRED",
+      "traceId": "b02fd019-a93f-4db3-8a39-b565e22849db",
+      "expected": 401
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-completed",
+      "status": 200,
+      "code": "OK",
+      "traceId": "c60c4dcf-f167-408b-9963-62d6dcc5eba6",
+      "expected": 200
+    },
+    {
+      "assertion": "completed full content / fixed fields",
+      "passed": true
+    },
+    {
+      "assertion": "completed no internal fields",
+      "passed": true
+    },
+    {
+      "assertion": "completed UTC dates",
+      "passed": true
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-completed",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "a20d7ccc-ecf0-434d-bf55-7d84c857bbf7",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-completed",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "aba35283-a530-4c4c-b748-695d3e7c2c22",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-completed",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "66ea9014-40d1-4a50-bdd9-594065faa86e",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-completed",
+      "status": 401,
+      "code": "AUTH_REQUIRED",
+      "traceId": "98b5761b-6993-4edd-ae38-dcf464d46fb9",
+      "expected": 401
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-closed",
+      "status": 200,
+      "code": "OK",
+      "traceId": "3f48a342-5407-439b-bced-f6f62cc99791",
+      "expected": 200
+    },
+    {
+      "assertion": "closed full content / fixed fields",
+      "passed": true
+    },
+    {
+      "assertion": "closed no internal fields",
+      "passed": true
+    },
+    {
+      "assertion": "closed UTC dates",
+      "passed": true
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-closed",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "c662bcd2-0c52-484e-b224-a33ba1b4b8a3",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-closed",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "7862efdc-853b-46ca-99a9-ae6ea58c3823",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-closed",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "23a17604-b4c7-414f-a1de-2d7a2fce9446",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-closed",
+      "status": 401,
+      "code": "AUTH_REQUIRED",
+      "traceId": "d4bd7b67-05f5-4175-bf51-9dee92f2e5a7",
+      "expected": 401
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-canceled",
+      "status": 200,
+      "code": "OK",
+      "traceId": "d44fb660-9b1b-46a1-9209-c6aba2e9a5e3",
+      "expected": 200
+    },
+    {
+      "assertion": "canceled full content / fixed fields",
+      "passed": true
+    },
+    {
+      "assertion": "canceled no internal fields",
+      "passed": true
+    },
+    {
+      "assertion": "canceled UTC dates",
+      "passed": true
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-canceled",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "2e4a5ee4-19b1-47dc-903d-e84e3db36689",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-canceled",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "fcde6c0d-adb7-40bb-a8b1-8f017a8228ae",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-canceled",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "a4aab60e-0bb4-4938-950d-028b36d9fa22",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-canceled",
+      "status": 401,
+      "code": "AUTH_REQUIRED",
+      "traceId": "18d10055-b3dc-411e-a799-bdcfe30312e2",
+      "expected": 401
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-pending",
+      "status": 200,
+      "code": "OK",
+      "traceId": "550ca0ca-9ff4-4f29-9535-d341ebbde90f",
+      "expected": 200
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-processing",
+      "status": 200,
+      "code": "OK",
+      "traceId": "4235c50d-1f47-485f-b08f-f701dc2e235e",
+      "expected": 200
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-history",
+      "status": 200,
+      "code": "OK",
+      "traceId": "0dbc6ce0-fa4f-4840-916a-9653812c7bee",
+      "expected": 200
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-completed",
+      "status": 200,
+      "code": "OK",
+      "traceId": "fc470ed6-1f1d-4530-93df-954a60d91be0",
+      "expected": 200
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-closed",
+      "status": 200,
+      "code": "OK",
+      "traceId": "b5c82cd4-695b-47d1-804a-2e2263f7fdc7",
+      "expected": 200
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-waitSupplement",
+      "status": 200,
+      "code": "OK",
+      "traceId": "0650f8bf-0ac2-4af8-a258-c2e2fbd88bb6",
+      "expected": 200
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-waitConfirm",
+      "status": 200,
+      "code": "OK",
+      "traceId": "276f661a-6d4c-44d3-85a0-f6ad848ccee7",
+      "expected": 200
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-unrelated",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "83245200-5586-4c22-a0c6-37f41787a4a3",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-canceled",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "ec1c8c58-27be-4bc1-8eaa-ccf045a8c192",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-pending",
+      "status": 200,
+      "code": "OK",
+      "traceId": "440eeb3d-739b-43bb-a692-a78f70799e0b",
+      "expected": 200
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-unrelated",
+      "status": 200,
+      "code": "OK",
+      "traceId": "0eb19893-718b-4fdd-af5e-286dc34607b2",
+      "expected": 200
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-history",
+      "status": 200,
+      "code": "OK",
+      "traceId": "61fdc01e-6dd2-48e7-b8df-d4f2505d45b7",
+      "expected": 200
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-processing",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "cbe5fc64-618a-49e1-ab35-7c01a108a1ba",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-nonexistent",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "ed45e832-3157-4a29-bf7a-30ae29bb7cbe",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-nonexistent",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "2528af2d-4e90-42ec-a139-59d1b5bf951b",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-nonexistent",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "c97487b1-cf0c-4276-9f65-e0ecc18481d0",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-nonexistent",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "f643c2eb-f499-4460-9558-c8a3e5c821f3",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-nonexistent",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "107961ab-0d63-4e60-9def-626ef2210c24",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-nonexistent",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "fa639802-6688-426e-a8c5-334f79c2c6df",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-nonexistent",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "f8fc32f1-e6bd-43ce-b5ce-a5c46183e7c2",
+      "expected": 404
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-pending",
+      "status": 200,
+      "code": "OK",
+      "traceId": "9e83d2ca-f86c-4ff8-b2a8-0d14eaa26a07",
+      "expected": 200
+    },
+    {
+      "assertion": "pending null assignee and no terminal fields",
+      "passed": true
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-completed",
+      "status": 200,
+      "code": "OK",
+      "traceId": "482954cb-0874-44b8-ad75-96359762ea51",
+      "expected": 200
+    },
+    {
+      "assertion": "completed fields/final assignee",
+      "passed": true
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-closed",
+      "status": 200,
+      "code": "OK",
+      "traceId": "5d1709eb-66f8-48ff-b152-e374158842e6",
+      "expected": 200
+    },
+    {
+      "assertion": "closed fields",
+      "passed": true
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-waitSupplement",
+      "status": 200,
+      "code": "OK",
+      "traceId": "752a4878-2849-4170-a995-e24beec71198",
+      "expected": 200
+    },
+    {
+      "assertion": "waitSupplement current deadline",
+      "passed": true
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-waitConfirm",
+      "status": 200,
+      "code": "OK",
+      "traceId": "8201ec58-a7b6-4936-9998-9cea40bb4abc",
+      "expected": 200
+    },
+    {
+      "assertion": "waitConfirm current deadline",
+      "passed": true
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-processing?userId=1&requesterId=1",
+      "status": 404,
+      "code": "TICKET_NOT_FOUND",
+      "traceId": "36e8057c-7ef7-494e-afc5-b7cfea615c76",
+      "expected": 404
+    },
+    {
+      "method": "POST",
+      "path": "/fd/v1/admin/categories/18/actions/disable",
+      "status": 200,
+      "code": "OK",
+      "traceId": "473ea669-a649-416d-ad96-9057e0790a4f",
+      "expected": 200
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/tickets/DT0d976df2a1-processing",
+      "status": 200,
+      "code": "OK",
+      "traceId": "1e8e766a-65ea-4cf5-a5b7-a98e9fc63cee",
+      "expected": 200
+    },
+    {
+      "assertion": "disabled category retained in detail",
+      "passed": true
+    },
+    {
+      "assertion": "details leave daily numbering unchanged",
+      "passed": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/fd/v1/admin/categories/18?version=1",
+      "status": 200,
+      "code": "OK",
+      "traceId": "5d11ec57-19dd-4095-83f4-f57a47fa9160",
+      "expected": 200
+    },
+    {
+      "assertion": "temp user Redis cleaned 14",
+      "passed": true
+    },
+    {
+      "assertion": "temp user Redis cleaned 15",
+      "passed": true
+    },
+    {
+      "assertion": "temp user Redis cleaned 16",
+      "passed": true
+    },
+    {
+      "assertion": "temp user Redis cleaned 17",
+      "passed": true
+    },
+    {
+      "assertion": "all SQL baseline counts restored",
+      "passed": true
+    }
+  ],
+  "failures": []
+}

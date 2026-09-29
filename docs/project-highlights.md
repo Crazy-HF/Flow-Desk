@@ -342,3 +342,53 @@ Controller → create()（无外层事务）
 ### 2026-09-28 后端提交状态补充
 
 以上幂等设计说明中的计划状态为实施过程记录。当前 ServiceImpl 已实现 TransactionTemplate/REQUIRES_NEW 与唯一键冲突后新事务回查；此前真实栈验收记录见 PROJECT_STATUS.md 步骤③。本轮生产代码编译通过，现有测试因共享 Mock 配置缺少新增 Mapper 而失败，阶段整体仍待完成，不作为全量测试通过的展示证据。
+
+## 查询事务与 @Transactional（2026-09-29）
+
+**最新验收补充（2026-09-29）**：用户已完成详情查询实现；生产编译与真实栈详情 121 项请求/断言通过，0 失败，证据见 `docs/acceptance/2026-09-29-ticket-detail.json`。下方“详情待验收”为写入当时状态；该接口通过不表示事务隔离或驱动优化经过专项实测。
+
+**状态**：工单列表只读事务已实现并通过真实栈接口验收；详情只读事务代码已由用户写入，完整接口验收待执行。以下事务语义是学习与设计说明；未专门验证的隔离/驱动行为不作为实测成果。
+
+### 为什么查询也可能需要事务
+
+分页一般执行两条 SQL：先查总数，再查当前页。如果两条查询之间有并发写入，可能看到不同的数据。MySQL InnoDB 的 REPEATABLE READ 下，同一事务中的普通一致性查询通常复用首次一致性读建立的快照，有助于保持 count 与 items 一致。前提是实际使用该隔离级别与同一事务；READ COMMITTED 下每条一致性查询建立新快照，不能仅凭只读事务保证两条查询一致。
+
+详情目前是一条关联 SQL，不需要额外事务才能保证该语句的一致性；保留只读事务是为了明确查询服务边界与只读意图。以后组合多条查询时，再根据一致性要求决定事务和隔离级别。数据库事务不自动覆盖 Redis 或认证上下文。
+
+### readOnly 的含义
+
+```java
+@Transactional(readOnly = true)
+```
+
+声明事务只用于读取，供 Spring、事务管理器和驱动处理，某些实现可据此优化。它不是通用的写入禁止机制；是否拒绝写 SQL 取决于驱动、数据库和事务管理器配置。它也不等同于隔离级别、不自动禁止并发修改、不保证查询无需锁等待。
+
+### 常用属性
+
+| 属性 | 含义 | 默认值/行为 |
+| --- | --- | --- |
+| readOnly | 声明是否只读 | false |
+| propagation | 与已有事务如何配合 | REQUIRED：已有则加入，否则新建 |
+| isolation | 事务隔离级别 | DEFAULT：由底层数据库决定 |
+| timeout | 事务超时，单位秒 | -1：使用底层默认设置，不是统一的 HTTP 请求超时 |
+| rollbackFor | 指定触发回滚的异常类型 | 默认回滚 RuntimeException 和 Error，受检异常默认不回滚 |
+| noRollbackFor | 指定不触发回滚的异常类型 | 默认无额外排除 |
+
+默认回滚说明适用于当前项目未额外配置全局回滚策略的常规 Spring 事务设置。异常规则可匹配异常及子类；具体规则以最终配置为准。
+
+```java
+@Transactional // 普通读写事务
+@Transactional(readOnly = true) // 声明只读
+@Transactional(rollbackFor = Exception.class) // 包含受检异常的回滚规则
+@Transactional(propagation = Propagation.REQUIRES_NEW) // 独立新事务
+```
+
+其他传播方式：SUPPORTS 有事务就加入、无事务则非事务执行；MANDATORY 必须已有事务；NOT_SUPPORTED 挂起已有事务后非事务执行；NEVER 禁止在已有事务中执行；NESTED 通常通过保存点提供嵌套回滚，需底层事务管理器支持，无已有事务时按 REQUIRED 处理。REQUIRES_NEW 的独立提交不会随外层事务后续回滚而撤销，不能随意用于需要整体原子性的流程。
+
+隔离级别：READ_UNCOMMITTED 可能脏读；READ_COMMITTED 防止脏读，但同一事务两次查询可能读到不同已提交数据；REPEATABLE_READ 防止不可重复读，幻读与锁行为依赖具体数据库及查询方式；SERIALIZABLE 隔离最强，通常带来更大的并发成本。普通快照查询与 FOR UPDATE 锁定查询不能混为一谈。
+
+### 生效和异常边界
+
+Spring 默认代理模式下，从 Controller 等外部对象调用 Spring Service Bean 的公共方法可触发事务；同一个对象内部直接调用另一个带注解的方法，通常不会触发该方法的新事务配置。private 辅助方法可运行在外部公共方法已经开启的事务里，但自身注解不能依靠默认代理触发事务。
+
+事务内可以使用 try/catch。捕获后重新抛出匹配回滚规则的异常，代理可回滚；吞掉异常并正常返回则可能提交，或因底层已标记 rollback-only 而在结束时失败。当前创建幂等恢复把 catch 放在 TransactionTemplate.execute 外，是为了先结束并回滚失败的创建事务，再开启独立事务回查，不是因为事务中禁止 try/catch。

@@ -11,7 +11,7 @@
 - **阶段 1 Auth 身份入口**（`TASK-010`、`TASK-011`）已完成，经 PR #5 合并 `main`。
 - **前端外壳与页面骨架**已完成，经 PR #6 合并 `main`。
 - **第 3 步 完整动态 RBAC**（`TASK-055`～`TASK-062`，本文件 9.1）已完成：后端四组接口与用户管理八个端点、`V5` 迁移、管理端五页（角色 / 权限 / 用户角色授权 / 角色权限授权 / 用户管理）、`frontend/src/views/admin/` 页面与真实闭环 E2E 全部交付；验收标准第 4 条的四条手工真实栈链路已于 2026-09-28 在 `local` profile 真实栈上执行并通过（逐条 `traceId` 见 `docs/modules/rbac.md` 11.2），经 PR #8 合并 `main`（合并提交 `f15468c`）。
-- **当前阶段：阶段 2 员工创建与查询**（`TASK-020`～`TASK-023-MVP`），分支 `flow-desk/ticket-employee-flow`，从 `f15468c` 创建。开工第一步仍是确认接口与数据模型落地顺序，再按切片实施。
+- **当前阶段：阶段 2 员工创建与查询已验收通过、本次完整交接已授权**（`TASK-020`～`TASK-023-MVP`），分支 `flow-desk/ticket-employee-flow`。最终证据 `docs/acceptance/stage2-closeout-20260929.json`。下一大步骤为阶段 3 IT 处理闭环（第 7 节），尚未开工。
 - 第 1 节原先"不提供角色、权限及授权关系的在线 CRUD"这一表述已被 2026-09-21 的确认取代：三种内置角色仍是权限基线，同时在 9.1 范围内开放了动态 RBAC 与用户管理的在线维护。
 
 ## 2. 两个版本的边界
@@ -170,13 +170,20 @@ M0 工程底座（已完成，PR #4）
   - 基础代码由 Agent 写入：TicketQuery、scope/status/priority/sort 枚举、列表与摘要 Result、TicketListRow SQL 投影、TicketQueryService、GET Controller 和分页 Mapper。Query 将契约 page/size 映射到现有 PageQuery；时间范围含起止端点；关键词按字面子串搜索，转义 LIKE 通配符；列表分类摘要保留停用分类。ServiceImpl 在对话提供、不写入，待用户补齐后真实栈验收；此前缺少查询服务 Bean，不能启动完整应用。
   - **基础验证（2026-09-28）**：`./mvnw.cmd -B -DskipTests compile` 通过；临时 JShell 探针验证 WebDataBinder 的 page/size、多值状态/优先级、带时区时间绑定，以及 MyBatis 四种排序动态 SQL 生成。未新增测试类；尚未运行 GET 真实接口验收。ServiceImpl 计划使用只读事务协调分页 count/items 查询。
   - **真实栈验收（同日接续）**：用户已完成查询 ServiceImpl；8082 local 启动与编译通过。定向临时数据验证本人行/总数隔离、最小字段与停用分类展示、四种排序/同时间 ID 次序、分页/超出末页、组合筛选、带时区时间边界、LIKE 字面通配符、伪造用户 ID 不改变范围、空集通过；13 例非法/缺少/未支持参数 400，401/403 通过。临时工单清理，验收用服务停止。用户当前使用普通 @Transactional（不是 readOnly），功能不受影响；下一步给出的 page 方法采用 readOnly。
-- [ ] ⑤ 其他范围（当前步骤）：补齐 `PENDING_QUEUE`、`ASSIGNED_TO_ME`、`PARTICIPATED_BY_ME` 的权限与资源关系验证，不增加 IT 写动作。
+- [x] ⑤ 其他范围（2026-09-29 真实栈验收通过）：补齐 `PENDING_QUEUE`、`ASSIGNED_TO_ME`、`PARTICIPATED_BY_ME` 的权限与资源关系验证，不增加 IT 写动作。
+  - **最新验收**：分类六端点与工单四范围在真实 MySQL/Redis/8082 完整复跑，144 项请求/断言、0 失败；覆盖权限、8 路分类并发、当前/历史引用保护、启停联动、范围隔离/EXISTS/终态负责人、排序/筛选/UTC/LIKE/分页/非法参数。临时数据全部清理，证据 `docs/acceptance/2026-09-29-category-ticket-scopes.json`。下述 09-28 待验收为历史记录。
   - **当前实现状态（2026-09-28 提交检查）**：用户已补齐分类服务六项方法，生产代码编译通过；步骤⑤ page 统一查询已写入，使用只读事务和 selectScopedPage。真实栈验收待执行；详情只有预备 Mapper/Result/投影/权限适配，未接入 Controller 或服务接口。
   - Controller 已写 scope 精确权限表达式；Mapper 已写四范围分支（EXISTS 防止重复分页，缺少范围 WHERE 1=0）及队列默认排序；ServiceImpl 已接通 selectScopedPage。当前编译通过，SQL/权限探针属于此前检查记录，步骤⑤仍待真实接口验收。
-- [ ] ⑥ 详情与时间线：外部 `ticketNo` 定位；共同校验可见性；无权与不存在统一 `404/TICKET_NOT_FOUND`；时间线按 `sequenceNo` 正序分页。阶段 2 没有已实现的工单写动作，`allowedActions=[]`；后续阶段实现动作时再开放，不能展示不可调用的操作。
-- [ ] ⑦ 员工页面：后端闭环通过后明确页面交互；新建、列表、详情和时间线，失败重试复用同一 `submissionKey`。沿用项目内视觉交接材料；验收真实 E2E 与桌面/窄屏截图。
-- [ ] ⑧ 阶段验收：后端完整 verify、前端 typecheck/lint/build/单测/E2E 串行执行；证明防重复、数据隔离、刷新恢复并清理临时数据；同步文档后提示分支交接。
-
+- [x] ⑥ 详情与时间线（2026-09-29 后端真实栈验收通过）：外部 `ticketNo` 定位；共同校验可见性；无权与不存在统一 `404/TICKET_NOT_FOUND`；时间线按 `sequenceNo` 正序分页。阶段 2 没有已实现的工单写动作，`allowedActions=[]`；后续阶段实现动作时再开放，不能展示不可调用的操作。
+  - **时间线已验收**：compile 通过，111 项真实栈请求/断言、0 失败，覆盖 15 种类型/字段白名单/系统操作者/UTC/权限/排序/分页/空集/参数；临时数据和 Redis 会话清理、日序号不变，证据 `docs/acceptance/2026-09-29-ticket-timeline.json`。下方详情刚验收时“时间线未实现”为历史状态。附件与关联不属于本阶段已实现的入口。
+  - **详情已验收（2026-09-29）**：compile 与真实 MySQL/Redis/HTTP 验收通过，121 项请求/断言、0 失败；覆盖权限和关系、404/401、全部详情字段/UTC/最小暴露、停用分类。临时用户/会话/分类/工单清理完毕，证据 `docs/acceptance/2026-09-29-ticket-detail.json`。时间线未实现，本步骤保持未完成。
+- [x] ⑦ 员工页面实现与验收（2026-09-29）：创建、列表、详情、时间线及重试提交键已验证；1440/375 截图已查看，无整页横向溢出。报告见 `.ui-craft/reviews/2026-09-29-tickets/report.md`。
+- [x] ⑧ 阶段验收（2026-09-29，通过）：四项收尾全部完成。
+  - **脚本闸门全部通过**：后端 verify 394 单元/Web + 88 集成；前端 typecheck、lint、build、124 单测与全套 15 E2E。复用脚本原始运行中已通过的 verify/typecheck/单测证据；修复窄屏 CSS 后重新跑完整 lint/build/E2E。最后的 traceId/截图等待调整又定向通过 2 项 E2E。原始 FAIL 不改写；各步来源与最终 PASS 见 `docs/acceptance/stage2-closeout-20260929.json`。
+  - **真实栈三项证明**：双击时仅一次创建请求、同一 submissionKey、列表一行/创建记录一条，SQL 每个验收工单各一单一记录；第二个 EMPLOYEE 本人列表空集、直访详情 `404/TICKET_NOT_FOUND`；刷新后身份、详情和时间线恢复。带 traceId 的运行证据见 `.ui-craft/reviews/2026-09-29-tickets/runtime-evidence.json`。
+  - **清理已执行**：`docs/acceptance/stage2-cleanup-2026-09-29.sql` 删除保留前缀的临时工单、记录、参与者、用户关系、用户、分类及本次日序号；会话同步清理。`stage2-cleanup-evidence.json` 证明分类 5、工单/记录/参与者/日序号 0、用户/角色 3、权限 14，孤儿关系 0。
+  - **证据与截图已同步**：PROJECT_STATUS、README、AGENTS 与本步骤一致；1440/375 创建/列表/详情/分类截图以及隔离 404 截图已查看，报告列出路径。分类管理真实 CRUD 也通过。
+  - **范围与交接**：只完成阶段 2，不启动阶段 3；用户授权前不提交、推送、创建或合并 PR。HTTP 切片证据与构建/浏览器/数据库证据各自保留，不能互相替代。
 请求口径：无附件 MVP 仍使用 `multipart/form-data`，`ticket` 部分为 `application/json`；不传 `files` 或 `sourceTicketNo`。原 API 的附件与关联能力属于完整版，不在本阶段实现。
 
 **步骤①文件与接口（本轮只指导用户创建生产文件）**：
@@ -306,8 +313,8 @@ MVP 最终完成定义：
 
 | 任务 | 内容 | 关键产出 |
 | --- | --- | --- |
-| `TASK-063`（**进行中**） | 分类管理后端接口（`GET /fd/v1/admin/categories`、`POST /`、`PUT /{categoryId}`、`POST /{categoryId}/actions/enable`、`POST /{categoryId}/actions/disable`、`DELETE /{categoryId}?version=`），全部要求 `CATEGORY_MANAGE` | Agent 已写入：`CategoryQuery`、`CategoryResult`、`CreateCategoryCommand`、`UpdateCategoryCommand`、`CategoryStatusChangeCommand`、`CategoryService`（新增 6 个方法）、`AdminCategoryController`、`TicketCategoryMapper.selectByIdForUpdate`，以及 `GlobalExceptionHandler` 对缺失/类型不符请求参数的 `400/VALIDATION_FAILED` 映射。**用户已补齐 CategoryServiceImpl 六项方法，后端已提交推送且编译通过；六端点真实栈验收待执行，现有测试受新增 Mapper Mock 配置缺失阻塞** |
-| `TASK-064`（**进行中**） | 分类管理端页面（`frontend/src/views/admin/CategoryListView.vue`，路由 `/admin/categories`，要求 `CATEGORY_MANAGE`）：列表与筛选（名称、状态）、新建、改名与排序值、启停、删除；入口按权限显隐 | Agent 已写入：页面 + `api/categories.ts`；`router` 的 `/admin/categories` 由占位页改为真实页面；`main.css` 补上一直被三个页面引用却缺失的 `.admin-form-control` 规则。**尚未跑 `typecheck` / `lint` / `build`，也未截图自查** |
+| `TASK-063`（**已验收**） | 分类管理后端接口（`GET /fd/v1/admin/categories`、`POST /`、`PUT /{categoryId}`、`POST /{categoryId}/actions/enable`、`POST /{categoryId}/actions/disable`、`DELETE /{categoryId}?version=`），全部要求 `CATEGORY_MANAGE` | Agent 已写入：`CategoryQuery`、`CategoryResult`、`CreateCategoryCommand`、`UpdateCategoryCommand`、`CategoryStatusChangeCommand`、`CategoryService`（新增 6 个方法）、`AdminCategoryController`、`TicketCategoryMapper.selectByIdForUpdate`，以及 `GlobalExceptionHandler` 对缺失/类型不符请求参数的 `400/VALIDATION_FAILED` 映射。**六项实现与 HTTP 六端点验收通过，后端完整 verify 394+88 通过；见 docs/acceptance/2026-09-29-category-ticket-scopes.json 与 stage2-handoff-20260929.json** |
+| `TASK-064`（**运行时已验收**） | 分类管理端页面（`frontend/src/views/admin/CategoryListView.vue`，路由 `/admin/categories`，要求 `CATEGORY_MANAGE`）：列表与筛选（名称、状态）、新建、改名与排序值、启停、删除；入口按权限显隐 | Agent 已写入：页面 + `api/categories.ts`；`router` 的 `/admin/categories` 由占位页改为真实页面；`main.css` 补上一直被三个页面引用却缺失的 `.admin-form-control` 规则。**typecheck/lint/build 与全套 15 E2E 通过，分类 CRUD 与 1440/375 截图已验证；用户逐项审美反馈仍待取得** |
 
 已确认的落地口径（与 8.4 契约一致，需要时可在此处继续追加）：
 
@@ -317,7 +324,7 @@ MVP 最终完成定义：
 4. **删除只靠外键判引用**：分类模块不跨模块读 `ticket` 表；`ticket.category_id` 的限制删除外键拒绝删除时转 `409/CATEGORY_IN_USE`。取到行锁后不会有新工单引用到该分类（插入子行要对父行取共享锁），因此这一条在并发下也成立。
 5. **名称唯一由 `uk_ticket_category_name` 兜底**：预检查给出确定的 `409/CATEGORY_NAME_CONFLICT`，并发插入落库失败时由 `DuplicateKeyException` 转成同一错误码。
 
-验收标准（可检查，全部待执行）：
+验收标准（可检查；2026-09-29 第 1～5 项均通过；前端 CRUD、1440/375 截图及清理证据见 stage2-closeout-20260929.json；证据见 `docs/acceptance/2026-09-29-category-ticket-scopes.json`）：
 
 1. `./mvnw.cmd -B -DskipTests compile` 通过（2026-09-28 后端提交检查已通过；`CategoryServiceImpl` 已补齐）。
 2. 真实栈（`local` profile + MySQL/Redis）逐条核对六个端点的成功与失败路径：`CATEGORY_MANAGE` 缺失时 `403/ACCESS_DENIED`、无令牌 `401`、非正整数 ID `404/CATEGORY_NOT_FOUND`、重名 `409/CATEGORY_NAME_CONFLICT`、过期 `version` `409/CATEGORY_CONFLICT`、删除被引用分类 `409/CATEGORY_IN_USE`、`DELETE` 缺 `version` 参数 `400/VALIDATION_FAILED`。
