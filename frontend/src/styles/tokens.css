@@ -126,6 +126,10 @@
   --fd-admin-gutter: var(--fd-space-6);
   --fd-page-max: 52rem; /* 业务页内容宽度 */
   --fd-page-wide-max: 70rem; /* 首页等宽业务页上限 */
+  /* 管理列表不再有宽度上限：它跟随工作区宽度（参考后台的语言）。
+     与 --fd-page-wide-max 分开命名，是因为"首页多宽"和"管理列表多宽"是两个决定：
+     前者是阅读宽度，后者由表格列与操作位决定。 */
+  --fd-admin-list-max: 100%;
   --fd-sidebar-width: 14rem; /* 桌面应用壳侧栏 */
   --fd-sidebar-drawer-width: min(20rem, 88vw); /* 窄屏抽屉宽度 */
   --fd-shell-header-height: 3.25rem; /* 52px  应用壳顶栏：36px 控件 + 上下各 8px */

@@ -3,6 +3,13 @@
 > 本文件是「完整动态 RBAC」的阶段设计落地版，写给实现与 review 用。
 > 契约上限是 `docs/api-design.md` 8.2.1，任务拆分与验收标准是 `docs/implementation-plan.md` 9.1；
 > 两者与本文件冲突时，以已确认的契约文档为准，并先修正本文件。
+>
+> **阶段状态（2026-09-28）：已交付并合并 `main`** —— `TASK-055`～`TASK-062` 全部完成，
+> 经 PR #8 合并（合并提交 `f15468c`）；验收标准七条全部满足，其中第 4 条的四条手工真实栈链路
+> 已于 2026-09-28 在 `local` profile 真实栈上复跑并全部通过（逐条 `traceId` 见 11.2）。
+> 最终证据：后端单元/Web **394** + 集成 **88** 全绿；前端 `typecheck`/`lint`/`build` 退出码 0、
+> 单测 **74** 项、E2E **13** 项；演示库复核回到基线（`MANUAL%`/`E2E%` 残留 0）。
+> 遗留（不属验收标准）：用户管理页视觉打样的逐项反馈未取得、另外四个管理页未按新语言推广。
 
 ## 1. 目标与边界
 
@@ -244,7 +251,7 @@ Web 测试沿用 `AuthWebTest` 的既有做法：`@ActiveProfiles("test")` + 排
 
 ### 10.1 覆盖矩阵（逐格证据）
 
-上表只写"要覆盖什么"，本节写"哪一格由哪个用例负责"。阶段验收要求每一格都有据，因此按用例名逐格登记；两组授权的 **11 个端点**（`TASK-058` 原六个 + 本轮新增的批量撤销、清空全部、一个角色授予多个用户）测试已补齐，本节无空白格。用例数按静态方法计数，`verify` 汇总数字以 `docs/implementation-plan.md` 9.1 登记的最近一次复跑结果（单元/Web 278 + 集成 63）为准。
+上表只写"要覆盖什么"，本节写"哪一格由哪个用例负责"。阶段验收要求每一格都有据，因此按用例名逐格登记；两组授权的 **11 个端点**（`TASK-058` 原六个 + 本轮新增的批量撤销、清空全部、一个角色授予多个用户）与用户管理八个端点（`TASK-061`）测试均已补齐，本节无空白格。用例数按静态方法计数，`verify` 汇总数字以 2026-09-28 阶段收口复跑为准：**单元/Web 394 + 集成 88**（`docs/implementation-plan.md` 9.1 有同一口径）。
 
 **关于身份构造（2026-09-22 更正）**：本文件此前描述为"用**真实 JWT** 构造身份"，与代码不符。实际是两类：
 - `IamRoleControllerWebTest` / `IamPermissionControllerWebTest` 用 `SecurityMockMvcRequestPostProcessors.user(...)` 直接注入 `SecurityContext`，**不经过 `JwtAuthenticationFilter`**；
@@ -266,15 +273,18 @@ Web 测试沿用 `AuthWebTest` 的既有做法：`@ActiveProfiles("test")` + 排
 ## 11. 验收命令与手工验证
 
 ```powershell
-# 单元/Web + 集成（Testcontainers 需要 Docker）
-$env:JAVA_HOME='D:\Idea\Jdk\Jdk21'; .\mvnw.cmd -B verify
+# 单元/Web + 集成（Testcontainers 需要 Docker；-DargLine 是本机 Mockito 自附加所必需）
+$env:JAVA_HOME='D:\Idea\Jdk\Jdk21'; .\mvnw.cmd -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"
 
 # 真实栈
 docker compose up -d mysql redis
 $env:JAVA_HOME='D:\Idea\Jdk\Jdk21'; .\mvnw.cmd spring-boot:run "-Dspring-boot.run.profiles=local"
+
+# 手工链路（可重复执行，结束时清理临时对象并还原库）
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/manual-rbac-acceptance.ps1
 ```
 
-手工链路。**清单与 `docs/implementation-plan.md` 9.1 阶段验收标准第 4 条一一对应**，每条都要留 `traceId` 与响应码：
+手工链路。**清单与 `docs/implementation-plan.md` 9.1 阶段验收标准第 4 条一一对应**，每条都要留 `traceId` 与响应码。**2026-09-28 已用 `scripts/manual-rbac-acceptance.ps1` 全部执行并通过，证据见 11.2**：
 
 | # | 链路 | 期望 |
 | --- | --- | --- |

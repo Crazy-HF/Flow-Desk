@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import { useAuthStore } from '@/stores/auth'
+import CategoryListView from '@/views/admin/CategoryListView.vue'
 import PermissionListView from '@/views/admin/PermissionListView.vue'
 import RoleListView from '@/views/admin/RoleListView.vue'
 import RolePermissionGrantView from '@/views/admin/RolePermissionGrantView.vue'
@@ -11,6 +12,9 @@ import ForbiddenView from '@/views/error/ForbiddenView.vue'
 import NotFoundView from '@/views/error/NotFoundView.vue'
 import HomeView from '@/views/work/HomeView.vue'
 import PlannedWorkView from '@/views/work/PlannedWorkView.vue'
+import TicketCreateView from '@/views/work/TicketCreateView.vue'
+import TicketDetailView from '@/views/work/TicketDetailView.vue'
+import TicketListView from '@/views/work/TicketListView.vue'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -25,7 +29,12 @@ declare module 'vue-router' {
   }
 }
 
-/** 能查看工单的三种角色入口：提交人、队列、参与人，任一命中即可进入工单页面。 */
+/**
+ * 能查看工单的三种角色入口：提交人、队列、参与人，任一命中即可进入工单页面。
+ *
+ * <p>列表页内部再按这四个范围分别显隐（见 `TICKET_SCOPES`）：`TICKET_VIEW_PARTICIPATED`
+ * 同时覆盖"我负责的"与"我参与的"两个范围。这里只决定入口是否展示，后端仍是最终授权边界。</p>
+ */
 const TICKET_VIEW_PERMISSIONS = ['TICKET_VIEW_OWN', 'TICKET_VIEW_QUEUE', 'TICKET_VIEW_PARTICIPATED']
 
 const router = createRouter({
@@ -36,20 +45,20 @@ const router = createRouter({
     {
       path: '/tickets',
       name: 'tickets',
-      component: PlannedWorkView,
-      meta: { title: '工单', permission: TICKET_VIEW_PERMISSIONS, plannedTask: 'TASK-020 / TASK-023-MVP' },
+      component: TicketListView,
+      meta: { title: '工单', permission: TICKET_VIEW_PERMISSIONS },
     },
     {
       path: '/tickets/new',
       name: 'ticket-new',
-      component: PlannedWorkView,
-      meta: { title: '新建工单', permission: 'TICKET_CREATE', plannedTask: 'TASK-021-MVP / TASK-023-MVP' },
+      component: TicketCreateView,
+      meta: { title: '新建工单', permission: 'TICKET_CREATE' },
     },
     {
       path: '/tickets/:ticketNo',
       name: 'ticket-detail',
-      component: PlannedWorkView,
-      meta: { title: '工单详情', permission: TICKET_VIEW_PERMISSIONS, plannedTask: 'TASK-022-MVP / TASK-023-MVP' },
+      component: TicketDetailView,
+      meta: { title: '工单详情', permission: TICKET_VIEW_PERMISSIONS },
     },
     {
       path: '/dashboard',
@@ -96,8 +105,8 @@ const router = createRouter({
     {
       path: '/admin/categories',
       name: 'admin-categories',
-      component: PlannedWorkView,
-      meta: { title: '分类管理', permission: 'CATEGORY_MANAGE', plannedTask: '完整版 backlog：系统管理' },
+      component: CategoryListView,
+      meta: { title: '分类管理', permission: 'CATEGORY_MANAGE' },
     },
     { path: '/403', name: 'forbidden', component: ForbiddenView, meta: { title: '无访问权限' } },
     { path: '/:pathMatch(.*)*', name: 'not-found', component: NotFoundView, meta: { title: '页面不存在' } },

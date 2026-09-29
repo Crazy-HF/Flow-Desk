@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { Delete, Edit, Plus, Refresh, Search, Setting } from '@element-plus/icons-vue'
+import {
+  Check,
+  CircleClose,
+  Delete,
+  Edit,
+  Plus,
+  Refresh,
+  Search,
+  Setting,
+} from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { computed, onMounted, reactive, ref, shallowRef } from 'vue'
@@ -13,22 +22,24 @@ import AppPage from '@/components/AppPage.vue'
 import ProtectedMark from '@/components/ProtectedMark.vue'
 import { isProtectedRole, PROTECTED_ROLE_CODE } from '@/constants/authorization'
 import { useAdminList } from './useAdminList'
+import { useCompactPagination } from './useCompactPagination'
 
 /** 角色管理（`docs/api-design.md` 8.2.1，`TASK-060`）。 */
 const router = useRouter()
 const keyword = ref('')
+const compactPagination = useCompactPagination()
 
 /**
  * 列宽：`el-table` 用 `parseInt` 解析 `width` / `min-width`，`7rem` 会变成 7px，
- * 因此写无单位像素数；操作列放 3 个图标按钮取 132。
+ * 因此写无单位像素数；标识锚点列容纳保护标记取 224，操作列放 3 个图标按钮取 144。
  */
 const COLUMN = {
   select: 44,
-  ident: 200,
-  name: 144,
+  ident: 224,
+  name: 128,
   description: 176,
-  count: 96,
-  actions: 132,
+  count: 112,
+  actions: 144,
 } as const
 
 const { items, total, pageNo, pageSize, phase, errorMessage, retrying, search, changePage, changePageSize } =
@@ -43,7 +54,7 @@ const emptyTitle = computed(() => (keyword.value.trim() ? '没有匹配的角色
 const emptyDescription = computed(() =>
   keyword.value.trim()
     ? '换一个角色编码或名称再查一次。'
-    : '三种内置角色由迁移预置；新建的角色会出现在这里。',
+    : '三种内置角色随系统预置；新建的角色会出现在这里。',
 )
 
 /** 角色权限下拉的数据源支持 `keyword` 同时匹配编码与名称，因此按远程检索实现。 */
@@ -235,7 +246,8 @@ onMounted(() => {
 <template>
   <AppPage
     class="admin-page"
-    description="角色是权限的容器。系统管理员角色受保护，编码创建后不可修改。"
+    description="角色是权限的容器；系统管理员角色受保护，编码创建后不可修改。"
+    layout="list"
     title="角色管理"
   >
     <section
@@ -252,7 +264,6 @@ onMounted(() => {
             class="admin-filter-input admin-filter-input--wide"
             clearable
             placeholder="请输入角色编码或名称"
-            size="small"
             @keyup.enter="search"
           />
         </span>
@@ -260,7 +271,6 @@ onMounted(() => {
         <div class="admin-filter-actions">
           <el-button
             :icon="Search"
-            size="small"
             type="primary"
             @click="search"
           >
@@ -268,7 +278,8 @@ onMounted(() => {
           </el-button>
           <el-button
             :icon="Refresh"
-            size="small"
+            type="info"
+            plain
             @click="resetFilters"
           >
             重置
@@ -277,209 +288,215 @@ onMounted(() => {
       </div>
     </section>
 
-    <div class="admin-action-bar">
-      <el-button
-        :icon="Plus"
-        plain
-        size="small"
-        type="primary"
-        @click="openCreate"
-      >
-        新增
-      </el-button>
-      <el-button
-        :disabled="!selectedOne"
-        :icon="Edit"
-        plain
-        size="small"
-        type="primary"
-        @click="selectedOne && openEdit(selectedOne)"
-      >
-        修改
-      </el-button>
-      <el-popconfirm
-        :disabled="!selectedOne || selectedProtected"
-        title="角色存在用户或权限授权关系时删除会被拒绝。确定删除？"
-        cancel-button-text="取消"
-        confirm-button-text="确定"
-        width="17rem"
-        @confirm="removeSelected"
-      >
-        <template #reference>
-          <el-button
-            :disabled="!selectedOne || selectedProtected"
-            :icon="Delete"
-            plain
-            size="small"
-            type="danger"
-          >
-            删除
-          </el-button>
-        </template>
-      </el-popconfirm>
-
-      <div class="admin-action-bar__end">
-        <el-tooltip
-          content="刷新列表"
-          placement="top"
+    <section
+      class="admin-data"
+      aria-label="角色数据"
+    >
+      <div class="admin-action-bar">
+        <el-button
+          :icon="Plus"
+          type="primary"
+          @click="openCreate"
         >
+          新增
+        </el-button>
+        <el-button
+          :disabled="!selectedOne"
+          :icon="Edit"
+          type="success"
+          plain
+          @click="selectedOne && openEdit(selectedOne)"
+        >
+          修改
+        </el-button>
+        <el-popconfirm
+          :disabled="!selectedOne || selectedProtected"
+          title="角色存在用户或权限授权关系时删除会被拒绝。确定删除？"
+          cancel-button-text="取消"
+          confirm-button-text="确定"
+          width="17rem"
+          @confirm="removeSelected"
+        >
+          <template #reference>
+            <el-button
+              :disabled="!selectedOne || selectedProtected"
+              :icon="Delete"
+              type="danger"
+              plain
+            >
+              删除
+            </el-button>
+          </template>
+        </el-popconfirm>
+
+        <div class="admin-action-bar__end">
+          <el-tooltip
+            content="刷新列表"
+            placement="top"
+          >
+            <el-button
+              :icon="Refresh"
+              :loading="retrying"
+              aria-label="刷新列表"
+              type="info"
+              plain
+              @click="search"
+            />
+          </el-tooltip>
+        </div>
+      </div>
+
+      <AdminListPanel
+        :empty-description="emptyDescription"
+        :empty-title="emptyTitle"
+        :error-message="errorMessage"
+        :is-empty="items.length === 0"
+        label="角色列表"
+        :phase="phase"
+        :retrying="retrying"
+        @retry="search"
+      >
+        <template #retry-action>
           <el-button
             :icon="Refresh"
             :loading="retrying"
-            aria-label="刷新列表"
-            circle
-            size="small"
+            type="primary"
             @click="search"
+          >
+            重新加载
+          </el-button>
+        </template>
+
+        <el-table
+          :data="items"
+          row-key="id"
+          :row-style="{ height: 'var(--fd-admin-row-height)' }"
+          border
+          class="admin-table"
+          @selection-change="onSelectionChange"
+        >
+          <el-table-column
+            :width="COLUMN.select"
+            type="selection"
           />
-        </el-tooltip>
-      </div>
-    </div>
-
-    <AdminListPanel
-      :empty-description="emptyDescription"
-      :empty-title="emptyTitle"
-      :error-message="errorMessage"
-      :is-empty="items.length === 0"
-      label="角色列表"
-      :phase="phase"
-      :retrying="retrying"
-      @retry="search"
-    >
-      <el-table
-        :data="items"
-        row-key="id"
-        border
-        class="admin-table"
-        size="small"
-        @selection-change="onSelectionChange"
-      >
-        <el-table-column
-          :width="COLUMN.select"
-          type="selection"
-        />
-        <el-table-column
-          fixed
-          label="角色编码"
-          :width="COLUMN.ident"
-        >
-          <template #default="{ row }">
-            <span class="admin-ident">{{ row.code }}</span>
-            <ProtectedMark
-              v-if="isProtectedRole(row.code)"
-              label="内置"
-              :reason="`${PROTECTED_ROLE_CODE} 是受保护的内置角色：不能删除，也不能移除它的 RBAC_MANAGE 授权`"
-            />
-          </template>
-        </el-table-column>
-        <el-table-column
-          label="名称"
-          :min-width="COLUMN.name"
-          prop="name"
-        />
-        <el-table-column
-          label="描述"
-          :min-width="COLUMN.description"
-        >
-          <template #default="{ row }">
-            <span :class="{ 'admin-muted': !row.description }">
-              {{ row.description || '未填写' }}
-            </span>
-          </template>
-        </el-table-column>
-        <el-table-column
-          label="已授权限"
-          :width="COLUMN.count"
-        >
-          <template #default="{ row }">
-            <span class="admin-count">{{ row.permissionIds.length }}</span>
-            <span class="admin-muted"> 项</span>
-          </template>
-        </el-table-column>
-        <el-table-column
-          align="center"
-          fixed="right"
-          label="操作"
-          :width="COLUMN.actions"
-        >
-          <template #default="{ row }">
-            <div class="admin-row-actions">
-              <el-tooltip
-                content="修改角色"
-                placement="top"
-              >
-                <el-button
-                  :icon="Edit"
-                  aria-label="修改角色"
-                  circle
-                  size="small"
-                  text
-                  type="primary"
-                  @click="openEdit(row)"
-                />
-              </el-tooltip>
-              <el-tooltip
-                content="维护角色权限"
-                placement="top"
-              >
-                <el-button
-                  :icon="Setting"
-                  aria-label="维护角色权限"
-                  circle
-                  size="small"
-                  text
-                  @click="openPermissions(row)"
-                />
-              </el-tooltip>
-              <el-popconfirm
-                title="角色存在用户或权限授权关系时删除会被拒绝。确定删除？"
-                cancel-button-text="取消"
-                confirm-button-text="确定"
-                :disabled="isProtectedRole(row.code)"
-                width="17rem"
-                @confirm="removeRole(row)"
-              >
-                <template #reference>
+          <el-table-column
+            label="角色编码"
+            :width="COLUMN.ident"
+          >
+            <template #default="{ row }">
+              <span class="admin-ident">{{ row.code }}</span>
+              <ProtectedMark
+                v-if="isProtectedRole(row.code)"
+                label="内置"
+                :reason="`${PROTECTED_ROLE_CODE} 是系统内置的管理员角色：不能删除，也不能取消它的角色管理授权`"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column
+            label="角色名称"
+            :min-width="COLUMN.name"
+            prop="name"
+            show-overflow-tooltip
+          />
+          <el-table-column
+            label="描述"
+            :min-width="COLUMN.description"
+            show-overflow-tooltip
+          >
+            <template #default="{ row }">
+              <span :class="{ 'admin-muted': !row.description }">
+                {{ row.description || '未填写' }}
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column
+            label="已授权限"
+            :width="COLUMN.count"
+          >
+            <template #default="{ row }">
+              <span class="admin-count">{{ row.permissionIds.length }}</span>
+              <span class="admin-muted"> 项</span>
+            </template>
+          </el-table-column>
+          <el-table-column
+            align="center"
+            label="操作"
+            :width="COLUMN.actions"
+          >
+            <template #default="{ row }">
+              <div class="admin-row-actions">
+                <el-tooltip
+                  content="修改角色"
+                  placement="top"
+                >
                   <el-button
-                    :disabled="isProtectedRole(row.code)"
-                    :icon="Delete"
-                    :title="
-                      isProtectedRole(row.code)
-                        ? `${PROTECTED_ROLE_CODE} 不能删除`
-                        : '删除角色'
-                    "
-                    aria-label="删除角色"
+                    :icon="Edit"
+                    aria-label="修改角色"
+                    type="success"
+                    plain
                     circle
-                    size="small"
-                    text
-                    type="danger"
+                    @click="openEdit(row)"
                   />
-                </template>
-              </el-popconfirm>
-            </div>
-          </template>
-        </el-table-column>
-      </el-table>
-    </AdminListPanel>
+                </el-tooltip>
+                <el-tooltip
+                  content="维护角色权限"
+                  placement="top"
+                >
+                  <el-button
+                    :icon="Setting"
+                    aria-label="维护角色权限"
+                    type="primary"
+                    plain
+                    circle
+                    @click="openPermissions(row)"
+                  />
+                </el-tooltip>
+                <el-popconfirm
+                  title="角色存在用户或权限授权关系时删除会被拒绝。确定删除？"
+                  cancel-button-text="取消"
+                  confirm-button-text="确定"
+                  :disabled="isProtectedRole(row.code)"
+                  width="17rem"
+                  @confirm="removeRole(row)"
+                >
+                  <template #reference>
+                    <el-button
+                      :disabled="isProtectedRole(row.code)"
+                      :icon="Delete"
+                      aria-label="删除角色"
+                      type="danger"
+                      plain
+                      circle
+                    />
+                  </template>
+                </el-popconfirm>
+              </div>
+            </template>
+          </el-table-column>
+        </el-table>
+      </AdminListPanel>
 
-    <div
-      v-if="phase === 'ready' && items.length > 0"
-      class="admin-pagination"
-    >
-      <el-pagination
-        background
-        :current-page="pageNo"
-        layout="total, sizes, prev, pager, next, jumper"
-        :page-size="pageSize"
-        :page-sizes="[10, 20, 50]"
-        size="small"
-        :total="total"
-        @current-change="changePage"
-        @size-change="changePageSize"
-      />
-    </div>
+      <div
+        v-if="phase === 'ready' && items.length > 0"
+        class="admin-pagination"
+      >
+        <el-pagination
+          background
+          :current-page="pageNo"
+          :layout="compactPagination ? 'total, prev, pager, next' : 'total, sizes, prev, pager, next, jumper'"
+          :pager-count="5"
+          :page-size="pageSize"
+          :page-sizes="[10, 20, 50]"
+          :total="total"
+          @current-change="changePage"
+          @size-change="changePageSize"
+        />
+      </div>
+    </section>
 
     <el-dialog
       v-model="createVisible"
+      class="admin-dialog"
       title="新建角色"
       width="32rem"
       :close-on-click-modal="false"
@@ -555,11 +572,17 @@ onMounted(() => {
       </el-form>
 
       <template #footer>
-        <el-button @click="createVisible = false">
+        <el-button
+          :icon="CircleClose"
+          type="info"
+          plain
+          @click="createVisible = false"
+        >
           取消
         </el-button>
         <el-button
           :loading="creating"
+          :icon="Plus"
           type="primary"
           @click="submitCreate"
         >
@@ -569,6 +592,7 @@ onMounted(() => {
     </el-dialog>
 
     <el-dialog
+      class="admin-dialog"
       :model-value="editing !== null"
       title="修改角色"
       width="28rem"
@@ -603,7 +627,7 @@ onMounted(() => {
           />
         </el-form-item>
         <p class="admin-hint">
-          编码创建后不可修改：授权关系与审计都按编码引用角色。
+          编码创建后不可修改：授权关系与操作记录都按编码引用角色。
         </p>
         <p
           v-if="editError"
@@ -615,12 +639,18 @@ onMounted(() => {
       </el-form>
 
       <template #footer>
-        <el-button @click="editing = null">
+        <el-button
+          :icon="CircleClose"
+          type="info"
+          plain
+          @click="editing = null"
+        >
           取消
         </el-button>
         <el-button
           :loading="saving"
-          type="primary"
+          :icon="Check"
+          type="success"
           @click="submitEdit"
         >
           保存

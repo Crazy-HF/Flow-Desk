@@ -1,6 +1,6 @@
 # 用户管理页首轮视觉打样
 
-9月27日开始实施，9月28日接续验证。仅用户管理页；视觉认可待用户反馈，其他四页未推广。保留原工作树，未改后端业务，未提交或推送。
+9月27日开始实施，9月28日接续验证。仅用户管理页；视觉认可待用户反馈，其他四页未推广。保留原工作树，未改后端业务。**9月28日更新：该页已随阶段 3 收口提交并经由 PR #8 合并 `main`（合并提交 `f15468c`）；本文的"未提交或推送"仅描述打样当轮的状态，验收结论以 `docs/modules/rbac.md` 第 11 节与 `PROJECT_STATUS.md` 2026-09-28 记录为准。**
 
 ## Craft Report
 
@@ -57,5 +57,5 @@ Craft Read 与参照借用记录见 `../../surfaces/admin-rbac.md` 当前打样�
 
 - `user-list-desktop-1920.png`、`user-list-desktop-1440.png`、`user-list-mobile-375.png`：最终正常态。
 - `user-list-state.png`：真实空结果；`user-list-error.png`：故障注入与重试场景；`user-list-loading.png`：暂停真实请求显示骨架；`user-list-create-dialog.png`：新增弹窗。
-- 未验证 Firefox/Safari；RBAC阶段§11的四条手工traceId链路不属于本次视觉打样，不能视作阶段验收已完成。
+- 未验证 Firefox/Safari；RBAC 阶段 §11 的四条手工 `traceId` 链路不属于本次视觉打样。**9月28日更新**：那条验收已单独在真实栈上复跑通过（见 `docs/modules/rbac.md` 11.2），本文不因此构成阶段验收证据。
 - 用户视觉反馈待确认；下一步只按反馈微调本页，认可后再推广其他四页。

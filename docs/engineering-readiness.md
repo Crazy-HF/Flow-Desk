@@ -437,12 +437,13 @@ pnpm --dir frontend dev
 | 敏感配置边界清晰 | 通过 | 第 5 节；仓库只保留 `.env.example` |
 | 空数据库可完整迁移 | 通过 | `DatabaseMigrationIT` 在 MySQL 8.4.11 Testcontainers 空库执行 V1/V2、`validate`、关键约束与 demo 数据幂等性 |
 | 测试工具与关键场景明确 | 通过 | 第 7、8 节 |
-| CI 可从干净检出运行 | 已实现，待首次合并请求的 GitHub 运行记录 | `.github/workflows/ci.yml` 固定 JDK 21、Node 24.20.0、pnpm 12.3.4，并分为 backend、frontend、core E2E 三个 Job；同等本地命令已通过 |
+| CI 可从干净检出运行 | 通过 | `.github/workflows/ci.yml` 固定 JDK 21、Node 24.20.0、pnpm 12.3.4，并分为 backend、frontend、core E2E 三个 Job；同等本地命令已通过，且 PR #5、#6、#7、#8 上三个 job 均全绿 |
+| 前端样式闸门可执行 | 通过 | `frontend/stylelint.config.js` 已挂进 `pnpm lint`（2026-09-23），设计 token 六轴从书面约定变为可执行规则；CI 的 `frontend-verify` job 未改动即获得覆盖 |
 | 新开发者可重复启动 | 通过 | Compose、Profile、`.env.example`、Maven Wrapper、pnpm 入口和 README 已建立并本地验证 |
 | 跨存储失败顺序明确 | 通过 | 第 7 节；故障测试列明 |
 | API 映射到页面或后台任务 | 通过 | 第 11 节 |
 
-工程准备状态：**Ready，且 M0 工程底座已完成并合并**。工程、迁移、公共契约和 CI Workflow 已创建；当前按 `docs/implementation-plan.md` 进入求职 MVP 阶段 1 Auth 身份入口。
+工程准备状态：**Ready，且 M0 工程底座已完成并合并**。工程、迁移、公共契约和 CI Workflow 已创建并实际运行（PR #5、#6、#7、#8 上 `backend-verify`、`frontend-verify`、`core-e2e` 三个 job 均全绿）。进度：阶段 1 Auth 身份入口（PR #5）、前端外壳与页面骨架（PR #6）、第 3 步完整动态 RBAC 含管理端五页（PR #8，合并提交 `f15468c`）均已完成；**当前按 `docs/implementation-plan.md` 进入阶段 2 员工创建与查询**（`TASK-020`～`TASK-023-MVP`，分支 `flow-desk/ticket-employee-flow`）。
 
 ## 13. 版本核验来源
 

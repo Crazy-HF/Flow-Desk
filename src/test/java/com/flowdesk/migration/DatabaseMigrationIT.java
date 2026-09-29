@@ -42,7 +42,7 @@ class DatabaseMigrationIT {
     private static final Set<String> EXPECTED_TABLES = Set.of(
             "iam_user", "iam_role", "iam_permission", "iam_user_role", "iam_role_permission",
             "ticket_category", "ticket", "ticket_record", "ticket_attachment",
-            "ticket_relation", "ticket_participant");
+            "ticket_relation", "ticket_participant", "ticket_daily_sequence");
 
     private static final Set<String> EXPECTED_INDEXES = Set.of(
             "uk_iam_user_username", "uk_iam_role_code", "uk_iam_permission_code",
@@ -83,7 +83,7 @@ class DatabaseMigrationIT {
         var history = jdbc.queryForList(
                 "SELECT version, success FROM flyway_schema_history ORDER BY installed_rank");
         assertThat(history).extracting(row -> String.valueOf(row.get("version")))
-                .containsExactly("1", "2", "4", "5");
+                .containsExactly("1", "2", "4", "5", "6");
         assertThat(history).allSatisfy(row ->
                 assertThat(row.get("success")).isEqualTo(Boolean.TRUE));
 

@@ -956,9 +956,11 @@ h1 {
  * ============================================================ */
 
 /* 宽容器 + `min-width: 0`：`.page` 是网格，表格的 min-content（固定列宽之和）
-   会把自动轨道撑宽，窄屏就整页横向溢出。允许收缩后由表格自己横向滚动。 */
+   会把自动轨道撑宽，窄屏就整页横向溢出。允许收缩后由表格自己横向滚动。
+   宽度走 `--fd-admin-list-max`（当前 100%）：管理列表跟随工作区宽度，
+   不再被业务页的居中宽度上限收窄——表格列与操作位需要的是行宽，不是阅读宽度。 */
 .admin-page .page__card {
-  width: min(var(--fd-page-wide-max), 100%);
+  width: min(var(--fd-admin-list-max), 100%);
   min-width: 0;
 }
 
@@ -991,6 +993,17 @@ h1 {
   width: 12rem;
 }
 
+/* 授权页的授予面板：标签与控件在窄屏竖排时，控件要跟标签左缘对齐；
+   宽屏是行内布局，align-items 只影响控件的垂直居中，不改变已有观感。 */
+.grant-form .admin-filter-field {
+  align-items: center;
+  justify-items: start;
+}
+
+/* 数据区：工具栏 + 表格 + 分页同属一个面板。
+   它们是一件事的三个部分（对这批数据做什么 / 数据是什么 / 数据有多少），
+   分成三块独立白卡会读成三个无关区域；筛选区才是另一件事，所以它单独一张卡。 */
+.admin-data,
 .user-list-data {
   min-width: 0;
   margin-top: var(--fd-space-4);
@@ -1000,79 +1013,117 @@ h1 {
   box-shadow: var(--fd-shadow-sm);
 }
 
+.admin-data .admin-action-bar,
 .user-list-data .admin-action-bar {
   padding: var(--fd-space-4) var(--fd-space-5);
   border-bottom: thin solid var(--fd-color-border);
 }
 
+.admin-data .admin-action-bar .el-button,
 .user-list-data .admin-action-bar .el-button {
   margin-left: 0;
 }
 
+.admin-data .admin-panel,
 .user-list-data .admin-panel {
   min-height: var(--fd-admin-body-min);
   padding: var(--fd-space-5);
 }
 
+/* 未选主体时数据区只有一句空态：面板内边距已经给了留白，空态自身的虚线框就不必再撑开。 */
+.admin-data .empty-state {
+  border: 0;
+  padding: var(--fd-space-6) var(--fd-space-4);
+}
+
+.admin-data .admin-table,
 .user-list-data .admin-table {
   font-size: var(--fd-font-size-base);
 }
 
+.admin-data .admin-ident,
 .user-list-data .admin-ident {
   font-family: var(--fd-font-family);
 }
 
+.admin-data .admin-row-actions,
 .user-list-data .admin-row-actions {
   justify-content: center;
   gap: var(--fd-space-1);
 }
 
+.admin-data .admin-row-actions .el-button,
 .user-list-data .admin-row-actions .el-button {
   margin-left: 0;
   padding: var(--fd-space-2);
 }
 
+.admin-data .admin-pagination,
 .user-list-data .admin-pagination {
   padding: var(--fd-space-4) var(--fd-space-5);
   border-top: thin solid var(--fd-color-border-subtle);
 }
 
+/* 弹窗宽度不超过视口：`width` 属性在窄屏会把对话框顶出屏幕。 */
+.admin-dialog,
 .user-list-dialog {
   max-width: calc(100vw - var(--fd-space-7));
 }
 
+/* 弹窗表单里的控件占满整行。之前 `admin-form-control` 在三个页面里被引用，但一直没有对应
+   规则，于是 `el-input-number`（Element Plus 默认宽 150px）和同表单的 `el-input` 宽度不一致，
+   看上去像没对齐。把这条补上，三页一起生效。 */
+.admin-form-control {
+  width: 100%;
+}
+
 @media (max-width: 52rem) {
+  /* 阈值与 `useCompactPagination` 的 COMPACT_PAGINATION_QUERY 保持一致，改动时两处一起改。 */
   .page--list {
     padding: var(--fd-space-4);
   }
 
+  .admin-page .admin-filter-card,
   .user-list-page .admin-filter-card {
     padding: var(--fd-space-4);
   }
 
+  .admin-page .admin-filter-fields,
   .user-list-page .admin-filter-fields {
     display: grid;
     gap: var(--fd-space-4);
   }
 
+  .admin-page .admin-filter-field,
   .user-list-page .admin-filter-field {
     display: grid;
     gap: var(--fd-space-2);
   }
 
+  .admin-page .admin-filter-input--wide,
+  .admin-page .admin-filter-input--narrow,
   .user-list-page .admin-filter-input--wide,
   .user-list-page .admin-filter-input--narrow {
     width: 100%;
   }
 
+  .admin-data .admin-action-bar,
+  .admin-data .admin-panel,
+  .admin-data .admin-pagination,
   .user-list-data .admin-action-bar,
   .user-list-data .admin-panel,
   .user-list-data .admin-pagination {
     padding: var(--fd-space-3);
   }
 
+  .admin-data .el-button,
   .user-list-data .el-button {
     min-height: var(--fd-control-size-lg);
+  }
+
+  /* 关系行的撤销按钮在竖排后不该再居中：它跟的是本行的关系，不是整列的轴。 */
+  .grant-row__action .el-button {
+    min-height: var(--fd-control-size-md);
   }
 }
 
@@ -1261,6 +1312,12 @@ h1 {
   gap: var(--fd-space-1);
 }
 
+/* 关系行的撤销按钮带描边：它单独站在行尾，没有相邻图标可参照，
+   只靠一个红图标容易被读成状态点而不是按钮。 */
+.grant-row__action .el-button {
+  border: thin solid var(--fd-color-border);
+}
+
 .admin-pagination {
   display: flex;
   justify-content: flex-end;
@@ -1280,8 +1337,7 @@ h1 {
   font-size: var(--fd-font-size-base);
 }
 
-/* ---- 两组授权页：关系行 ----
- * 一条授权就是一条责任记录（谁 → 什么 → 何时由谁授予），与工单时间线同源，
+/* 关系行：一条授权就是一条责任记录（谁 → 什么 → 何时由谁授予），与工单时间线同源，
  * 所以不做成普通数据表：主体、关系轴、客体、审计四段横排。整块按参考后台的
  * 表格语言处理——带边框、带表头带、行间横线，列宽只在 .grant-list 上声明一次。 */
 .grant-list {
@@ -1402,5 +1458,519 @@ h1 {
 
   .admin-pagination {
     justify-content: center;
+  }
+}
+
+/* ============================================================
+ * 工单主链路（阶段 2）：列表 / 新建 / 详情
+ *
+ * 复用管理列表那一套已验收的容器与密度（筛选卡、数据面板、表格、分页、四态容器），
+ * 这里只写工单特有的部分：工作范围切换、列表主列的层级、表单的优先级选择、
+ * 详情的「主体 + 属性侧栏」与时间线脊。
+ * ============================================================ */
+
+/* 范围切换：工单列表的第一层。scope 是必填参数，四种取值对应三种角色的工作场景，
+   所以它单独占筛选卡的一行，并用一条分隔线与下面的筛选条件分开——
+   范围决定"看哪批工单"，条件决定"从这批里挑哪些"，两者不是同一种输入。 */
+.ticket-scope-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--fd-space-3);
+  padding-bottom: var(--fd-space-4);
+  border-bottom: thin solid var(--fd-color-border-subtle);
+}
+
+.ticket-scope-bar__label {
+  color: var(--fd-color-text-muted);
+  font-size: var(--fd-font-size-base);
+}
+
+.ticket-list-page .admin-filter-fields {
+  padding-top: var(--fd-space-4);
+}
+
+/* 时间范围是唯一需要横向展开的筛选控件，给它固定的可用宽度；排序是列表级控件，
+   放在工具栏右侧，宽度按最长选项（"优先级从高到低"）留够。 */
+.ticket-filter-range {
+  width: 24rem;
+  max-width: 100%;
+}
+
+.ticket-sort {
+  width: 11rem;
+}
+
+/* 列表主列：标题在上、编号在下。这是工单列表唯一需要读层级的地方——
+   标题告诉人"这是什么问题"，编号是跟别人沟通时要报的那串字符。 */
+.ticket-cell {
+  display: grid;
+  min-width: 0;
+  gap: var(--fd-space-hairline);
+}
+
+.ticket-cell__title {
+  overflow: hidden;
+  color: var(--fd-color-text-strong);
+  font-weight: var(--fd-font-weight-semibold);
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ticket-cell__title:hover {
+  text-decoration: underline;
+}
+
+.ticket-cell__title:focus-visible {
+  border-radius: var(--fd-radius-xs);
+  outline: none;
+  box-shadow: var(--fd-focus-ring);
+}
+
+.ticket-cell__no {
+  color: var(--fd-color-text-subtle);
+  font-family: var(--fd-font-family-mono);
+  font-size: var(--fd-font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 状态与优先级：圆点 + 文字。颜色在这里只表达"要不要我去处理"，不做成七种颜色的胶囊标签。 */
+.ticket-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fd-space-2);
+  color: var(--fd-color-text);
+  white-space: nowrap;
+}
+
+.ticket-mark__dot {
+  flex: none;
+  width: var(--fd-space-2);
+  height: var(--fd-space-2);
+  border-radius: var(--fd-radius-full);
+  background: var(--fd-color-text-faint);
+}
+
+.ticket-mark__dot--waiting {
+  background: var(--fd-color-warning);
+}
+
+.ticket-mark__dot--active {
+  background: var(--fd-color-primary);
+}
+
+.ticket-mark__dot--done {
+  background: var(--fd-color-success);
+}
+
+.ticket-mark__dot--ended {
+  background: var(--fd-color-text-faint);
+}
+
+.ticket-mark__dot--high {
+  background: var(--fd-color-danger);
+}
+
+.ticket-mark__dot--medium {
+  background: var(--fd-color-text-subtle);
+}
+
+.ticket-mark__dot--low {
+  background: var(--fd-color-border-strong);
+}
+
+/* 页面级状态块：加载失败、无权限、字段不可用。与管理端四态容器同一种语言，
+   但文案必须是这一页自己的（"列表没有加载成功"用在详情页上就是错的）。 */
+.ticket-state {
+  padding: var(--fd-space-5) var(--fd-space-6);
+  border: thin solid var(--fd-color-border);
+  border-radius: var(--fd-radius-md);
+  background: var(--fd-color-surface);
+}
+
+.ticket-state--danger {
+  border: 0;
+  border-left: var(--fd-space-hairline) solid var(--fd-color-danger);
+  background: var(--fd-color-danger-soft);
+}
+
+.ticket-state h2,
+.ticket-state h3 {
+  margin: 0;
+  color: var(--fd-color-text-strong);
+  font-size: var(--fd-font-size-md);
+}
+
+.ticket-state p {
+  margin: var(--fd-space-2) 0 var(--fd-space-4);
+  color: var(--fd-color-text-muted);
+  line-height: var(--fd-line-height-relaxed);
+}
+
+.ticket-state__link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fd-space-1);
+  color: var(--fd-color-primary);
+  text-decoration: none;
+}
+
+.ticket-state__link:hover {
+  text-decoration: underline;
+}
+
+/* 新建工单：表单单列阅读宽度；优先级用三个带后果说明的选项，而不是一个下拉——
+   它决定 IT 先看哪一张工单，用户需要看到选择的后果才能选对。 */
+.ticket-form__control {
+  width: 100%;
+}
+
+.ticket-priority {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--fd-space-3);
+  align-items: stretch;
+}
+
+.ticket-priority__option {
+  height: auto;
+  margin-right: 0;
+  padding: var(--fd-space-3);
+  border: thin solid var(--fd-color-border);
+  border-radius: var(--fd-radius-sm);
+  background: var(--fd-color-surface);
+  align-items: flex-start;
+  white-space: normal;
+}
+
+.ticket-priority__option.is-checked {
+  border-color: var(--fd-color-primary);
+  background: var(--fd-color-primary-soft);
+}
+
+.ticket-priority__label {
+  display: block;
+  color: var(--fd-color-text-strong);
+  font-weight: var(--fd-font-weight-semibold);
+}
+
+.ticket-priority__hint {
+  display: block;
+  margin-top: var(--fd-space-hairline);
+  color: var(--fd-color-text-subtle);
+  font-size: var(--fd-font-size-sm);
+  line-height: var(--fd-line-height-base);
+}
+
+/* 提交条：动作与"这次提交的身份"放在一起。重试提示之所以必须显眼，是因为它同时说明了
+   "再点一次不会建出第二张工单"，用户需要这句话才敢重试。 */
+.ticket-commit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--fd-space-3);
+  margin-top: var(--fd-space-5);
+  padding-top: var(--fd-space-5);
+  border-top: thin solid var(--fd-color-border);
+}
+
+.ticket-commit .el-button {
+  margin-left: auto;
+}
+
+.ticket-commit__pending,
+.ticket-commit__error {
+  width: 100%;
+  margin: 0;
+  padding: var(--fd-space-3) var(--fd-space-4);
+  border-radius: var(--fd-radius-sm);
+  font-size: var(--fd-font-size-sm);
+  line-height: var(--fd-line-height-relaxed);
+}
+
+.ticket-commit__pending {
+  background: var(--fd-color-warning-soft);
+  color: var(--fd-color-text-muted);
+}
+
+.ticket-commit__error {
+  background: var(--fd-color-danger-soft);
+  color: var(--fd-color-text);
+}
+
+.ticket-commit__key {
+  color: var(--fd-color-text-strong);
+  font-family: var(--fd-font-family-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.ticket-commit__link {
+  color: var(--fd-color-primary);
+}
+
+.ticket-form__note {
+  flex: 1 1 14rem;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--fd-space-2);
+  margin: 0;
+  color: var(--fd-color-text-subtle);
+  font-size: var(--fd-font-size-sm);
+  line-height: var(--fd-line-height-relaxed);
+}
+
+/* 详情：主体 + 属性侧栏（侧栏宽度按"标签 + 值"的最长组合定，不跟着内容抖动）。
+   窄屏改为上下排列，见文件末尾的媒体查询。 */
+.ticket-detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 21rem;
+  gap: var(--fd-space-4);
+  align-items: start;
+}
+
+.ticket-detail__main,
+.ticket-detail__side {
+  display: grid;
+  min-width: 0;
+  gap: var(--fd-space-4);
+}
+
+.ticket-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--fd-space-2) var(--fd-space-5);
+  margin-bottom: var(--fd-space-4);
+}
+
+.ticket-meta__no {
+  color: var(--fd-color-text-strong);
+  font-family: var(--fd-font-family-mono);
+  font-size: var(--fd-font-size-md);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--fd-tracking-wide);
+}
+
+.ticket-meta__back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fd-space-1);
+  margin-left: auto;
+  color: var(--fd-color-text-muted);
+  font-size: var(--fd-font-size-sm);
+  text-decoration: none;
+}
+
+.ticket-meta__back:hover {
+  color: var(--fd-color-primary);
+  text-decoration: underline;
+}
+
+/* 面板：一页只有"问题描述 / 处理记录 / 工单信息"三块，且分属主体与侧栏两个轨道，
+   不是把每个 section 都套一张卡。 */
+.ticket-panel {
+  min-width: 0;
+  border: thin solid var(--fd-color-border);
+  border-radius: var(--fd-radius-md);
+  background: var(--fd-color-surface);
+}
+
+.ticket-panel__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--fd-space-2) var(--fd-space-4);
+  padding: var(--fd-space-4) var(--fd-space-5);
+  border-bottom: thin solid var(--fd-color-border-subtle);
+}
+
+.ticket-panel__header h2 {
+  margin: 0;
+  color: var(--fd-color-text-strong);
+  font-size: var(--fd-font-size-md);
+}
+
+.ticket-panel__count {
+  margin: 0;
+  color: var(--fd-color-text-subtle);
+  font-size: var(--fd-font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.ticket-panel__body {
+  padding: var(--fd-space-5);
+}
+
+/* 问题正文保留用户输入的换行：它是原始陈述，不是可以重排的说明文字。 */
+.ticket-description {
+  margin: 0;
+  color: var(--fd-color-text);
+  line-height: var(--fd-line-height-relaxed);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* 时间线：一条脊加一串节点。记录是业务事实的顺序，所以只追加、不重排。 */
+.ticket-timeline {
+  display: grid;
+  gap: var(--fd-space-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ticket-timeline__item {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--fd-space-4) minmax(0, 1fr);
+  gap: var(--fd-space-3);
+}
+
+.ticket-timeline__item::before {
+  position: absolute;
+  top: var(--fd-space-4);
+  bottom: calc(-1 * var(--fd-space-5));
+  left: calc(var(--fd-space-4) / 2 - var(--fd-space-hairline) / 2);
+  width: var(--fd-space-hairline);
+  background: var(--fd-color-border);
+  content: '';
+}
+
+.ticket-timeline__item:last-child::before {
+  display: none;
+}
+
+.ticket-timeline__marker {
+  justify-self: center;
+  width: var(--fd-space-2);
+  height: var(--fd-space-2);
+  margin-top: var(--fd-space-2);
+  border: thin solid var(--fd-color-surface);
+  border-radius: var(--fd-radius-full);
+  background: var(--fd-color-primary);
+}
+
+.ticket-timeline__body {
+  display: grid;
+  min-width: 0;
+  gap: var(--fd-space-2);
+}
+
+.ticket-timeline__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--fd-space-1) var(--fd-space-3);
+}
+
+.ticket-timeline__type {
+  color: var(--fd-color-text-strong);
+  font-weight: var(--fd-font-weight-semibold);
+}
+
+.ticket-timeline__meta {
+  color: var(--fd-color-text-subtle);
+  font-size: var(--fd-font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.ticket-timeline__facts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--fd-space-2) var(--fd-space-4);
+  margin: 0;
+  padding: var(--fd-space-3) var(--fd-space-4);
+  border-radius: var(--fd-radius-sm);
+  background: var(--fd-color-surface-subtle);
+}
+
+.ticket-timeline__facts dt {
+  color: var(--fd-color-text-subtle);
+  font-size: var(--fd-font-size-sm);
+  white-space: nowrap;
+}
+
+.ticket-timeline__facts dd {
+  margin: 0;
+  color: var(--fd-color-text);
+  font-size: var(--fd-font-size-sm);
+  line-height: var(--fd-line-height-relaxed);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.ticket-timeline__more {
+  display: grid;
+  justify-items: center;
+  gap: var(--fd-space-3);
+  margin-top: var(--fd-space-5);
+}
+
+/* 属性栏：标签与值两列。标签列用 auto，宽度跟着最长标签走，值列吃掉剩余宽度。 */
+.ticket-facts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--fd-space-3) var(--fd-space-4);
+  margin: 0;
+}
+
+.ticket-facts dt {
+  color: var(--fd-color-text-subtle);
+  font-size: var(--fd-font-size-sm);
+  white-space: nowrap;
+}
+
+.ticket-facts dd {
+  margin: 0;
+  color: var(--fd-color-text);
+  font-size: var(--fd-font-size-base);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 52rem) {
+  /* 详情在窄屏改为上下排列：属性栏跟到正文后面，而不是挤在右侧变成一条窄缝。 */
+  /* 日期范围的固有宽度不能撑开筛选网格的自动轨道。 */
+  .ticket-list-page .admin-filter-fields,
+  .ticket-list-page .admin-filter-field {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ticket-list-page .ticket-filter-range {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .ticket-list-page .admin-filter-field,
+  .ticket-filter-range {
+    min-width: 0;
+  }
+
+  .ticket-detail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ticket-priority {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ticket-filter-range,
+  .ticket-sort {
+    width: 100%;
+  }
+
+  .ticket-meta__back {
+    margin-left: 0;
+  }
+
+  /* 窄屏只有主操作，它占整行比缩在右下角好按。 */
+  .ticket-commit {
+    align-items: stretch;
+  }
+
+  .ticket-commit .el-button {
+    width: 100%;
+    margin-left: 0;
   }
 }

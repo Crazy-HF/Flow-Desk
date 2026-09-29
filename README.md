@@ -35,9 +35,9 @@ FlowDesk 是一个企业工单协作平台，由开发者与 Codex 协作完成�
 
 ## 当前状态
 
-项目启动分析、业务模型、总体架构、数据库逻辑与物理模型、API 契约、工程准备检查和 M0 工程底座已经完成。后续分为“求职 MVP”和“完整版”两层；MVP 阶段 1 Auth 身份入口（`TASK-010`～`TASK-011`）已经完成，当前先实施已确认提前的完整动态 RBAC，随后进入阶段 2 员工创建与查询。
+项目启动分析、业务模型、总体架构、数据库逻辑与物理模型、API 契约、工程准备检查和 M0 工程底座已经完成。后续分为“求职 MVP”和“完整版”两层；MVP 阶段 1 Auth 身份入口（`TASK-010`～`TASK-011`，PR #5）、前端外壳与页面骨架（PR #6）以及已确认提前实施的完整动态 RBAC（`TASK-055`～`TASK-062`，含管理端五页，PR #8）均已完成并合并 `main`。**阶段 2 员工创建与查询已验收通过，待授权交接**（`TASK-020`～`TASK-023-MVP`，分支 `flow-desk/ticket-employee-flow`）。
 
-MVP 主链固定使用普通员工、IT 支持人员、系统管理员三种内置角色，先完成认证，再交付“员工创建 → IT 领取和处理 → 员工确认”的核心工单闭环；附件、完整状态机、分类管理等管理端页面、数据概览放入完整版（**RBAC 管理端页面与用户管理除外**，两者都是当前阶段的交付物：用户管理已于 2026-09-24 登记为 `TASK-061`/`TASK-062`）。动态 RBAC 后端能力已于 2026-09-21 确认提前到阶段 2 之前实施，并已于 2026-09-22 确认**计入 MVP 演示范围**（含管理端页面）；用户角色授权取消“至少一个角色”约束，**允许用户零角色**。详细顺序见 `docs/implementation-plan.md`。
+MVP 主链固定使用普通员工、IT 支持人员、系统管理员三种内置角色，先完成认证，再交付“员工创建 → IT 领取和处理 → 员工确认”的核心工单闭环；附件、完整状态机、数据概览放入完整版（**RBAC 管理端页面、用户管理与已授权提前实施的分类管理除外**，两者已在阶段 3 交付：用户管理于 2026-09-24 登记为 `TASK-061`/`TASK-062`，同批合并）。动态 RBAC 后端能力已于 2026-09-21 确认提前到阶段 2 之前实施，并已于 2026-09-22 确认**计入 MVP 演示范围**（含管理端页面）；用户角色授权取消“至少一个角色”约束，**允许用户零角色**。详细顺序见 `docs/implementation-plan.md`。
 
 ## 协作说明
 
@@ -79,4 +79,6 @@ pnpm --dir frontend dev
 
 后端健康检查位于 `http://localhost:8081/actuator/health`，前端开发入口位于 `http://localhost:5173`。前端将 `/fd` 请求代理到后端。普通停止使用 `docker compose down`，不要附加 `-v`，以免删除本地数据卷。
 
-MVP 阶段 1 Auth 身份入口已完成并通过 PR #5 合并进入 `main`：访问 `http://localhost:5173` 会被引导到 `/login`，用演示账号登录后进入受保护首页（显示当前身份与按权限展示的能力清单）。登录后的应用壳按四层职责组织——整幅顶栏（品牌位 + 搜索位 + 全屏 + 账号菜单）、按权限生成的侧栏、表达当前位置的面包屑、主体内容；导航条目与面包屑层级共用 `frontend/src/constants/authorization.ts` 的同一份声明。系统管理端 RBAC 已完成并进入阶段交接：`TASK-055`～`TASK-062` 全部完成，验收标准第 4 条的四条手工真实栈链路已于 2026-09-28 在真实栈上执行并通过（逐条留 `traceId`，见 `docs/modules/rbac.md` 11.2）。验证证据：后端 `./mvnw -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` 为 **394** 单元/Web + **88** 集成全绿，前端 `typecheck`/`lint`/`build` 退出码 0、单测 **74** 项、E2E **13** 项全绿；`frontend/src/views/admin/` 下的用户管理、角色管理、权限管理、用户角色授权与角色权限授权五页可走通真实闭环（建角色 → 授权限 → 给用户授角色）。`auth`、`iam` 生产代码已于 2026-09-23 完成应用层重构（`application.command` / `query` / `result` / `service`，实现入 `service.impl`，跨模块接口入 `iam.application.port`，Controller 直接收发 Command/Query/Result，`domain` 不再放 BO/VO；接口地址、JSON 字段与业务行为不变，见 `docs/technical-architecture.md` 5.1 与 `PROJECT_STATUS.md`）；用户管理已登记为 `TASK-061`（后端，`PUT /fd/v1/users/{userId}/roles` 按契约使用复数路径）/`TASK-062`（页面），零角色是合法终态。下一步是阶段 2 员工工单主链路（`TASK-020`～`TASK-023-MVP`）；前端视觉改版的推广（用户管理页已打样，其余四页待推广）随后续分支继续。演示账号见 `src/main/resources/db/demo/R__seed_demo_data.sql` 头部注释。
+MVP 阶段 1 Auth 身份入口已完成并通过 PR #5 合并进入 `main`：访问 `http://localhost:5173` 会被引导到 `/login`，用演示账号登录后进入受保护首页（显示当前身份与按权限展示的能力清单）。登录后的应用壳按四层职责组织——整幅顶栏（品牌位 + 搜索位 + 全屏 + 账号菜单）、按权限生成的侧栏、表达当前位置的面包屑、主体内容；导航条目与面包屑层级共用 `frontend/src/constants/authorization.ts` 的同一份声明。系统管理端 RBAC 已完成并通过 PR #8 合并 main：`TASK-055`～`TASK-062` 全部完成，验收标准第 4 条的四条手工真实栈链路已于 2026-09-28 在真实栈上执行并通过（逐条留 `traceId`，见 `docs/modules/rbac.md` 11.2）。验证证据：后端 **394** 单元/Web + **88** 集成全绿，前端 typecheck/lint/build、74 项单测和 13 项 E2E 全绿；`frontend/src/views/admin/` 下五页可走通真实授权闭环。`auth`、`iam` 生产代码已完成应用层重构，约定见 `docs/technical-architecture.md` 5.1；用户管理已登记为 `TASK-061`/`TASK-062`，零角色是合法终态。
+
+阶段 2 已于 2026-09-29 验收通过，分支 `flow-desk/ticket-employee-flow` 已获用户授权完整交接。后端 394 单元/Web + 88 集成、前端 124 单测、15 E2E 通过；防重复、数据隔离、刷新恢复与演示库清理证据见 `docs/acceptance/stage2-closeout-20260929.json` 和 `PROJECT_STATUS.md`。本次将当前后端、前端及验收文档一并通过 PR 交接至 main，PR 实际状态为合并依据；交接后从最新 main 创建 flow-desk/ticket-it-flow。交接后的下一大步骤是阶段 3 IT 处理闭环，尚未开工。演示账号生成见 `src/main/resources/db/demo/R__seed_demo_data.sql`。

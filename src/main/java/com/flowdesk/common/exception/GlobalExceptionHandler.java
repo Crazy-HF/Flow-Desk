@@ -7,9 +7,11 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.List;
@@ -46,6 +48,23 @@ public class GlobalExceptionHandler {
     ResponseEntity<R<ErrorDetails>> handleUnreadableBody(HttpMessageNotReadableException exception) {
         return ResponseEntity.badRequest()
                 .body(errorWriter.body("VALIDATION_FAILED", "请求体格式不正确"));
+    }
+
+    /**
+     * 查询参数缺失、类型不符，或路径变量类型不符（例如把非数字传给 {@code long} 主键）。
+     *
+     * <p>这三类都是调用方把请求写错了，按 10.2 统一错误契约应当返回
+     * {@code 400/VALIDATION_FAILED}；不处理的话会落到末位的兜底分支变成
+     * {@code 500/INTERNAL_ERROR}，把调用方的问题报成服务端故障。
+     * 对外不回显参数名与原始取值，避免把内部字段名泄露出去。</p>
+     */
+    @ExceptionHandler({
+            MissingServletRequestParameterException.class,
+            MethodArgumentTypeMismatchException.class
+    })
+    ResponseEntity<R<ErrorDetails>> handleBadRequestParameter(Exception exception) {
+        return ResponseEntity.badRequest()
+                .body(errorWriter.body("VALIDATION_FAILED", "请求参数不符合要求"));
     }
 
     @ExceptionHandler(NoResourceFoundException.class)

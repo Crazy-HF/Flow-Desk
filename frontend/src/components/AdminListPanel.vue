@@ -61,12 +61,14 @@ const emit = defineEmits<{ retry: [] }>()
     >
       <h2>列表没有加载成功</h2>
       <p>{{ errorMessage }}</p>
-      <el-button
-        :loading="retrying"
-        @click="emit('retry')"
-      >
-        重新加载
-      </el-button>
+      <slot name="retry-action">
+        <el-button
+          :loading="retrying"
+          @click="emit('retry')"
+        >
+          重新加载
+        </el-button>
+      </slot>
     </section>
 
     <EmptyState

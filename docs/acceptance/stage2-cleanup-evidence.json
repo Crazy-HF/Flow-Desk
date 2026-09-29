@@ -1,0 +1,110 @@
+{
+  "result": "PASS",
+  "at": "2026-09-29T17:28:16.1709189+08:00",
+  "sql": "docs/acceptance/stage2-cleanup-2026-09-29.sql",
+  "columns": [
+    "categories",
+    "tickets",
+    "records",
+    "participants",
+    "daily_sequences",
+    "users",
+    "roles",
+    "permissions"
+  ],
+  "initialBaseline": [
+    5,
+    0,
+    0,
+    0,
+    0,
+    3,
+    3,
+    14
+  ],
+  "after": [
+    5,
+    0,
+    0,
+    0,
+    0,
+    3,
+    3,
+    14
+  ],
+  "ticketProofBeforeCleanup": [
+    {
+      "ticketCount": 1,
+      "ticketNo": "FD-20260929-001",
+      "recordCount": 1
+    },
+    {
+      "ticketCount": 1,
+      "ticketNo": "FD-20260929-002",
+      "recordCount": 1
+    },
+    {
+      "ticketCount": 1,
+      "ticketNo": "FD-20260929-003",
+      "recordCount": 1
+    },
+    {
+      "ticketCount": 1,
+      "ticketNo": "FD-20260929-004",
+      "recordCount": 1
+    },
+    {
+      "ticketCount": 1,
+      "ticketNo": "FD-20260929-005",
+      "recordCount": 1
+    },
+    {
+      "ticketCount": 1,
+      "ticketNo": "FD-20260929-006",
+      "recordCount": 1
+    },
+    {
+      "ticketCount": 1,
+      "ticketNo": "FD-20260929-007",
+      "recordCount": 1
+    },
+    {
+      "ticketCount": 1,
+      "ticketNo": "FD-20260929-008",
+      "recordCount": 1
+    },
+    {
+      "ticketCount": 1,
+      "ticketNo": "FD-20260929-009",
+      "recordCount": 1
+    }
+  ],
+  "temporaryUserIds": [
+    24,
+    25,
+    26,
+    27
+  ],
+  "temporarySessionIndexesRemaining": 0,
+  "relationCountColumns": [
+    "user_roles",
+    "role_permissions",
+    "attachments",
+    "relations"
+  ],
+  "relationCounts": [
+    5,
+    14,
+    0,
+    0
+  ],
+  "orphanCounts": [
+    0,
+    0
+  ],
+  "temporaryUserAndCategoryCounts": [
+    0,
+    0
+  ],
+  "note": "Cleanup SQL and scoped Redis cleanup ran successfully. First baseline wrapper compared string character instead of full row; this independent SQL read verifies the full row."
+}

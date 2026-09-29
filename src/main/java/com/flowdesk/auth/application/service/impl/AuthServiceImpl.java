@@ -71,10 +71,13 @@ public class AuthServiceImpl implements AuthService {
         // 认证
         AuthenticationSnapshot authentication = authenticate(loginCommand);
 
+        // 会话 ID 与刷新令牌
         String sessionId = UUID.randomUUID().toString();
         String refreshToken = RefreshTokenUtils.generate(authProperties.refreshTokenBytes());
 
+        // 当前时间
         Instant now = clock.instant();
+        // 会话信息
         AuthSession session = new AuthSession(
                 sessionId,
                 authentication.userId(),
@@ -85,8 +88,10 @@ public class AuthServiceImpl implements AuthService {
                 now,
                 now.plus(authProperties.refreshExpiration()));
 
+        // 会话入库
         authSessionRepository.save(session);
 
+        // 签发令牌
         return issue(session, refreshToken);
     }
 

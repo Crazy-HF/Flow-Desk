@@ -1,0 +1,32 @@
+{
+  "date": "2026-09-29T17:43:18.8672514+08:00",
+  "purpose": "Pre-merge verification of current Stage 2 worktree",
+  "result": "PASS",
+  "backendUnitWeb": 394,
+  "backendIntegration": 88,
+  "frontendSuites": 23,
+  "frontendUnit": 124,
+  "e2e": 15,
+  "checks": [
+    "mvnw.cmd -B clean verify -DargLine=-Djdk.attach.allowAttachSelf=true",
+    "node vue-tsc -b",
+    "node eslint . --max-warnings=0",
+    "node stylelint src/**/*.{css,scss,vue} --max-warnings=0",
+    "node vite build",
+    "node vitest run --maxWorkers=1",
+    "node playwright test"
+  ],
+  "cleanupBaseline": [
+    5,
+    0,
+    0,
+    0,
+    0,
+    3,
+    3,
+    14
+  ],
+  "temporaryUserSessionsCleaned": true,
+  "sourceLogs": "Fresh command logs in TEMP/flowdesk-handoff-{backend,typecheck,eslint,stylelint,build,unit,e2e}.log; prior closeout evidence kept unchanged",
+  "nextBranch": "flow-desk/ticket-it-flow"
+}

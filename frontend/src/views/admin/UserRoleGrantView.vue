@@ -14,6 +14,7 @@ import AppPage from '@/components/AppPage.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import { formatDateTime } from '@/utils/format'
 import { useAdminList } from './useAdminList'
+import { useCompactPagination } from './useCompactPagination'
 
 /**
  * 用户角色授权（`docs/api-design.md` 8.2.1，`TASK-060`）。
@@ -23,6 +24,7 @@ import { useAdminList } from './useAdminList'
  */
 const route = useRoute()
 const router = useRouter()
+const compactPagination = useCompactPagination()
 
 const subject = ref<UserDetail | null>(null)
 const subjectOptions = shallowRef<UserDetail[]>([])
@@ -146,11 +148,12 @@ onMounted(async () => {
 <template>
   <AppPage
     class="admin-page"
-    description="一个用户 × 多个角色的批量增量授予：已存在的关系保留原授权时间，任一角色不存在则整批不生效。"
+    description="一个用户可以同时持有多个角色：已存在的关系保留原授权时间，任一角色不存在则整批不生效。"
+    layout="list"
     title="用户角色授权"
   >
     <section
-      class="admin-filter-card"
+      class="admin-filter-card grant-form"
       aria-label="授予用户角色"
     >
       <div class="admin-filter-fields">
@@ -214,24 +217,24 @@ onMounted(async () => {
           </el-button>
         </div>
       </div>
+
+      <p
+        v-if="grantError"
+        class="admin-error"
+        role="alert"
+      >
+        {{ grantError }}
+      </p>
     </section>
 
-    <p
-      v-if="grantError"
-      class="admin-error"
-      role="alert"
+    <section
+      class="admin-data"
+      aria-label="用户角色授权数据"
     >
-      {{ grantError }}
-    </p>
-
-    <EmptyState
-      v-if="!subject"
-      title="先选择要授权的用户"
-      description="选定用户后，这里会显示他当前持有的角色与每条授权的来源。"
-    />
-
-    <template v-else>
-      <div class="admin-action-bar">
+      <div
+        v-if="subject"
+        class="admin-action-bar"
+      >
         <el-popconfirm
           title="清空后该用户不再有任何角色，账号仍可登录但没有业务权限。确定清空？"
           cancel-button-text="取消"
@@ -242,9 +245,8 @@ onMounted(async () => {
           <template #reference>
             <el-button
               :icon="Delete"
-              plain
-              size="small"
               type="danger"
+              plain
             >
               清空全部角色
             </el-button>
@@ -252,8 +254,8 @@ onMounted(async () => {
         </el-popconfirm>
         <el-button
           :icon="Setting"
+          type="info"
           plain
-          size="small"
           @click="openPermissions"
         >
           去维护角色权限
@@ -268,15 +270,22 @@ onMounted(async () => {
               :icon="Refresh"
               :loading="retrying"
               aria-label="刷新列表"
-              circle
-              size="small"
+              type="info"
+              plain
               @click="search"
             />
           </el-tooltip>
         </div>
       </div>
 
+      <EmptyState
+        v-if="!subject"
+        description="选定用户后，这里会显示他当前持有的角色与每条授权的来源。"
+        title="先选择要授权的用户"
+      />
+
       <AdminListPanel
+        v-else
         empty-description="零角色是合法状态：账号仍可登录，但没有任何业务权限。"
         empty-title="该用户当前没有角色"
         :error-message="errorMessage"
@@ -286,6 +295,17 @@ onMounted(async () => {
         :retrying="retrying"
         @retry="search"
       >
+        <template #retry-action>
+          <el-button
+            :icon="Refresh"
+            :loading="retrying"
+            type="primary"
+            @click="search"
+          >
+            重新加载
+          </el-button>
+        </template>
+
         <div class="grant-list">
           <div class="grant-list-head">
             <span>用户</span>
@@ -330,10 +350,10 @@ onMounted(async () => {
                     <el-button
                       :icon="Delete"
                       aria-label="撤销"
-                      circle
                       size="small"
-                      text
                       type="danger"
+                      plain
+                      circle
                     />
                   </template>
                 </el-popconfirm>
@@ -344,25 +364,28 @@ onMounted(async () => {
       </AdminListPanel>
 
       <div
-        v-if="phase === 'ready' && items.length > 0"
+        v-if="subject && phase === 'ready' && items.length > 0"
         class="admin-pagination"
       >
         <el-pagination
           background
           :current-page="pageNo"
-          layout="total, sizes, prev, pager, next, jumper"
+          :layout="compactPagination ? 'total, prev, pager, next' : 'total, sizes, prev, pager, next, jumper'"
+          :pager-count="5"
           :page-size="pageSize"
           :page-sizes="[10, 20, 50]"
-          size="small"
           :total="total"
           @current-change="changePage"
           @size-change="changePageSize"
         />
       </div>
+    </section>
 
-      <p class="admin-hint">
-        撤销单条授权用行内入口；批量与清空走整批原子端点，不会出现"部分成功"。
-      </p>
-    </template>
+    <p
+      v-if="subject"
+      class="admin-hint"
+    >
+      撤销单条授权用行内入口；批量与清空一次提交整批，不会出现只生效一半的情况。
+    </p>
   </AppPage>
 </template>

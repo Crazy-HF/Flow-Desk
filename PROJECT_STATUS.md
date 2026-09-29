@@ -1,11 +1,134 @@
 # FlowDesk 项目状态
 
+## 当前结论：阶段 2 验收通过，完整交接已授权（2026-09-29）
+
+- **本次交接复核**：当前工作树重新执行后端 clean verify、前端 typecheck/eslint/stylelint/build、23 套件 124 单测和 15 E2E 全部通过；临时数据与临时用户会话清理后基线仍为 5/0/0/0/0/3/3/14。新证据 docs/acceptance/stage2-handoff-20260929.json，原始失败与收口证据保留。
+- **四项收尾完成**：脚本要求的后端 verify、前端 typecheck/lint/build/单测和真实栈 E2E 闸门全部取得通过证据；防重复、本人数据隔离、刷新恢复已实测；清理 SQL 已执行并恢复演示基线；步骤⑧及截图报告已同步。
+- **结果**：后端单元/Web **394**、集成 **88**，失败/错误均 0；前端单测 **23 套件 / 124 项**；全部 **15 项 E2E**通过。最后仅调整证据采集与截图等待的工单/分类用例又定向通过 **2 项**。分类管理创建、改名、停用、启用、删除也已浏览器验证。
+- **证据来源必须区分**：`docs/acceptance/stage2-acceptance-20260929170146.json` 保留原始 FAIL（当时仅 E2E 未通过），复用其中已通过的 verify/typecheck/单测结果；CSS 修正后重新执行完整 lint/build/E2E，通过日志为 `stage2-final-{lint,build,e2e}.log`。最终汇总 `docs/acceptance/stage2-closeout-20260929.json` 为 PASS，**不是把原始失败运行改写为成功**。
+- **数据库**：执行 `docs/acceptance/stage2-cleanup-2026-09-29.sql`；分类 5 / 工单 0 / 记录 0 / 参与者 0 / 日序号 0 / 用户 3 / 角色 3 / 权限 14，回到实测初始基线；临时员工及失败运行遗留会话一并清理。逐工单 SQL 证明每个验收标题仅一单一条创建记录，证据 `docs/acceptance/stage2-cleanup-evidence.json`。
+- **浏览器与截图**：`.ui-craft/reviews/2026-09-29-tickets/runtime-evidence.json` 与 `category-runtime-evidence.json` 记录状态码、traceId、隔离与刷新结果；该目录 1440/375 截图已实际查看，横向溢出为 0。运行时验收通过不替代用户逐项审美反馈。
+- **本次修正范围**：现有后端测试配置补事务管理器替身、迁移断言跟进 V6；现有前端测试修正时间线上下文字段和组件清理；工单列表窄屏日期范围收缩；E2E 增加真实隔离账号及分类 CRUD 证明。未代写 ServiceImpl 业务逻辑。
+- **交接授权已确认（2026-09-29）**：用户明确要求当前代码提交、推送、创建 PR 并合并 main，本次范围包含后端、员工工单三页、分类页面、RBAC 视觉推广、现有测试修正与验收/设计证据。按检查 → 提交 → 推送 → PR/合并 → main 仅快进同步执行；以本分支 PR 的实际合并状态为交接结果。此前只提交后端、不合并的限制不再适用于本次。
+- **下一分支**：合并后从最新 main 创建 `flow-desk/ticket-it-flow`，供阶段 3 使用；仅准备分支，不提前实现业务。
+- **下一大步骤**：阶段 3 IT 处理闭环（`TASK-030-MVP` / `TASK-032-MVP` / `TASK-033-MVP`）：公共队列与领取 → 当前负责人处理与提交解决 → 提交人确认完成；后端必须同时校验权限、资源关系、状态和版本，真并发领取只有一个成功，每个动作追加不可变时间线。先按 `docs/implementation-plan.md` 第 7 节及已有契约给出首个领取切片的文件、规则、流程和验收，再进入实现；尚未开工。
+- **非阻塞遗留**：共享列表组合函数仍位于 admin 目录；列表请求竞态与可空响应类型统一属于后续技术债；构建有大 chunk 提示。既有 RBAC 页用户逐项视觉反馈仍待取得。
+
+## 以下为历史执行记录
+
+> 下方“未运行”“环境阻塞”等为之前各轮状态，已被上方真实验收结论取代；不得作为当前阻塞。
+
+
+## 阶段 2 收尾验收（2026-09-29，目标：阶段2收尾验收处理完成）
+
+- **当前结论：⑧ 仍无法执行，卡在环境。** 本会话所有 `pwsh` 调用（含 `run_in_background`，以及子 Agent 内的 `Write-Output` / `node -v` / `git status`）都返回 `[exit code: 3221225794]` = `0xC0000142` `STATUS_DLL_INIT_FAILED`，stdout 为空；不启动进程的工具（如 `load_workspace_dependencies`）正常返回。三条执行路径都实测失败，`git` / `java` / `mvnw` / `node` / `pnpm` 一律不可用。**没有产出任何一条通过证据**：⑧ 的后端 `verify`、前端四件套、真实栈 E2E、1440/375 截图全部**未运行**。
+- **本轮把 ⑧ 收敛成一条命令**：新增 `scripts/stage2-acceptance.ps1`（5.1 兼容）。它按顺序跑：后端 `mvnw.cmd -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"`（断言输出含 `BUILD SUCCESS`）→ 前端 `typecheck` / `lint` / `build` / `test:unit --run --maxWorkers=1`（逐个串行，PROJECT_STATUS「环境前置」写明容器与 vitest 并行会因内存不足互相挤掉）→ E2E 前置健康检查 `http://127.0.0.1:8081/actuator/health` → `test:e2e` → 收集截图清单；把每步的退出码、是否命中断言、输出尾部写成 `docs/acceptance/stage2-acceptance-<时间戳>.json`（无 BOM UTF-8），任何一步失败则非零退出，并打印恢复演示库基线的清理 SQL。`-PnpmExec 'node','<pnpm.mjs 路径>'` 用于绕过本机坏掉的 pnpm shim。**该脚本本身尚未运行过。**
+- **同轮已落地的既有修复**：`MockedPersistenceConfiguration` 补齐四个工单/分类 Mapper 替身（静态核对：`src/main/java` 恰好 9 个 `@Mapper`，排除 `MybatisPlusAutoConfiguration` 的 9 个 `@SpringBootTest` 上下文全部 `@Import` 该配置）。这是"已知缺口已补"，**不等于 verify 通过**，进一步错误仍以真实输出为准。
+- **⑧ 的执行入口与证据位置**：命令见 `.ui-craft/reviews/2026-09-29-tickets/report.md` 第 4 节（取自 `README.md` 第 71-80 行）；闸门证据写到 `docs/acceptance/stage2-acceptance-*.json`，切片证据是 `docs/acceptance/2026-09-29-*.json`（HTTP 级，带 traceId 与基线 8 项数量）。任务状态见 `docs/implementation-plan.md` 6.1 的步骤⑧。
+- **完成 ⑧ 还缺什么（做齐即可标阶段通过）**：① 真机执行上面的脚本并让全部步骤 OK；② 用 E2E 证明防重复、数据隔离、刷新恢复；③ 执行清理 SQL 并用 SQL 八项数量核对演示库回到基线；④ 用证据文件与截图更新本节与 `docs/implementation-plan.md` 步骤⑧。Git 提交/推送/合并仍需用户明确授权。
+- **阻塞判定（2026-09-29，连续三轮同一条件）**：本目标的三轮里每一轮都重新探测过执行能力（前台 `pwsh`、`run_in_background`、子 Agent 内三个命令），**全部**返回 `0xC0000142`，stdout 为空，无一轮例外，会话内不存在替代执行路径；`docs/acceptance/` 也没有新增文件，说明验收从未被执行。因此把本目标标为**阻塞**，不再在无法执行的情况下改动前端或后端代码——继续改只会增加未经验证的改动面。
+  - **症状本身已足够定位范围**：故障只发生在"创建子进程"这一步。harness 自身正常（`load_workspace_dependencies` 这类不启动进程的工具能正常返回），`pwsh` 连纯内建命令 `Write-Output` 都在进程初始化阶段就死掉（`0xC0000142` = `STATUS_DLL_INIT_FAILED`），与传入什么命令无关。
+  - **可能是（未经证实的假设，不要当成结论）**：① 宿主内存/桌面堆紧张（`PROJECT_STATUS` 此前记过 16 GB 机器被容器与 vitest 并行压到空闲内存 0.4 GB 的先例）；② 会话环境块异常或过大。两者都不是本仓库里的文件能修的，需要重启会话或重启机器后再试。
+  - **解除条件**：任一台能创建进程的机器执行 `powershell -NoProfile -File scripts/stage2-acceptance.ps1`，把 `docs/acceptance/stage2-acceptance-<时间戳>.json` 与首个失败输出交回。第 ①～④ 步做齐即可标阶段通过；本目标期间未执行任何 Git 提交/推送/合并。
+  - **本轮之前的静态收尾（已完成，勿重复）**：`scripts/stage2-acceptance.ps1` 已写入并自审修掉三处缺陷（`Join-Path $x ''` 在 5.1 抛错、`status --short` 只取首行会截断改动范围、`Set-Content -Encoding UTF8` 带 BOM 会让 JSON 解析失败）；E2E 的优先级交互已对着 Element Plus 源码核实（`el-radio` 根是 `<label>`、input 无 `aria-hidden`、`:value` 驱动 `actualValue`、`update:modelValue` 同步触发）；测试与 E2E 依赖的 13 个 CSS 类已逐个确认存在于模板中；并把一处会假通过的 URL 断言收紧为 `/\/tickets$/`。
+
+## 当前分工与下一步（2026-09-29）
+
+- 用户明确将⑦员工页面交由另一 Agent 完善；本会话不改该页面，转入⑧阶段验收的后端准备与分析。页面交出不等于前端验收完成。
+- 当前共享测试配置 MockedPersistenceConfiguration 仍只有 IAM 五项 Mapper，缺少新增 TicketCategoryMapper、TicketMapper、TicketRecordMapper、TicketDailySequenceMapper。此前上下文错误不能直接视为当前全部根因；修复测试配置后需实际复跑，进一步错误以新输出为准。本阶段仍不新增测试类。
+- 后端下一项：补现有测试配置的持久化替身并跑完整 verify（当前轮仅分析，未改测试/未运行 verify）。前端 Agent 完成页面后再汇总 typecheck/lint/build/已有单测/真实 E2E/截图证据，联合验收重复提交、本人隔离、刷新恢复。
+- 阶段 2 最终验收和用户授权交接前，不将阶段 3 IT 领取/处理登记为已开工，不执行 Git 提交/推送/PR/合并。
+
+## 本轮执行记录：测试替身已补齐，验证被环境阻塞（2026-09-29，前端/验收 Agent）
+
+- **⑧后端准备已落地（测试支撑代码）**：`src/test/java/com/flowdesk/support/MockedPersistenceConfiguration.java` 补齐 `TicketCategoryMapper`、`TicketMapper`、`TicketRecordMapper`、`TicketDailySequenceMapper` 四个替身，并在类注释里写明"覆盖范围是全部 `@Mapper` 接口，不是当前用得上的那几个"及成因。静态核对结论：`src/main/java` 下恰好 9 个 `@Mapper` 接口（IAM 5 + 分类 1 + 工单 3），排除 `MybatisPlusAutoConfiguration` 的 9 个 `@SpringBootTest` 上下文（`FlowDeskApplicationTest`、`ApiFoundationWebTest`、`AuthWebTest`、`SecurityChainScopeWebTest`、四个 RBAC Controller Web 测试与 `IamUserControllerWebTest`）**全部** `@Import` 了这个配置，因此这 4 个替身就是已知的全部缺口；三个跨模块 adapter（`TicketReadPermissionAdapter`、`TicketCurrentRequesterAdapter`、`CategoryAvailabilityAdapter`）无 Mapper 依赖，不引入新的缺失 Bean。
+- **未跑 verify**：本会话 `pwsh` 的所有调用（含 `run_in_background`）都返回 `[exit code: 3221225794]`（`0xC0000142`，DLL 初始化失败），`git` / `java` / `mvnw` / `node` / `pnpm` 一律无法执行。因此**没有**任何 `verify` 输出，"185 个上下文错误是否全部消除、是否还有进一步错误"**仍未验证**，不得按"测试已修好"对待。
+- **⑦员工页面的归属已由用户当场裁决**：本会话在读到上面那条分工之前，已按会话任务卡实现了三个员工页面与 `tickets.ts`；用户 2026-09-29 答复「不用管，你直接写页面」，因此这批文件按本会话产出保留，不再要求另一 Agent 重写。文件清单：
+  - 新增：`frontend/src/api/tickets.ts`、`frontend/src/constants/tickets.ts`、`frontend/src/constants/tickets.test.ts`、`frontend/src/api/tickets.test.ts`、`frontend/src/views/work/useSubmissionGuard.ts` 及其用例、`frontend/src/views/work/TicketListView.vue` / `TicketCreateView.vue` / `TicketDetailView.vue` 及三个页面的用例、`frontend/e2e/tickets.spec.ts`、`.ui-craft/surfaces/work-tickets.md`。
+  - 修改：`frontend/src/api/categories.ts`（补 `/categories/options`）、`frontend/src/router/index.ts`（三条工单路由由占位页换成真实页面）、`frontend/src/styles/main.css`（工单专用样式）、`frontend/src/views/admin/useAdminList.ts`（只改类注释，登记位置技术债）。
+- **已登记的技术债**：`views/admin/useAdminList.ts` 与 `useCompactPagination.ts` 已被工单列表复用，它们"只服务管理端五页"的理由失效，应迁到共享层；本次未移动（`git mv` 不可用，新建文件又删不掉旧文件）。
+- **E2E 已写入（未运行）**：`frontend/e2e/tickets.spec.ts` 覆盖本人范围显隐、越权 `scope` 被忽略、请求期间提交按钮禁用（"双击只建一张"的可观察证据）、进入详情、刷新恢复、列表按标题只搜到一张、1440 与 375 不横向溢出、375 下详情改上下排列，并把 5 张截图写到 `.ui-craft/reviews/2026-09-29-tickets/`。**该用例会向演示库写入工单且无法通过接口撤销**，清理 SQL 写在文件头（先删 `ticket_participant` 与 `ticket_record`，再删 `ticket`）。
+- **第二轮（同日）没有新增可执行路径**：子 Agent 内同样执行 `Write-Output` / `node -v` / `git status`（各 2 次）全部返回同一退出码，确认这是**宿主级**故障而不是本会话的沙箱差异；`pwsh` 多轮多次仍为 `0xC0000142`。因此本轮只做**不依赖执行的分析与补正**。
+- **第二轮静态补正**：① 核对到 `spring.jackson.default-property-inclusion=non_null`（`application.yml:29`）——null 字段在 JSON 里不出现，四个 `api/` 模块都写成 `| null` 属于"能用但不精确"；本次**按既有约定保持一致**（不单独改 `tickets.ts`，否则四个模块两种写法），只在接口注释里写明该规则并把三个终态文案函数入参放宽到 `string | null | undefined`，是否统一改为可选类型留待用户决定。② 新建工单补齐页面级"无权限"状态（`frontend/AGENTS.md` 的六态是硬规则；路由守卫只在导航时执行，用户停在页面上被撤权时仍能填表、提交后才 403），并在该状态下不再发注定 403 的分类请求，补了对应用例。③ 写了本轮要求的评审报告 `.ui-craft/reviews/2026-09-29-tickets/report.md`（Before/After/Why、实跑命令与结果、未验证项、下一轮照抄的执行顺序、两条已知风险）。
+- **第三轮（同日）仍无执行能力，判定为阻塞**：`pwsh` 再次返回 `0xC0000142`，前台 / 后台任务 / 子 Agent 三条路径在本轮与上一轮各测一次，全部同码失败，**连续三轮**同一条件未变。本轮只把交接做完整：评审报告的执行顺序改为 `README.md` 第 71-80 行的原命令（`docker compose up -d mysql redis`、`.\scripts\load-env.ps1`、`.\mvnw.cmd spring-boot:run -Dspring-boot.run.profiles=local`、`pnpm --dir frontend build` 后再 `test:e2e`），并补上 `FLOWDESK_ALLOWED_ORIGINS` 与两条本机必备参数。此后不再在没有执行能力的情况下改动前端代码——继续改只会增加未经验证的改动面。
+- **结论（交给用户决策）**：工单三页的代码、页面级六态、单测与 E2E 均已写入，**唯一未完成的是验证**；验证需要一台能启动进程的机器，或由你在本机按报告第 4 节执行。本轮不把任何一项标为通过。
+- **下一轮第一件事**：环境恢复后立即 `.\mvnw.cmd -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"`，按新输出判定是否还有进一步错误；再处理前端 `typecheck`/`lint`/`build`/单测与真实栈截图。
+
+## 步骤⑥详情与时间线后端验收完成（2026-09-29）
+
+- 用户已修正 Mapper SQL 操作者别名。生产 compile 实跑通过；local + MySQL/Redis + 8082 时间线完整验收 111 项请求/断言、0 失败，证据 `docs/acceptance/2026-09-29-ticket-timeline.json`。
+- 验证 15 种记录 context 字段白名单、用户/系统操作者、UTC、内部字段隔离；倒序插入与逆序时间仍按 sequenceNo 正序；跨页不重不漏、末页/越界/空集、固定排序参数拒绝。本人/负责人/历史参与者/队列访问与无关/纯管理员/零角色/不存在 404、匿名 401、身份伪造拒绝均通过；停用分类仍可查询。
+- 临时 3 用户与角色关系、Redis 会话与刷新索引、5 工单、20 记录、参与者、1 分类已清理；SQL 八项数量恢复基线，日序号不变，验收服务已停止。本轮未改业务代码、未新增测试类、未提交或推送。下方 SQL 阻塞及尚未实现为历史状态，现已解除。
+- 下一步：⑦员工创建/列表/详情/时间线页面，先读 frontend/AGENTS.md 与视觉交接和本地参考；分类页面验收及阶段全量 verify 仍待执行，不将后端切片完成当成阶段最终完成。
+
+## 时间线 SQL 验收阻塞（2026-09-29）
+
+- 用户已写入 records 方法、类型转换与 Mapper SQL；本轮生产 compile 通过。
+- SQL 操作者别名不一致：SELECT 使用 actor.display_name，LEFT JOIN 定义 iam_user u。真实 MySQL 只读探针复现 ERROR 1054 / Unknown column 'actor.display_name'；有记录的时间线查询将失败，不能标为接口验收通过。
+- 按用户明确分工，不代改 Mapper SQL。用户将 LEFT JOIN 别名改为 actor（或 SELECT 改用 u）后，一次执行完整时间线真实栈验收。本轮只读探针未创建数据、未启动验收服务。
+
+## 步骤⑥时间线基础接入（2026-09-29，待用户写入 SQL 与业务方法）
+
+- Agent 已补齐 TicketRecordQuery（page/size 与固定顺序）、TicketRecordResult（类型/操作者/时间/按类型 context）、TicketRecordRow、Mapper 方法声明、服务接口与 GET `/fd/v1/tickets/{ticketNo}/records` Controller。现有 TicketRecord/Mapper 原先用于创建记录；新增类已在对话说明用途。
+- Mapper SQL 与 ServiceImpl 未代写，完整示例在对话提供。当前 compile 实跑仅报 ServiceImpl 缺 records 方法；Mapper 声明未绑定 SQL，运行前也必须由用户补齐。
+- 时间线先复用详情可见性获取内部工单 ID，再按 sequence_no 升序分页；转换按记录类型挑选公开字段，不返回记录/工单内部 ID。当前阶段无附件/关联写入口，未提前实现对应查询。
+- 下一步：用户补齐后一次执行编译及时间线真实栈验收，包含权限/分页/类型字段/系统操作者/顺序/清理。此前详情与列表验收通过，不表示当前工作区可编译或时间线已完成。
+
+## 步骤⑥详情验收通过（2026-09-29）
+
+- 用户已完成 detail/toDetail 与权限 Port 注入；生产 compile 通过。local + MySQL/Redis + 8082 真实接口验收 121 项请求/断言、0 失败，证据 `docs/acceptance/2026-09-29-ticket-detail.json`。
+- 覆盖本人、队列、当前/最后负责人、历史参与者与多角色权限并集；无关员工/IT、纯管理员、零角色及不存在编号统一 404，匿名 401，伪造用户参数无效。正文/人员分类摘要/版本/终态/截止时间/UTC/allowedActions=[] 与内部字段隔离通过，停用分类仍可显示。
+- 临时 4 用户及关系、Redis 登录会话与刷新索引、9 工单与参与者、1 分类已清理；SQL 八项数量恢复基线，日序号不变；验收服务已停止。未修改业务代码、未新增测试类、未提交推送。
+- 下一步：⑥时间线（尚未实现）。Mapper SQL 由用户编写；Agent 提前准备基础类时必须说明其位置和用途，ServiceImpl 按文字/流程图/完整代码供用户写入。下方详情编译失败是历史记录，本节已解除该阻塞。
+
+## 步骤⑥详情接入（2026-09-29，待用户修正业务实现）
+
+- 已核对详情 Result/投影/权限 Port 与认证适配/可见性 Mapper；服务接口已有 detail，Agent 已补齐 GET `/fd/v1/tickets/{ticketNo}` Controller。无权与不存在应在服务内统一返回 404，不使用返回 403 的权限前置注解。
+- 当前用户编写的 ServiceImpl 尚未满足契约：直接注入非 Bean 的 AuthSession、仅按编号查而未校验资源关系、转换使用 Ticket 不存在的姓名字段且 Result 参数不完整。生产 compile 实跑失败（两处缺失 getter、Result 构造参数不匹配）；完整替换逻辑已在对话给出，按分工不代写 ServiceImpl。
+- 下一步：用户替换依赖与 detail/toDetail 后，一次完成详情接口编译和真实栈验收，再实施时间线。列表和分类后端此前验收结论不变，当前工作区不视为可编译或详情完成。
+
+## 分类后端与工单步骤⑤验收（2026-09-29）
+
+- 本轮生产编译通过；local + 真实 MySQL/Redis + 8082 HTTP 完整复跑，144 项请求/断言、0 失败。证据：`docs/acceptance/2026-09-29-category-ticket-scopes.json`，逐请求包含 traceId。
+- 分类后端六端点已验收：三身份权限、参数/不存在/重名/版本错误、事务回滚、8 路同版本修改（1 成功、7 冲突）、当前工单与历史记录引用禁止删除、启停选项联动、历史列表保留分类、停用分类不能创建且不消耗编号。
+- 工单步骤⑤已验收：四范围关系隔离、终态最后负责人、历史参与者、EXISTS 防重复、队列默认及四种排序、组合筛选/UTC 边界/LIKE 字面搜索、伪造身份参数、分页/空集/最小字段、401/403 与 13 例非法参数。
+- 临时分类/工单/记录/参与者已清理；数据库数量恢复基线（分类 5、工单/记录/参与者各 0、角色 3、权限 14）；验收服务已停止。未修改生产代码、未新增测试类、未提交或推送。
+- 下一步：⑥详情与时间线。分类页面验收与阶段最终全量 verify 仍待执行；本轮后端验收不代表整个阶段或分类前端完成。下方 09-28 待验收描述为历史检查点，以本节为最新状态。
+
+## 后端实现提交检查点（2026-09-28）
+
+- 用户已授权仅提交、推送当前后端实现；不创建合并请求、不合并，继续使用 `flow-desk/ticket-employee-flow`。
+- 本次范围：分类选项与分类管理后端、工单创建/幂等/每日编号、多范围列表、详情基础类型与权限/持久化适配器、V6 迁移及配套文档。前端代码留在工作区，未纳入后端提交；后续文档同步单独保存设计记录与截图证据。
+- 当前代码已补齐分类管理六项 ServiceImpl 方法与工单多范围查询；详情接口尚未接入。阶段 2 仍在实施，分类六端点与步骤⑤真实栈验收待执行。
+- 本轮检查：`./mvnw.cmd -B -DskipTests compile` → BUILD SUCCESS；现有 `./mvnw.cmd -B test "-DargLine=-Djdk.attach.allowAttachSelf=true"` 执行 394 项，0 断言失败、185 错误。根因是测试上下文排除数据库配置后，共享 Mock 配置缺少新增的 `TicketCategoryMapper`；不把该提交作为全量测试通过或阶段验收完成。
+
+
+## 分类管理提前实施（2026-09-28，后端已提交，页面未提交）
+
+- **已确认**：分类管理经用户指示提前实施，登记为 `TASK-063`（后端）/`TASK-064`（页面），沿用 API 8.4 六端点与原表结构。
+- **后端当前状态**：Command/Query/Result、Controller、Mapper 与用户编写的 `CategoryServiceImpl` 六项管理方法均已写入，随 `8af82ca` 提交并推送。生产代码编译通过；分类六端点真实栈验收仍待执行，任务保持进行中。
+- **行为口径**：`CATEGORY_MANAGE` 授权；默认 `sort_order, id` 升序；创建即启用；写操作锁定分类并检查版本；重名由数据库唯一约束兜底；已被工单引用的分类由外键禁止删除并映射 `CATEGORY_IN_USE`。缺失或类型错误的请求参数返回 `400/VALIDATION_FAILED`。
+- **前端当前状态**：`api/categories.ts`、`CategoryListView.vue`、路由及共享表单样式已写入工作区，未提交。分类页面的 typecheck/lint/build、六态交互与 1440/375 截图仍待补跑；此前 RBAC 四页的验证不能替代分类页验收。
+- **已解除的历史阻塞**：此前子进程启动失败及分类实现缺少方法均不再是当前编译阻塞。本轮能执行 Git/Maven，编译成功；现有测试仍因共享 Mock 配置缺少新增 Mapper 而失败，见上方检查点。
+- **下一步验收**：按实施计划 9.2 完成六端点权限、输入、版本、重名与引用保护，确认分类启停对员工选项及历史工单的影响；临时数据清理后记录结果。
+## 管理端四页视觉推广（2026-09-28，工作区未提交）
+
+- **来源**：用户当轮明确授权「以当前用户管理页为基准，完成其余四个 RBAC 管理页的视觉改版、真实交互检查及截图自查」，并明确**直接改代码、推广现有设计，不重开单页打样、不逐页等待确认**。这解除了 09-27 打样报告里「推广其他四页前先取得用户反馈」的前提限制。
+- **改动范围（前端视觉层，未触碰后端）**：`RoleListView.vue`、`PermissionListView.vue`、`UserRoleGrantView.vue`、`RolePermissionGrantView.vue` 四页改用 `AppPage layout="list"` 与独立筛选/授予面板 + 单一 `.admin-data` 数据面板；`tokens.css` 新增 `--fd-admin-list-max`（管理列表不再有 70rem 居中上限）；`main.css` 新增 `.admin-data`、`.admin-dialog`、`.grant-form`、`.grant-row__action` 与五页共用的窄屏规则；新增共享件 `views/admin/useCompactPagination.ts`（分页窄屏收敛，用户页同步改用它）；文案去掉接口/token/编码常量/"后端裁决"类实现说明。**两组授权页保留关系行结构**，只统一宽度、分区、密度、按钮与分页语言。
+- **实跑验证（全部通过）**：`vue-tsc -b`、`eslint . --max-warnings=0`、`stylelint` 闸门、`vite build` 退出码均为 **0**；`vitest run --maxWorkers=1` → **17 套件 74 项全绿**；`playwright test` 在真实栈（MySQL 3308 / Redis 6380 / 后端 8081 / preview 4173）→ **13 项全绿**，其中 4 条 RBAC 用例直接覆盖本轮改过的四页。**本机 `pnpm` 本身无法启动**（`pnpm.mjs` 的 Windows shim 解析失败），故用 `package.json` 里的等价 `node` 入口执行，见 review 报告第 3 节。
+- **过程中修掉的真实缺陷**：`useCompactPagination` 直接调用 `window.matchMedia`，而 jsdom 未实现它，导致 5 个页面测试文件、24 项用例在 setup 阶段一起失败——改为能力探测并退回宽屏分页，**未改动任何测试文件**。另有两处业务化文案撞上既有断言（"迁移预置"、"SYSTEM_ADMIN 的 RBAC_MANAGE"），按"不改测试"的边界回退。
+- **实测与截图**：14 个场景（1440 与 375、正常/错误/弹窗/禁用）**整页横向溢出全部为 0**，无 Element Plus 默认蓝残留，375px 弹窗实测 343×432 完全在视口内；19 张截图 + `checks.json` 存于 `.ui-craft/reviews/2026-09-28-admin-pages/`，报告见同目录 `report.md`。
+- **演示库**：采集脚本只读；e2e 写入的临时角色自清理。复核结果回到基线——角色 3、权限 14、`E2E%`/`MANUAL%` 残留 0、`employee`(1)/`it`(2)/`admin`(3) 角色数为 1/1/3、`SYSTEM_ADMIN` 权限 4 项，**原有演示授权未被修改**。
+- **仍未取得 / 未做**：**用户逐项视觉反馈仍未取得**（本轮是授权推广，不等于审美验收）；未跑后端 `mvnw clean verify`（本轮未改后端代码、未新增测试类）；未跑 1920px 截图（本轮要求 1440 与 375）。未提交、未推送、未建 PR——工作区保留全部原有未提交与暂存改动。
+- **一次副作用已还原**：首次调用 `pnpm` 时 pnpm 12 的 packageManager 自管理逻辑往 `frontend/pnpm-lock.yaml` 写入了 `@pnpm/exe@12.3.4`，与本次改版无关，已 `git checkout` 还原（该文件现无改动）。
+- **同步的文档**：`frontend/AGENTS.md`（新增「管理页统一视觉语言」共享约定段）、`.ui-craft/brief.md`、`.ui-craft/tokens.md`（第 10 条：管理列表宽度与分页断点的决定与理由）、`.ui-craft/surfaces/admin-rbac.md`（当前状态段 + 新增 4.1 实测缺陷表）、本文件。
+
 ## 前端视觉改版打样（2026-09-27 开始，09-28 接续，已随阶段提交）
 
 - 用户已提供两张认可的管理后台参考与一张不满意的 FlowDesk 效果，素材保存在 `.ui-craft/references/`，另保存认可的 Help Scout 工单列表与 Freshservice 详情参考。无需新会话重复上传。
 - 完整实施说明、需调整文件、旧规则冲突与验收路径：`.ui-craft/frontend-redesign-handoff.md`。前端改版会话将该文件、`frontend/AGENTS.md`、`.ui-craft/brief.md` 与本地参考原图加入必读。
 - **用户管理页首轮打样已实施并已随本阶段提交**：工作区宽列表、独立筛选/数据区、默认尺寸控件、带文字行操作与窄屏内滚动。默认 card 页面兼容，其他四页未推广。真实交互、截图与最终验证见 `.ui-craft/reviews/2026-09-27-admin-redesign/report.md`。
-- **遗留项（不阻塞阶段收口，转入阶段 2 处理）**：该页**用户逐项视觉反馈尚未取得**，其他四页（角色、权限、两组授权）未按新语言推广；用户 2026-09-28 授权直接提交并交接本阶段后，推广与微调留待下一分支按同一套规则继续，不重开一轮打样。
+- **遗留项（不阻塞阶段收口，转入阶段 2 处理）**：该页**用户逐项视觉反馈尚未取得**；其他四页（角色、权限、两组授权）当时未按新语言推广。**09-28 同日后续已由用户明确授权完成推广**（见本文首节），因此本条现在只剩"用户逐项视觉反馈未取得"仍然成立。
 - **本轮实跑（09-28）**：typecheck/lint/build退出0；单测17套件74项通过（maxWorkers=1），E2E13项通过。真实用户新增/编辑/启停/重置密码/授权入口、查询重置、翻页和错误重试均验证；临时数据清理为0。1920/1440/375截图已检查，未获用户视觉认可前不推广。
 
 ## 2026-09-28 阶段收口：验收标准第 4 条手工真实栈链路复跑通过 + 全套验证复跑（用户授权提交与交接）
@@ -15,28 +138,31 @@
 - **验证复跑（2026-09-28 本会话实跑）**：后端 `.\mvnw.cmd -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → 单元/Web **394**、集成 **88**，`Failures: 0, Errors: 0`（集成侧 7 个 IT 类全部完成，`failsafe-summary.xml` 记录 `completed 88 / errors 0 / failures 0`）；前端 `pnpm typecheck` / `pnpm lint`（含 stylelint 闸门）/ `pnpm build` 退出码 **0**（既有大 chunk 警告不影响退出码）、`pnpm test:unit --run --maxWorkers=1` → **17 套件 74 项**、`pnpm test:e2e` → **13 项**全绿（28.3s，含 RBAC 真实闭环、用户角色闭环、入口按权限显隐与窄屏）。
 - **演示库核对（复跑后直接查库）**：角色 **3**、权限 **14**、`iam_role_permission` **14**、`iam_user_role` **5**、`employee` 角色数 **1**；`MANUAL%` 与 `E2E%` 临时角色/权限残留均为 **0**，与迁移和 demo 种子一致。
 - **本轮踩到的两条本机资源限制（会复发）**：① **内存不足会杀死构建**——本会话先同时跑后端 `clean verify` 与前端单测时，后端进程在 `IamUserServiceIT` 启动 Testcontainers 时被系统杀掉（16 GB 机器空闲内存一度降到 0.4 GB，`Get-CimInstance Win32_OperatingSystem` 可核对）；**测试要串行跑，不要并行压测容器与 vitest**。② **后台任务被取消时 Maven 子进程会留下**——`job_kill` 后 `java` 子进程仍持有 8081 端口并继续跑测试，需要 `netstat -ano | Select-String ":8081"` 核对并按 PID `Stop-Process`，否则后续 `clean verify` 会因端口占用失败。
-- **交接内容与遗留项**：本阶段（`TASK-055`～`TASK-062`）全部完成，无未完成验收项。**唯一遗留**是前端视觉改版的收尾——用户管理页首轮打样已实现并验证，但**用户逐项视觉反馈未取得、其他四页未按新语言推广**；按用户本轮指示不阻塞交接，留待下一分支按 `.ui-craft/frontend-redesign-handoff.md` 与 `.ui-craft/reviews/2026-09-27-admin-redesign/report.md` 继续。
+- **交接内容与遗留项**：本阶段（`TASK-055`～`TASK-062`）全部完成，无未完成验收项。**唯一遗留**是前端视觉改版的收尾——用户管理页首轮打样已实现并验证，但**当时用户逐项视觉反馈未取得、其他四页未按新语言推广（历史交接状态；同日后续已获授权推广，见本文前方当前记录）**；按用户本轮指示不阻塞交接，留待下一分支按 `.ui-craft/frontend-redesign-handoff.md` 与 `.ui-craft/reviews/2026-09-27-admin-redesign/report.md` 继续。
+- **交接执行结果（2026-09-28）**：提交 `2a3d444`（`feat(rbac): 管理端五页与用户管理页、管理端视觉打样、手工验收脚本收口`，65 文件、+6954/-120）推送到 `origin/flow-desk/rbac-admin-pages`；合并请求 **PR #8** <https://github.com/Crazy-HF/Flow-Desk/pull/8>，三个 job（`backend-verify`、`frontend-verify`、`core-e2e`）全绿后以 `merge_method=merge` 合并，合并提交 **`f15468c`**；本地 `main` 已 `pull --ff-only` 快进至 `f15468c` 与 `origin/main` 一致；下一主题分支 **`flow-desk/ticket-employee-flow`** 从 `f15468c` 创建，用于阶段 2 `TASK-020`～`TASK-023-MVP` 员工工单创建与查询。已存在的旧分支 `flow-desk/employee-ticket-flow`（仅 `7f6c72c` 一条文档同步）不用于本轮开发。
+
+- **文档同步（2026-09-28 同日追加）**：合并完成后核对全仓库文档与实际状态，修正 6 处漂移——`docs/implementation-plan.md`（第 1 节仍写“当前处于 MVP 阶段 1”、阶段顺序图、`TASK-058`/`TASK-060`/`TASK-062` 状态、9.1 缺交付结论、§11 开工入口仍是 Auth 切片 4）、`docs/api-design.md` 8.1 实现状态、`docs/engineering-readiness.md` 第 12 节（“待首次合并请求运行记录”与实际不符）、`docs/project-highlights.md`（新增「当前状态总览」：HL-002/003/004/005/006 改为已实现并给出证据，HL-001 仍标未实现）、`README.md` 当前状态段、`docs/modules/auth.md` 与 `.ui-craft/`（brief、handoff、surfaces、review report）四处的“待反馈/未提交”表述。历史小节（如本文 2026-09-22 的 278+63 记录、2026-09-24 的“未提交”记录）刻意保留原样，不追改。
 
 > 本文件用于新机器、任务恢复和工作交接时快速定位项目，不替代详细设计文档。
 
 ## 快速定位
 
-- 最后更新：2026-09-28
+- 最后更新：2026-09-29
 - 远程仓库：`git@github.com:Crazy-HF/Flow-Desk.git`
 - 稳定分支：`main`
-- 当前基线分支：`main`（阶段 1、前端外壳与第 3 步 RBAC 后端均已合并，最新合并提交 `6a65dd8`，即 PR #7）
-- 当前工作分支：`flow-desk/rbac-admin-pages`（从 PR #7 合并后的最新 `main` `6a65dd8` 创建，用于 `TASK-060` RBAC 管理端页面与 `TASK-062` 用户管理页；**阶段工作已全部完成并在工作区全套验证通过，2026-09-28 用户授权提交与交接**）
-- 下一次创建分支：本文档四步路线的第 4 步（阶段 2 `TASK-020`～`TASK-023-MVP`）在本阶段交接完成后从最新 `main` 创建。已存在的 `flow-desk/employee-ticket-flow` 只含 `7f6c72c` 一条文档同步提交，不用于本轮开发
-- 当前阶段：第 3 步 **系统业务：完整动态 RBAC** 已**完成并交接**（四步路线的 ① 收口前端外壳与 ② 交接已于 2026-09-21 完成，工作项经 PR #6 合并进入 `main`）。**阶段设计 2026-09-21 确认、2026-09-22 补充 3 项、2026-09-24 登记用户管理**：13 项设计决策与 `TASK-055`～`TASK-062` 任务拆分、验收标准见 `docs/implementation-plan.md` 9.1。`TASK-055`～`TASK-062` **全部完成**；管理端五页（用户、角色、权限、用户角色授权、角色权限授权）可走通真实闭环；**验收标准第 4 条的四条手工真实栈链路已于 2026-09-28 全部执行并通过（含清理，逐条留 `traceId`）**，见下方 2026-09-28 记录与 `docs/modules/rbac.md` 11.2。本阶段计入求职 MVP 演示范围并包含管理端页面。
-- 最新完成（2026-09-28，**已提交本分支，随本次交接合并**）：**验收标准第 4 条手工真实栈链路复跑通过 + 全套验证复跑**——`scripts/manual-rbac-acceptance.ps1` 在 `local` profile + 真实 MySQL/Redis 栈上逐条断言通过（链路 1 授予角色后旧令牌 `401/AUTH_SESSION_INVALID`、链路 2 变更角色权限后该角色**全部**持有者令牌失效而操作人令牌仍 `200`、链路 3 清空角色后零角色合法终态且访问受保护接口 `403/ACCESS_DENIED`、链路 4 五个保护入口全部 `409/RBAC_CONFLICT`、链路 5 清理还原），证据见 `docs/modules/rbac.md` 11.2；后端 `./mvnw -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → 单元/Web **394** + 集成 **88** 全绿；前端 `typecheck` / `lint`（含 stylelint 闸门）/ `build` 退出码 0、单测 **17 套件 74 项**、E2E **13 项**全绿；复跑后演示库回到基线（角色 3、权限 14、`iam_role_permission` 14、`iam_user_role` 5、`MANUAL%`/`E2E%` 残留 0）。
-- 前一项完成（2026-09-24，**已提交本分支，随本次交接合并**）：**`TASK-060` RBAC 管理端四页 + `TASK-062` 用户管理页 + `TASK-061` 契约对齐**——`frontend/src/views/admin/` 五页（用户管理、角色管理、权限管理、用户角色授权、角色权限授权）、`api/rbac.ts` 与 `api/users.ts`、`ProtectedMark` / `AdminListPanel` 两个共享件与 `useAdminList` 取数状态机；用户管理在 `docs/implementation-plan.md` 正式登记为 `TASK-061`/`TASK-062` 并移出完整版 backlog；替换角色路径按 8.2 契约由 `/role` 改为 `/roles`（后端 + Web 测试 + 文档同步）。**验证**：`./mvnw -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → 单元/Web **394** + 集成 **88** 全绿；前端 `typecheck` / `lint`（含 stylelint 闸门）/ `build` 退出码 0、单测 **17 套件 74 项**、E2E **13 项**全绿（含三条新增：RBAC 真实闭环、用户角色闭环、入口按权限显隐与窄屏），演示库经查无 `E2E_*` 残留。见下方 2026-09-24 记录。
+- 当前基线分支：`main`（阶段 1、前端外壳、第 3 步 RBAC 后端与 RBAC 管理端五页均已合并，最新合并提交 `f15468c`，即 PR #8）
+- 当前工作分支：`flow-desk/ticket-employee-flow`（从 PR #8 合并后的最新 `main` `f15468c` 创建，用于阶段 2 `TASK-020`～`TASK-023-MVP` 员工工单创建与查询；**已关联远程同名分支**）
+- 下一次创建分支：阶段 2 完成并交接后，从当时最新的 `main` 创建下一主题分支。已存在的旧分支 `flow-desk/employee-ticket-flow` 只含 `7f6c72c` 一条文档同步提交，不用于开发
+- 当前阶段：阶段 2 员工创建与查询验收通过，等待用户授权分支交接；阶段 3 IT 处理闭环未开工。
+- 最新提交：`6fa50d5` 文档同步；后端 `8af82ca` 已推送且未合并。当前工作区仍有未提交变更，本次验收证据覆盖当前实现。
+- 前一项完成（2026-09-24，**历史成果，已随 PR #8 合并 main**）：**`TASK-060` RBAC 管理端四页 + `TASK-062` 用户管理页 + `TASK-061` 契约对齐**——`frontend/src/views/admin/` 五页（用户管理、角色管理、权限管理、用户角色授权、角色权限授权）、`api/rbac.ts` 与 `api/users.ts`、`ProtectedMark` / `AdminListPanel` 两个共享件与 `useAdminList` 取数状态机；用户管理在 `docs/implementation-plan.md` 正式登记为 `TASK-061`/`TASK-062` 并移出完整版 backlog；替换角色路径按 8.2 契约由 `/role` 改为 `/roles`（后端 + Web 测试 + 文档同步）。**验证**：`./mvnw -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → 单元/Web **394** + 集成 **88** 全绿；前端 `typecheck` / `lint`（含 stylelint 闸门）/ `build` 退出码 0、单测 **17 套件 74 项**、E2E **13 项**全绿（含三条新增：RBAC 真实闭环、用户角色闭环、入口按权限显隐与窄屏），演示库经查无 `E2E_*` 残留。见下方 2026-09-24 记录。
 - 前一项完成（2026-09-23，**已提交 `b13f421`**）：**用户管理模块测试补齐 + 测试代码对齐应用层重构**——用户管理 `/fd/v1/users` 八个端点（列表、详情、创建、改资料、启用、停用、替换角色、重置密码）现有完整测试：服务单测 `IamUserServiceImplTest`(58)、Web 契约 `IamUserControllerWebTest`(45)、真实 MySQL 集成 `IamUserServiceIT`(24，含两条真并发)；13 个 RBAC/auth 测试类同时对齐 `application.*` 新包并移动到镜像包，修好重构引入的 2 项 `AuthWebTest` 失败并补 13 项新测试。`./mvnw -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → 单元/Web **394** + 集成 **88**，`Failures: 0, Errors: 0`，`BUILD SUCCESS`。见下方 2026-09-23 两条记录。
 - 本轮完成（2026-09-23，**未提交**）：**前端样式闸门（ui-craft rung 3 · Enforce）**——新增 `frontend/stylelint.config.js` 并把它挂进 `pnpm lint`，AGENTS.md 点名的六个轴（颜色 / 间距 / 字号 / 圆角 / 阴影 / 动效）从"书面约定"变成可执行规则；新增 3 个 devDependency（`stylelint` 17.15.0、`postcss-html` 2.0.0、`postcss-scss` 4.0.9），CI 未改动即获得覆盖。同时按用户同日指示把 `.ui-craft/` 文档与项目现状对齐。详见下方同名小节。
 - 前一项完成（2026-09-23，**已提交 `ba298c2`**）：**auth、iam 生产代码应用层重构**——应用层统一为 `application.command` / `query` / `result` / `service`，实现入 `application.service.impl`，跨模块接口入 `iam.application.port`，Controller 直接收发 Command/Query/Result，`domain` 不再存放 BO/VO，且未新增重复的 Request/Response 类型。**接口地址、JSON 字段与业务行为不变**。原阻塞「13 个测试类引用已删除旧包导致 `test-compile` 失败」已由测试对齐解除。
 - 已确认的范围调整：项目分为“求职 MVP”和“完整版”；三种内置角色 `EMPLOYEE`、`IT_SUPPORT`、`SYSTEM_ADMIN` 仍是权限基线，`SYSTEM_ADMIN` 始终受保护。**2026-09-21 用户确认把「完整动态 RBAC」定为第 3 步实施**：按 `docs/api-design.md` 8.2.1 开放角色、权限、用户角色授权、角色权限授权四组 CRUD，新增 Flyway 迁移 `V5` 预置 `RBAC_MANAGE` 并授予受保护的 `SYSTEM_ADMIN`，配套保护规则、会话撤销与审计；不得修改已发布的历史迁移。该能力已于 2026-09-22 确认计入求职 MVP 演示范围，并包含管理端页面。
 - 前一项完成：**`TASK-058` 测试补齐与全量验证**（2026-09-22）——用户角色与角色权限两组授权现共 **11 个端点**（原 6 个 + 批量撤销 `POST /actions/revoke`、清空全部 `DELETE /users/{userId}` 与 `DELETE /roles/{roleId}`、一个角色授予多个用户 `POST /actions/grant-users`、建角色时带 `permissionIds`）。按用户 2026-09-22 确认，**保护规则 5「用户至少保留一个角色」废弃**，零角色成为合法终态（`USER_ROLE_REQUIRED` 不再产生），仅保留「最后一个启用管理员」与「`SYSTEM_ADMIN` 的 `RBAC_MANAGE` 授权」保护。测试侧新增/扩展 8 个测试类，`./mvnw -B clean verify` → 单元/Web **278** + 集成 **63**，`Failures: 0, Errors: 0, BUILD SUCCESS`（阶段起点 132 + 30，只增不减）。覆盖矩阵逐格证据见 `docs/modules/rbac.md` 10.1。此前的 `TASK-059` 成果：`AuthSecurityConfiguration` 的 `securityMatcher` 扩为 `/fd/v1/**`，`/fd/v1/admin/**` 不再恒为 `401`，并用真实 Access Token 补了回归测试。
-- 下一步（四步路线，2026-09-21 用户指示）：① ~~收口并提交前端外壳与页面骨架工作项~~ **已完成**；② ~~完成该工作项交接（推送 → 合并请求 → 合并 `main` → 同步 → 建下一分支）~~ **已完成**；③ ~~**系统业务：完整动态 RBAC**（分支 `flow-desk/rbac-admin-pages`）~~ **已完成并交接**——`TASK-055`～`TASK-062` 全部完成、验收标准第 4 条手工链路 2026-09-28 复跑通过，按 2026-09-28 用户授权执行交接（提交 → 推送 → PR → 合并 → 同步 `main` → 建阶段 2 分支）；④ **阶段 2 员工创建与查询**（`TASK-020`～`TASK-023-MVP`）——在新分支上先确认接口与数据模型落地顺序，再按切片实施。
-- 当前阻塞：**无**。原先的两个阻塞均已消除：① 「真实 HTTP 下 `/fd/v1/admin/**` 恒为 `401/AUTH_REQUIRED`」由 `TASK-059` 修复并经真实栈复核；② 「验收标准第 4 条四条手工链路未执行」已于 2026-09-28 在真实栈上执行并通过。两条本机限制仍作为「环境前置」记录（Mockito 自附加参数、Testcontainers 需要 Docker 命名管道），另新增两条 2026-09-28 实测的资源类限制（见下方 2026-09-28 记录）。
+- 下一步：先恢复本机命令执行能力，运行后端完整 `verify`，再执行前端 typecheck/lint/build/单测及真实栈 E2E、截图与数据清理。阶段 2 验收完成并获授权交接后，下一大步骤为阶段 3 IT 处理闭环（TASK-030-MVP/TASK-032-MVP/TASK-033-MVP）。
+- 当前阻塞：本轮记录的 Windows PowerShell 子进程启动均以 `0xC0000142` 失败，因此最新测试替身修改和员工页面尚未验证；需在可正常运行命令的环境复跑。阶段 2 未验收、未交接，阶段 3 未开工。
 - 环境前置：JDK 21.0.12、Node.js 24.20.0、pnpm 12.3.4、Docker 29.7.2 已验证；本机已有 `redis:8.8.0`、`mysql:8.4.11` 镜像。**跑后端测试的两个必备参数（2026-09-23 实测，会复发）**：① 受限沙箱下 Mockito inline mock maker 无法自附加，必须加 `-DargLine=-Djdk.attach.allowAttachSelf=true`，否则所有 Spring 测试一起报 `Could not self-attach to current VM using external process`（看起来像代码回归）；② Testcontainers 集成测试需要访问 Docker 命名管道 `\\.\pipe\docker_engine`，受限沙箱会报 `Could not find a valid Docker environment` / `AccessDeniedException`，需在放宽文件策略的会话里执行。完整验收命令：`.\mvnw.cmd -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"`。本地启动 profile 用 `local` 即可（`spring.profiles.group.local=demo` 已配置）。演示账号 `employee` / `it` / `admin`，密码统一为 `123456`（见 `db/demo/R__seed_demo_data.sql` 头部注释，2026-09-20 由 `demo.*` 改名）。本机已有过两类运行障碍并已修复：① Flyway 校验失败——历史表残留已删除的 V3 迁移记录，处置为删除该行（等价 `flyway repair`）；② Redis 残留旧实现写入的 hash 类型会话键，会让"撤销全部会话"抛 `WRONGTYPE`，已清理。另需注意：本机 Argon2id 校验约 2 秒/次（并发登录可拖到十几秒），前端 e2e 因此串行执行并放宽超时；跑 e2e 需要 `FLOWDESK_ALLOWED_ORIGINS` 包含 `http://127.0.0.1:4173`（本地 `.env` 已加）；③ `frontend/node_modules` 若缺 `.modules.yaml`，`pnpm add` 会报 `ERR_PNPM_PACKAGE_MANAGER_REMOVE_MODULES_DIR`，而受限沙箱的写受限令牌删不掉该目录里的预存文件（批量 `Access to the path is denied`）——处置是在放宽文件策略的会话里删掉 `node_modules` 后重装，不要在残缺目录上反复重试。
 - 待确认事项：① Element Plus 目前是**全量引入**（打包约 1.07 MB / gzip 348 KB），是否改为按需引入（需新增 `unplugin-vue-components`、`unplugin-auto-import` 两个 dev 依赖）；② ~~登录页占位文案~~ **2026-09-24 复核：登录页与 E2E 已统一为「请输入登录名」「请输入密码」，与本条描述不符，视为已解决**；③ 首页 `h1`「欢迎回来」用的是展示级字号 `clamp(1.75rem, 5vw, 2.5rem)`，是否收小到页面标题刻度（管理端五页已改用业务页标题刻度 `--fd-font-size-lg`，首页仍待用户决定）；④ ~~用户管理是否登记为正式任务条目、8.1/8.2 与 `rbac.md` 第 1 节的 backlog 表述~~ **2026-09-24 用户确认：登记**——已写入 `TASK-061`（后端）/`TASK-062`（管理端页面），`docs/api-design.md` 8.1/8.2 与 `docs/modules/rbac.md` 第 1 节同步改写，用户管理从完整版 backlog 移出；⑤ ~~`disable` 与替换角色是否属于本次补齐范围~~ **已包含**；⑥ ~~测试职责口径~~ **2026-09-23 已澄清：测试由 Agent（本会话执行者）负责**；⑦ ~~替换角色路径单复数~~ **2026-09-24 用户裁决：以契约 8.2 的复数 `/roles` 为准**——后端 `IamUserController` 已改为 `@PutMapping("/{userId}/roles")`，`IamUserControllerWebTest` 七处断言同步，`docs/api-design.md` 8.2 与实现一致；新增 ⑧ **`USER_ROLE_REQUIRED` 已从 `frontend/src/api/errorMessages.ts` 删除**（后端自 2026-09-22 不再返回该编码），如需保留映射请告知。`TASK-060` 的页面交互、批量授权、权限码搜索与 `api/` 落层均已确认并落地。历史处置：JaCoCo 覆盖率门禁已确认取消（2026-09-19），`pom.xml` 只保留 `jacoco:report` 供 CI 上传工件。
 
@@ -551,53 +677,32 @@
 - JWT 使用 `spring-security-oauth2-jose` 提供的 Nimbus 实现，以 HS256 签发和校验 Access Token。
 - 密码使用 Argon2id 单向哈希；Docker Compose 只运行 MySQL 和 Redis；前端使用 Element Plus。
 
-## 下一步任务
+## 当前任务与下一大步骤
 
-任务名称：动态 RBAC 管理端页面（`TASK-060`）。
+当前任务：完成阶段 2 收尾验收；后端业务步骤与真实栈切片①～⑥已通过。员工页面实现已在工作区，尚缺完整自动化与真实浏览器验证。
 
-开工前置（2026-09-23 新增，按顺序）：
+- **当前待办**：恢复命令执行环境；验证共享 Mapper Mock 配置、运行后端完整 `verify`；运行前端检查与真实 E2E/截图，并确认演示数据已清理。测试结果以复跑输出为准。
 
-1. **由用户补齐 13 个测试类对新包的引用**，恢复 `.\mvnw.cmd -B test-compile` 与 `verify`；补齐前不能把「重构未退化」当作已证明。
-2. **裁决用户管理越界在制品的处置**（保留并正式登记任务，还是先撤出工作区），见「待确认事项」④⑤与 2026-09-23 重构记录。
-3. 前两项完成后再开始 `TASK-060` 的页面工作。
-
-目标：
-
-- 在 `frontend/src/views/admin/` 实现角色、权限、用户角色授权、角色权限授权四组维护页。
-- 新增扁平的 `frontend/src/api/rbac.ts`，补齐 RBAC 错误码文案与 `RBAC_MANAGE` 标签，并按权限控制路由和侧栏入口。
-- 用户角色页面一次提交一个用户的多个角色；角色权限页面一次提交一个角色的多个权限，直接调用后端批量端点，不做前端循环请求。
-
-阶段验收：
-
-- 四组页面均覆盖加载、空、错误、无权限、只读/禁用和成功反馈等已确认状态。
-- 授予表单提交的请求体与 8.2.1 批量契约一致，成功后刷新授权列表。
-- 路由和侧栏入口仅对拥有 `RBAC_MANAGE` 的用户显示。
-
-协作方式：
-
-- 默认由用户编写生产代码；仅在用户明确授权的范围内由 Codex 写入。
-
-本步骤暂不做：
-
-- 用户管理、分类管理、数据概览与通用用户搜索。
-- 工单创建、处理、附件和完整状态机。
-- 不引入已确认技术边界之外的基础设施。
+- **已确认（2026-09-28）**：按实施计划 6.1 的八步推进；创建仅写工单与首条记录，不写提交人到 IT 参与表；无附件创建保留 multipart JSON ticket 部分；阶段 2 `allowedActions=[]`。
+- **步骤①已验收（2026-09-28）**：六个生产文件由用户完成；Agent review 与 `./mvnw.cmd -B -DskipTests compile` 通过。真实 MySQL/Redis/后端验证员工和 IT 各 200、无认证 401、零权限 403、仅 id/name、停用过滤、同 sort_order 按 ID 排序、空集 200/[]。临时分类及用户角色数据已还原。
+- **步骤②已验收（2026-09-28）**：用户补齐认证适配器组件注册；真实栈 8082 启动成功、V6 迁移成功；创建 201/每日编号、工单与首条记录初值、401/403、8 例非法输入/分类 400 均通过；定向触发器注入记录失败验证工单与每日序号一起回滚，未写 participant。临时数据与触发器已清理。编号此前已验证并发、北京时间切日、次日从 1、1000 和旧编号回填。
+- **最新分工已确认**：Agent 直接写基础 domain/Controller/Mapper/Command/Query/Result/服务接口；ServiceImpl 逐项先给文字和流程图，再给完整代码供用户编写，不写入。本阶段不新增测试类，使用编译和真实栈验收，规则已同步 AGENTS.md。
+- **步骤③校验（2026-09-28）**：用户已写入 ServiceImpl；编译/启动通过。真实栈校验顺序重试、UUID 大小写规范化、同用户不同键、不同用户同键、合法正文变化不覆盖、分类停用后重试、状态/版本变化后仍返回首次创建结果均通过；8 路并发全部 201，仅一张工单/一条记录/序号增加一次；人工编号冲突返回 500 并回滚，没有误判成幂等成功（traceId `cc2e80b2-0293-48f4-85e1-94bf52155613`，日志确认 `DuplicateKeyException` / `uk_ticket_no`）。临时数据清理后 ticket/record/daily_sequence 均为 0，验收用 8082 服务已停止。**同轮复核**：用户已删除 create 方法外层 `@Transactional`，重新编译通过；尚有不影响运行的未使用 import 可清理。Agent 未改 ServiceImpl。步骤③功能验收通过；本轮先解释事务机制，步骤④待后续推进。
+- 当前分支 `flow-desk/ticket-employee-flow`；后端已以 `8af82ca` 提交并推送；本轮仅授权提交与推送，不创建或合并 PR。
+- **步骤④已验收（2026-09-28）**：用户已写查询 ServiceImpl，真实栈编译/启动通过；本人数据与 count 隔离、筛选、四种排序与稳定 ID 次序、分页/超出末页、时间转换与边界、LIKE 字面转义、停用分类/最小字段/空集、13 例非法参数 400、401/403 均通过。定向临时工单清理，验收用 8082 服务停止。当前用户用普通 @Transactional，下一步示例改 readOnly；Agent 未改写 ServiceImpl。
+- **步骤⑤与⑥、分类管理**：已通过真实栈验收，分别见本文件上方记录及 `docs/acceptance/`。
+- **下一大步骤（阶段 3）**：IT 处理闭环，实施公共队列与并发领取、负责人处理及提交解决、员工确认、不可变时间线和端到端演示；详细任务与验收边界见 `docs/implementation-plan.md` 第 7 节。阶段 2 尚未验收和交接，因此阶段 3 当前仅为路线规划。
 
 ## 当前任务必读
 
-开始 `TASK-060`（RBAC 管理端页面）前按以下顺序读取；`TASK-058` 后端实现与测试已完成（手工链路待补），`auth`/`iam` 已于 2026-09-23 完成应用层重构但测试代码待用户补齐：
+1. AGENTS.md 与本文快速定位、下一步任务。
+2. docs/implementation-plan.md 第 6 节与 6.1（阶段 2 范围与验收顺序）。
+3. `.ui-craft/reviews/2026-09-29-tickets/report.md` 和 `docs/acceptance/`（页面、最终汇总、SQL 基线和真实栈验收证据）。
+4. docs/api-design.md 5.3（当前列表契约）；现有 TicketQuery、TicketMapper、TicketController 与 PageQuery/PageResult。
+5. docs/database-design.md 18/19；src/main/resources/db/migration/V1__create_schema.sql 的 ticket_category 表（不得修改历史迁移）。
+6. docs/technical-architecture.md 5.1 与现有 iam 的 Controller/Result/Service/Mapper 作为命名参考。
 
-1. `AGENTS.md`
-2. `PROJECT_STATUS.md`（尤其 2026-09-23 重构记录、「当前阻塞」、「待确认事项」④⑤与 `TASK-060` 开工规格）
-3. `docs/technical-architecture.md` 5.1（重构后的包结构与命名约定，唯一真源）
-4. `docs/implementation-plan.md` 9.1（13 项设计决策、`TASK-055`～`TASK-060` 与阶段验收标准）
-5. `docs/modules/rbac.md`（第 3 节类清单、第 4.3/4.4 节批量契约与第 12 节管理端实现细则）
-6. `docs/api-design.md` 8.2.1（两组授权的请求/响应与错误码）
-7. `frontend/AGENTS.md`
-8. `.ui-craft/brief.md`
-
-`TASK-060` 的三项已确认决策是：用户输入使用数字 ID + 当前列表候选下拉；两组授权均调用后端批量增量端点；`api/` 保持扁平。页面开工前还需补 6 个 RBAC 错误码与 `RBAC_MANAGE` 标签。此前记录的起点基线为：前端 `typecheck` / `lint` / `build` 退出码 0，单元 8 套件 33 项、E2E 9 项；后端 132 项单元/Web + 30 项集成。按用户当前指示不执行测试，该数字仅作为历史基线，不代表 `TASK-058` 当前状态。
-
+涉及前端时另读 frontend/AGENTS.md、.ui-craft/frontend-redesign-handoff.md，并实际查看 .ui-craft/references/ 原图。
 ## 文档索引
 
 | 文件 | 状态 | 用途 |
