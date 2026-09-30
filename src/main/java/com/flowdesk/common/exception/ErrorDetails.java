@@ -3,7 +3,15 @@ package com.flowdesk.common.exception;
 import java.util.List;
 
 /** 面向调用方的安全错误细节；绝不放入异常栈、SQL 或敏感输入。 */
-public record ErrorDetails(String traceId, List<FieldError> fieldErrors) {
+public record ErrorDetails(
+        String traceId,
+        List<FieldError> fieldErrors,
+        Long version,
+        String status) {
+
+    public ErrorDetails(String traceId, List<FieldError> fieldErrors) {
+        this(traceId, fieldErrors, null, null);
+    }
 
     public ErrorDetails {
         fieldErrors = fieldErrors == null ? null : List.copyOf(fieldErrors);

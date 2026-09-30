@@ -8,6 +8,7 @@ import com.flowdesk.iam.mapper.IamUserMapper;
 import com.flowdesk.iam.mapper.IamUserRoleMapper;
 import com.flowdesk.ticket.mapper.TicketDailySequenceMapper;
 import com.flowdesk.ticket.mapper.TicketMapper;
+import com.flowdesk.ticket.mapper.TicketParticipantMapper;
 import com.flowdesk.ticket.mapper.TicketRecordMapper;
 import org.mockito.Mockito;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -81,6 +82,12 @@ public class MockedPersistenceConfiguration {
     @Bean
     TicketRecordMapper ticketRecordMapper() {
         return Mockito.mock(TicketRecordMapper.class);
+    }
+
+    /** 领取工单写入历史 IT 参与关系时依赖。 */
+    @Bean
+    TicketParticipantMapper ticketParticipantMapper() {
+        return Mockito.mock(TicketParticipantMapper.class);
     }
 
     /** 每日工单编号序号依赖。 */

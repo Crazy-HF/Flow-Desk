@@ -1,15 +1,22 @@
 package com.flowdesk.ticket.application.service.impl;
 
 import com.flowdesk.common.exception.ApiException;
+import com.flowdesk.ticket.application.command.ClaimTicketCommand;
 import com.flowdesk.ticket.application.command.CreateTicketCommand;
 import com.flowdesk.ticket.application.port.CategoryAvailabilityPort;
 import com.flowdesk.ticket.application.port.CurrentRequesterPort;
+import com.flowdesk.ticket.application.port.TicketClaimantPort;
+import com.flowdesk.ticket.application.port.TicketReadPermissionPort;
+import com.flowdesk.ticket.application.result.TicketClaimResult;
 import com.flowdesk.ticket.application.result.TicketCreatedResult;
+import com.flowdesk.ticket.application.result.TicketUserSummaryResult;
 import com.flowdesk.ticket.application.service.TicketService;
 import com.flowdesk.ticket.domain.Ticket;
 import com.flowdesk.ticket.domain.TicketRecord;
+import com.flowdesk.ticket.infrastructure.persistence.TicketDetailRow;
 import com.flowdesk.ticket.mapper.TicketMapper;
 import com.flowdesk.ticket.mapper.TicketDailySequenceMapper;
+import com.flowdesk.ticket.mapper.TicketParticipantMapper;
 import com.flowdesk.ticket.mapper.TicketRecordMapper;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
@@ -36,6 +43,8 @@ public class TicketServiceImpl implements TicketService {
 
     /** 待处理状态 */
     private static final String PENDING = "PENDING";
+    /** 领取工单权限由动态 RBAC 授予，不能从登录身份推定。 */
+    private static final String TICKET_CLAIM = "TICKET_CLAIM";
     private static final ZoneId BUSINESS_ZONE =
             ZoneId.of("Asia/Shanghai");
 
@@ -46,6 +55,10 @@ public class TicketServiceImpl implements TicketService {
     private final CurrentRequesterPort currentRequesterPort;
     private final CategoryAvailabilityPort categoryAvailabilityPort;
     private final TransactionTemplate transactionTemplate;
+    private final TicketReadPermissionPort ticketReadPermissionPort;
+    private final TicketClaimantPort ticketClaimPort;
+    private final TicketParticipantMapper ticketParticipantMapper;
+
 
     public TicketServiceImpl(
             Clock clock,
@@ -54,13 +67,19 @@ public class TicketServiceImpl implements TicketService {
             TicketRecordMapper ticketRecordMapper,
             CurrentRequesterPort currentRequesterPort,
             CategoryAvailabilityPort categoryAvailabilityPort,
-            PlatformTransactionManager transactionManager) {
+            TicketReadPermissionPort ticketReadPermissionPort,
+            PlatformTransactionManager transactionManager,
+            TicketClaimantPort ticketClaimPort,
+            TicketParticipantMapper ticketParticipantMapper) {
         this.clock = clock;
         this.ticketMapper = ticketMapper;
         this.ticketDailySequenceMapper = ticketDailySequenceMapper;
         this.ticketRecordMapper = ticketRecordMapper;
         this.currentRequesterPort = currentRequesterPort;
         this.categoryAvailabilityPort = categoryAvailabilityPort;
+        this.ticketReadPermissionPort = ticketReadPermissionPort;
+        this.ticketClaimPort = ticketClaimPort;
+        this.ticketParticipantMapper = ticketParticipantMapper;
 
         this.transactionTemplate =
                 new TransactionTemplate(transactionManager);
@@ -111,6 +130,126 @@ public class TicketServiceImpl implements TicketService {
             throw exception;
 
         }
+    }
+
+    /** 领取工单：权限、身份、资源关系与并发条件都在服务端复核。 */
+    @Override
+    @Transactional
+    public TicketClaimResult claim(String ticketNo, ClaimTicketCommand command) {
+        //1.校验身份与工单
+        long actorId = currentRequesterPort.currentUserId();
+        //校验权限
+        boolean claimPermission = ticketReadPermissionPort.hasAuthority(TICKET_CLAIM);
+
+        if (!claimPermission) {
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN,
+                    "TICKET_ACTION_FORBIDDEN",
+                    "无领取工单权限");
+        }
+
+        // 会话保证请求已认证；落库前仍校验当前账号和 IT 角色，避免授权变化竞态。
+        TicketUserSummaryResult claimant = ticketClaimPort.lockEligibleClaimant(actorId);
+
+        if (claimant == null) {
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN,
+                    "TICKET_ACTION_FORBIDDEN",
+                    "当前用户不能领取工单");
+        }
+
+        // 复用详情的权限与资源关系判断；无权查看和编号不存在统一为 404。
+        TicketDetailRow visible = ticketMapper.selectVisibleDetail(
+                ticketNo,
+                actorId,
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_OWN"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_QUEUE"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_PARTICIPATED"));
+
+        if (visible == null) {
+            throw new ApiException(
+                    HttpStatus.NOT_FOUND,
+                    "TICKET_NOT_FOUND",
+                    "工单不存在");
+        }
+
+        if (actorId == visible.getRequesterId()) {
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN,
+                    "TICKET_ACTION_FORBIDDEN",
+                    "不能领取自己提交的工单");
+        }
+
+        if (!PENDING.equals(visible.getStatus())
+                || visible.getAssigneeId() != null
+                || !command.version().equals(visible.getVersion())) {
+            throw new ApiException(
+                    HttpStatus.CONFLICT,
+                    "TICKET_CONFLICT",
+                    "工单状态或版本已变化，请刷新后重试",
+                    visible.getVersion(), visible.getStatus());
+        }
+
+
+        Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
+        LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+
+        //2.领取工单，更新ticket
+        // 最终并发判定在数据库条件更新中完成；两名 IT 同时领取只能有一人更新成功。
+        int updatedRows = ticketMapper.claimPending(
+                visible.getId(),
+                command.version(),
+                actorId,
+                now);
+        if (updatedRows != 1) {
+            Ticket current = ticketMapper.selectClaimConflictSnapshotForUpdate(visible.getId());
+            if (current == null) {
+                throw new IllegalStateException("领取冲突后无法读取工单快照");
+            }
+            throw new ApiException(
+                    HttpStatus.CONFLICT,
+                    "TICKET_CONFLICT",
+                    "工单状态或版本已变化，请刷新后重试",
+                    current.getVersion(), current.getStatus());
+        }
+
+        // 本事务持有工单更新锁，读回本次递增后的记录序号。
+        Ticket updated = ticketMapper.selectById(visible.getId());
+        if (updated == null
+                || updated.getRecordSeq() == null
+                || updated.getVersion() == null) {
+            throw new IllegalStateException("领取后无法读取工单快照");
+        }
+
+        // 记录曾经负责过工单的 IT 用户，供参与历史与后续可见性查询。
+        ticketParticipantMapper.recordAssignment(
+                updated.getId(),
+                actorId,
+                now);
+
+        // 追加不可变的业务时间线，描述本次领取动作。
+        TicketRecord record = new TicketRecord();
+        record.setTicketId(updated.getId());
+        record.setSequenceNo(updated.getRecordSeq());
+        record.setRecordType("CLAIM");
+        record.setActorType("USER");
+        record.setActorUserId(actorId);
+        record.setFromStatus(PENDING);
+        record.setToStatus("PROCESSING");
+        record.setToAssigneeId(actorId);
+        record.setCreatedAt(now);
+
+        if (ticketRecordMapper.insert(record) != 1) {
+            throw new IllegalStateException("领取记录插入失败");
+        }
+
+        return new TicketClaimResult(
+                updated.getTicketNo(),
+                "PROCESSING",
+                claimant,
+                null,
+                updated.getVersion(),
+                instant.atOffset(ZoneOffset.UTC));
     }
 
     /** 创建工单 */

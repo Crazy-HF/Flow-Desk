@@ -204,8 +204,10 @@ M0 工程底座（已完成，PR #4）
 MVP 状态主链：
 
 ```text
-PENDING → PROCESSING → PENDING_CONFIRMATION → COMPLETED
+PENDING → PROCESSING → WAITING_FOR_CONFIRMATION → COMPLETED
 ```
+
+**契约对齐（2026-09-30）**：本节原写 `PENDING_CONFIRMATION`，与已发布编码不一致。以已发布实现为准——`V1__create_schema.sql` 的状态约束与 `ticket_record` 检查、`docs/database-design.md` 第 18 节、`docs/api-design.md` 6.3/6.4、后端 `TicketStatus` 与前端 `frontend/src/constants/tickets.ts` 全部使用 `WAITING_FOR_CONFIRMATION`。本次只改本节文字，**不修改已发布的历史迁移**。
 
 ### TASK-030-MVP：领取与处理
 
@@ -215,7 +217,7 @@ PENDING → PROCESSING → PENDING_CONFIRMATION → COMPLETED
 
 ### TASK-032-MVP：解决与确认
 
-- IT 提交解决结果后进入 `PENDING_CONFIRMATION`。
+- IT 提交解决结果后进入 `WAITING_FOR_CONFIRMATION`（编码以已发布实现为准，见本节开头的契约对齐说明）。
 - 仅提交人可确认，确认后进入终态 `COMPLETED`。
 - 终态不能再次领取或处理；冲突返回 `409`，前端提示重新加载，不自动重放写操作。
 
@@ -226,6 +228,23 @@ PENDING → PROCESSING → PENDING_CONFIRMATION → COMPLETED
 - Playwright 覆盖员工创建 → IT 领取 → 处理 → 提交解决 → 员工确认。
 
 阶段 3 验收：主链从页面端到端可重复演示；RBAC、资源关系、状态和乐观并发都有后端测试证据。
+
+### 7.1 阶段 3 小步实施（2026-09-30 起）
+
+分工与验收口径沿用 6.1：基础 domain、Controller、Mapper、Command/Query/Result、服务接口由 Agent 写入，`ServiceImpl` 业务逻辑先以文字与流程图说明再提供完整代码供用户编写；按用户指示本阶段不新增测试类，使用编译、现有检查与真实栈验收。**代码完整性复核不等于运行验证**，每步只有在真实栈上跑过才可标为通过。
+
+- [x] ① IT 领取（`POST /fd/v1/tickets/{ticketNo}/actions/claim`）**代码已写入并完成代码完整性复核；提交前跑过完整 `verify` 证明无回归，但领取接口本身没有任何专项或真实栈证据**（2026-09-30 随本分支提交）：
+  - 契约与权限：按 `docs/api-design.md` 6.3 的 `claim` 行（仅 `PENDING`，请求体只带 `version`），要求 `TICKET_CLAIM`；动作结果复用统一动作结果口径（工单编号、最新状态、负责人摘要、`version`、动作时间）。
+  - 服务端校验顺序（`TicketServiceImpl.claim`）：认证身份 → `TICKET_CLAIM` → `TicketClaimantPort.lockEligibleClaimant`（事务内锁当前用户行，确认账号启用且仍持有 `IT_SUPPORT`）→ 可见性（`selectVisibleDetail`，无权查看与编号不存在统一 `404/TICKET_NOT_FOUND`）→ 不能领取自己提交的工单 → 状态、负责人与版本（`409/TICKET_CONFLICT`）。
+  - 并发判定：`TicketMapper.claimPending` 的条件 `UPDATE` 是唯一胜者判定，条件含 `id`、`expectedVersion`、`status = 'PENDING'`、`assignee_id IS NULL`、`requester_id <> 领取人`，同时 `version + 1`、`record_seq + 1`；影响行数不为 1 即按冲突处理，并用 `selectClaimConflictSnapshotForUpdate` 读回最新 `version`/`status`。
+  - 同事务写入：`ticket_participant` 记录历史 IT 参与关系（`ON DUPLICATE KEY UPDATE last_assigned_at`），并追加不可变 `CLAIM` 记录（`PENDING → PROCESSING`，操作者为领取人，序号取递增后的 `record_seq`）。
+  - 详情 `allowedActions`：仅当状态为 `PENDING`、负责人为空、当前用户不是提交人、具备 `TICKET_VIEW_QUEUE` 与 `TICKET_CLAIM` 且仍是有效 IT 时返回 `["claim"]`；按钮提示不代替动作时的重新校验。
+  - 冲突响应：`ApiException` 增加可选 `resourceVersion`/`resourceStatus`，由 `GlobalExceptionHandler` 写入 `ErrorDetails.version`/`status`，对应 `docs/api-design.md` 6.6 要求的当前快照。
+  - 已修问题：领取路径原先经 `IamRoleMapper.selectByCodeForUpdate("IT_SUPPORT")` 锁住所有 IT 共用的角色行，使不同账号、不同工单的领取请求也被迫串行；现改为普通读取角色 ID，保留用户行锁与角色授权校验。记录见 `docs/project-highlights.md`「IT 工单领取：移除全局角色行锁」。
+  - 未做：没有领取接口的专项单元/Web/集成用例（按用户指示本阶段不新增测试类），也没有真实栈调用记录；提交前执行的 `.\mvnw.cmd -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"`（单元/Web 394 + 集成 88 全绿，证据 `docs/acceptance/2026-09-30-ticket-claim-backend-verify.json`）只说明构建通过、既有测试无回归。因此本步骤只算代码完成，不算运行验证通过。
+- [ ] ② 当前负责人追加处理记录（`add-processing-record`）：已完成契约、权限、版本条件更新与不可变 `PROCESS` 时间线的分析，**未写入业务代码或 Mapper**。成功时状态与负责人不变，`version` 与记录序号递增；正文去除首尾空白后为 1～10000 字符。
+- [ ] ③ 提交解决结果（`submit-resolution`）与员工确认（`confirm-resolution`）：未开始。
+- [ ] ④ IT 与员工页面、端到端主链（`TASK-033-MVP`）：未开始。
 
 ## 8. 阶段 4：MVP 验收与求职展示收口
 

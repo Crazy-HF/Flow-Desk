@@ -1,0 +1,33 @@
+{
+  "stage": "阶段 3 IT 处理闭环",
+  "slice": "步骤① IT 领取（POST /fd/v1/tickets/{ticketNo}/actions/claim）",
+  "date": "2026-09-30",
+  "timezone": "Asia/Shanghai",
+  "branch": "flow-desk/ticket-it-flow",
+  "baseCommit": "8a793d3",
+  "purpose": "提交前确认工作区后端代码可构建且既有测试不回归；不构成领取接口的验收证据。",
+  "command": ".\\mvnw.cmd -B clean verify \"-DargLine=-Djdk.attach.allowAttachSelf=true\"",
+  "environment": {
+    "javaHome": "D:\\Idea\\Jdk\\Jdk21",
+    "docker": "可用（本机已有 mysql:8.4.11、redis:8.8.0 镜像，集成测试经 Testcontainers 运行）",
+    "note": "本轮未并行运行前端测试，避免与容器争内存。"
+  },
+  "result": {
+    "exitCode": 0,
+    "build": "BUILD SUCCESS",
+    "totalTime": "03:42 min",
+    "unitWebTests": {"run": 394, "failures": 0, "errors": 0, "skipped": 0},
+    "integrationTests": {"run": 88, "failures": 0, "errors": 0, "skipped": 0},
+    "failsafeSummary": {"completed": 88, "errors": 0, "failures": 0, "skipped": 0, "flakes": 0}
+  },
+  "coverage": {
+    "covered": "现有 394 项单元/Web 测试与 88 项集成测试全部通过，其中包含测试支撑配置 MockedPersistenceConfiguration 新增 TicketParticipantMapper 替身后的全部 @SpringBootTest 上下文；生产代码 clean compile 通过。",
+    "notCovered": [
+      "领取接口本身没有专项单元/Web/集成用例（本阶段按用户指示不新增测试类）",
+      "没有真实栈（local profile + MySQL/Redis + HTTP）调用记录：未验证 404/403/409、并发领取只有一个成功、参与关系与 CLAIM 记录落库",
+      "没有前端改动，因此未执行前端 typecheck/lint/build/单测/E2E"
+    ]
+  },
+  "conclusion": "后端构建与既有测试无回归；步骤① 仍只算代码完成，不得按运行验证通过或阶段验收通过表述。",
+  "log": "完整日志为本机临时文件 %TEMP%\\flowdesk-claim-verify-20260930.log（306 KB），仓库内只保留本汇总。"
+}

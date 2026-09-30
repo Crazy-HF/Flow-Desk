@@ -256,6 +256,8 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 
 以上动作都要求当前用户是当前负责人；`claim` 例外，它要求当前用户是有效 IT 支持人员，工单仍无人负责且不能由其本人提交。
 
+**实现状态（2026-09-30）**：本表 9 个 IT 动作中，只有 `claim` 已写入实现——`TicketController` 的 `POST /fd/v1/tickets/{ticketNo}/actions/claim`、`TicketServiceImpl.claim`、`TicketMapper.claimPending`、`TicketParticipantMapper.recordAssignment`，配合 `TicketClaimantPort`、`TicketClaimResult`、`ClaimTicketCommand`；`claim` 与其余动作的契约**均未修改**。**该实现只完成代码完整性复核，尚未运行单元/集成测试或真实栈验收**，因此不按本节契约标为已验收；`add-processing-record` 及其余 7 个动作仍未实现。详情 `allowedActions` 已按本节口径在满足条件时返回 `["claim"]`。阶段进度见 `docs/implementation-plan.md` 7.1。
+
 处理正文、补充请求、员工补充正文和解决结论去除首尾空白后最长 10000 个字符；要求必填时长度至少为 1。转交、调整、撤回、未解决、取消和关闭说明最长 1000 个字符，并在对应动作中要求非空。
 
 关闭原因为 `DUPLICATE` 时，`duplicateTicketNo` 必填，目标必须是同一提交人的另一张有效工单；其他关闭原因禁止传该字段。

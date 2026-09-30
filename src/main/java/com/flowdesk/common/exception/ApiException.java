@@ -7,11 +7,21 @@ public class ApiException extends RuntimeException {
 
     private final HttpStatus status;
     private final String code;
+    private final Long resourceVersion;
+    private final String resourceStatus;
 
     public ApiException(HttpStatus status, String code, String message) {
+        this(status, code, message, null, null);
+    }
+
+    /** 冲突时可附带安全的当前快照，供客户端刷新后决定下一步。 */
+    public ApiException(HttpStatus status, String code, String message,
+            Long resourceVersion, String resourceStatus) {
         super(message);
         this.status = status;
         this.code = code;
+        this.resourceVersion = resourceVersion;
+        this.resourceStatus = resourceStatus;
     }
 
     public HttpStatus status() {
@@ -20,5 +30,13 @@ public class ApiException extends RuntimeException {
 
     public String code() {
         return code;
+    }
+
+    public Long resourceVersion() {
+        return resourceVersion;
+    }
+
+    public String resourceStatus() {
+        return resourceStatus;
     }
 }

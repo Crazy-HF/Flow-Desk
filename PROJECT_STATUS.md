@@ -1,9 +1,13 @@
 # FlowDesk 项目状态
 
-## 当前结论：阶段 2 已合并 main，阶段 3 分支已准备（2026-09-29）
+## 当前结论：阶段 3 步骤 1 领取代码已提交并推送，进入步骤 2 分析（2026-09-30）
 
 - **交接已完成**：[PR #9](https://github.com/Crazy-HF/Flow-Desk/pull/9) 已使用 merge commit 合并，main 合并提交 `5b9a96156c9fffc8dd0949029fb74f8c48b0682d`；分支头 `36504ae222c90bf1820544d074aa4cb9f05845ed` 的 GitHub CI `backend-verify`、`frontend-verify`、`core-e2e` 全部 success（run 36551131354）。本地 main 已仅快进同步，确认合并后代码树与本轮验证分支完全一致。
-- **当前工作分支**：`flow-desk/ticket-it-flow`，从上述最新 main 创建；本次仅记录交接与准备分支，阶段 3 业务实现尚未开工。下一步先按第 7 节给出领取切片的规则、流程、文件与验收目标。
+- **当前工作分支**：`flow-desk/ticket-it-flow`，阶段 3 首个切片为 IT 领取；领取动作、并发条件更新、历史参与关系、不可变领取记录和详情 `allowedActions` 已实现，并已于 2026-09-30 按用户「同步文档 + 提交 + 推送，不进行 PR」的授权推送到 `origin/flow-desk/ticket-it-flow`，**分支保持未合并、未创建 PR**。
+- **步骤 1 收尾口径**：按用户要求，只验收领取代码是否写完整。领取接口、资格检查、工单条件更新、历史参与关系、不可变领取记录、详情 `allowedActions` 与冲突响应已写入，代码完整性复核完成。公共 `IT_SUPPORT` 角色行锁已从领取路径移除，发现与修复记录见 `docs/project-highlights.md`。**本次仍未做领取接口的运行验证**：没有专项用例，也没有真实栈调用，因此步骤 1 只是代码完成。
+- **本次提交前的回归证据（2026-09-30 实跑）**：`.\mvnw.cmd -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → 单元/Web **394**、集成 **88**，失败/错误均 0，`BUILD SUCCESS`，退出码 0（3 分 42 秒）；汇总见 `docs/acceptance/2026-09-30-ticket-claim-backend-verify.json`。它只证明构建通过、既有测试无回归，**不覆盖领取接口本身**；本轮未改前端，未执行前端检查。
+- **步骤 2 分析范围**：当前负责人在 `PROCESSING` 状态追加处理记录（`add-processing-record`）。仅分析契约、权限、版本条件更新及不可变 `PROCESS` 时间线，未写入步骤 2 的业务代码或 Mapper。成功时状态和负责人不变，版本与记录序号递增；处理内容去除首尾空白后为 1～10000 字符。步骤 2 的代码完整性验收以 Controller/Command/Result、服务、条件更新、时间线及详情动作提示一致为准；按用户当前要求不代跑测试。
+- **契约对齐已完成（2026-09-30 同步文档）**：`docs/implementation-plan.md` 第 7 节原写 `PENDING_CONFIRMATION`，与已发布编码不一致；已按已发布实现（`V1__create_schema.sql`、`docs/database-design.md` 18、`docs/api-design.md` 6.3/6.4、后端 `TicketStatus`、前端 `constants/tickets.ts`）统一为 `WAITING_FOR_CONFIRMATION`，只改文档，未修改历史迁移。阶段 3 后续步骤（处理记录、提交解决结果、员工确认）一律沿用 `WAITING_FOR_CONFIRMATION`。
 - **本次交接复核**：当前工作树重新执行后端 clean verify、前端 typecheck/eslint/stylelint/build、23 套件 124 单测和 15 E2E 全部通过；临时数据与临时用户会话清理后基线仍为 5/0/0/0/0/3/3/14。新证据 docs/acceptance/stage2-handoff-20260929.json，原始失败与收口证据保留。
 - **四项收尾完成**：脚本要求的后端 verify、前端 typecheck/lint/build/单测和真实栈 E2E 闸门全部取得通过证据；防重复、本人数据隔离、刷新恢复已实测；清理 SQL 已执行并恢复演示基线；步骤⑧及截图报告已同步。
 - **结果**：后端单元/Web **394**、集成 **88**，失败/错误均 0；前端单测 **23 套件 / 124 项**；全部 **15 项 E2E**通过。最后仅调整证据采集与截图等待的工单/分类用例又定向通过 **2 项**。分类管理创建、改名、停用、启用、删除也已浏览器验证。
@@ -13,7 +17,7 @@
 - **本次修正范围**：现有后端测试配置补事务管理器替身、迁移断言跟进 V6；现有前端测试修正时间线上下文字段和组件清理；工单列表窄屏日期范围收缩；E2E 增加真实隔离账号及分类 CRUD 证明。未代写 ServiceImpl 业务逻辑。
 - **授权范围与结果**：当前后端、前端、测试支撑与验收/设计文档已按用户授权提交、推送，并经 PR #9 合并 main；原工作分支保留。合并后的交接记录在下一分支补充，不提前开展阶段 3 业务。
 - **分支交接记录**：完整证据 docs/acceptance/stage2-handoff-20260929.json；合并与本地同步结果 docs/acceptance/stage2-git-handoff-20260929.json。
-- **下一大步骤**：阶段 3 IT 处理闭环（`TASK-030-MVP` / `TASK-032-MVP` / `TASK-033-MVP`）：公共队列与领取 → 当前负责人处理与提交解决 → 提交人确认完成；后端必须同时校验权限、资源关系、状态和版本，真并发领取只有一个成功，每个动作追加不可变时间线。先按 `docs/implementation-plan.md` 第 7 节及已有契约给出首个领取切片的文件、规则、流程和验收，再进入实现；尚未开工。
+- **下一步**：先完成步骤 2 当前负责人追加处理记录的实现与代码完整性复核，再推进提交解决结果和员工确认。页面与端到端主链仍未实现。
 - **非阻塞遗留**：共享列表组合函数仍位于 admin 目录；列表请求竞态与可空响应类型统一属于后续技术债；构建有大 chunk 提示。既有 RBAC 页用户逐项视觉反馈仍待取得。
 
 ## 以下为历史执行记录
@@ -149,22 +153,22 @@
 
 ## 快速定位
 
-- 最后更新：2026-09-29
+- 最后更新：2026-09-30
 - 远程仓库：`git@github.com:Crazy-HF/Flow-Desk.git`
 - 稳定分支：`main`
-- 当前基线分支：`main`（阶段 1、前端外壳、第 3 步 RBAC 后端与 RBAC 管理端五页均已合并，最新合并提交 `f15468c`，即 PR #8）
-- 当前工作分支：`flow-desk/ticket-employee-flow`（从 PR #8 合并后的最新 `main` `f15468c` 创建，用于阶段 2 `TASK-020`～`TASK-023-MVP` 员工工单创建与查询；**已关联远程同名分支**）
-- 下一次创建分支：阶段 2 完成并交接后，从当时最新的 `main` 创建下一主题分支。已存在的旧分支 `flow-desk/employee-ticket-flow` 只含 `7f6c72c` 一条文档同步提交，不用于开发
-- 当前阶段：阶段 2 员工创建与查询验收通过，等待用户授权分支交接；阶段 3 IT 处理闭环未开工。
-- 最新提交：`6fa50d5` 文档同步；后端 `8af82ca` 已推送且未合并。当前工作区仍有未提交变更，本次验收证据覆盖当前实现。
+- 当前基线分支：`main`（阶段 1、前端外壳、第 3 步 RBAC 后端与 RBAC 管理端五页、阶段 2 员工创建与查询均已合并，最新合并提交 `5b9a961`，即 PR #9）
+- 当前工作分支：`flow-desk/ticket-it-flow`（从 PR #9 合并后的最新 `main` `5b9a961` 创建，用于阶段 3 IT 处理闭环；**已关联远程同名分支**）
+- 下一次创建分支：阶段 3 完成并交接后，从当时最新的 `main` 创建下一主题分支
+- 当前阶段：阶段 3 IT 处理闭环进行中——步骤① IT 领取代码完成并随本分支提交，步骤② 当前负责人追加处理记录仅完成分析；IT/员工页面与端到端主链未开始。
+- 最新提交：`8a793d3` 文档记录 PR #9 合并并准备阶段 3 分支；本次阶段 3 领取切片的提交与推送结果见上方当前结论。
 - 前一项完成（2026-09-24，**历史成果，已随 PR #8 合并 main**）：**`TASK-060` RBAC 管理端四页 + `TASK-062` 用户管理页 + `TASK-061` 契约对齐**——`frontend/src/views/admin/` 五页（用户管理、角色管理、权限管理、用户角色授权、角色权限授权）、`api/rbac.ts` 与 `api/users.ts`、`ProtectedMark` / `AdminListPanel` 两个共享件与 `useAdminList` 取数状态机；用户管理在 `docs/implementation-plan.md` 正式登记为 `TASK-061`/`TASK-062` 并移出完整版 backlog；替换角色路径按 8.2 契约由 `/role` 改为 `/roles`（后端 + Web 测试 + 文档同步）。**验证**：`./mvnw -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → 单元/Web **394** + 集成 **88** 全绿；前端 `typecheck` / `lint`（含 stylelint 闸门）/ `build` 退出码 0、单测 **17 套件 74 项**、E2E **13 项**全绿（含三条新增：RBAC 真实闭环、用户角色闭环、入口按权限显隐与窄屏），演示库经查无 `E2E_*` 残留。见下方 2026-09-24 记录。
 - 前一项完成（2026-09-23，**已提交 `b13f421`**）：**用户管理模块测试补齐 + 测试代码对齐应用层重构**——用户管理 `/fd/v1/users` 八个端点（列表、详情、创建、改资料、启用、停用、替换角色、重置密码）现有完整测试：服务单测 `IamUserServiceImplTest`(58)、Web 契约 `IamUserControllerWebTest`(45)、真实 MySQL 集成 `IamUserServiceIT`(24，含两条真并发)；13 个 RBAC/auth 测试类同时对齐 `application.*` 新包并移动到镜像包，修好重构引入的 2 项 `AuthWebTest` 失败并补 13 项新测试。`./mvnw -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → 单元/Web **394** + 集成 **88**，`Failures: 0, Errors: 0`，`BUILD SUCCESS`。见下方 2026-09-23 两条记录。
 - 本轮完成（2026-09-23，**未提交**）：**前端样式闸门（ui-craft rung 3 · Enforce）**——新增 `frontend/stylelint.config.js` 并把它挂进 `pnpm lint`，AGENTS.md 点名的六个轴（颜色 / 间距 / 字号 / 圆角 / 阴影 / 动效）从"书面约定"变成可执行规则；新增 3 个 devDependency（`stylelint` 17.15.0、`postcss-html` 2.0.0、`postcss-scss` 4.0.9），CI 未改动即获得覆盖。同时按用户同日指示把 `.ui-craft/` 文档与项目现状对齐。详见下方同名小节。
 - 前一项完成（2026-09-23，**已提交 `ba298c2`**）：**auth、iam 生产代码应用层重构**——应用层统一为 `application.command` / `query` / `result` / `service`，实现入 `application.service.impl`，跨模块接口入 `iam.application.port`，Controller 直接收发 Command/Query/Result，`domain` 不再存放 BO/VO，且未新增重复的 Request/Response 类型。**接口地址、JSON 字段与业务行为不变**。原阻塞「13 个测试类引用已删除旧包导致 `test-compile` 失败」已由测试对齐解除。
 - 已确认的范围调整：项目分为“求职 MVP”和“完整版”；三种内置角色 `EMPLOYEE`、`IT_SUPPORT`、`SYSTEM_ADMIN` 仍是权限基线，`SYSTEM_ADMIN` 始终受保护。**2026-09-21 用户确认把「完整动态 RBAC」定为第 3 步实施**：按 `docs/api-design.md` 8.2.1 开放角色、权限、用户角色授权、角色权限授权四组 CRUD，新增 Flyway 迁移 `V5` 预置 `RBAC_MANAGE` 并授予受保护的 `SYSTEM_ADMIN`，配套保护规则、会话撤销与审计；不得修改已发布的历史迁移。该能力已于 2026-09-22 确认计入求职 MVP 演示范围，并包含管理端页面。
 - 前一项完成：**`TASK-058` 测试补齐与全量验证**（2026-09-22）——用户角色与角色权限两组授权现共 **11 个端点**（原 6 个 + 批量撤销 `POST /actions/revoke`、清空全部 `DELETE /users/{userId}` 与 `DELETE /roles/{roleId}`、一个角色授予多个用户 `POST /actions/grant-users`、建角色时带 `permissionIds`）。按用户 2026-09-22 确认，**保护规则 5「用户至少保留一个角色」废弃**，零角色成为合法终态（`USER_ROLE_REQUIRED` 不再产生），仅保留「最后一个启用管理员」与「`SYSTEM_ADMIN` 的 `RBAC_MANAGE` 授权」保护。测试侧新增/扩展 8 个测试类，`./mvnw -B clean verify` → 单元/Web **278** + 集成 **63**，`Failures: 0, Errors: 0, BUILD SUCCESS`（阶段起点 132 + 30，只增不减）。覆盖矩阵逐格证据见 `docs/modules/rbac.md` 10.1。此前的 `TASK-059` 成果：`AuthSecurityConfiguration` 的 `securityMatcher` 扩为 `/fd/v1/**`，`/fd/v1/admin/**` 不再恒为 `401`，并用真实 Access Token 补了回归测试。
-- 下一步：先恢复本机命令执行能力，运行后端完整 `verify`，再执行前端 typecheck/lint/build/单测及真实栈 E2E、截图与数据清理。阶段 2 验收完成并获授权交接后，下一大步骤为阶段 3 IT 处理闭环（TASK-030-MVP/TASK-032-MVP/TASK-033-MVP）。
-- 当前阻塞：本轮记录的 Windows PowerShell 子进程启动均以 `0xC0000142` 失败，因此最新测试替身修改和员工页面尚未验证；需在可正常运行命令的环境复跑。阶段 2 未验收、未交接，阶段 3 未开工。
+- 下一步：先实现并按代码完整性复核步骤② 当前负责人追加处理记录，再推进提交解决结果、员工确认与页面主链；阶段 3 的全部切片都还没有真实栈验收证据。
+- 当前阻塞：无环境阻塞——此前记录的 Windows PowerShell 子进程 `0xC0000142` 故障已解除，后端 `verify` 与前端命令恢复可执行。阶段 3 步骤① 的"尚未运行验证"是未完成的验证项，不是环境阻塞。
 - 环境前置：JDK 21.0.12、Node.js 24.20.0、pnpm 12.3.4、Docker 29.7.2 已验证；本机已有 `redis:8.8.0`、`mysql:8.4.11` 镜像。**跑后端测试的两个必备参数（2026-09-23 实测，会复发）**：① 受限沙箱下 Mockito inline mock maker 无法自附加，必须加 `-DargLine=-Djdk.attach.allowAttachSelf=true`，否则所有 Spring 测试一起报 `Could not self-attach to current VM using external process`（看起来像代码回归）；② Testcontainers 集成测试需要访问 Docker 命名管道 `\\.\pipe\docker_engine`，受限沙箱会报 `Could not find a valid Docker environment` / `AccessDeniedException`，需在放宽文件策略的会话里执行。完整验收命令：`.\mvnw.cmd -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"`。本地启动 profile 用 `local` 即可（`spring.profiles.group.local=demo` 已配置）。演示账号 `employee` / `it` / `admin`，密码统一为 `123456`（见 `db/demo/R__seed_demo_data.sql` 头部注释，2026-09-20 由 `demo.*` 改名）。本机已有过两类运行障碍并已修复：① Flyway 校验失败——历史表残留已删除的 V3 迁移记录，处置为删除该行（等价 `flyway repair`）；② Redis 残留旧实现写入的 hash 类型会话键，会让"撤销全部会话"抛 `WRONGTYPE`，已清理。另需注意：本机 Argon2id 校验约 2 秒/次（并发登录可拖到十几秒），前端 e2e 因此串行执行并放宽超时；跑 e2e 需要 `FLOWDESK_ALLOWED_ORIGINS` 包含 `http://127.0.0.1:4173`（本地 `.env` 已加）；③ `frontend/node_modules` 若缺 `.modules.yaml`，`pnpm add` 会报 `ERR_PNPM_PACKAGE_MANAGER_REMOVE_MODULES_DIR`，而受限沙箱的写受限令牌删不掉该目录里的预存文件（批量 `Access to the path is denied`）——处置是在放宽文件策略的会话里删掉 `node_modules` 后重装，不要在残缺目录上反复重试。
 - 待确认事项：① Element Plus 目前是**全量引入**（打包约 1.07 MB / gzip 348 KB），是否改为按需引入（需新增 `unplugin-vue-components`、`unplugin-auto-import` 两个 dev 依赖）；② ~~登录页占位文案~~ **2026-09-24 复核：登录页与 E2E 已统一为「请输入登录名」「请输入密码」，与本条描述不符，视为已解决**；③ 首页 `h1`「欢迎回来」用的是展示级字号 `clamp(1.75rem, 5vw, 2.5rem)`，是否收小到页面标题刻度（管理端五页已改用业务页标题刻度 `--fd-font-size-lg`，首页仍待用户决定）；④ ~~用户管理是否登记为正式任务条目、8.1/8.2 与 `rbac.md` 第 1 节的 backlog 表述~~ **2026-09-24 用户确认：登记**——已写入 `TASK-061`（后端）/`TASK-062`（管理端页面），`docs/api-design.md` 8.1/8.2 与 `docs/modules/rbac.md` 第 1 节同步改写，用户管理从完整版 backlog 移出；⑤ ~~`disable` 与替换角色是否属于本次补齐范围~~ **已包含**；⑥ ~~测试职责口径~~ **2026-09-23 已澄清：测试由 Agent（本会话执行者）负责**；⑦ ~~替换角色路径单复数~~ **2026-09-24 用户裁决：以契约 8.2 的复数 `/roles` 为准**——后端 `IamUserController` 已改为 `@PutMapping("/{userId}/roles")`，`IamUserControllerWebTest` 七处断言同步，`docs/api-design.md` 8.2 与实现一致；新增 ⑧ **`USER_ROLE_REQUIRED` 已从 `frontend/src/api/errorMessages.ts` 删除**（后端自 2026-09-22 不再返回该编码），如需保留映射请告知。`TASK-060` 的页面交互、批量授权、权限码搜索与 `api/` 落层均已确认并落地。历史处置：JaCoCo 覆盖率门禁已确认取消（2026-09-19），`pom.xml` 只保留 `jacoco:report` 供 CI 上传工件。
 

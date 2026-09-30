@@ -7,6 +7,7 @@ import com.flowdesk.common.exception.ApiException;
 import com.flowdesk.common.utils.StringUtils;
 import com.flowdesk.common.web.PageResult;
 import com.flowdesk.ticket.application.port.CurrentRequesterPort;
+import com.flowdesk.ticket.application.port.TicketClaimantPort;
 import com.flowdesk.ticket.application.query.TicketQuery;
 import com.flowdesk.ticket.application.query.TicketRecordQuery;
 import com.flowdesk.ticket.application.result.*;
@@ -37,21 +38,25 @@ public class TicketQueryServiceImpl implements TicketQueryService {
     private static final String TICKET_VIEW_QUEUE = "TICKET_VIEW_QUEUE";
     //查看参与工单
     private static final String TICKET_VIEW_PARTICIPATED = "TICKET_VIEW_PARTICIPATED";
+    private static final String TICKET_CLAIM = "TICKET_CLAIM";
 
     private final TicketMapper ticketMapper;
     private final CurrentRequesterPort currentRequesterPort;
     private final TicketReadPermissionPort ticketReadPermissionPort;
     private final TicketRecordMapper ticketRecordMapper;
+    private final TicketClaimantPort ticketClaimantPort;
 
     public TicketQueryServiceImpl(
             TicketMapper ticketMapper,
             CurrentRequesterPort currentRequesterPort,
             TicketReadPermissionPort ticketReadPermissionPort,
-            TicketRecordMapper ticketRecordMapper) {
+            TicketRecordMapper ticketRecordMapper,
+            TicketClaimantPort ticketClaimantPort) {
         this.ticketMapper = ticketMapper;
         this.currentRequesterPort = currentRequesterPort;
         this.ticketReadPermissionPort = ticketReadPermissionPort;
         this.ticketRecordMapper = ticketRecordMapper;
+        this.ticketClaimantPort = ticketClaimantPort;
     }
 
     /**
@@ -127,7 +132,7 @@ public class TicketQueryServiceImpl implements TicketQueryService {
                     "工单不存在");
         }
 
-        return toDetail(row);
+        return toDetail(row, currentUserId);
     }
 
     /**
@@ -244,7 +249,7 @@ public class TicketQueryServiceImpl implements TicketQueryService {
     /**
      * 详情结果。
      */
-    private TicketDetailResult toDetail(TicketDetailRow row) {
+    private TicketDetailResult toDetail(TicketDetailRow row, long currentUserId) {
         TicketCategorySummaryResult category =
                 new TicketCategorySummaryResult(
                         row.getCategoryId(),
@@ -261,6 +266,13 @@ public class TicketQueryServiceImpl implements TicketQueryService {
                         : new TicketUserSummaryResult(
                         row.getAssigneeId(),
                         row.getAssigneeDisplayName());
+
+        boolean canClaim = "PENDING".equals(row.getStatus())
+                && row.getAssigneeId() == null
+                && row.getRequesterId() != currentUserId
+                && ticketReadPermissionPort.hasAuthority(TICKET_VIEW_QUEUE)
+                && ticketReadPermissionPort.hasAuthority(TICKET_CLAIM)
+                && ticketClaimantPort.isEligibleClaimant(currentUserId);
 
         return new TicketDetailResult(
                 row.getTicketNo(),
@@ -279,7 +291,7 @@ public class TicketQueryServiceImpl implements TicketQueryService {
                 toOffsetDateTime(row.getEndedAt()),
                 toOffsetDateTime(row.getCreatedAt()),
                 toOffsetDateTime(row.getUpdatedAt()),
-                List.of());
+                canClaim ? List.of("claim") : List.of());
     }
 
     /**
