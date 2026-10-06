@@ -1,13 +1,17 @@
 package com.flowdesk.ticket.application.service.impl;
 
 import com.flowdesk.common.exception.ApiException;
+import com.flowdesk.ticket.application.command.AddProcessingRecordCommand;
 import com.flowdesk.ticket.application.command.ClaimTicketCommand;
+import com.flowdesk.ticket.application.command.ConfirmResolutionCommand;
 import com.flowdesk.ticket.application.command.CreateTicketCommand;
+import com.flowdesk.ticket.application.command.SubmitResolutionCommand;
 import com.flowdesk.ticket.application.port.CategoryAvailabilityPort;
 import com.flowdesk.ticket.application.port.CurrentRequesterPort;
 import com.flowdesk.ticket.application.port.TicketClaimantPort;
 import com.flowdesk.ticket.application.port.TicketReadPermissionPort;
-import com.flowdesk.ticket.application.result.TicketClaimResult;
+import com.flowdesk.ticket.config.TicketProperties;
+import com.flowdesk.ticket.application.result.TicketActionResult;
 import com.flowdesk.ticket.application.result.TicketCreatedResult;
 import com.flowdesk.ticket.application.result.TicketUserSummaryResult;
 import com.flowdesk.ticket.application.service.TicketService;
@@ -45,6 +49,20 @@ public class TicketServiceImpl implements TicketService {
     private static final String PENDING = "PENDING";
     /** 领取工单权限由动态 RBAC 授予，不能从登录身份推定。 */
     private static final String TICKET_CLAIM = "TICKET_CLAIM";
+
+    /** 处理中状态：追加处理记录只允许发生在这个状态。 */
+    private static final String PROCESSING = "PROCESSING";
+    /** 处理工单权限由动态 RBAC 授予，不能从"当前负责人"推定。 */
+    private static final String TICKET_PROCESS = "TICKET_PROCESS";
+
+    /** 待确认状态：只有提交人可以确认解决结果。 */
+    private static final String WAITING_FOR_CONFIRMATION = "WAITING_FOR_CONFIRMATION";
+    /** 提交人动作权限：补充、确认、未解决反馈与撤销。 */
+    private static final String TICKET_REQUESTER_ACTION = "TICKET_REQUESTER_ACTION";
+
+    /** 处理正文去除首尾空白后的长度上限，与请求校验保持一致。 */
+    private static final int MAX_CONTENT_LENGTH = 10000;
+
     private static final ZoneId BUSINESS_ZONE =
             ZoneId.of("Asia/Shanghai");
 
@@ -58,6 +76,8 @@ public class TicketServiceImpl implements TicketService {
     private final TicketReadPermissionPort ticketReadPermissionPort;
     private final TicketClaimantPort ticketClaimPort;
     private final TicketParticipantMapper ticketParticipantMapper;
+    /** 确认期限来自配置，服务端计算，不接受客户端传入。 */
+    private final TicketProperties ticketProperties;
 
 
     public TicketServiceImpl(
@@ -70,7 +90,8 @@ public class TicketServiceImpl implements TicketService {
             TicketReadPermissionPort ticketReadPermissionPort,
             PlatformTransactionManager transactionManager,
             TicketClaimantPort ticketClaimPort,
-            TicketParticipantMapper ticketParticipantMapper) {
+            TicketParticipantMapper ticketParticipantMapper,
+            TicketProperties ticketProperties) {
         this.clock = clock;
         this.ticketMapper = ticketMapper;
         this.ticketDailySequenceMapper = ticketDailySequenceMapper;
@@ -80,6 +101,7 @@ public class TicketServiceImpl implements TicketService {
         this.ticketReadPermissionPort = ticketReadPermissionPort;
         this.ticketClaimPort = ticketClaimPort;
         this.ticketParticipantMapper = ticketParticipantMapper;
+        this.ticketProperties = ticketProperties;
 
         this.transactionTemplate =
                 new TransactionTemplate(transactionManager);
@@ -135,7 +157,7 @@ public class TicketServiceImpl implements TicketService {
     /** 领取工单：权限、身份、资源关系与并发条件都在服务端复核。 */
     @Override
     @Transactional
-    public TicketClaimResult claim(String ticketNo, ClaimTicketCommand command) {
+    public TicketActionResult claim(String ticketNo, ClaimTicketCommand command) {
         //1.校验身份与工单
         long actorId = currentRequesterPort.currentUserId();
         //校验权限
@@ -243,10 +265,327 @@ public class TicketServiceImpl implements TicketService {
             throw new IllegalStateException("领取记录插入失败");
         }
 
-        return new TicketClaimResult(
+        return new TicketActionResult(
                 updated.getTicketNo(),
                 "PROCESSING",
                 claimant,
+                null,
+                updated.getVersion(),
+                instant.atOffset(ZoneOffset.UTC));
+    }
+
+    /** 当前负责人追加处理记录。 */
+    @Override
+    @Transactional
+    public TicketActionResult addProcessingRecord(String ticketNo, AddProcessingRecordCommand command) {
+        //1.获取当前处理人身份、权限
+        long actorId = currentRequesterPort.currentUserId();
+        if(!ticketReadPermissionPort.hasAuthority(TICKET_PROCESS)){
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN,
+                    "TICKET_ACTION_FORBIDDEN",
+                    "无处理工单权限");
+        }
+
+        // 2. 可见性：无权查看与编号不存在统一 404，不向调用方确认工单是否存在
+        TicketDetailRow visible = ticketMapper.selectVisibleDetail(
+                ticketNo,
+                actorId,
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_OWN"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_QUEUE"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_PARTICIPATED"));
+
+        if (visible == null) {
+            throw new ApiException(
+                    HttpStatus.NOT_FOUND,
+                    "TICKET_NOT_FOUND",
+                    "工单不存在");
+        }
+
+        // 3. 只有当前负责人能在 PROCESSING 上追加记录
+        String content = command.content();
+        if (!PROCESSING.equals(visible.getStatus())
+                || visible.getAssigneeId() == null
+                || visible.getAssigneeId() != actorId) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        if (!Objects.equals(command.version(), visible.getVersion())) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        // 4. 长度上限与请求校验保持一致；能过 Controller 校验后这里只兜底超长内容
+        if (content.isEmpty() || content.length() > MAX_CONTENT_LENGTH) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_FAILED",
+                    "处理内容长度必须在 1 到 10000 之间");
+        }
+
+        Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
+        LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+
+        // 5. 条件更新是唯一胜者判定：版本、状态与负责人都在 WHERE 里
+        int updatedRows = ticketMapper.advanceAssigneeAction(
+                visible.getId(),
+                command.version(),
+                actorId,
+                now);
+
+        //根据Id锁定读当前处理工单
+        if (updatedRows != 1) {
+            Ticket current = ticketMapper.selectClaimConflictSnapshotForUpdate(visible.getId());
+
+            if (current == null) {
+                throw new IllegalStateException("处理记录冲突后无法读取工单快照");
+            }
+
+            throw conflict(current.getVersion(), current.getStatus());
+        }
+
+        // 6. 本事务已持有该行更新锁，读回递增后的记录序号
+        Ticket updated = ticketMapper.selectById(visible.getId());
+
+        if (updated == null
+                || updated.getRecordSeq() == null
+                || updated.getVersion() == null) {
+            throw new IllegalStateException("追加处理记录后无法读取工单快照");
+        }
+
+        // 7. 追加不可变时间线；本动作不改变状态，因此两侧状态都写 PROCESSING
+        TicketRecord record = new TicketRecord();
+        record.setTicketId(updated.getId());
+        record.setSequenceNo(updated.getRecordSeq());
+        record.setRecordType("PROCESS");
+        record.setActorType("USER");
+        record.setActorUserId(actorId);
+        record.setContent(content);
+        record.setFromStatus(PROCESSING);
+        record.setToStatus(PROCESSING);
+        record.setCreatedAt(now);
+
+        if (ticketRecordMapper.insert(record) != 1) {
+            throw new IllegalStateException("处理记录插入失败");
+        }
+
+        // 8. 负责人与状态都没变，摘要直接取本事务读到的可见快照
+        TicketUserSummaryResult assignee = new TicketUserSummaryResult(
+                visible.getAssigneeId(),
+                visible.getAssigneeDisplayName());
+
+        return new TicketActionResult(
+                updated.getTicketNo(),
+                PROCESSING,
+                assignee,
+                null,
+                updated.getVersion(),
+                instant.atOffset(ZoneOffset.UTC));
+    }
+
+    /** 提交处理结果。 */
+    @Override
+    @Transactional
+    public TicketActionResult submitResolution(String ticketNo, SubmitResolutionCommand command) {
+        //1. 获取当前处理人身份、权限
+        long actorId = currentRequesterPort.currentUserId();
+        if(!ticketReadPermissionPort.hasAuthority(TICKET_PROCESS)){
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN,
+                    "TICKET_ACTION_FORBIDDEN",
+                    "无处理工单权限");
+        }
+
+        // 2. 可见性：无权查看与编号不存在统一 404
+        TicketDetailRow visible = ticketMapper.selectVisibleDetail(
+                ticketNo,
+                actorId,
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_OWN"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_QUEUE"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_PARTICIPATED"));
+
+        if (visible == null) {
+            throw new ApiException(
+                    HttpStatus.NOT_FOUND,
+                    "TICKET_NOT_FOUND",
+                    "工单不存在");
+        }
+
+        // 3. 只有当前负责人能在 PROCESSING 上提交解决结果
+        String content = command.content();
+
+        if (!PROCESSING.equals(visible.getStatus())
+                || visible.getAssigneeId() == null
+                || visible.getAssigneeId() != actorId) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        if (!Objects.equals(command.version(), visible.getVersion())) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        if (content.isEmpty() || content.length() > MAX_CONTENT_LENGTH) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_FAILED",
+                    "解决结果长度必须在 1 到 10000 之间");
+        }
+
+        Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
+        LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+
+        // 4. 确认期限从提交时刻起算，长度来自配置
+        LocalDateTime deadlineAt = now.plus(ticketProperties.confirmationWindow());
+
+        // 5. 条件更新是唯一胜者判定
+        int updatedRows = ticketMapper.submitResolution(
+                visible.getId(),
+                command.version(),
+                actorId,
+                deadlineAt,
+                now);
+
+        if (updatedRows != 1) {
+            Ticket current = ticketMapper.selectClaimConflictSnapshotForUpdate(visible.getId());
+
+            if (current == null) {
+                throw new IllegalStateException("提交解决结果冲突后无法读取工单快照");
+            }
+
+            throw conflict(current.getVersion(), current.getStatus());
+        }
+
+        Ticket updated = ticketMapper.selectById(visible.getId());
+
+        if (updated == null
+                || updated.getRecordSeq() == null
+                || updated.getVersion() == null) {
+            throw new IllegalStateException("提交解决结果后无法读取工单快照");
+        }
+
+        // 6. 追加不可变时间线：正文与本次确认期限
+        TicketRecord record = new TicketRecord();
+        record.setTicketId(updated.getId());
+        record.setSequenceNo(updated.getRecordSeq());
+        record.setRecordType("RESOLUTION");
+        record.setActorType("USER");
+        record.setActorUserId(actorId);
+        record.setContent(content);
+        record.setFromStatus(PROCESSING);
+        record.setToStatus(WAITING_FOR_CONFIRMATION);
+        record.setDeadlineAt(deadlineAt);
+        record.setCreatedAt(now);
+
+        if (ticketRecordMapper.insert(record) != 1) {
+            throw new IllegalStateException("解决结果记录插入失败");
+        }
+
+        TicketUserSummaryResult assignee = new TicketUserSummaryResult(
+                visible.getAssigneeId(),
+                visible.getAssigneeDisplayName());
+
+        return new TicketActionResult(
+                updated.getTicketNo(),
+                WAITING_FOR_CONFIRMATION,
+                assignee,
+                deadlineAt.atOffset(ZoneOffset.UTC),
+                updated.getVersion(),
+                instant.atOffset(ZoneOffset.UTC));
+    }
+
+    /** 确认处理结果。 */
+    @Override
+    @Transactional
+    public TicketActionResult confirmResolution(String ticketNo, ConfirmResolutionCommand command) {
+        // 1. 身份与提交人动作权限
+        long actorId = currentRequesterPort.currentUserId();
+
+        if (!ticketReadPermissionPort.hasAuthority(TICKET_REQUESTER_ACTION)) {
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN,
+                    "TICKET_ACTION_FORBIDDEN",
+                    "无提交人操作权限");
+        }
+
+        TicketDetailRow visible = ticketMapper.selectVisibleDetail(
+                ticketNo,
+                actorId,
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_OWN"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_QUEUE"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_PARTICIPATED"));
+
+        if (visible == null) {
+            throw new ApiException(
+                    HttpStatus.NOT_FOUND,
+                    "TICKET_NOT_FOUND",
+                    "工单不存在");
+        }
+
+        // 2. 只有提交人能在待确认上确认；非提交人能看到工单但不是提交人，按冲突返回
+        if (!WAITING_FOR_CONFIRMATION.equals(visible.getStatus())
+                || visible.getRequesterId() == null
+                || visible.getRequesterId() != actorId) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        if (!Objects.equals(command.version(), visible.getVersion())) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
+        LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+
+        // 3. 条件更新同时清空期限、写入完成方式与结束时间
+        int updatedRows = ticketMapper.confirmResolution(
+                visible.getId(),
+                command.version(),
+                actorId,
+                now);
+
+        if (updatedRows != 1) {
+            Ticket current = ticketMapper.selectClaimConflictSnapshotForUpdate(visible.getId());
+
+            if (current == null) {
+                throw new IllegalStateException("确认解决结果冲突后无法读取工单快照");
+            }
+
+            throw conflict(current.getVersion(), current.getStatus());
+        }
+
+        Ticket updated = ticketMapper.selectById(visible.getId());
+
+        if (updated == null
+                || updated.getRecordSeq() == null
+                || updated.getVersion() == null) {
+            throw new IllegalStateException("确认解决结果后无法读取工单快照");
+        }
+
+        // 4. 完成记录只表达完成方式与状态迁移
+        TicketRecord record = new TicketRecord();
+        record.setTicketId(updated.getId());
+        record.setSequenceNo(updated.getRecordSeq());
+        record.setRecordType("COMPLETION");
+        record.setActorType("USER");
+        record.setActorUserId(actorId);
+        record.setCompletionMethod("REQUESTER_CONFIRMED");
+        record.setFromStatus(WAITING_FOR_CONFIRMATION);
+        record.setToStatus("COMPLETED");
+        record.setCreatedAt(now);
+
+        if (ticketRecordMapper.insert(record) != 1) {
+            throw new IllegalStateException("完成记录插入失败");
+        }
+
+        // 5. 终态期限已失效；负责人按快照保留，仍取详情可见行的摘要
+        TicketUserSummaryResult assignee = visible.getAssigneeId() == null
+                ? null
+                : new TicketUserSummaryResult(
+                visible.getAssigneeId(),
+                visible.getAssigneeDisplayName());
+
+        return new TicketActionResult(
+                updated.getTicketNo(),
+                "COMPLETED",
+                assignee,
                 null,
                 updated.getVersion(),
                 instant.atOffset(ZoneOffset.UTC));
@@ -322,14 +661,22 @@ public class TicketServiceImpl implements TicketService {
         return toCreatedResult(ticket);
     }
 
-    /**
-     * 始终返回首次创建时的结果，不使用工单当前可变状态。
-     */
+    /**始终返回首次创建时的结果，不使用工单当前可变状态。*/
     private TicketCreatedResult toCreatedResult(Ticket ticket) {
         return new TicketCreatedResult(
                 ticket.getTicketNo(),
                 PENDING,
                 0L,
                 ticket.getCreatedAt().atOffset(ZoneOffset.UTC));
+    }
+
+    /** 冲突响应统一携带当前快照，供前端刷新后重试。 */
+    private ApiException conflict(Long version, String status) {
+        return new ApiException(
+                HttpStatus.CONFLICT,
+                "TICKET_CONFLICT",
+                "工单状态或版本已变化，请刷新后重试",
+                version,
+                status);
     }
 }

@@ -6,11 +6,15 @@ vi.mock('./http', () => ({
 
 import { http } from './http'
 import {
+  addProcessingRecord,
+  claimTicket,
+  confirmResolution,
   createSubmissionKey,
   createTicket,
   getTicket,
   listTicketRecords,
   listTickets,
+  submitResolution,
 } from './tickets'
 
 /** 只回信封里的 `data`：本文件测的是请求契约，不是响应解码。 */
@@ -141,5 +145,64 @@ describe('工单接口封装', () => {
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
     )
     expect(createSubmissionKey()).not.toBe(key)
+  })
+
+  describe('工单动作', () => {
+    /**
+     * 四个动作共用一条路径形状（`docs/api-design.md` 6.2）：动作名就是路径末段，
+     * 请求体只带版本号，需要正文的带 `content`。这份断言把形状钉住，
+     * 免得某天有人给其中一个动作加了个只有它认识的字段。
+     */
+    it('领取只发版本号，路径末段与动作名逐字一致', async () => {
+      await claimTicket('FD-20260929-001', { version: 3 })
+
+      expect(http.post).toHaveBeenCalledWith('/tickets/FD-20260929-001/actions/claim', {
+        version: 3,
+      })
+    })
+
+    it('追加处理记录发版本号与正文', async () => {
+      await addProcessingRecord('FD-20260929-001', { version: 4, content: '已更换证书' })
+
+      expect(http.post).toHaveBeenCalledWith(
+        '/tickets/FD-20260929-001/actions/add-processing-record',
+        { version: 4, content: '已更换证书' },
+      )
+    })
+
+    it('提交解决结果发版本号与正文', async () => {
+      await submitResolution('FD-20260929-001', { version: 5, content: '已重新配置打印队列' })
+
+      expect(http.post).toHaveBeenCalledWith('/tickets/FD-20260929-001/actions/submit-resolution', {
+        version: 5,
+        content: '已重新配置打印队列',
+      })
+    })
+
+    it('员工确认只发版本号：完成方式由服务端固定', async () => {
+      await confirmResolution('FD-20260929-001', { version: 6 })
+
+      expect(http.post).toHaveBeenCalledWith(
+        '/tickets/FD-20260929-001/actions/confirm-resolution',
+        { version: 6 },
+      )
+    })
+
+    it('动作结果原样返回最新快照摘要，供页面回写状态与版本', async () => {
+      respondWith({
+        ticketNo: 'FD-20260929-001',
+        status: 'WAITING_FOR_CONFIRMATION',
+        assignee: { id: 2, displayName: '演示 IT 支持人员' },
+        actionDeadlineAt: '2026-10-06T05:00:00Z',
+        version: 8,
+        actionTime: '2026-09-29T05:00:00Z',
+      })
+
+      const result = await submitResolution('FD-20260929-001', { version: 7, content: '已处理' })
+
+      expect(result.status).toBe('WAITING_FOR_CONFIRMATION')
+      expect(result.version).toBe(8)
+      expect(result.actionDeadlineAt).toBe('2026-10-06T05:00:00Z')
+    })
   })
 })

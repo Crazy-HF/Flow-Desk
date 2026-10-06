@@ -190,4 +190,64 @@ public interface TicketMapper extends BaseMapper<Ticket> {
             FOR UPDATE
             """)
     Ticket selectClaimConflictSnapshotForUpdate(@Param("ticketId") long ticketId);
+
+
+    /** 当前负责人在 PROCESSING 上追加处理记录：状态与负责人不变，只递增版本与记录序号。 */
+    @Update("""
+    UPDATE ticket
+    SET version = version + 1,
+        record_seq = record_seq + 1,
+        updated_at = #{now}
+    WHERE id = #{ticketId}
+      AND version = #{expectedVersion}
+      AND status = 'PROCESSING'
+      AND assignee_id = #{actorId}
+    """)
+    int advanceAssigneeAction(
+            @Param("ticketId") long ticketId,
+            @Param("expectedVersion") long expectedVersion,
+            @Param("actorId") long actorId,
+            @Param("now") LocalDateTime now);
+
+    /** 当前负责人提交解决结果：进入待确认并写入确认期限。 */
+    @Update("""
+    UPDATE ticket
+    SET status = 'WAITING_FOR_CONFIRMATION',
+        action_deadline_at = #{deadlineAt},
+        version = version + 1,
+        record_seq = record_seq + 1,
+        updated_at = #{now}
+    WHERE id = #{ticketId}
+      AND version = #{expectedVersion}
+      AND status = 'PROCESSING'
+      AND assignee_id = #{actorId}
+    """)
+    int submitResolution(
+            @Param("ticketId") long ticketId,
+            @Param("expectedVersion") long expectedVersion,
+            @Param("actorId") long actorId,
+            @Param("deadlineAt") LocalDateTime deadlineAt,
+            @Param("now") LocalDateTime now);
+
+    /** 提交人确认解决：进入终态，期限失效并记录结束时间与完成方式。 */
+    @Update("""
+    UPDATE ticket
+    SET status = 'COMPLETED',
+        action_deadline_at = NULL,
+        completion_method = 'REQUESTER_CONFIRMED',
+        ended_at = #{now},
+        version = version + 1,
+        record_seq = record_seq + 1,
+        updated_at = #{now}
+    WHERE id = #{ticketId}
+      AND version = #{expectedVersion}
+      AND status = 'WAITING_FOR_CONFIRMATION'
+      AND requester_id = #{actorId}
+    """)
+    int confirmResolution(
+            @Param("ticketId") long ticketId,
+            @Param("expectedVersion") long expectedVersion,
+            @Param("actorId") long actorId,
+            @Param("now") LocalDateTime now);
+
 }

@@ -59,6 +59,9 @@ springdoc:
 
 flowdesk:
   attachment-root: ${FLOWDESK_ATTACHMENT_ROOT}
+  ticket:
+    # 员工确认期限：IT 提交解决结果后 7×24 小时（docs/kickoff.md 已确认规则）。
+    confirmation-window: 7d
 
 jwt:
   secret: ${FLOWDESK_JWT_SECRET}

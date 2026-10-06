@@ -11,7 +11,7 @@
 - **阶段 1 Auth 身份入口**（`TASK-010`、`TASK-011`）已完成，经 PR #5 合并 `main`。
 - **前端外壳与页面骨架**已完成，经 PR #6 合并 `main`。
 - **第 3 步 完整动态 RBAC**（`TASK-055`～`TASK-062`，本文件 9.1）已完成：后端四组接口与用户管理八个端点、`V5` 迁移、管理端五页（角色 / 权限 / 用户角色授权 / 角色权限授权 / 用户管理）、`frontend/src/views/admin/` 页面与真实闭环 E2E 全部交付；验收标准第 4 条的四条手工真实栈链路已于 2026-09-28 在 `local` profile 真实栈上执行并通过（逐条 `traceId` 见 `docs/modules/rbac.md` 11.2），经 PR #8 合并 `main`（合并提交 `f15468c`）。
-- **当前阶段：阶段 2 员工创建与查询已验收通过并经 PR #9 合并 main；下一分支 flow-desk/ticket-it-flow 已准备**（`TASK-020`～`TASK-023-MVP`），已交接分支 `flow-desk/ticket-employee-flow`。最终证据 `docs/acceptance/stage2-closeout-20260929.json`。下一大步骤为阶段 3 IT 处理闭环（第 7 节），尚未开工。
+- **当前阶段：阶段 3 IT 处理闭环已完成**，工作分支 `flow-desk/ticket-it-flow`。步骤① IT 领取、步骤② 追加处理记录、步骤③ 提交解决结果与员工确认均已实现并**通过真实栈验收（77/77，2026-10-06）**，验收证据 `docs/acceptance/2026-10-06-stage3-claim-process-resolution-confirm.json`；步骤④ IT/员工页面与端到端主链**已于 2026-10-06 完成并在真实栈跑通**（`frontend/e2e/ticket-it-flow.spec.ts`，报告与截图见 `.ui-craft/reviews/2026-10-06-ticket-it-flow/`），阶段 3 四步全部完成，等待交接授权。阶段 2（`TASK-020`～`TASK-023-MVP`）已验收并经 PR #9 合并 `main`（最终证据 `docs/acceptance/stage2-closeout-20260929.json`）。
 - 第 1 节原先"不提供角色、权限及授权关系的在线 CRUD"这一表述已被 2026-09-21 的确认取代：三种内置角色仍是权限基线，同时在 9.1 范围内开放了动态 RBAC 与用户管理的在线维护。
 
 ## 2. 两个版本的边界
@@ -233,7 +233,7 @@ PENDING → PROCESSING → WAITING_FOR_CONFIRMATION → COMPLETED
 
 分工与验收口径沿用 6.1：基础 domain、Controller、Mapper、Command/Query/Result、服务接口由 Agent 写入，`ServiceImpl` 业务逻辑先以文字与流程图说明再提供完整代码供用户编写；按用户指示本阶段不新增测试类，使用编译、现有检查与真实栈验收。**代码完整性复核不等于运行验证**，每步只有在真实栈上跑过才可标为通过。
 
-- [x] ① IT 领取（`POST /fd/v1/tickets/{ticketNo}/actions/claim`）**代码已写入并完成代码完整性复核；提交前跑过完整 `verify` 证明无回归，但领取接口本身没有任何专项或真实栈证据**（2026-09-30 随本分支提交）：
+- [x] ① IT 领取（`POST /fd/v1/tickets/{ticketNo}/actions/claim`）**已通过真实栈验收（2026-10-06）**：
   - 契约与权限：按 `docs/api-design.md` 6.3 的 `claim` 行（仅 `PENDING`，请求体只带 `version`），要求 `TICKET_CLAIM`；动作结果复用统一动作结果口径（工单编号、最新状态、负责人摘要、`version`、动作时间）。
   - 服务端校验顺序（`TicketServiceImpl.claim`）：认证身份 → `TICKET_CLAIM` → `TicketClaimantPort.lockEligibleClaimant`（事务内锁当前用户行，确认账号启用且仍持有 `IT_SUPPORT`）→ 可见性（`selectVisibleDetail`，无权查看与编号不存在统一 `404/TICKET_NOT_FOUND`）→ 不能领取自己提交的工单 → 状态、负责人与版本（`409/TICKET_CONFLICT`）。
   - 并发判定：`TicketMapper.claimPending` 的条件 `UPDATE` 是唯一胜者判定，条件含 `id`、`expectedVersion`、`status = 'PENDING'`、`assignee_id IS NULL`、`requester_id <> 领取人`，同时 `version + 1`、`record_seq + 1`；影响行数不为 1 即按冲突处理，并用 `selectClaimConflictSnapshotForUpdate` 读回最新 `version`/`status`。
@@ -241,10 +241,28 @@ PENDING → PROCESSING → WAITING_FOR_CONFIRMATION → COMPLETED
   - 详情 `allowedActions`：仅当状态为 `PENDING`、负责人为空、当前用户不是提交人、具备 `TICKET_VIEW_QUEUE` 与 `TICKET_CLAIM` 且仍是有效 IT 时返回 `["claim"]`；按钮提示不代替动作时的重新校验。
   - 冲突响应：`ApiException` 增加可选 `resourceVersion`/`resourceStatus`，由 `GlobalExceptionHandler` 写入 `ErrorDetails.version`/`status`，对应 `docs/api-design.md` 6.6 要求的当前快照。
   - 已修问题：领取路径原先经 `IamRoleMapper.selectByCodeForUpdate("IT_SUPPORT")` 锁住所有 IT 共用的角色行，使不同账号、不同工单的领取请求也被迫串行；现改为普通读取角色 ID，保留用户行锁与角色授权校验。记录见 `docs/project-highlights.md`「IT 工单领取：移除全局角色行锁」。
-  - 未做：没有领取接口的专项单元/Web/集成用例（按用户指示本阶段不新增测试类），也没有真实栈调用记录；提交前执行的 `.\mvnw.cmd -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"`（单元/Web 394 + 集成 88 全绿，证据 `docs/acceptance/2026-09-30-ticket-claim-backend-verify.json`）只说明构建通过、既有测试无回归。因此本步骤只算代码完成，不算运行验证通过。
-- [ ] ② 当前负责人追加处理记录（`add-processing-record`）：已完成契约、权限、版本条件更新与不可变 `PROCESS` 时间线的分析，**未写入业务代码或 Mapper**。成功时状态与负责人不变，`version` 与记录序号递增；正文去除首尾空白后为 1～10000 字符。
-- [ ] ③ 提交解决结果（`submit-resolution`）与员工确认（`confirm-resolution`）：未开始。
-- [ ] ④ IT 与员工页面、端到端主链（`TASK-033-MVP`）：未开始。
+  - **验收证据（2026-10-06）**：真实栈 `local` + MySQL 3308 / Redis 6380 / 后端 8081 上，匿名 `401`、员工 `403/TICKET_ACTION_FORBIDDEN`、编号不存在 `404/TICKET_NOT_FOUND`、版本过期 `409/TICKET_CONFLICT`、缺少 `version` `400`、首次领取 `200`（`PROCESSING`、version 0→1、负责人=it）、同版本重复领取 `409` 且冲突快照返回当前 `version`/`status`；并发领取由 `TicketMapper.claimPending` 的条件更新保证唯一胜者。逐条 `traceId` 见 `docs/acceptance/2026-10-06-stage3-claim-and-processing-record.json`。提交前的全量 `verify`（单元/Web 394 + 集成 88 全绿，证据 `docs/acceptance/2026-09-30-ticket-claim-backend-verify.json`）只说明构建通过、既有测试无回归。
+- [x] ② 当前负责人追加处理记录（`add-processing-record`）**已实现并通过真实栈验收（2026-10-06）**：
+  - 契约与权限：`POST /fd/v1/tickets/{ticketNo}/actions/add-processing-record`，要求 `TICKET_PROCESS` 且当前用户是当前负责人；请求体 `version` + `content`，正文在 `AddProcessingRecordCommand` 的紧凑构造器内去除首尾空白后为 1～10000 字符。成功时状态与负责人不变，`version` 与 `record_seq` 递增，追加不可变 `PROCESS` 记录（两侧状态均写 `PROCESSING`）。
+  - 并发判定：`TicketMapper.advanceAssigneeAction` 以 `id`、`expectedVersion`、`status = 'PROCESSING'`、`assignee_id = 操作人` 为条件更新 `version + 1`、`record_seq + 1`、`updated_at`，**不触碰 `action_deadline_at`**（`ck_ticket_status_deadline` 要求非等待态必须为 NULL）；影响行数不为 1 时同样用 `selectClaimConflictSnapshotForUpdate` 读回快照并返回 `409`。
+  - 详情 `allowedActions` 增加 `add-processing-record`（状态 `PROCESSING`、当前用户是负责人、具备 `TICKET_PROCESS`），动作名与路径末段逐字一致。
+  - **本轮修掉的缺陷**：`TicketQueryServiceImpl.toDetail` 已构建 `allowedActions` 变量，但返回语句仍传入旧的三元表达式 `canClaim ? List.of("claim") : List.of()`，导致详情动作提示恒为空数组。首轮验收第 1 次执行即暴露（`detail.allowedActions.hasProcess` FAIL）；修复后重新执行全量 `verify` 并复跑验收。
+  - **验收证据（2026-10-06）**：真实栈上非负责人 `403`、纯空白正文 `400/VALIDATION_FAILED`、版本过期 `409`、首次成功 `200`（状态与负责人不变、version 1→2）、同版本重复 `409`、正文 10000 字符 `200` / 10001 字符 `400`、**同版本并发恰好一个 `200` 一个 `409`**；时间线为 `CREATE,CLAIM,PROCESS,PROCESS,PROCESS`，`sequenceNo` 1..5 严格递增，正文首尾空白已裁剪，`CLAIM` 迁移 `PENDING→PROCESSING`。逐条 `traceId` 与原始响应见 `docs/acceptance/2026-10-06-stage3-claim-and-processing-record.json`（45/45 通过），汇总与缺陷记录见 `docs/acceptance/2026-10-06-stage3-summary.json`，修复前的失败原件保留为 `docs/acceptance/stage3-ticket-actions-20261006095519-pre-fix-fail.json`。
+- [x] ③ 提交解决结果（`submit-resolution`）与员工确认（`confirm-resolution`）**已实现并通过真实栈验收（2026-10-06）**：
+  - `submit-resolution`：`POST /fd/v1/tickets/{ticketNo}/actions/submit-resolution`，要求 `TICKET_PROCESS` 且当前用户是当前负责人；请求体 `version` + `content`（`SubmitResolutionCommand` 构造时去除首尾空白，1～10000 字符）。服务端按 `flowdesk.ticket.confirmation-window`（默认 `7d`，见 `TicketProperties`）计算确认期限，`TicketMapper.submitResolution` 以 `id`/`expectedVersion`/`status='PROCESSING'`/`assignee_id=操作人` 为条件写入 `status='WAITING_FOR_CONFIRMATION'` 与 `action_deadline_at`，递增 `version` 与 `record_seq`，追加 `RESOLUTION` 记录（正文 + 期限 + `PROCESSING→WAITING_FOR_CONFIRMATION`）。**不触碰 `ended_at`**（`ck_ticket_status_ended` 要求非终态为空）。
+  - `confirm-resolution`：`POST /fd/v1/tickets/{ticketNo}/actions/confirm-resolution`，要求 `TICKET_REQUESTER_ACTION` 且当前用户是工单提交人（权限闸门先于身份闸门）。`TicketMapper.confirmResolution` 以 `id`/`expectedVersion`/`status='WAITING_FOR_CONFIRMATION'`/`requester_id=操作人` 为条件写入 `status='COMPLETED'`、`action_deadline_at=NULL`、`completion_method='REQUESTER_CONFIRMED'`、`ended_at`，追加 `COMPLETION` 记录。**不清空 `assignee_id`**（`ck_ticket_status_assignee` 要求终态保留负责人）。
+  - 详情 `allowedActions`：`WAITING_FOR_CONFIRMATION` 且当前用户是提交人且具备 `TICKET_REQUESTER_ACTION` 时返回 `confirm-resolution`；待确认状态下 IT 侧不返回动作（`report-unresolved`/`transfer`/`change-*` 尚未实现，不暴露按不动的按钮）。
+  - 动作结果统一为 `TicketActionResult`（原 `TicketClaimResult` 重命名，字段不变），对应 `docs/api-design.md` 6.2 的"最新快照摘要"口径。
+  - **验收证据（2026-10-06）**：真实栈上员工 403、空白正文 400、版本过期 409、成功 200（`WAITING_FOR_CONFIRMATION`、version+1、期限=提交时刻+7 天）、重复提交 409、待确认下追加处理记录 409；提交人详情 `allowedActions=["confirm-resolution"]`、当前负责人 403、非提交人无法让工单完成（404 且工单仍待确认）、版本过期 409、成功 200（`COMPLETED`、期限清空、负责人保留）；终态再次确认/领取/处理全部 409；时间线 `CREATE,CLAIM,PROCESS,PROCESS,PROCESS,RESOLUTION,COMPLETION` 且序号 1..7；数据库直查 `COMPLETED | REQUESTER_CONFIRMED | 期限 NULL | ended_at SET`。逐条 `traceId` 见 `docs/acceptance/2026-10-06-stage3-claim-process-resolution-confirm.json`（**77/77 通过**），汇总与三处验收脚本修正见 `docs/acceptance/2026-10-06-stage3-step3-summary.json`。
+- [x] ④ IT 与员工页面、端到端主链（`TASK-033-MVP`）**已完成并在真实栈跑通（2026-10-06）**：
+  - **IT 工作台**（`frontend/src/views/work/TicketQueueView.vue`，路由 `/it/queue`）：复用 `TicketListView` 并以 `defaultScope="PENDING_QUEUE"` 让它默认停在「待受理」，同一页可切到「我负责的」；侧栏新增「IT 工作台」入口（`TICKET_VIEW_QUEUE`）。**刻意不用 `/tickets/queue`**：那条路径同时匹配 `/tickets/:ticketNo`，谁生效取决于路由数组顺序。
+  - **详情页动作区**：按详情的 `allowedActions` 渲染，再用 `permittedActions`（`constants/tickets.ts` 的 `TICKET_ACTIONS` 登记表 + 当前账号权限）收口一次。覆盖 `claim`（领取）、`add-processing-record`（记录处理过程）、`submit-resolution`（提交解决结果）、`confirm-resolution`（员工确认已解决）；没有正文的动作不出现输入框，需要正文的动作在确认框里给多行输入（上限 10000，与后端 `@Size` 对齐）。
+  - **动作后的状态维护**：成功即静默重取详情与时间线（不闪骨架屏）并回写 `version`；`409/TICKET_CONFLICT` 时也重取一次把版本对齐到服务端当前值，否则用户再点一次还是同一个 409。正文为空时由 `beforeClose` 拦下并提示，弹窗不关、已写内容不丢。
+  - **一处后端修正（经用户 2026-10-06 当场授权）**：`TicketQueryServiceImpl.toDetail` 的 `allowedActions` 原先只有 `claim`、`add-processing-record`、`confirm-resolution` 三个分支，**缺 `submit-resolution`**。接口早已实现并验收，但详情不返回该动作名，而界面按 `allowedActions` 渲染按钮，于是负责人能写处理记录却交不出解决结果——端到端主链在这一步 `element(s) not found` 暴露。修正为 `canSubmitResolution = canProcess`（两者前置条件相同：处理中 + 本人是负责人 + `TICKET_PROCESS`），不复制表达式；`docs/api-design.md` 6.3 已同步。
+  - **两处真实缺陷（前端）**：① 确认框正文输入框在**生产构建**里消失——整个应用按运行时版 Vue 打包，`template` 选项不会被编译，`<el-input>` 只渲染出占位注释；单测（开发版 Vue 含编译器）正常，只有真实浏览器能发现，最终改为单文件组件 `TicketActionContentField.vue`。② 渲染函数里给 `ElInput` 传 `onUpdate:modelValue` 只能得到普通 prop（`modelValue`/`update:modelValue` 都是 props），输入不回流，表现为"填了内容却提交空正文"。
+  - **验收证据（2026-10-06）**：`frontend/e2e/ticket-it-flow.spec.ts` 在真实栈（MySQL 3308 / Redis 6380 / 后端 8081 / preview 4173）用 `employee` 与 `it` 两个真实账号交替操作同一张工单，五步各带 `X-Trace-Id`（create 201、claim 200、add-processing-record 200、submit-resolution 200、confirm-resolution 200），界面状态实测 `待受理 → 处理中 → 待员工确认 → 已完成`，时间线 5 条按序，1440/375 横向溢出 0、页面错误 0；另含一条"只填空格被界面拦下、弹窗不关、时间线不多记录"的断言。全量 E2E **16 项**、前端单测 **23 套件 147 项**、后端 `clean verify` 单元/Web **394** + 集成 **88** 全绿。报告与 9 张截图见 `.ui-craft/reviews/2026-10-06-ticket-it-flow/`。
+
+**步骤①②③ 验收执行方式（2026-10-06）**：`scripts/stage3-ticket-actions-acceptance.ps1`（PowerShell 5.1 兼容，脚本本身必须保存为带 BOM 的 UTF-8；自行从仓库根 `.env` 读取数据库连接）在 `local` profile + 真实 MySQL/Redis + 后端 8081 上按 77 项断言逐条执行，结束时输出无 BOM 的 JSON 证据与清理 SQL，并包含一条数据库直查断言。演示库漂移已记录：`iam_user_role` 中 `admin` 同时持有 `EMPLOYEE`、`IT_SUPPORT` 与 `SYSTEM_ADMIN`，因此脚本对 `admin` 只记录实际状态、不做绝对值断言。本阶段按用户指示不新增测试类，四个动作的行为证据来自真实栈 HTTP 调用。
 
 ## 8. 阶段 4：MVP 验收与求职展示收口
 

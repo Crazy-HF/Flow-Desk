@@ -2,7 +2,10 @@ package com.flowdesk.ticket.application.service;
 
 import com.flowdesk.ticket.application.command.CreateTicketCommand;
 import com.flowdesk.ticket.application.command.ClaimTicketCommand;
-import com.flowdesk.ticket.application.result.TicketClaimResult;
+import com.flowdesk.ticket.application.command.AddProcessingRecordCommand;
+import com.flowdesk.ticket.application.command.SubmitResolutionCommand;
+import com.flowdesk.ticket.application.command.ConfirmResolutionCommand;
+import com.flowdesk.ticket.application.result.TicketActionResult;
 import com.flowdesk.ticket.application.result.TicketCreatedResult;
 
 public interface TicketService {
@@ -11,5 +14,15 @@ public interface TicketService {
     TicketCreatedResult create(CreateTicketCommand command);
 
     /** 领取工单。 */
-    TicketClaimResult claim(String ticketNo, ClaimTicketCommand command);
+    TicketActionResult claim(String ticketNo, ClaimTicketCommand command);
+
+    /** 当前负责人追加处理记录；状态与负责人不变。 */
+    TicketActionResult addProcessingRecord(
+            String ticketNo, AddProcessingRecordCommand command);
+
+    /** 提交处理结果。 */
+    TicketActionResult submitResolution(String ticketNo, SubmitResolutionCommand command);
+
+    /** 确认处理结果。 */
+    TicketActionResult confirmResolution(String ticketNo, ConfirmResolutionCommand command);
 }

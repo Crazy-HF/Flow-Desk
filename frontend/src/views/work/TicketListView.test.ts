@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AuthUser } from '@/api/auth'
 import { listCategoryOptions } from '@/api/categories'
 import { listTickets } from '@/api/tickets'
-import type { TicketListItem } from '@/api/tickets'
+import type { TicketListItem, TicketScope } from '@/api/tickets'
 import { useAuthStore } from '@/stores/auth'
 import TicketListView from './TicketListView.vue'
 
@@ -53,19 +53,23 @@ function pageOf(items: TicketListItem[], total = items.length) {
   return { items, page: 1, size: 20, totalElements: total, totalPages: total === 0 ? 0 : 1 }
 }
 
-async function mountPage() {
+async function mountPage(
+  props: { defaultScope?: TicketScope; title?: string } = {},
+  route = '/tickets',
+) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
       { path: '/tickets', name: 'tickets', component: { template: '<div />' } },
       { path: '/tickets/new', name: 'ticket-new', component: { template: '<div />' } },
       { path: '/tickets/:ticketNo', name: 'ticket-detail', component: { template: '<div />' } },
+      { path: '/it/queue', name: 'ticket-queue', component: { template: '<div />' } },
     ],
   })
-  await router.push('/tickets')
+  await router.push(route)
   await router.isReady()
 
-  const wrapper = mount(TicketListView, { global: { plugins: [router] } })
+  const wrapper = mount(TicketListView, { props, global: { plugins: [router] } })
   await flushPromises()
   return { wrapper, router }
 }
@@ -107,7 +111,44 @@ describe('TicketListView', () => {
       '我负责的',
       '我参与的',
     ])
+    /**
+     * `/tickets` 的默认范围是「我提交的」，IT 人员没有这个范围，于是回退到第一个**可用**范围。
+     * 队列默认值属于 `/it/queue`（见 `TicketQueueView`），不是这一页的行为。
+     */
     expect(listTickets).toHaveBeenCalledWith(expect.objectContaining({ scope: 'PENDING_QUEUE' }))
+  })
+
+  it('IT 工作台默认停在待受理，切换范围写进地址、切回默认范围时把参数去掉', async () => {
+    useAuthStore().user = support
+    const { wrapper, router } = await mountPage({ defaultScope: 'PENDING_QUEUE' })
+
+    // 默认就是待受理，地址里不该有一个多余又没用的 scope 参数
+    expect(listTickets).toHaveBeenCalledWith(expect.objectContaining({ scope: 'PENDING_QUEUE' }))
+    expect(router.currentRoute.value.query.scope).toBeUndefined()
+
+    await switchScope(wrapper, 'ASSIGNED_TO_ME')
+    expect(listTickets).toHaveBeenLastCalledWith(
+      expect.objectContaining({ scope: 'ASSIGNED_TO_ME' }),
+    )
+    expect(router.currentRoute.value.query.scope).toBe('ASSIGNED_TO_ME')
+
+    await switchScope(wrapper, 'PENDING_QUEUE')
+    expect(listTickets).toHaveBeenLastCalledWith(expect.objectContaining({ scope: 'PENDING_QUEUE' }))
+    expect(router.currentRoute.value.query.scope).toBeUndefined()
+  })
+
+  it('两条列表路由复用同一组件实例时，默认范围变了就重新取数', async () => {
+    useAuthStore().user = support
+    const { wrapper } = await mountPage({ defaultScope: 'PENDING_QUEUE' })
+    expect(listTickets).toHaveBeenLastCalledWith(expect.objectContaining({ scope: 'PENDING_QUEUE' }))
+
+    // vue-router 在两条列表路由之间跳转会复用组件实例，onMounted 不会再跑一次
+    await wrapper.setProps({ defaultScope: 'ASSIGNED_TO_ME' })
+    await flushPromises()
+
+    expect(listTickets).toHaveBeenLastCalledWith(
+      expect.objectContaining({ scope: 'ASSIGNED_TO_ME' }),
+    )
   })
 
   it('完全没有工单范围权限时不发请求，并说明该找谁处理', async () => {

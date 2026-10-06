@@ -1908,6 +1908,59 @@ h1 {
   margin-top: var(--fd-space-5);
 }
 
+/* 动作区：一页里唯一一处"现在能做什么"。按钮靠左固定，说明吃掉剩余宽度——
+   主操作的位置不该随说明文字的长短左右移动。 */
+.ticket-action {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--fd-space-2) var(--fd-space-4);
+  align-items: baseline;
+}
+
+.ticket-action + .ticket-action {
+  margin-top: var(--fd-space-4);
+}
+
+.ticket-action__note {
+  margin: 0;
+  color: var(--fd-color-text-muted);
+  font-size: var(--fd-font-size-sm);
+  line-height: var(--fd-line-height-relaxed);
+}
+
+/* 动作失败的说明贴在动作区下方而不是动作区里面：失败之后按钮还在，说明不该跟着按钮一起消失。 */
+.ticket-action-error {
+  margin: 0;
+  padding: var(--fd-space-3) var(--fd-space-4);
+  border-left: var(--fd-space-hairline) solid var(--fd-color-danger);
+  border-radius: var(--fd-radius-sm);
+  background: var(--fd-color-danger-soft);
+  color: var(--fd-color-text-muted);
+  font-size: var(--fd-font-size-sm);
+  line-height: var(--fd-line-height-relaxed);
+}
+
+.ticket-action-dialog__body {
+  display: grid;
+  gap: var(--fd-space-4);
+}
+
+.ticket-action-dialog__note {
+  margin: 0;
+  color: var(--fd-color-text-muted);
+  line-height: var(--fd-line-height-relaxed);
+}
+
+.ticket-action-dialog__field {
+  display: grid;
+  gap: var(--fd-space-2);
+}
+
+.ticket-action-dialog__label {
+  color: var(--fd-color-text-strong);
+  font-size: var(--fd-font-size-sm);
+}
+
 /* 属性栏：标签与值两列。标签列用 auto，宽度跟着最长标签走，值列吃掉剩余宽度。 */
 .ticket-facts {
   display: grid;
@@ -1970,6 +2023,17 @@ h1 {
   }
 
   .ticket-commit .el-button {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  /* 动作按钮在窄屏也占整行：说明文字挤在按钮右边的 30px 里没法读。 */
+  .ticket-action {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .ticket-action .el-button {
     width: 100%;
     margin-left: 0;
   }

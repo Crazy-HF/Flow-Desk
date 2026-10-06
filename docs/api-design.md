@@ -256,7 +256,15 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 
 以上动作都要求当前用户是当前负责人；`claim` 例外，它要求当前用户是有效 IT 支持人员，工单仍无人负责且不能由其本人提交。
 
-**实现状态（2026-09-30）**：本表 9 个 IT 动作中，只有 `claim` 已写入实现——`TicketController` 的 `POST /fd/v1/tickets/{ticketNo}/actions/claim`、`TicketServiceImpl.claim`、`TicketMapper.claimPending`、`TicketParticipantMapper.recordAssignment`，配合 `TicketClaimantPort`、`TicketClaimResult`、`ClaimTicketCommand`；`claim` 与其余动作的契约**均未修改**。**该实现只完成代码完整性复核，尚未运行单元/集成测试或真实栈验收**，因此不按本节契约标为已验收；`add-processing-record` 及其余 7 个动作仍未实现。详情 `allowedActions` 已按本节口径在满足条件时返回 `["claim"]`。阶段进度见 `docs/implementation-plan.md` 7.1。
+**实现状态（2026-10-06）**：本表 9 个 IT 动作中，`claim`、`add-processing-record` 与 `submit-resolution` 已实现并通过真实栈验收；6.4 的 `confirm-resolution` 同样已实现并验收。
+- `claim`：`POST /fd/v1/tickets/{ticketNo}/actions/claim`、`ClaimTicketCommand`、`TicketServiceImpl.claim`、`TicketMapper.claimPending`、`TicketParticipantMapper.recordAssignment`。
+- `add-processing-record`：`POST /fd/v1/tickets/{ticketNo}/actions/add-processing-record`、`AddProcessingRecordCommand`、`TicketServiceImpl.addProcessingRecord`、`TicketMapper.advanceAssigneeAction`（状态与负责人不变，只递增 `version` 与 `record_seq` 并追加不可变 `PROCESS` 记录）。
+- `submit-resolution`：`POST /fd/v1/tickets/{ticketNo}/actions/submit-resolution`、`SubmitResolutionCommand`、`TicketServiceImpl.submitResolution`、`TicketMapper.submitResolution`（进入 `WAITING_FOR_CONFIRMATION`，期限按 `flowdesk.ticket.confirmation-window`（默认 `7d`）由服务端计算，追加 `RESOLUTION` 记录）。
+- `confirm-resolution`（6.4）：`POST /fd/v1/tickets/{ticketNo}/actions/confirm-resolution`、`ConfirmResolutionCommand`、`TicketServiceImpl.confirmResolution`、`TicketMapper.confirmResolution`（进入终态 `COMPLETED`，期限清空、`completion_method='REQUESTER_CONFIRMED'`、写入 `ended_at`，保留负责人，追加 `COMPLETION` 记录）。
+
+其余 6 个动作仍未实现，**本表契约均未修改**。动作结果统一为 `TicketActionResult`（`ticketNo`、最新 `status`、负责人摘要、当前期限、最新 `version`、动作时间）。详情 `allowedActions` 现按条件返回 `claim`、`add-processing-record`、`submit-resolution`、`confirm-resolution`；逐条 `traceId` 的验收证据见 `docs/acceptance/2026-10-06-stage3-claim-process-resolution-confirm.json`（**77/77 通过**），汇总见 `docs/acceptance/2026-10-06-stage3-step3-summary.json`；阶段进度见 `docs/implementation-plan.md` 7.1。
+
+**`submit-resolution` 从 `allowedActions` 缺失的修正（2026-10-06，用户当场授权）**：`TicketQueryServiceImpl.toDetail` 原先只构造 `claim`、`add-processing-record`、`confirm-resolution` 三个动作，接口虽已实现并验收，详情却不返回该动作名。界面按 `allowedActions` 渲染按钮，因此负责人能写处理记录却交不出解决结果——阶段 3 端到端主链（`frontend/e2e/ticket-it-flow.spec.ts`）在"提交解决结果"这一步实测暴露。现在 `canSubmitResolution` 复用 `canProcess` 的同一条判定（处理中 + 本人是负责人 + `TICKET_PROCESS`），两者前置条件完全相同，不复制表达式。
 
 处理正文、补充请求、员工补充正文和解决结论去除首尾空白后最长 10000 个字符；要求必填时长度至少为 1。转交、调整、撤回、未解决、取消和关闭说明最长 1000 个字符，并在对应动作中要求非空。
 

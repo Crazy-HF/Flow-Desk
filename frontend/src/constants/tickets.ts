@@ -24,6 +24,8 @@ export interface TicketScopeOption {
   value: TicketScope
   label: string
   permission: string
+  /** 选中这个范围时页头写什么：这一屏是做什么用的、下一步该点哪里。 */
+  pageDescription: string
   /** 这个范围下一张工单都没有时该说什么，而不是笼统地写"暂无数据"。 */
   emptyTitle: string
   emptyDescription: string
@@ -34,6 +36,7 @@ export const TICKET_SCOPES: readonly TicketScopeOption[] = [
     value: 'REQUESTED_BY_ME',
     label: '我提交的',
     permission: 'TICKET_VIEW_OWN',
+    pageDescription: '你提交过的工单，以及它们当前处理到哪一步。',
     emptyTitle: '你还没有提交过工单',
     emptyDescription: '遇到问题时从「新建工单」提交，之后在这里跟踪处理进度。',
   },
@@ -41,6 +44,7 @@ export const TICKET_SCOPES: readonly TicketScopeOption[] = [
     value: 'PENDING_QUEUE',
     label: '待受理',
     permission: 'TICKET_VIEW_QUEUE',
+    pageDescription: '还没有人负责的工单，按优先级从高到低排列；打开一张即可领取。',
     emptyTitle: '待受理队列是空的',
     emptyDescription: '当前没有等待领取的工单，员工新提交的工单会出现在这里。',
   },
@@ -48,6 +52,7 @@ export const TICKET_SCOPES: readonly TicketScopeOption[] = [
     value: 'ASSIGNED_TO_ME',
     label: '我负责的',
     permission: 'TICKET_VIEW_PARTICIPATED',
+    pageDescription: '当前由你负责的工单；打开一张可以记录处理过程或提交解决结果。',
     emptyTitle: '当前没有由你负责的工单',
     emptyDescription: '从「待受理」里领取工单后，它会出现在这里。',
   },
@@ -55,6 +60,7 @@ export const TICKET_SCOPES: readonly TicketScopeOption[] = [
     value: 'PARTICIPATED_BY_ME',
     label: '我参与的',
     permission: 'TICKET_VIEW_PARTICIPATED',
+    pageDescription: '你领取或接手过的全部工单，包括已经转交出去的历史记录。',
     emptyTitle: '你还没有参与过工单',
     emptyDescription: '领取或接手过工单后，这里会保留完整的参与历史。',
   },
@@ -211,6 +217,95 @@ export function ticketCloseMethodLabel(method: string | null | undefined): strin
 
 export function ticketCloseReasonLabel(reason: string | null | undefined): string | null {
   return reason ? (closeReasonLabels[reason] ?? reason) : null
+}
+
+/**
+ * 工单动作：界面能渲染的四个动作，取值与接口路径末段逐字一致。
+ *
+ * <p>**这是界面侧的登记表，不是可做动作的来源**——某个动作现在能不能做，只由详情响应里的
+ * `allowedActions` 决定。这张表只回答"这个动作名对应什么按钮、什么权限、要不要填正文"。</p>
+ */
+export type TicketActionName =
+  | 'claim'
+  | 'add-processing-record'
+  | 'submit-resolution'
+  | 'confirm-resolution'
+
+export interface TicketActionMeta {
+  /** 按钮文字。 */
+  label: string
+  /** 提交前的说明：这个词在 IT 语境下有后果，不能只写"确定"。 */
+  description: string
+  /**
+   * 这个动作应有的权限。只用于**前端二次收口**：后端已经按同一份权限算过 `allowedActions`，
+   * 这里再查一次是为了应对"取详情后被撤权"的窗口，不是为了替代后端授权。
+   */
+  permission: string
+  /** 是否需要一段正文（处理记录、解决结果），以及正文在界面上的称呼。 */
+  content?: { label: string; placeholder: string; maxLength: number }
+  /** 执行前是否必须确认。影响工单终态的动作不能一点就走。 */
+  destructive: boolean
+}
+
+/**
+ * 正文长度上限与 `AddProcessingRecordCommand` / `SubmitResolutionCommand` 的
+ * `@Size(max = 10000)` 对齐；前端先拦一次，避免用 400 告诉用户"写太长了"。
+ */
+const ACTION_CONTENT_MAX_LENGTH = 10000
+
+export const TICKET_ACTIONS: Record<TicketActionName, TicketActionMeta> = {
+  claim: {
+    label: '领取工单',
+    description: '领取后这张工单由你负责，它会出现在「我负责的」范围里，其他同事不会再领到同一张。',
+    permission: 'TICKET_CLAIM',
+    destructive: false,
+  },
+  'add-processing-record': {
+    label: '记录处理过程',
+    description: '写下的内容会进入工单时间线，提交人和后续接手的人都能看到。',
+    permission: 'TICKET_PROCESS',
+    content: {
+      label: '处理内容',
+      placeholder: '请输入这次做了什么、查到什么、下一步打算怎么处理',
+      maxLength: ACTION_CONTENT_MAX_LENGTH,
+    },
+    destructive: false,
+  },
+  'submit-resolution': {
+    label: '提交解决结果',
+    description:
+      '提交后工单转为「待员工确认」，提交人需要在确认期限内确认；确认之前不能再追加处理记录。',
+    permission: 'TICKET_PROCESS',
+    content: {
+      label: '解决结果',
+      placeholder: '请输入问题的原因、采取的解决办法，以及提交人需要验证的内容',
+      maxLength: ACTION_CONTENT_MAX_LENGTH,
+    },
+    destructive: true,
+  },
+  'confirm-resolution': {
+    label: '确认已解决',
+    description: '确认后工单进入终态「已完成」，不能再追加处理记录；如果问题仍然存在，请先不要确认。',
+    permission: 'TICKET_REQUESTER_ACTION',
+    destructive: true,
+  },
+}
+
+/**
+ * 把详情的 `allowedActions` 收敛成界面真正会渲染的动作。
+ *
+ * <p>两件事必须同时成立才渲染按钮：动作名在登记表里（后端将来新增的动作名在界面实现之前
+ * 不会变成一个按不动的按钮），并且当前账号仍持有该动作的权限。顺序按登记表声明顺序，
+ * 与后端返回顺序无关——同一张工单的按钮不该因为服务端拼接顺序变化而换位置。</p>
+ */
+export function permittedActions(
+  allowedActions: readonly string[],
+  hasPermission: (code: string) => boolean,
+): TicketActionName[] {
+  const allowed = new Set(allowedActions)
+  return (Object.keys(TICKET_ACTIONS) as TicketActionName[]).filter(
+    (name) => allowed.has(name) && hasPermission(TICKET_ACTIONS[name].permission),
+  )
 }
 
 /** 记录上下文里一条可直接渲染的"标签 + 文本"。 */
