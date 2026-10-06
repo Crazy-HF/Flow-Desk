@@ -1,6 +1,9 @@
 # FlowDesk 项目状态
 
-## 当前结论：阶段 4 MVP 收口进行中——测试补齐已完成，剩空库演示与交接（2026-10-06）
+## 当前结论：阶段 4 已合并 main（PR #11），进入 flow-desk/mvp-hardening 收口（2026-10-06）
+
+- **阶段 4 交接已完成（2026-10-06）**：`flow-desk/mvp-closeout` 的六条提交（`1ee4bb8` 交接记录、`2bbde6b` 测试补齐、`e685493` 文档收口、`65750e6` 空库演示脚本与 E2E 加固、`0022230` 覆盖矩阵证据、`9c3d227` 交接前状态同步）经 **[PR #11](https://github.com/Crazy-HF/Flow-Desk/pull/11)** 以 merge commit 合并 `main`（合并提交 **`f49b65b`**，基线 `1bc2e4c`；43 files changed、+9553/−127）。CI 首轮即全绿（运行 `37424825486`：`backend-verify` 3.5 分钟、`frontend-verify` 0.8 分钟、`core-e2e` 2.6 分钟，总计 6.2 分钟），本地 `main` 已仅快进同步，随后从最新 `main` 创建 **`flow-desk/mvp-hardening`**。完整记录见 `docs/acceptance/2026-10-06-stage4-git-handoff.json`。
+- **下一阶段范围（用户 2026-10-06 指定：不新开能力，只收尾已确认的测试口径与工程债）**：① 三处已记录的生产代码问题（`TicketServiceImpl` 的 null 安全不对称、`TicketQuery.isFixedSortOnly()` 大小写口径、`create` 兜底分支可能回落 500）；② 测试稳定性（真并发与时序抖动、E2E 负载相关竞态——阶段 4 已修一处）；③ CI 时长与并行度评估（后端 `verify` 目前单进程串行跑 638 + 119，集成测试逐类拉起 MySQL 容器）；④ 唯一长期遗留仍是**用户逐项视觉反馈**（需用户参与，不重开打样）。
 
 - **阶段 4 进度（2026-10-06，分支 `flow-desk/mvp-closeout`，已提交 `1ee4bb8` 与 `2bbde6b`，未推送）**：
   - ✅ **B1 工单与分类模块自动化测试补齐（本阶段核心实现）**：新增 **10 个测试类 / 275 项用例**——单元 `TicketServiceImplTest`(55)、`TicketQueryServiceImplTest`(41)、`CategoryServiceImplTest`(47)；Web 契约 `TicketControllerWebTest`(55)、`AdminCategoryControllerWebTest`(36)、`CategoryControllerWebTest`(7)、`DemoSeedProfileTest`(3)；集成 `TicketServiceIT`(16，含 2/6 线程真并发)、`TicketQueryServiceIT`(9)、`CategoryServiceIT`(6，含 8 线程同版本并发)。**MVP 完成定义第 3 条（认证、权限、幂等、事务、并发、时间线均有对应测试）由此成立。** 全量 `clean verify` → surefire **638**（原 394）/ failsafe **119**（原 88），`Failures 0 / Errors 0`，`BUILD SUCCESS`。
@@ -209,11 +212,11 @@
 - 最后更新：2026-10-06
 - 远程仓库：`git@github.com:Crazy-HF/Flow-Desk.git`
 - 稳定分支：`main`
-- 当前基线分支：`main`（阶段 1、前端外壳、第 3 步 RBAC 后端与 RBAC 管理端五页、阶段 2 员工创建与查询、**阶段 3 IT 处理闭环**均已合并，最新合并提交 `1bc2e4c`，即 PR #10）
-- 当前工作分支：`flow-desk/mvp-closeout`（从 PR #10 合并后的最新 `main` `1bc2e4c` 创建，承载阶段 4 MVP 收口；尚未推送）
-- 下一次创建分支：阶段 4 完成并交接后，从当时最新的 `main` 创建下一主题分支
-- 当前阶段：**阶段 4 MVP 验收与求职展示收口**（`docs/implementation-plan.md` 8）。核心实现「工单与分类模块自动化测试补齐」已完成（10 个测试类 / 275 项用例，surefire **638** + failsafe **119** 全绿）；1920 宽屏自查、README 五节、`project-highlights` 与机器绝对路径清理已完成。**待做：空库 Flyway 演示（临时库名）、前端全量复跑、阶段 4 交接（需另一次授权）**。「用户逐项视觉反馈」仍是唯一长期遗留。
-- 最新提交：`2bbde6b`（test：补齐工单与分类模块自动化测试 275 项 + 一处契约缺陷修正）、`1ee4bb8`（docs：记录阶段 3 交接结果与阶段 4 开工）；阶段 3 的合并提交为 `1bc2e4c`（PR #10），阶段 3 三条提交为 `85f24cf`、`1f1a959`、`ac320ce`。**本分支尚未推送。**
+- 当前基线分支：`main`（阶段 1、前端外壳、第 3 步 RBAC、阶段 2 员工创建与查询、阶段 3 IT 处理闭环、**阶段 4 MVP 收口**均已合并，最新合并提交 `f49b65b`，即 PR #11）
+- 当前工作分支：`flow-desk/mvp-hardening`（从 PR #11 合并后的最新 `main` `f49b65b` 创建，用户指定只收尾已确认的测试口径与工程债；尚未推送）
+- 下一次创建分支：本收口分支完成并交接后，从当时最新的 `main` 创建下一主题分支（完整版方向待用户指定）
+- 当前阶段：**收口分支 `flow-desk/mvp-hardening`（不新开能力）**——① 三处已记录的生产代码问题；② 测试稳定性（真并发/时序抖动、E2E 负载相关竞态）；③ CI 时长与并行度评估。阶段 4（MVP 验收与求职展示收口）已全部完成并合并 `main`：「用户逐项视觉反馈」仍是唯一长期遗留，需用户参与。
+- 最新提交：`f49b65b`（PR #11 合并提交）；阶段 4 的六条提交为 `1ee4bb8`、`2bbde6b`、`e685493`、`65750e6`、`0022230`、`9c3d227`；阶段 3 的合并提交为 `1bc2e4c`（PR #10）。
 - 步骤①②③ 验收证据（2026-10-06）：`docs/acceptance/2026-10-06-stage3-claim-process-resolution-confirm.json`（77/77）、`docs/acceptance/2026-10-06-stage3-step3-summary.json`（汇总、三处脚本修正与环境发现）、`docs/acceptance/2026-10-06-stage3-claim-and-processing-record.json`（步骤①② 45/45）、三份 `*-pre-fix-fail.json`（原始失败原件）。
 - 步骤④ 验收证据（2026-10-06）：`frontend/e2e/ticket-it-flow.spec.ts`（端到端主链，16 项 E2E 全绿中的 1 项）、`.ui-craft/reviews/2026-10-06-ticket-it-flow/report.md` 与同目录 9 张截图 + `runtime-evidence.json`（五步状态码与 `traceId`、界面四态迁移、时间线 5 条、1440/375 溢出 0）。
 - 前一项完成（2026-09-24，**历史成果，已随 PR #8 合并 main**）：**`TASK-060` RBAC 管理端四页 + `TASK-062` 用户管理页 + `TASK-061` 契约对齐**——`frontend/src/views/admin/` 五页（用户管理、角色管理、权限管理、用户角色授权、角色权限授权）、`api/rbac.ts` 与 `api/users.ts`、`ProtectedMark` / `AdminListPanel` 两个共享件与 `useAdminList` 取数状态机；用户管理在 `docs/implementation-plan.md` 正式登记为 `TASK-061`/`TASK-062` 并移出完整版 backlog；替换角色路径按 8.2 契约由 `/role` 改为 `/roles`（后端 + Web 测试 + 文档同步）。**验证**：`./mvnw -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → 单元/Web **394** + 集成 **88** 全绿；前端 `typecheck` / `lint`（含 stylelint 闸门）/ `build` 退出码 0、单测 **17 套件 74 项**、E2E **13 项**全绿（含三条新增：RBAC 真实闭环、用户角色闭环、入口按权限显隐与窄屏），演示库经查无 `E2E_*` 残留。见下方 2026-09-24 记录。

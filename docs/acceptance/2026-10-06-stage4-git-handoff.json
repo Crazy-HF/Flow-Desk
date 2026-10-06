@@ -1,0 +1,63 @@
+{
+  "result": "MERGED",
+  "at": "2026-10-06T14:44:41+08:00",
+  "stage": "阶段 4：MVP 验收与求职展示收口（docs/implementation-plan.md 8）",
+  "pullRequest": "https://github.com/Crazy-HF/Flow-Desk/pull/11",
+  "method": "merge",
+  "featureBranch": "flow-desk/mvp-closeout",
+  "featureBase": "1bc2e4c0ac5a702c74e004ef35d07f40c8eedba2",
+  "featureHead": "9c3d22715980b925d450576488df2df87cf44221",
+  "mergeCommit": "f49b65b01746dd0daef2d6e2d1b2a7212788030e",
+  "commits": [
+    "1ee4bb8 docs: 记录阶段 3 交接结果（PR #10）与阶段 4 开工",
+    "2bbde6b test(ticket,category): 补齐工单与分类模块自动化测试（275 项），并修正一处契约不一致",
+    "e685493 docs: 阶段 4 文档收口（README 五节、亮点 HL-007~010、机器绝对路径清理）",
+    "65750e6 feat(scripts)+test(e2e): 空库 Flyway 演示脚本与端到端竞态加固",
+    "0022230 docs: 归档阶段 4 测试覆盖矩阵与回归证据",
+    "9c3d227 docs: 阶段 4 交接前同步状态文档（交接授权与下一分支）"
+  ],
+  "mergeStats": "43 files changed, 9553 insertions(+), 127 deletions(-)",
+  "ciRuns": [
+    {
+      "run": 37424825486,
+      "event": "pull_request",
+      "sha": "9c3d22715980b925d450576488df2df87cf44221",
+      "conclusion": "success",
+      "checks": { "backend-verify": "success", "frontend-verify": "success", "core-e2e": "success" },
+      "durations": { "backend-verify": "3.5min", "frontend-verify": "0.8min", "core-e2e": "2.6min", "total": "6.2min" },
+      "note": "首轮即全绿；阶段 3 曾因把显示名写死而在 core-e2e 失败，阶段 4 的同名用例改为按当前登录身份读取，未再复发"
+    },
+    {
+      "run": 37425456736,
+      "event": "push",
+      "sha": "f49b65b01746dd0daef2d6e2d1b2a7212788030e",
+      "conclusion": "success",
+      "checks": { "backend-verify": "success", "frontend-verify": "success", "core-e2e": "success" }
+    }
+  ],
+  "localMainFastForwarded": true,
+  "mergedTreeEqualsVerifiedTree": true,
+  "stageDeliverables": {
+    "tests": "10 个新测试类 / 275 项用例；回归口径 394+88 → 638+119，Failures 0 / Errors 0",
+    "coverageMatrix": "docs/acceptance/2026-10-06-stage4-backend-coverage.json",
+    "cleanDbDemo": "scripts/stage4-clean-db-demo.ps1 + docs/acceptance/2026-10-06-stage4-clean-db-demo.json（66/66，临时库 flowdesk_stage4_clean，后端 8091）",
+    "viewport1920": "frontend/e2e/viewport-1920.spec.ts + .ui-craft/reviews/2026-10-06-mvp-closeout/（11 张截图）",
+    "docs": "README 五节、docs/project-highlights.md 总览与 HL-007～HL-010、机器绝对路径清零（含历史证据 _pathsMasked）",
+    "productionChanges": [
+      "GlobalExceptionHandler 登记 MissingServletRequestPartException（经用户授权；缺 multipart part 由 500 改为契约要求的 400）",
+      "删除 TicketMapper.selectRequestedByMePage 死别名（计划内清理）"
+    ]
+  },
+  "knownIssuesCarriedToNextBranch": [
+    "TicketServiceImpl 三处 null 安全不对称（version/content 为 null 会 NPE、非法 UUID 抛 IllegalArgumentException），仅非 HTTP 调用方会遇到",
+    "TicketQuery.isFixedSortOnly() 大小写敏感，与 PageQuery.isAscending() 口径不一致",
+    "create 的 DuplicateKeyException 兜底分支若冲突来自工单编号唯一键会回落 500（未构造出该分支）"
+  ],
+  "nextBranch": "flow-desk/mvp-hardening",
+  "nextStageScope": [
+    "三处已记录的生产代码问题",
+    "测试稳定性（真并发与时序抖动、E2E 负载相关竞态——阶段 4 已修一处）",
+    "CI 时长与并行度评估（backend-verify 3.5min / core-e2e 2.6min，集成测试逐类拉起 MySQL 容器）",
+    "唯一长期遗留：用户逐项视觉反馈（需用户参与，不重开打样）"
+  ]
+}

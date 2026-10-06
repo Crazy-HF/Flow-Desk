@@ -91,9 +91,10 @@
 - `TASK-010` 五个后端接口与 `TASK-011` Vue 登录外壳、身份恢复均已完成并通过验收；后端 `verify` 共 53 项单元/Web 测试与 17 项集成测试全绿，前端 22 项单元测试及类型检查、Lint、构建、7 项 E2E 全绿。阶段 1 已通过 PR #5 合并进入 `main`。
 - 公共安全基线归 `common/config/FoundationSecurityConfiguration`，Auth 专用链负责 JWT 请求认证、Refresh 轮换与重用检测、退出、`/auth/me` 和本人改密。第 3 步（动态 RBAC）先于阶段 2 实施；阶段 2 只推进 `TASK-020`～`TASK-023-MVP` 的员工工单创建与查询闭环。
 
-## 当前分支提交边界（2026-10-06 阶段 4 开工）
+## 当前分支提交边界（2026-10-06 阶段 4 已合并，进入收口分支）
 
-- 阶段 2 已于 2026-09-29 验收通过并经 PR #9 合并 main（`5b9a961`）；**阶段 3 的四步（① 领取 ② 追加处理记录 ③ 提交解决 + 员工确认 ④ IT/员工页面与端到端主链）已全部完成、通过真实栈验收，并经 [PR #10](https://github.com/Crazy-HF/Flow-Desk/pull/10) 合并 main**（合并提交 `1bc2e4c`）。当前分支为 **`flow-desk/mvp-closeout`**（从 PR #10 合并后的最新 `main` 创建），承载 **阶段 4 MVP 验收与求职展示收口**（`docs/implementation-plan.md` 8）：核心实现是补齐工单与分类模块的自动化测试（`src/test/java` 现有 35 个测试类中没有一个属于这两个模块），随后做空库演示、README 六项内容、`docs/project-highlights.md` 与文档里的机器绝对路径清理。
+- **阶段 4 已通过 [PR #11](https://github.com/Crazy-HF/Flow-Desk/pull/11) 合并 main**（合并提交 `f49b65b`，基线 `1bc2e4c`），CI 首轮全绿（运行 `37424825486`）。当前分支为 **`flow-desk/mvp-hardening`**（从最新 `main` 创建），范围由用户 2026-10-06 指定：**不新开能力，只收尾已确认的测试口径与工程债**——① `TicketServiceImpl` 的 null 安全不对称、`TicketQuery.isFixedSortOnly()` 大小写口径、`create` 兜底分支可能回落 500；② 测试稳定性（真并发与时序抖动、E2E 负载相关竞态）；③ CI 时长与并行度评估。唯一长期遗留仍是用户逐项视觉反馈（需用户参与，不重开打样）。
+- 阶段 2 已于 2026-09-29 验收通过并经 PR #9 合并 main（`5b9a961`）；**阶段 3 的四步（① 领取 ② 追加处理记录 ③ 提交解决 + 员工确认 ④ IT/员工页面与端到端主链）已全部完成、通过真实栈验收，并经 [PR #10](https://github.com/Crazy-HF/Flow-Desk/pull/10) 合并 main**（合并提交 `1bc2e4c`）。
 - **测试口径的阶段变化（重要）**：阶段 3 期间按用户指示「本阶段不新增测试类、用真实栈脚本验收」；阶段 4 恢复本文件「测试代码职责」的常规口径——测试类及其配套代码由 Agent 负责设计、创建、修改、维护和执行，用于满足 MVP 最终完成定义第 3 条（认证、权限、幂等、事务、并发和时间线均有对应测试）。
 - **阶段 3 交接结果与一处 CI 缺陷（2026-10-06）**：三条提交 `85f24cf`（实现）、`1f1a959`（证据与状态文档）、`ac320ce`（E2E 修正）经 PR #10 合并，合并提交 `1bc2e4c`。首个 CI 运行 `37411614020` 的 `core-e2e` 失败于 `frontend/e2e/ticket-it-flow.spec.ts` 把 IT 显示名写死为「IT 支持人员」而种子数据是「演示 IT 支持人员」——本机演示库漂移导致"本机通过、干净库失败"；改为按当前登录身份读取显示名后，运行 `37412295816` 三个 job 全绿。完整记录见 `docs/acceptance/2026-10-06-stage3-git-handoff.json`。
 - 2026-10-06 用户就一处后端缺口单独授权：「阶段 3 端到端主链发现 `TicketQueryServiceImpl` 的 `allowedActions` 缺 `submit-resolution` 分支」——已按授权修正为 `canSubmitResolution = canProcess` 并同步 `docs/api-design.md` 6.3。这是阶段 3 唯一一处后端业务代码改动，**该授权不延伸到其它后端逻辑**。
