@@ -1,6 +1,6 @@
 # FlowDesk 项目状态
 
-## 当前结论：阶段 4 与收口第一批已合并 main（PR #11 / #12），进入 flow-desk/frontend-shared-layer 收尾前端技术债（2026-10-06）
+## 当前结论：阶段 4 与收口两批（PR #11 / #12 / #13）均已合并 main；下一分支 flow-desk/full-state-machine 待方向确认（2026-10-06）
 
 - **阶段 4 交接已完成（2026-10-06）**：`flow-desk/mvp-closeout` 的六条提交（`1ee4bb8` 交接记录、`2bbde6b` 测试补齐、`e685493` 文档收口、`65750e6` 空库演示脚本与 E2E 加固、`0022230` 覆盖矩阵证据、`9c3d227` 交接前状态同步）经 **[PR #11](https://github.com/Crazy-HF/Flow-Desk/pull/11)** 以 merge commit 合并 `main`（合并提交 **`f49b65b`**，基线 `1bc2e4c`；43 files changed、+9553/−127）。CI 首轮即全绿（运行 `37424825486`：`backend-verify` 3.5 分钟、`frontend-verify` 0.8 分钟、`core-e2e` 2.6 分钟，总计 6.2 分钟），本地 `main` 已仅快进同步，随后从最新 `main` 创建 **`flow-desk/mvp-hardening`**。完整记录见 `docs/acceptance/2026-10-06-stage4-git-handoff.json`。
 - **下一阶段范围（用户 2026-10-06 指定：不新开能力，只收尾已确认的测试口径与工程债）**：① 三处已记录的生产代码问题（`TicketServiceImpl` 的 null 安全不对称、`TicketQuery.isFixedSortOnly()` 大小写口径、`create` 兜底分支可能回落 500）；② 测试稳定性（真并发与时序抖动、E2E 负载相关竞态——阶段 4 已修一处）；③ CI 时长与并行度评估（后端 `verify` 目前单进程串行跑 638 + 119，集成测试逐类拉起 MySQL 容器）；④ ~~唯一长期遗留仍是**用户逐项视觉反馈**~~：**2026-10-06 用户裁决「视觉反馈不用管，直接当作已通过」——本项关闭**，不再是遗留或阻塞条件，不重开打样轮。
@@ -21,7 +21,7 @@
   - **环境事实**：8081 上是 11:52 启动的既有后端（早于本轮改动），按项目惯例未停止它；E2E 跑在该实例上，**后端行为的证据来自后端测试与 CI**，不是这次 E2E。
 
 - **第一批已交接：收口分支经 [PR #12](https://github.com/Crazy-HF/Flow-Desk/pull/12) 合并 main（2026-10-06）**：两条提交 `a16d4d4`（① 生产代码 + ② 测试稳定性 + ③ CI，22 文件 +431/−88）与 `22e89aa`（③ 的 CI 实测时长）推送到 `flow-desk/mvp-hardening`，PR CI 两次运行全绿（`37431135077`、`37431488606`），以 merge commit 合并，**合并提交 `a0071a7`**；本地 `main` 已仅快进同步，随后从最新 `main` 创建 **`flow-desk/frontend-shared-layer`** 承载第二批前端技术债。
-- **第二批（前端技术债，用户 2026-10-06 指定：共享层迁移 + 类型/竞态统一）已完成（2026-10-06，分支 `flow-desk/frontend-shared-layer`，未提交未推送）**：
+- **第二批（前端技术债，用户 2026-10-06 指定：共享层迁移 + 类型/竞态统一）已完成并经 [PR #13](https://github.com/Crazy-HF/Flow-Desk/pull/13) 合并 main**：两条提交 `fcb34cd`（实现，25 文件 +146/−78）与 `d736c6a`（更正 `docs/modules/rbac.md` 里"没有 composables 目录"的过期结论）以 merge commit 合并（**合并提交 `1f85c93`**），CI 运行 `37432821311`、`37433267484` 全绿（三个 job 并行，整轮约 2.5 分钟）；本地 `main` 已仅快进同步，随后从最新 `main` 创建 **`flow-desk/full-state-machine`**（暂定名，方向待用户确认，见下方"下一步"）。
   - **共享层迁移（第 5 项）**：`useAdminList.ts`、`useAdminList.test.ts`、`useCompactPagination.ts` 用 `git mv` 从 `frontend/src/views/admin/` 迁到新增的 **`frontend/src/composables/`**；七个调用点（管理端六页 + `views/work/TicketListView.vue`）与测试的 import 全部改为 `@/composables/*`，旧路径零残留。迁移理由写进 `frontend/AGENTS.md`（分层表新增该层 + 一条规则：只有跨领域复用的组合式函数才进这一层），`useAdminList` 的类注释同步改写——它此前明确写着"正确的位置是共享层，等能执行 Git 时一次做掉"。
   - **列表请求竞态（第 6 项·并发）**：`useAdminList.load` 增加自增请求序号，**只有最新一次请求的结果会被采用**：过期响应既不覆盖 `items`/`total`/`pageNo`，也不改写 loading/error 状态，且不会清掉最新请求仍在进行中的 `retrying`。此前"快速改关键词再点查询"时，先发的旧响应后到会把新结果顶掉或把已就绪的页面打回错误态。新增两个用例（旧响应后到被丢弃、过期失败不改写就绪态）。
   - **可空响应类型统一（第 6 项·类型）**：四个 `api/` 模块（`tickets.ts`、`users.ts`、`rbac.ts`、`categories.ts`）共 **19 个响应字段**由 `field: T | null` 改为 `field?: T`。依据是 `spring.jackson.default-property-inclusion=non_null`——值为 null 的字段根本不出现在 JSON 里，前端实际拿到 `undefined`，原类型与运行时不符。**生产代码零改动**：`typecheck` 报出的 19 处不匹配全部落在测试夹具（夹具用 `null` 表示"字段不存在"），已逐个改为 `undefined`；这也反证了页面代码本来就只用真值判断，没有依赖 `| null` 的错误语义。`tickets.ts` 里"先别单独改成可选类型"的旧注释同步改写为已统一的说明。
@@ -235,10 +235,10 @@
 - 最后更新：2026-10-06
 - 远程仓库：`git@github.com:Crazy-HF/Flow-Desk.git`
 - 稳定分支：`main`
-- 当前基线分支：`main`（阶段 1、前端外壳、第 3 步 RBAC、阶段 2 员工创建与查询、阶段 3 IT 处理闭环、**阶段 4 MVP 收口**、**收口第一批 ①②③ + 文档一致性**均已合并，最新合并提交 `a0071a7`，即 PR #12）
-- 当前工作分支：`flow-desk/frontend-shared-layer`（从 PR #12 合并后的最新 `main` `a0071a7` 创建，承载第二批前端技术债：共享层迁移与类型/竞态统一；尚未推送）
-- 下一次创建分支：本分支完成并交接后，从当时最新的 `main` 创建下一主题分支（完整版方向待用户指定）
-- 当前阶段：**前端技术债分支 `flow-desk/frontend-shared-layer`**——第 5 项（`useAdminList` / `useCompactPagination` 迁到 `src/composables/`）与第 6 项（列表请求竞态 + 四个 `api/` 模块 19 个响应字段改为可选类型）**均已完成并验证**（`typecheck`/`lint`/`build` 退出码 0、单测 149 项、E2E 17/17）。阶段 4（MVP 验收与求职展示收口）与收口第一批已全部完成并合并 `main`；视觉反馈遗留已按用户 2026-10-06 裁决关闭。
+- 当前基线分支：`main`（阶段 1、前端外壳、第 3 步 RBAC、阶段 2 员工创建与查询、阶段 3 IT 处理闭环、**阶段 4 MVP 收口**、**收口第一批 ①②③ + 文档一致性**、**第二批前端技术债**均已合并，最新合并提交 `1f85c93`，即 PR #13）
+- 当前工作分支：`flow-desk/full-state-machine`（从 PR #13 合并后的最新 `main` `1f85c93` 创建；**暂定名**，尚未推送、尚无提交——首步是设计确认，不是写代码）
+- 下一次创建分支：若用户确认的方向与此名不符，从最新 `main` 另建 `flow-desk/<主题>`；已创建的暂定分支不承载任何提交，可直接删除
+- 当前阶段：**收口已完成**——阶段 4 与收口两批（①②③、文档一致性、前端技术债第 5/6 项）全部合并 `main`；视觉反馈遗留已按用户 2026-10-06 裁决关闭。**下一步是完整版 backlog 第 1 项（剩余 6 个 IT 动作 + 3 个员工动作）的设计确认**：需逐动作确认权限、字段、错误码、审计与时间线 context，并先定附件落地方案、超时自动任务、管理性交接与数据概览；确认前不写业务代码（详见"完整版开工前的收口清单"）。
 - 最新提交：`f49b65b`（PR #11 合并提交）；阶段 4 的六条提交为 `1ee4bb8`、`2bbde6b`、`e685493`、`65750e6`、`0022230`、`9c3d227`；阶段 3 的合并提交为 `1bc2e4c`（PR #10）。
 - 步骤①②③ 验收证据（2026-10-06）：`docs/acceptance/2026-10-06-stage3-claim-process-resolution-confirm.json`（77/77）、`docs/acceptance/2026-10-06-stage3-step3-summary.json`（汇总、三处脚本修正与环境发现）、`docs/acceptance/2026-10-06-stage3-claim-and-processing-record.json`（步骤①② 45/45）、三份 `*-pre-fix-fail.json`（原始失败原件）。
 - 步骤④ 验收证据（2026-10-06）：`frontend/e2e/ticket-it-flow.spec.ts`（端到端主链，16 项 E2E 全绿中的 1 项）、`.ui-craft/reviews/2026-10-06-ticket-it-flow/report.md` 与同目录 9 张截图 + `runtime-evidence.json`（五步状态码与 `traceId`、界面四态迁移、时间线 5 条、1440/375 溢出 0）。
@@ -252,6 +252,15 @@
 - 当前阻塞：无环境阻塞——后端 `verify`、真实栈启动与验收脚本均可执行；阶段 3 四个动作的运行验证已全部完成。
 - 环境前置：JDK 21.0.12、Node.js 24.20.0、pnpm 12.3.4、Docker 29.7.2 已验证；本机已有 `redis:8.8.0`、`mysql:8.4.11` 镜像。**跑后端测试的两个必备参数（2026-09-23 实测，会复发）**：① 受限沙箱下 Mockito inline mock maker 无法自附加，必须加 `-DargLine=-Djdk.attach.allowAttachSelf=true`，否则所有 Spring 测试一起报 `Could not self-attach to current VM using external process`（看起来像代码回归）；② Testcontainers 集成测试需要访问 Docker 命名管道 `\\.\pipe\docker_engine`，受限沙箱会报 `Could not find a valid Docker environment` / `AccessDeniedException`，需在放宽文件策略的会话里执行。完整验收命令：`.\mvnw.cmd -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"`。本地启动 profile 用 `local` 即可（`spring.profiles.group.local=demo` 已配置）。演示账号 `employee` / `it` / `admin`，密码统一为 `123456`（见 `db/demo/R__seed_demo_data.sql` 头部注释，2026-09-20 由 `demo.*` 改名）。本机已有过两类运行障碍并已修复：① Flyway 校验失败——历史表残留已删除的 V3 迁移记录，处置为删除该行（等价 `flyway repair`）；② Redis 残留旧实现写入的 hash 类型会话键，会让"撤销全部会话"抛 `WRONGTYPE`，已清理。另需注意：本机 Argon2id 校验约 2 秒/次（并发登录可拖到十几秒），前端 e2e 因此串行执行并放宽超时；跑 e2e 需要 `FLOWDESK_ALLOWED_ORIGINS` 包含 `http://127.0.0.1:4173`（本地 `.env` 已加）；③ `frontend/node_modules` 若缺 `.modules.yaml`，`pnpm add` 会报 `ERR_PNPM_PACKAGE_MANAGER_REMOVE_MODULES_DIR`，而受限沙箱的写受限令牌删不掉该目录里的预存文件（批量 `Access to the path is denied`）——处置是在放宽文件策略的会话里删掉 `node_modules` 后重装，不要在残缺目录上反复重试。
 - 待确认事项：① Element Plus 目前是**全量引入**（打包约 1.07 MB / gzip 348 KB），是否改为按需引入（需新增 `unplugin-vue-components`、`unplugin-auto-import` 两个 dev 依赖）；② ~~登录页占位文案~~ **2026-09-24 复核：登录页与 E2E 已统一为「请输入登录名」「请输入密码」，与本条描述不符，视为已解决**；③ 首页 `h1`「欢迎回来」用的是展示级字号 `clamp(1.75rem, 5vw, 2.5rem)`，是否收小到页面标题刻度（管理端五页已改用业务页标题刻度 `--fd-font-size-lg`，首页仍待用户决定）；④ ~~用户管理是否登记为正式任务条目、8.1/8.2 与 `rbac.md` 第 1 节的 backlog 表述~~ **2026-09-24 用户确认：登记**——已写入 `TASK-061`（后端）/`TASK-062`（管理端页面），`docs/api-design.md` 8.1/8.2 与 `docs/modules/rbac.md` 第 1 节同步改写，用户管理从完整版 backlog 移出；⑤ ~~`disable` 与替换角色是否属于本次补齐范围~~ **已包含**；⑥ ~~测试职责口径~~ **2026-09-23 已澄清：测试由 Agent（本会话执行者）负责**；⑦ ~~替换角色路径单复数~~ **2026-09-24 用户裁决：以契约 8.2 的复数 `/roles` 为准**——后端 `IamUserController` 已改为 `@PutMapping("/{userId}/roles")`，`IamUserControllerWebTest` 七处断言同步，`docs/api-design.md` 8.2 与实现一致；新增 ⑧ **`USER_ROLE_REQUIRED` 已从 `frontend/src/api/errorMessages.ts` 删除**（后端自 2026-09-22 不再返回该编码），如需保留映射请告知。`TASK-060` 的页面交互、批量授权、权限码搜索与 `api/` 落层均已确认并落地。历史处置：JaCoCo 覆盖率门禁已确认取消（2026-09-19），`pom.xml` 只保留 `jacoco:report` 供 CI 上传工件。
+
+## 下一步：完整版开工前的收口清单（2026-10-06 分析，**均待用户确认**）
+
+仅依据当前代码与已发布契约整理，**确认前不写业务代码**（用户 2026-10-06：技术债"做完再动页面"）：
+
+1. **要定的设计（4 项）**：① 完整工单状态机——剩余 **6 个 IT 动作**（调整分类/优先级、转交、请求补充、撤回补充请求、关闭）+ **3 个员工动作**（补充、未解决反馈、撤销），契约表在 `docs/api-design.md` 6.3/6.4，但需逐动作确认权限、字段、错误码、审计与时间线 `context`；② 附件落地方案——`docs/api-design.md` §7 仍标"草案"，限制已确认（10 MiB/5 个/25 MiB、白名单、双端校验），**文件与数据库提交顺序、失败补偿、孤儿对账未定**；③ 超时自动任务（6.5）——扫描与幂等策略未定（无 MQ，纯调度）；④ 数据概览——`DASHBOARD_VIEW` 权限码已预置，指标口径与可见范围未定。
+2. **代码里已存在的真实缺口**：`IamUserServiceImpl` 两处 `//TODO 工单模块未实现`（`:460` 停用用户、`:632` 替换角色）——目标用户仍负责活动工单时没有管理性交接流程，属完整版 backlog 第 4 项。
+3. **不需要额外补的（省掉重复投入）**：权限码与角色授权已在 `V2__seed_rbac.sql` 预置（`TICKET_TRANSFER`、`TICKET_CLOSE`、`TICKET_ADMIN_HANDOFF`、`DASHBOARD_VIEW`）；表结构与 CHECK 约束已在 `V1__create_schema.sql` 预置（`ticket_attachment`、`ticket_relation`、`close_reason`/`completion_method`/`action_deadline_at`/`ended_at` 等）；`.env` 已被 `.gitignore` 忽略，仓库只跟踪 `.env.example`。
+4. **前端配套**：新动作的界面入口与附件上传/下载 UI 未做（当前界面只摆已实现动作，不摆"按不动的按钮"）；`frontend/AGENTS.md` 的六态、视觉决策契约与 `src/composables/` 分层规则对新页面同样生效。
 
 ## 2026-09-24 TASK-060 / TASK-062 管理端五页 + TASK-061 契约对齐（全套验证通过，未提交）
 
