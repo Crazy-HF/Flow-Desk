@@ -1,4 +1,5 @@
 {
+  "_pathsMasked": "本文件中的机器绝对路径已替换为占位符（<REPO> / <JDK21_HOME> / <PNPM_HOME> / <USER_HOME>）；命令、退出码、断言与结论均未改动。",
   "stage": "阶段 3 IT 处理闭环",
   "slice": "步骤② 当前负责人追加处理记录（POST /fd/v1/tickets/{ticketNo}/actions/add-processing-record）",
   "date": "2026-10-06",
@@ -8,7 +9,7 @@
   "purpose": "确认步骤② 代码写入后工作区后端可构建、既有测试不回归；不构成本动作接口的验收证据。",
   "command": ".\\mvnw.cmd -B clean verify \"-DargLine=-Djdk.attach.allowAttachSelf=true\"",
   "environment": {
-    "javaHome": "D:\\Idea\\Jdk\\Jdk21",
+    "javaHome": "<JDK21_HOME>",
     "docker": "可用（本机已有 mysql:8.4.11、redis:8.8.0 镜像，集成测试经 Testcontainers 运行）",
     "note": "本轮未并行运行前端测试，避免与容器争内存。"
   },

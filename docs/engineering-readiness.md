@@ -100,8 +100,8 @@ Argon2id 通过 Spring Security `PasswordEncoder` 使用。最低参数为内存
 | 工具 | 当前结果 | 结论 |
 | --- | --- | --- |
 | Java | `21.0.12` | 满足 |
-| Node.js | `24.20.0`（`D:\pnpm\bin\node.exe`） | 满足；Codex 命令显式优先使用安装目录，避免旧进程 PATH 缓存 |
-| pnpm | `12.3.4`（`D:\pnpm\pnpm.cmd`） | 满足；`packageManager` 与 lockfile 已固定 |
+| Node.js | `24.20.0`（安装目录下的 `node.exe`） | 满足；命令显式使用安装目录，避免旧进程 PATH 缓存 |
+| pnpm | `12.3.4`（安装目录下的 `pnpm.cmd`） | 满足；`packageManager` 与 lockfile 已固定 |
 | Docker | `29.7.2` | 满足本地容器运行需要 |
 | Docker Compose | `v5.4.0` | 满足 |
 | Git | `2.55.0.windows.3` | 满足 |
