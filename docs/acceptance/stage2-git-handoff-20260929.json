@@ -1,0 +1,18 @@
+{
+  "result": "MERGED",
+  "at": "2026-09-29T17:50:45.2791501+08:00",
+  "pullRequest": "https://github.com/Crazy-HF/Flow-Desk/pull/9",
+  "method": "merge",
+  "featureHead": "36504ae222c90bf1820544d074aa4cb9f05845ed",
+  "mergeCommit": "5b9a96156c9fffc8dd0949029fb74f8c48b0682d",
+  "ciRun": 36551131354,
+  "checks": {
+    "backend-verify": "success",
+    "frontend-verify": "success",
+    "core-e2e": "success"
+  },
+  "localMainFastForwarded": true,
+  "mergedTreeEqualsVerifiedTree": true,
+  "nextBranch": "flow-desk/ticket-it-flow",
+  "stage3BusinessStarted": false
+}

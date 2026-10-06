@@ -181,8 +181,13 @@ test('员工创建工单：双击只建一张、刷新后仍在、列表可回�
   await expect(meta).toContainText('待受理')
   await expect(meta).toContainText('优先级 高')
 
-  // 阶段 2 没有已实现的工单动作，allowedActions 为空数组，界面因此不摆任何按钮
-  await expect(page.locator('main#main-content button')).toHaveCount(0)
+  /**
+   * 待受理 + 提交人自己：`allowedActions` 对员工是空数组，所以整块动作区都不出现。
+   * 这是"按服务端返回渲染按钮，而不是前端推导"最容易观察到的证据——
+   * 员工会看到 `claim` 按钮的那张工单，在服务端放行 `claim` 之前也不会出现。
+   */
+  await expect(page.locator('.ticket-action-panel')).toHaveCount(0)
+  await expect(page.locator('.ticket-action .el-button')).toHaveCount(0)
 
   // 属性栏与时间线：问题正文、分类、提交人、时间都在，创建记录已写入时间线
   await expect(page.locator('.ticket-description')).toContainText('验证提交幂等')

@@ -92,8 +92,13 @@ export interface TicketDetail extends TicketListItem {
   /**
    * 后端按当前用户、角色、工单关系与状态计算的可用动作。
    *
-   * <p>阶段 2 没有已实现的工单动作，后端固定返回空数组——界面因此不渲染任何动作按钮，
-   * 也不自行推导"应该有"的按钮。这个字段不能替代动作接口再次鉴权。</p>
+   * <p>动作名与接口路径末段**逐字一致**（`TicketQueryServiceImpl.toDetail` 的构造注释），
+   * 目前会出现的取值是 `claim`、`add-processing-record`、`confirm-resolution`
+   * （`docs/api-design.md` 6.3）；界面只按这个数组渲染按钮，
+   * **不自行推导"应该有"的动作**——比如「提交解决结果」在服务端放行该动作前不会出现。</p>
+   *
+   * <p>这个字段不能替代动作接口再次鉴权：它只说明"后端认为现在可以做"，不是许可凭证。
+   * 动作仍可能因为并发（`409/TICKET_CONFLICT`）或资格变化而失败。</p>
    */
   allowedActions: string[]
 }
@@ -147,11 +152,52 @@ export interface CreateTicketPayload {
   priority: TicketPriority
 }
 
+/** 领取：只需要客户端最后读到的版本，服务端用它做乐观锁与并发资格判断。 */
+export interface ClaimTicketPayload {
+  version: number
+}
+
+/** 追加处理记录：正文最长 10000 字符，服务端会在校验前去掉首尾空白。 */
+export interface AddProcessingRecordPayload {
+  version: number
+  content: string
+}
+
+/** 提交解决结果：与处理记录同样的正文约束，成功后进入待确认并生成确认期限。 */
+export interface SubmitResolutionPayload {
+  version: number
+  content: string
+}
+
+/** 确认问题已解决：不需要正文，完成方式由服务端固定为"员工确认完成"。 */
+export interface ConfirmResolutionPayload {
+  version: number
+}
+
 export interface CreatedTicket {
   ticketNo: string
   status: TicketStatus
   version: number
   createdAt: string
+}
+
+/**
+ * 工单动作的统一成功结果（`docs/api-design.md` 6.2）。
+ *
+ * <p>四个动作返回同一份"最新快照摘要"，所以界面只有一种处理方式：用返回值刷新当前状态与版本，
+ * 不去猜每个动作各自改了什么。`version` 尤其重要——它是下一次动作的乐观锁前置条件，
+ * 不刷新就会拿旧版本再发一次，得到 `409/TICKET_CONFLICT`。</p>
+ */
+export interface TicketActionResult {
+  ticketNo: string
+  status: TicketStatus
+  /** 当前或最后负责人；终止状态下保留，没有负责人时不出现（`non_null` 约定）。 */
+  assignee: TicketUserSummary | null
+  /** 只有待补充与待确认有值，其他状态下不出现。 */
+  actionDeadlineAt: string | null
+  version: number
+  /** 动作发生时间，由服务端给出，不用客户端时钟。 */
+  actionTime: string
 }
 
 /**
@@ -251,6 +297,77 @@ export async function createTicket(payload: CreateTicketPayload): Promise<Create
   form.append('ticket', new Blob([JSON.stringify(payload)], { type: 'application/json' }))
 
   const response = await http.post<ApiEnvelope<CreatedTicket>>('/tickets', form)
+  return response.data.data
+}
+
+/**
+ * 领取工单（`docs/api-design.md` 6.3）。
+ *
+ * <p>资格由服务端判定（队列可见、未被领取、不是自己提交的、具备领取资格的角色行），
+ * 前端只用 `allowedActions` 决定是否摆出按钮。并发的两次领取只有一次会成功，
+ * 另一次得到 `409/TICKET_CONFLICT`。</p>
+ */
+export async function claimTicket(
+  ticketNo: string,
+  payload: ClaimTicketPayload,
+): Promise<TicketActionResult> {
+  const response = await http.post<ApiEnvelope<TicketActionResult>>(
+    `/tickets/${encodeURIComponent(ticketNo)}/actions/claim`,
+    payload,
+  )
+  return response.data.data
+}
+
+/**
+ * 当前负责人追加处理记录。
+ *
+ * <p>成功时状态与负责人都不变，只有 `version` 与记录序号递增——它是"我把进展写下来"，
+ * 不是状态迁移。待确认状态下服务端会拒绝（`409/TICKET_ACTION_FORBIDDEN`）：
+ * 已经交出解决结果之后不能再改处理记录。</p>
+ */
+export async function addProcessingRecord(
+  ticketNo: string,
+  payload: AddProcessingRecordPayload,
+): Promise<TicketActionResult> {
+  const response = await http.post<ApiEnvelope<TicketActionResult>>(
+    `/tickets/${encodeURIComponent(ticketNo)}/actions/add-processing-record`,
+    payload,
+  )
+  return response.data.data
+}
+
+/**
+ * 当前负责人提交解决结果。
+ *
+ * <p>成功后进入 `WAITING_FOR_CONFIRMATION`，确认期限由服务端按
+ * `flowdesk.ticket.confirmation-window`（默认 7 天）计算，前端不参与推算。</p>
+ */
+export async function submitResolution(
+  ticketNo: string,
+  payload: SubmitResolutionPayload,
+): Promise<TicketActionResult> {
+  const response = await http.post<ApiEnvelope<TicketActionResult>>(
+    `/tickets/${encodeURIComponent(ticketNo)}/actions/submit-resolution`,
+    payload,
+  )
+  return response.data.data
+}
+
+/**
+ * 提交人确认问题已解决。
+ *
+ * <p>这是提交人的终态动作，不需要正文：完成方式固定为"员工确认完成"。
+ * 权限闸门先于身份闸门——没有 `TICKET_REQUESTER_ACTION` 的账号得到 `403`，
+ * 有权限但不是提交人的账号才得到 `404`（不可见）。</p>
+ */
+export async function confirmResolution(
+  ticketNo: string,
+  payload: ConfirmResolutionPayload,
+): Promise<TicketActionResult> {
+  const response = await http.post<ApiEnvelope<TicketActionResult>>(
+    `/tickets/${encodeURIComponent(ticketNo)}/actions/confirm-resolution`,
+    payload,
+  )
   return response.data.data
 }
 

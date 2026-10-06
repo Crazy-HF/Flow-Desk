@@ -15,6 +15,7 @@ import PlannedWorkView from '@/views/work/PlannedWorkView.vue'
 import TicketCreateView from '@/views/work/TicketCreateView.vue'
 import TicketDetailView from '@/views/work/TicketDetailView.vue'
 import TicketListView from '@/views/work/TicketListView.vue'
+import TicketQueueView from '@/views/work/TicketQueueView.vue'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -47,6 +48,18 @@ const router = createRouter({
       name: 'tickets',
       component: TicketListView,
       meta: { title: '工单', permission: TICKET_VIEW_PERMISSIONS },
+    },
+    {
+      /**
+       * 刻意不写成 `/tickets/queue`：那条路径同时匹配 `/tickets/:ticketNo`，
+       * 谁生效取决于路由数组顺序——顺序一被上面插进一条新路由就悄悄改变行为。
+       * IT 工作台不是某张工单的详情，给它自己的前缀更诚实。
+       */
+      path: '/it/queue',
+      name: 'ticket-queue',
+      component: TicketQueueView,
+      // 默认停在「待受理」，但这一页也承载「我负责的」，所以入口权限就是队列权限本身
+      meta: { title: 'IT 工作台', permission: 'TICKET_VIEW_QUEUE' },
     },
     {
       path: '/tickets/new',

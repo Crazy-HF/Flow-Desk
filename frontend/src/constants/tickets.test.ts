@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  TICKET_ACTIONS,
   TICKET_PRIORITY_OPTIONS,
   TICKET_SCOPES,
   TICKET_SORT_OPTIONS,
   TICKET_STATUS_OPTIONS,
   describeRecordContext,
+  permittedActions,
   ticketCloseReasonLabel,
   ticketPriorityTone,
   ticketStatusLabel,
@@ -30,6 +32,60 @@ describe('工单展示映射', () => {
 
     expect(new Set(titles).size).toBe(TICKET_SCOPES.length)
     expect(titles.every((title) => title.trim() !== '')).toBe(true)
+  })
+
+  it('每个范围也有自己的页头说明，不是一句对所有范围都成立的套话', () => {
+    const descriptions = TICKET_SCOPES.map((scope) => scope.pageDescription)
+
+    expect(new Set(descriptions).size).toBe(TICKET_SCOPES.length)
+    expect(descriptions.every((text) => text.trim() !== '')).toBe(true)
+  })
+
+  describe('动作登记表', () => {
+    it('四个已实现动作的权限与后端判定条件一致', () => {
+      expect(
+        Object.entries(TICKET_ACTIONS).map(([name, meta]) => [name, meta.permission]),
+      ).toEqual([
+        ['claim', 'TICKET_CLAIM'],
+        ['add-processing-record', 'TICKET_PROCESS'],
+        ['submit-resolution', 'TICKET_PROCESS'],
+        ['confirm-resolution', 'TICKET_REQUESTER_ACTION'],
+      ])
+    })
+
+    it('只有需要写正文的动作才有 content，长度上限与后端 @Size 对齐', () => {
+      expect(TICKET_ACTIONS.claim.content).toBeUndefined()
+      expect(TICKET_ACTIONS['confirm-resolution'].content).toBeUndefined()
+      expect(TICKET_ACTIONS['add-processing-record'].content?.maxLength).toBe(10000)
+      expect(TICKET_ACTIONS['submit-resolution'].content?.maxLength).toBe(10000)
+    })
+
+    it('permittedActions 取 allowedActions 与权限的交集，顺序由登记表决定', () => {
+      const allowAll = () => true
+
+      // 服务端返回顺序打乱，界面顺序仍然固定
+      expect(permittedActions(['confirm-resolution', 'claim'], allowAll)).toEqual([
+        'claim',
+        'confirm-resolution',
+      ])
+    })
+
+    it('服务端尚未放行的动作不出现：没有权限的动作也不出现', () => {
+      const allowAll = () => true
+      const allowNone = () => false
+
+      expect(permittedActions(['add-processing-record'], allowAll)).toEqual([
+        'add-processing-record',
+      ])
+      // 登记表里有提交解决结果，但 allowedActions 没给：界面不自行补一个按钮
+      expect(permittedActions([], allowAll)).toEqual([])
+      // 服务端给了，但本账号已经不具备该权限（取详情后被撤权）
+      expect(permittedActions(['claim'], allowNone)).toEqual([])
+    })
+
+    it('登记表之外的动作名被忽略，不会变成按不动的按钮', () => {
+      expect(permittedActions(['transfer', 'close'], () => true)).toEqual([])
+    })
   })
 
   it('状态选项覆盖七个编码且顺序按生命周期，不是按字母', () => {

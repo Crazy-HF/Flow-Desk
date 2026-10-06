@@ -7,6 +7,7 @@ import com.flowdesk.common.exception.ApiException;
 import com.flowdesk.common.utils.StringUtils;
 import com.flowdesk.common.web.PageResult;
 import com.flowdesk.ticket.application.port.CurrentRequesterPort;
+import com.flowdesk.ticket.application.port.TicketClaimantPort;
 import com.flowdesk.ticket.application.query.TicketQuery;
 import com.flowdesk.ticket.application.query.TicketRecordQuery;
 import com.flowdesk.ticket.application.result.*;
@@ -25,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -37,21 +39,35 @@ public class TicketQueryServiceImpl implements TicketQueryService {
     private static final String TICKET_VIEW_QUEUE = "TICKET_VIEW_QUEUE";
     //查看参与工单
     private static final String TICKET_VIEW_PARTICIPATED = "TICKET_VIEW_PARTICIPATED";
+    private static final String TICKET_CLAIM = "TICKET_CLAIM";
+    /** 处理工单权限：详情动作提示与动作接口使用同一编码。 */
+    private static final String TICKET_PROCESS = "TICKET_PROCESS";
+    /** 提交人动作权限：补充、确认、未解决反馈与撤销。 */
+    private static final String TICKET_REQUESTER_ACTION = "TICKET_REQUESTER_ACTION";
+    /** 待处理：无人负责的公共队列状态。 */
+    private static final String STATUS_PENDING = "PENDING";
+    /** 处理中：只有当前负责人可以追加处理记录。 */
+    private static final String STATUS_PROCESSING = "PROCESSING";
+    /** 待确认：只有提交人可以确认问题已解决。 */
+    private static final String STATUS_WAITING_FOR_CONFIRMATION = "WAITING_FOR_CONFIRMATION";
 
     private final TicketMapper ticketMapper;
     private final CurrentRequesterPort currentRequesterPort;
     private final TicketReadPermissionPort ticketReadPermissionPort;
     private final TicketRecordMapper ticketRecordMapper;
+    private final TicketClaimantPort ticketClaimantPort;
 
     public TicketQueryServiceImpl(
             TicketMapper ticketMapper,
             CurrentRequesterPort currentRequesterPort,
             TicketReadPermissionPort ticketReadPermissionPort,
-            TicketRecordMapper ticketRecordMapper) {
+            TicketRecordMapper ticketRecordMapper,
+            TicketClaimantPort ticketClaimantPort) {
         this.ticketMapper = ticketMapper;
         this.currentRequesterPort = currentRequesterPort;
         this.ticketReadPermissionPort = ticketReadPermissionPort;
         this.ticketRecordMapper = ticketRecordMapper;
+        this.ticketClaimantPort = ticketClaimantPort;
     }
 
     /**
@@ -127,7 +143,7 @@ public class TicketQueryServiceImpl implements TicketQueryService {
                     "工单不存在");
         }
 
-        return toDetail(row);
+        return toDetail(row, currentUserId);
     }
 
     /**
@@ -244,7 +260,7 @@ public class TicketQueryServiceImpl implements TicketQueryService {
     /**
      * 详情结果。
      */
-    private TicketDetailResult toDetail(TicketDetailRow row) {
+    private TicketDetailResult toDetail(TicketDetailRow row, long currentUserId) {
         TicketCategorySummaryResult category =
                 new TicketCategorySummaryResult(
                         row.getCategoryId(),
@@ -261,6 +277,54 @@ public class TicketQueryServiceImpl implements TicketQueryService {
                         : new TicketUserSummaryResult(
                         row.getAssigneeId(),
                         row.getAssigneeDisplayName());
+
+        boolean canClaim = STATUS_PENDING.equals(row.getStatus())
+                && row.getAssigneeId() == null
+                && row.getRequesterId() != currentUserId
+                && ticketReadPermissionPort.hasAuthority(TICKET_VIEW_QUEUE)
+                && ticketReadPermissionPort.hasAuthority(TICKET_CLAIM)
+                && ticketClaimantPort.isEligibleClaimant(currentUserId);
+
+        boolean canProcess = STATUS_PROCESSING.equals(row.getStatus())
+                && row.getAssigneeId() != null
+                && row.getAssigneeId() == currentUserId
+                && ticketReadPermissionPort.hasAuthority(TICKET_PROCESS);
+
+        /**
+         * 提交解决结果与追加处理记录的前置条件**完全相同**（处理中、本人是负责人、具备处理权限），
+         * 所以直接复用同一条判定，而不是复制一份迟早会不一致的表达式。
+         *
+         * <p>这个分支曾经缺失：`POST /actions/submit-resolution` 早已实现并通过真实栈验收
+         * （`docs/acceptance/2026-10-06-stage3-claim-process-resolution-confirm.json`），
+         * 但详情不返回这个动作名——界面按 `allowedActions` 渲染按钮，于是负责人能写处理记录
+         * 却交不出解决结果。阶段 3 端到端主链实测到的正是这一步。</p>
+         */
+        boolean canSubmitResolution = canProcess;
+
+        // 待确认状态下 IT 侧只暴露已实现的动作：报告未解决、转交与调整尚未实现，
+        // 因此这里不返回，避免前端渲染按不动的按钮。
+        boolean canConfirm = STATUS_WAITING_FOR_CONFIRMATION.equals(row.getStatus())
+                && row.getRequesterId() == currentUserId
+                && ticketReadPermissionPort.hasAuthority(TICKET_REQUESTER_ACTION);
+
+        // 一个动作一个条件，动作名与接口路径末段逐字一致。
+        List<String> allowedActions = new ArrayList<>();
+
+        if (canClaim) {
+            allowedActions.add("claim");
+        }
+
+        if (canProcess) {
+            allowedActions.add("add-processing-record");
+        }
+
+        if (canSubmitResolution) {
+            allowedActions.add("submit-resolution");
+        }
+
+        if (canConfirm) {
+            allowedActions.add("confirm-resolution");
+        }
 
         return new TicketDetailResult(
                 row.getTicketNo(),
@@ -279,7 +343,7 @@ public class TicketQueryServiceImpl implements TicketQueryService {
                 toOffsetDateTime(row.getEndedAt()),
                 toOffsetDateTime(row.getCreatedAt()),
                 toOffsetDateTime(row.getUpdatedAt()),
-                List.of());
+                allowedActions);
     }
 
     /**

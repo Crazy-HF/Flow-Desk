@@ -392,3 +392,23 @@ Controller → create()（无外层事务）
 Spring 默认代理模式下，从 Controller 等外部对象调用 Spring Service Bean 的公共方法可触发事务；同一个对象内部直接调用另一个带注解的方法，通常不会触发该方法的新事务配置。private 辅助方法可运行在外部公共方法已经开启的事务里，但自身注解不能依靠默认代理触发事务。
 
 事务内可以使用 try/catch。捕获后重新抛出匹配回滚规则的异常，代理可回滚；吞掉异常并正常返回则可能提交，或因底层已标记 rollback-only 而在结束时失败。当前创建幂等恢复把 catch 放在 TransactionTemplate.execute 外，是为了先结束并回滚失败的创建事务，再开启独立事务回查，不是因为事务中禁止 try/catch。
+
+## IT 工单领取：移除全局角色行锁（2026-09-30）
+
+### 当前状态
+
+**领取路径中的全局角色行锁已从代码移除；本条记录的是代码检查与修复，未据此宣称吞吐量经过专项压测。**
+
+### 如何发现
+
+检查 `TicketServiceImpl.claim()` 的事务调用链时，发现此前 `IamTicketClaimantAdapter.lockEligibleClaimant()` 调用了 `IamRoleMapper.selectByCodeForUpdate("IT_SUPPORT")`。该 Mapper 的 SQL 对 `iam_role` 中编码为 `IT_SUPPORT` 的角色行执行 `SELECT ... FOR UPDATE`。所有 IT 人员都共用这一行，因此即使领取的是不同工单、使用的是不同账号，事务也要竞争同一行锁，后来的请求需等待前一个事务释放锁。这是从代码和 SQL 的锁目标推导出的全局串行风险；先前并发请求的结果受测试账号角色及领取先后影响，不能单独作为该锁造成性能瓶颈的实测证明。
+
+### 如何修复
+
+- `lockEligibleClaimant()` 现在用普通 `selectOne` 按不可修改的角色编码读取 `IT_SUPPORT` 的 ID，不在领取事务里锁住公共角色行。`IamRoleMapper.selectByCodeForUpdate()` 仍可供其他 IAM 写入流程使用，只是领取路径不再调用它。
+- 仍用 `selectByIdForUpdate(userId)` 锁定当前用户行，并用 `selectByUserIdForUpdate(userId)` 读取其角色授权，确认账号启用且仍拥有 `IT_SUPPORT`。同一个 IT 账号并发领取不同工单仍可能在自身用户行上等待；不同账号不再因公共角色行而排队。
+- 同一工单由 `TicketMapper.claimPending()` 的条件 `UPDATE` 决定胜者：要求工单 ID、预期版本、`PENDING`、负责人为空且领取人不是提交人。成功更新一行后才继续写参与关系和领取记录；未更新到一行按冲突处理。移除公共角色锁不改变同一工单只能被成功领取一次的数据库判定。
+
+### 展示边界
+
+可以表述为“代码检查发现领取事务误锁所有 IT 共用的角色行，改为无锁读取角色 ID，并保留用户授权校验和工单条件更新”。本次仅追加文档，未执行测试或吞吐量对比；不要将它表述为已量化的性能提升。

@@ -1,0 +1,250 @@
+{
+    "stage":  "阶段 3 IT 处理闭环",
+    "slices":  "步骤1 claim 与 步骤2 add-processing-record",
+    "date":  "2026-10-06",
+    "baseUrl":  "http://127.0.0.1:8081",
+    "tickets":  {
+                    "ticketB":  "FD-20261006-005",
+                    "ticketA":  "FD-20261006-004"
+                },
+    "observed":  [
+                     "admin.roles=EMPLOYEE|IT_SUPPORT|SYSTEM_ADMIN",
+                     "admin.hasTicketClaim=True",
+                     "admin.claim.otherTicket.status=200 code="
+                 ],
+    "total":  45,
+    "passed":  45,
+    "failed":  0,
+    "assertions":  [
+                       {
+                           "name":  "login.employee",
+                           "passed":  true,
+                           "detail":  "status=200"
+                       },
+                       {
+                           "name":  "login.it",
+                           "passed":  true,
+                           "detail":  "status=200"
+                       },
+                       {
+                           "name":  "login.admin",
+                           "passed":  true,
+                           "detail":  "status=200"
+                       },
+                       {
+                           "name":  "it.isIT_SUPPORT",
+                           "passed":  true,
+                           "detail":  "roles=IT_SUPPORT"
+                       },
+                       {
+                           "name":  "it.hasClaimPermission",
+                           "passed":  true,
+                           "detail":  "ticketPerms=TICKET_CLAIM|TICKET_CLOSE|TICKET_PROCESS|TICKET_TRANSFER|TICKET_VIEW_PARTICIPATED|TICKET_VIEW_QUEUE"
+                       },
+                       {
+                           "name":  "it.hasProcessPermission",
+                           "passed":  true,
+                           "detail":  "hasProcess=True"
+                       },
+                       {
+                           "name":  "categories.options",
+                           "passed":  true,
+                           "detail":  "status=200"
+                       },
+                       {
+                           "name":  "categories.options.nonEmpty",
+                           "passed":  true,
+                           "detail":  "count=4"
+                       },
+                       {
+                           "name":  "ticket.A.create",
+                           "passed":  true,
+                           "detail":  "status=201 traceId=32162298-4348-44a7-82b6-82ddb27f6517"
+                       },
+                       {
+                           "name":  "ticket.A.number",
+                           "passed":  true,
+                           "detail":  "ticketNo=FD-20261006-004 version=0"
+                       },
+                       {
+                           "name":  "ticket.B.create",
+                           "passed":  true,
+                           "detail":  "status=201 traceId=4b270d5d-177e-47e7-b031-a81fe8f242c3"
+                       },
+                       {
+                           "name":  "claim.anonymous.401",
+                           "passed":  true,
+                           "detail":  "status=401 traceId=a84afc2e-33c9-4f2c-b3b8-4dc8b2681438"
+                       },
+                       {
+                           "name":  "claim.employee.403",
+                           "passed":  true,
+                           "detail":  "status=403 code=TICKET_ACTION_FORBIDDEN traceId=e1f994d3-cf97-4993-af1b-b1d9858abd09"
+                       },
+                       {
+                           "name":  "claim.unknownTicket.404",
+                           "passed":  true,
+                           "detail":  "status=404 code=TICKET_NOT_FOUND traceId=5ae23b68-4f6b-4d82-8f64-8e2e76980d85"
+                       },
+                       {
+                           "name":  "claim.staleVersion.409",
+                           "passed":  true,
+                           "detail":  "status=409 code=TICKET_CONFLICT traceId=f82dce17-10f1-4b8b-9d10-874c1ad74e22"
+                       },
+                       {
+                           "name":  "claim.missingVersion.400",
+                           "passed":  true,
+                           "detail":  "status=400 traceId=b7ab8473-0731-4202-b28b-7f06d3226dad"
+                       },
+                       {
+                           "name":  "claim.success.200",
+                           "passed":  true,
+                           "detail":  "status=200 traceId=86bce1d6-5015-4f2c-8c31-f750bf50e320"
+                       },
+                       {
+                           "name":  "claim.status.PROCESSING",
+                           "passed":  true,
+                           "detail":  "status=PROCESSING"
+                       },
+                       {
+                           "name":  "claim.version.incremented",
+                           "passed":  true,
+                           "detail":  "expected=1 actual=1"
+                       },
+                       {
+                           "name":  "claim.assignee.isIt",
+                           "passed":  true,
+                           "detail":  "assigneeId=2 itId=2"
+                       },
+                       {
+                           "name":  "claim.repeat.409",
+                           "passed":  true,
+                           "detail":  "status=409 code=TICKET_CONFLICT traceId=6de6cffb-c0a1-48b6-9880-dae3a6d5937a"
+                       },
+                       {
+                           "name":  "claim.repeat.conflictSnapshot",
+                           "passed":  true,
+                           "detail":  "conflictStatus=PROCESSING conflictVersion=1"
+                       },
+                       {
+                           "name":  "detail.it.200",
+                           "passed":  true,
+                           "detail":  "status=200 traceId=c8103118-c5eb-408b-926f-ad8b28198a48"
+                       },
+                       {
+                           "name":  "detail.allowedActions.hasProcess",
+                           "passed":  true,
+                           "detail":  "allowedActions=add-processing-record"
+                       },
+                       {
+                           "name":  "detail.allowedActions.noClaim",
+                           "passed":  true,
+                           "detail":  "allowedActions=add-processing-record"
+                       },
+                       {
+                           "name":  "process.employee.notAllowed",
+                           "passed":  true,
+                           "detail":  "status=403 code=TICKET_ACTION_FORBIDDEN traceId=73d635c8-4814-43f0-9db5-d5c5664ed498"
+                       },
+                       {
+                           "name":  "process.blankContent.400",
+                           "passed":  true,
+                           "detail":  "status=400 code=VALIDATION_FAILED traceId=0718495f-823a-4bce-b8da-2cc3d103f8fc"
+                       },
+                       {
+                           "name":  "process.staleVersion.409",
+                           "passed":  true,
+                           "detail":  "status=409 code=TICKET_CONFLICT traceId=9138c2e5-f8a4-48f8-b8ba-69a3516a1d8c"
+                       },
+                       {
+                           "name":  "process.success.200",
+                           "passed":  true,
+                           "detail":  "status=200 traceId=b5e69930-97a8-4768-bbe1-02b0e62f4083"
+                       },
+                       {
+                           "name":  "process.status.unchanged",
+                           "passed":  true,
+                           "detail":  "status=PROCESSING"
+                       },
+                       {
+                           "name":  "process.version.incremented",
+                           "passed":  true,
+                           "detail":  "expected=2 actual=2"
+                       },
+                       {
+                           "name":  "process.assignee.unchanged",
+                           "passed":  true,
+                           "detail":  "assigneeId=2"
+                       },
+                       {
+                           "name":  "process.repeat.409",
+                           "passed":  true,
+                           "detail":  "status=409 code=TICKET_CONFLICT traceId=b1c89fb9-ee04-48a4-9d55-8a6a9e98ff78"
+                       },
+                       {
+                           "name":  "process.maxLength.200",
+                           "passed":  true,
+                           "detail":  "status=200 traceId=8fc396a0-ec14-41cc-b6b9-5ff3cc3722c5"
+                       },
+                       {
+                           "name":  "process.tooLong.400",
+                           "passed":  true,
+                           "detail":  "status=400 code=VALIDATION_FAILED traceId=93aebca9-f845-4ed9-8584-da8c20beaf65"
+                       },
+                       {
+                           "name":  "process.concurrent.oneWinner",
+                           "passed":  true,
+                           "detail":  "statuses=200,409"
+                       },
+                       {
+                           "name":  "records.200",
+                           "passed":  true,
+                           "detail":  "status=200 traceId=8e79d81f-9f4e-47a9-9d8e-e0846e3552e7"
+                       },
+                       {
+                           "name":  "records.firstIsCreate",
+                           "passed":  true,
+                           "detail":  "types=CREATE,CLAIM,PROCESS,PROCESS,PROCESS"
+                       },
+                       {
+                           "name":  "records.secondIsClaim",
+                           "passed":  true,
+                           "detail":  "types=CREATE,CLAIM,PROCESS,PROCESS,PROCESS"
+                       },
+                       {
+                           "name":  "records.processCount",
+                           "passed":  true,
+                           "detail":  "processCount=3 types=CREATE,CLAIM,PROCESS,PROCESS,PROCESS"
+                       },
+                       {
+                           "name":  "records.sequenceStrictlyIncreasing",
+                           "passed":  true,
+                           "detail":  "sequenceNos=1,2,3,4,5"
+                       },
+                       {
+                           "name":  "records.sequenceStartsAtOne",
+                           "passed":  true,
+                           "detail":  "sequenceNos=1,2,3,4,5"
+                       },
+                       {
+                           "name":  "records.process.contentTrimmed",
+                           "passed":  true,
+                           "detail":  "content=[已联系机房，等待重启窗口]"
+                       },
+                       {
+                           "name":  "records.process.actorIsIt",
+                           "passed":  true,
+                           "detail":  "actorId=2"
+                       },
+                       {
+                           "name":  "records.claim.transition",
+                           "passed":  true,
+                           "detail":  "from=PENDING to=PROCESSING"
+                       }
+                   ],
+    "cleanupSql":  [
+                       "DELETE FROM ticket_record WHERE ticket_id IN (SELECT id FROM ticket WHERE ticket_no IN (\u0027FD-20261006-004\u0027,\u0027FD-20261006-005\u0027));",
+                       "DELETE FROM ticket_participant WHERE ticket_id IN (SELECT id FROM ticket WHERE ticket_no IN (\u0027FD-20261006-004\u0027,\u0027FD-20261006-005\u0027));",
+                       "DELETE FROM ticket WHERE ticket_no IN (\u0027FD-20261006-004\u0027,\u0027FD-20261006-005\u0027);"
+                   ]
+}

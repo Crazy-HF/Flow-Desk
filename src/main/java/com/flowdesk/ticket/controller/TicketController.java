@@ -4,25 +4,20 @@ import com.flowdesk.common.web.R;
 import com.flowdesk.common.web.PageResult;
 import com.flowdesk.ticket.application.query.TicketQuery;
 import com.flowdesk.ticket.application.query.TicketRecordQuery;
-import com.flowdesk.ticket.application.result.TicketRecordResult;
-import com.flowdesk.ticket.application.result.TicketListItemResult;
-import com.flowdesk.ticket.application.result.TicketDetailResult;
+import com.flowdesk.ticket.application.command.ClaimTicketCommand;
+import com.flowdesk.ticket.application.command.AddProcessingRecordCommand;
+import com.flowdesk.ticket.application.command.SubmitResolutionCommand;
+import com.flowdesk.ticket.application.command.ConfirmResolutionCommand;
+import com.flowdesk.ticket.application.result.*;
 import com.flowdesk.ticket.application.service.TicketQueryService;
 import com.flowdesk.ticket.application.command.CreateTicketCommand;
-import com.flowdesk.ticket.application.result.TicketCreatedResult;
 import com.flowdesk.ticket.application.service.TicketService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.ModelAttribute;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestPart;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/fd/v1/tickets")
@@ -74,5 +69,37 @@ public class TicketController {
             @Valid @RequestPart("ticket") CreateTicketCommand command) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(R.success(ticketService.create(command)));
+    }
+
+    /** 领取工单。 */
+    @PostMapping("/{ticketNo}/actions/claim")
+    public R<TicketActionResult> claim(
+            @PathVariable String ticketNo,
+            @Valid @RequestBody ClaimTicketCommand command) {
+        return R.success(ticketService.claim(ticketNo, command));
+    }
+
+    /** 当前负责人追加处理记录；状态与负责人不变，只递增版本与记录序号。 */
+    @PostMapping("/{ticketNo}/actions/add-processing-record")
+    public R<TicketActionResult> addProcessingRecord(
+            @PathVariable String ticketNo,
+            @Valid @RequestBody AddProcessingRecordCommand command) {
+        return R.success(ticketService.addProcessingRecord(ticketNo, command));
+    }
+
+    /** 当前负责人提交解决结果；进入待确认并生成确认期限。 */
+    @PostMapping("/{ticketNo}/actions/submit-resolution")
+    public R<TicketActionResult> submitResolution(
+            @PathVariable String ticketNo,
+            @Valid @RequestBody SubmitResolutionCommand command) {
+        return R.success(ticketService.submitResolution(ticketNo, command));
+    }
+
+    /** 提交人确认问题已解决；进入终态 COMPLETED。 */
+    @PostMapping("/{ticketNo}/actions/confirm-resolution")
+    public R<TicketActionResult> confirmResolution(
+            @PathVariable String ticketNo,
+            @Valid @RequestBody ConfirmResolutionCommand command) {
+        return R.success(ticketService.confirmResolution(ticketNo, command));
     }
 }

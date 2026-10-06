@@ -36,7 +36,23 @@ import { useCompactPagination } from '@/views/admin/useCompactPagination'
  * <p>取数状态机与窄屏分页复用管理端那两个共享件：它们是"查询 + 列表 + 分页"的通用机制，
  * 不含任何管理业务。它们目前位于 `views/admin/`，随本轮首次被业务页复用，
  * 位置整理（迁到共享层）已登记在 `PROJECT_STATUS.md`。</p>
+ *
+ * <p>同一份实现被两条路由复用：`/tickets`（员工自己的工单，默认「我提交的」）与
+ * `/tickets/queue`（IT 工作台，默认「待受理」）。差别只有默认范围与页头文案，所以走 props
+ * 而不是再写一份列表——两张表一旦各写一遍，筛选、分页、空态就会慢慢长歪。</p>
  */
+const props = withDefaults(
+  defineProps<{
+    /** 没有可用的地址参数时选中的范围；传入值必须在该账号有权限的范围里，否则回退到第一个。 */
+    defaultScope?: TicketScope
+    title?: string
+  }>(),
+  {
+    defaultScope: 'REQUESTED_BY_ME',
+    title: '工单',
+  },
+)
+
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
@@ -69,7 +85,10 @@ const permittedScopes = computed(() =>
 
 /**
  * 初始范围优先取地址里的 `scope`（「新建工单」提交失败时就是靠它把用户带回来确认的），
- * 其次取第一个可用范围。地址里的范围没有权限时静默忽略，不报错——它不是用户手动触发的操作。
+ * 其次取 `defaultScope`（必须自己也有权限），最后才退回第一个可用范围。
+ *
+ * <p>地址里的范围没有权限时静默忽略，不报错——它不是用户手动触发的操作。
+ * 页头文案也按当前范围走：留在「我提交的」上却写着"待受理队列"会直接误导。</p>
  */
 function initialScope(): TicketScope {
   const requested = route.query.scope
@@ -81,13 +100,19 @@ function initialScope(): TicketScope {
       return matched.value
     }
   }
-  return permittedScopes.value[0]?.value ?? 'REQUESTED_BY_ME'
+  const fallback = TICKET_SCOPES.find(
+    (option) => option.value === props.defaultScope && auth.hasPermission(option.permission),
+  )
+  return fallback?.value ?? permittedScopes.value[0]?.value ?? 'REQUESTED_BY_ME'
 }
 
 const scope = ref<TicketScope>(initialScope())
 const currentScope = computed(
   () => TICKET_SCOPES.find((option) => option.value === scope.value) ?? TICKET_SCOPES[0],
 )
+
+/** 页头按当前范围说明这一步该做什么，而不是写一句对所有范围都成立的套话。 */
+const pageDescription = computed(() => currentScope.value?.pageDescription ?? '')
 
 /**
  * 队列范围在后端固定为 `PENDING`（`TicketMapper` 里 `WHERE t.status = 'PENDING'`），
@@ -173,6 +198,9 @@ function resetFilters(): void {
  *
  * <p>用 `replace` 而不是 `push`：范围切换属于同一页面的视图状态，不该在浏览器历史里
  * 堆成一串"后退一次换一个范围"。</p>
+ *
+ * <p>地址里不写默认范围，而是**把 `scope` 去掉**。否则 `/tickets/queue` 上看过一次
+ * 「我提交的」之后，地址会永久停在 `?scope=REQUESTED_BY_ME`，页头文案与默认范围再也回不去。</p>
  */
 async function changeScope(value: unknown): Promise<void> {
   const next = TICKET_SCOPES.find((option) => option.value === value)?.value
@@ -185,7 +213,13 @@ async function changeScope(value: unknown): Promise<void> {
   if (next === 'PENDING_QUEUE') {
     statusFilter.value = []
   }
-  await router.replace({ query: { ...route.query, scope: next } })
+  const query = { ...route.query }
+  if (next === props.defaultScope) {
+    delete query.scope
+  } else {
+    query.scope = next
+  }
+  await router.replace({ query })
   await search()
 }
 
@@ -215,6 +249,24 @@ watch(
   },
 )
 
+/**
+ * 两条列表路由（`/tickets` 与 `/tickets/queue`）共用同一个组件，vue-router 在它们之间跳转时
+ * **复用组件实例**，`onMounted` 不会再跑。只换默认范围不重新取数，用户会看到旧范围的列表
+ * 配新页头——所以这里显式回到该路由的默认范围并重取。
+ */
+watch(
+  () => props.defaultScope,
+  (value) => {
+    const matched = TICKET_SCOPES.find(
+      (option) => option.value === value && auth.hasPermission(option.permission),
+    )
+    if (matched && matched.value !== scope.value) {
+      scope.value = matched.value
+      void search()
+    }
+  },
+)
+
 const canCreate = computed(() => auth.hasPermission('TICKET_CREATE'))
 
 onMounted(() => {
@@ -228,9 +280,9 @@ onMounted(() => {
 <template>
   <AppPage
     class="admin-page ticket-list-page"
-    description="四种工作范围按你的权限出现；点击工单标题查看问题正文与处理时间线。"
+    :description="pageDescription"
     layout="list"
-    title="工单"
+    :title="props.title"
   >
     <section
       v-if="permittedScopes.length === 0"

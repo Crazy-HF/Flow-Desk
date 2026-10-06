@@ -39,6 +39,16 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(ApiException.class)
     ResponseEntity<R<ErrorDetails>> handleApiException(ApiException exception) {
+        if (exception.resourceVersion() != null
+                && exception.resourceStatus() != null) {
+            String traceId = errorWriter.body(exception.code(), exception.getMessage())
+                    .data().traceId();
+            ErrorDetails details = new ErrorDetails(
+                    traceId, null,
+                    exception.resourceVersion(), exception.resourceStatus());
+            return ResponseEntity.status(exception.status())
+                    .body(R.failure(exception.code(), exception.getMessage(), details));
+        }
         return ResponseEntity.status(exception.status())
                 .body(errorWriter.body(exception.code(), exception.getMessage()));
     }

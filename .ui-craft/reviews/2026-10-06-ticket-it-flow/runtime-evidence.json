@@ -1,0 +1,55 @@
+{
+  "ticketNo": "FD-20261006-026",
+  "title": "E2E 阶段3主链 206774",
+  "steps": [
+    {
+      "step": "create",
+      "status": 201,
+      "traceId": "e4c9b6bd-e91e-416f-b565-88ebe5dbc1d7",
+      "detail": "FD-20261006-026 由员工通过界面创建"
+    },
+    {
+      "step": "claim",
+      "status": 200,
+      "traceId": "e4a8a867-cf5a-42d9-b7e1-385e84edf09f",
+      "detail": "IT 领取成功，工单进入处理中"
+    },
+    {
+      "step": "add-processing-record",
+      "status": 200,
+      "traceId": "ac092bc1-6388-4e54-b220-9b4253b8813e",
+      "detail": "处理记录写入时间线，状态与负责人不变"
+    },
+    {
+      "step": "submit-resolution",
+      "status": 200,
+      "traceId": "14f8260f-2e2f-4e59-a219-69422e33aac0",
+      "detail": "进入待员工确认，确认期限由服务端给出"
+    },
+    {
+      "step": "confirm-resolution",
+      "status": 200,
+      "traceId": "6694ce50-7464-407a-a826-5f6b072d8fd6",
+      "detail": "员工确认，工单进入终态已完成"
+    }
+  ],
+  "uiStatusTransitions": [
+    "待受理",
+    "处理中",
+    "待员工确认",
+    "已完成"
+  ],
+  "timelineTypes": [
+    "创建工单",
+    "领取工单",
+    "记录处理过程",
+    "提交解决结果",
+    "完成工单"
+  ],
+  "viewports": [
+    1440,
+    375
+  ],
+  "horizontalOverflow": 0,
+  "pageErrors": []
+}

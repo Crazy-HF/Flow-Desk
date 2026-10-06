@@ -81,6 +81,20 @@ export const navigationEntries: NavigationEntry[] = [
     permission: ['TICKET_VIEW_OWN', 'TICKET_VIEW_QUEUE', 'TICKET_VIEW_PARTICIPATED'],
   },
   { name: 'ticket-new', label: '新建工单', group: 'work', permission: 'TICKET_CREATE' },
+  {
+    /**
+     * IT 处理入口与员工入口分开：同一个人在两边的第一件事不同——员工看"我提交的"，
+     * IT 看"待受理"。合成一个入口会让其中一边每次都要先切一次范围。
+     *
+     * <p>不挂 `activeRouteNames: ['ticket-detail']`：详情页的上一级应当是用户从哪个列表点进去的，
+     * 「工单」条目已经承担了详情的选中态与面包屑，两处都命中会让 `AppBreadcrumb` 的面包屑
+     * 取决于数组顺序。</p>
+     */
+    name: 'ticket-queue',
+    label: 'IT 工作台',
+    group: 'work',
+    permission: 'TICKET_VIEW_QUEUE',
+  },
   { name: 'dashboard', label: '数据概览', group: 'work', permission: 'DASHBOARD_VIEW' },
   {
     name: 'admin-users',
