@@ -20,8 +20,15 @@ import { resolve } from 'node:path'
 const password = process.env.E2E_PASSWORD ?? '123456'
 const employeeUsername = process.env.E2E_EMPLOYEE_USERNAME ?? 'employee'
 const itUsername = process.env.E2E_IT_USERNAME ?? 'it'
-/** 演示 IT 账号的显示名，来自 `R__seed_demo_data.sql`；只用来断言"负责人真的换成了 IT"。 */
-const itDisplayName = process.env.E2E_IT_DISPLAY_NAME ?? 'IT 支持人员'
+/**
+ * 演示 IT 账号的显示名只用来断言"负责人真的换成了 IT"。
+ *
+ * <p>这里刻意不写死常量：显示名属于演示数据，会随 `R__seed_demo_data.sql` 变化，而本机演示库
+ * 又可能被长期手工演进（2026-10-06 CI 的 `core-e2e` 就因为这里的 `IT 支持人员` 与种子里的
+ * `演示 IT 支持人员` 不一致而失败，本机却是通过的）。默认改为登录后从顶部身份区读取当前账号
+ * 的显示名；确实需要指定时仍可用 `E2E_IT_DISPLAY_NAME` 覆盖。</p>
+ */
+const itDisplayNameOverride = process.env.E2E_IT_DISPLAY_NAME
 
 /** 评审产物目录：与其它视觉评审放在同一处，方便和报告互相引用。 */
 const reviewDir = resolve(process.cwd(), '../.ui-craft/reviews/2026-10-06-ticket-it-flow')
@@ -165,6 +172,11 @@ test('阶段 3 主链：员工提交 → IT 领取 → 处理 → 提交解决 �
 
   // ---------- 2. IT 领取 ----------
   await signIn(page, itUsername)
+
+  // 期望的负责人显示名取自当前登录身份（`AppHeader` 的 `.app-header__identity`），不写死常量
+  const itDisplayName = itDisplayNameOverride
+    ?? (await page.getByRole('banner').locator('.app-header__identity').innerText()).trim()
+  expect(itDisplayName, '顶部栏没有展示当前 IT 身份，无法断言负责人').not.toBe('')
 
   /**
    * IT 工作台默认停在「待受理」。断言的是"这张刚提交的工单确实出现在队列里"，
