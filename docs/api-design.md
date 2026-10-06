@@ -168,6 +168,8 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 
 `PENDING_QUEUE` 默认使用 `PRIORITY_DESC_CREATED_ASC`，先显示高优先级，再显示较早创建的工单；其他范围默认使用 `UPDATED_DESC`。优先级排序必须显式映射高、中、低顺序，不能按字符串字母顺序排序；所有排序最后追加内部 ID 作为稳定次序。
 
+**收口补充（2026-10-06，`flow-desk/mvp-hardening`）**：列表与时间线都不接受客户端自选排序字段——传入非空 `orderBy` 一律 `400/VALIDATION_FAILED`；`orderDirection` 只接受升序（`asc`，比较忽略大小写，空值按默认升序处理），`desc` 与非法值同样 `400`。`TicketQuery` 与 `TicketRecordQuery` 复用 `PageQuery` 的同一判定，不再各自比较字符串字面量。
+
 分页响应为 `R<PageResult<TicketListItem>>`。`PageResult<T>` 至少包含 `items`、`page`、`size`、`totalElements` 和 `totalPages`。
 
 列表项只返回识别和筛选所需字段：工单编号、标题、分类、优先级、状态、提交人摘要、负责人摘要、当前有效截止时间、创建时间、更新时间和版本号，不返回问题正文或完整时间线。
@@ -237,6 +239,8 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 - `sourceTicketNo`：可选；必须是当前提交人有权查看的原工单，且不能形成自引用。
 
 **已确认**：`submissionKey` 由 Vue 在用户开始一次提交时生成，同一用户使用同一键重复请求时返回首次创建结果。`ticket` 表使用对应字段及 `(requester_id, submission_key)` 唯一约束，不增加独立幂等表。
+
+**收口补充（2026-10-06）**：唯一约束命中且能查到本次提交的原工单时，按幂等返回首次创建结果；若 `DuplicateKeyException` 来自其他唯一键（工单编号等），返回 `409/TICKET_CREATE_CONFLICT`，客户端可安全重试——此前该分支回落为 `500/INTERNAL_ERROR`。
 
 附件类型、单文件大小、总数量及失败补偿在工程准备阶段确定。v1 直接随创建请求上传，不提前引入临时文件资源或分片上传。
 
@@ -572,6 +576,7 @@ MySQL 与 Redis 之间不存在天然原子事务。工程准备阶段必须明�
 | `404` | `GRANT_NOT_FOUND` | 要撤销的授权关系不存在 |
 | `404` | `ATTACHMENT_NOT_FOUND` | 附件不存在、归属不符或不可见 |
 | `409` | `TICKET_CONFLICT` | 工单版本、状态或负责人已变化 |
+| `409` | `TICKET_CREATE_CONFLICT` | 创建工单命中非提交键的唯一约束（如工单编号冲突），可重试；原始数据库异常保留为 cause |
 | `409` | `USERNAME_CONFLICT` | 登录名已存在 |
 | `409` | `USER_CONFLICT` | 用户版本或状态已变化 |
 | `409` | ~~`USER_ROLE_REQUIRED`~~（已废弃，2026-09-22） | 原用于“操作会移除用户最后一个角色”；现允许用户零角色，所有接口都不再返回该编码，保留此行仅为追溯 |

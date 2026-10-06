@@ -84,12 +84,22 @@ public class PageQuery implements Serializable {
         return orderItems;
     }
 
+    /**
+     * 排序方向是否为升序：空值按默认升序处理，比较忽略大小写。
+     *
+     * <p>只做判定、不抛异常，供子类在 Bean Validation 约束里复用同一口径，
+     * 避免子类用裸字符串比较再定义一套大小写敏感的排序规则。</p>
+     */
+    protected boolean isAscendingDirection() {
+        return !StringUtils.hasText(orderDirection) || "asc".equalsIgnoreCase(orderDirection);
+    }
+
     private boolean isAscending() {
-        if (StringUtils.hasText(orderDirection) && "desc".equalsIgnoreCase(orderDirection)) {
-            return false;
-        }
-        if (!StringUtils.hasText(orderDirection) || "asc".equalsIgnoreCase(orderDirection)) {
+        if (isAscendingDirection()) {
             return true;
+        }
+        if ("desc".equalsIgnoreCase(orderDirection)) {
+            return false;
         }
         throw new ApiException(HttpStatus.BAD_REQUEST,
                 "VALIDATION_FAILED",

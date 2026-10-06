@@ -1,0 +1,100 @@
+{
+  "phase": "flow-desk/mvp-hardening",
+  "items": ["② 测试稳定性", "③ CI 时长与并行度"],
+  "date": "2026-10-06",
+  "commit": null,
+  "note": "本文件记录 ② 与 ③ 的实跑证据；提交哈希在交接时补记，未提交前的结论不依赖哈希。",
+
+  "integration_stability": {
+    "command": ".\\mvnw.cmd -B test-compile failsafe:integration-test failsafe:verify \"-Dit.test=TicketServiceIT,CategoryServiceIT\" \"-DargLine=-Djdk.attach.allowAttachSelf=true\"",
+    "rounds": 5,
+    "result_per_round": {
+      "TicketServiceIT": 16,
+      "CategoryServiceIT": 6,
+      "total": 22,
+      "failures": 0,
+      "errors": 0,
+      "exitCode": 0
+    },
+    "conclusion": "5/5 轮全绿，未复现真并发或时序抖动，因此未改动任何集成测试的等待逻辑。",
+    "raw_logs": "%TEMP%\\fd-stability-it-round1.log … fd-stability-it-round5.log"
+  },
+
+  "e2e_stability_before_fix": {
+    "command": "pnpm test:e2e（frontend，真实栈：MySQL 3308 / Redis 6380 / 后端 8081 上的既有实例 / preview 4173）",
+    "rounds": [
+      { "round": 1, "passed": 16, "failed": 1, "exitCode": 1 },
+      { "round": 2, "passed": 16, "failed": 1, "exitCode": 1 },
+      { "round": 3, "passed": 17, "failed": 0, "exitCode": 0 }
+    ],
+    "failure": {
+      "spec": "frontend/e2e/tickets.spec.ts:368",
+      "assertion": "分类管理页切到 375 视口后立即测量的横向溢出",
+      "expected": 0,
+      "received": 38,
+      "occurrences": 2
+    }
+  },
+
+  "e2e_diagnosis": {
+    "method": "一次性诊断用例（已删除，未提交）：API 建一张分类 → 浏览器进入分类管理页并筛到该行 → setViewportSize(375) → 按 0/100/300/600/1000/2000/4000ms 采样溢出量 → 再遍历 DOM 找越界元素",
+    "probes": [
+      { "waitMs": 0, "overflow": 38 },
+      { "waitMs": 100, "overflow": 0 },
+      { "waitMs": 300, "overflow": 0 },
+      { "waitMs": 600, "overflow": 0 },
+      { "waitMs": 1000, "overflow": 0 },
+      { "waitMs": 2000, "overflow": 0 },
+      { "waitMs": 4000, "overflow": 0 }
+    ],
+    "offenders_after_settle": [],
+    "conclusion": "38px 只在切视口后的过渡帧出现，100ms 起恒为 0，且稳定后没有任何越界元素 —— 测量竞态，不是版式缺陷。"
+  },
+
+  "e2e_fix": {
+    "scope": "只改测试代码：frontend/e2e/support/overflow.ts（新增）+ tickets.spec.ts / ticket-it-flow.spec.ts / viewport-1920.spec.ts",
+    "change": "把切换视口或跳转后的一次性溢出测量改为 expect.poll 轮询到稳定（expectNoHorizontalOverflow），并删除三份重复的本地 helper；共替换 13 处断言。",
+    "not_changed": "未改动任何页面、组件或样式（生产前端代码零改动）。"
+  },
+
+  "e2e_stability_after_fix": {
+    "lint": { "command": "pnpm lint", "exitCode": 0 },
+    "typecheck": { "command": "pnpm typecheck", "exitCode": 0 },
+    "rounds": [
+      { "round": 1, "passed": 17, "failed": 0, "exitCode": 0, "duration": "53.6s" },
+      { "round": 2, "passed": 17, "failed": 0, "exitCode": 0, "duration": "56.6s" },
+      { "round": 3, "passed": 17, "failed": 0, "exitCode": 0, "duration": "55.3s" }
+    ],
+    "conclusion": "修复后 3/3 轮全绿；同一断言在修复前 3 轮里失败 2 轮。",
+    "raw_logs": "%TEMP%\\fd-e2e-fix-round1.log … fd-e2e-fix-round3.log"
+  },
+
+  "frontend_suite": {
+    "typecheck": 0,
+    "lint": 0,
+    "build": 0,
+    "unit": { "command": "pnpm test:unit --run --maxWorkers=1", "files": 23, "tests": 147, "failed": 0 }
+  },
+
+  "ci_change": {
+    "file": ".github/workflows/ci.yml",
+    "change": "core-e2e 去掉 needs: [backend-verify, frontend-verify]",
+    "reason": "该 job 自行 pnpm install / build / spring-boot:run，不消费上游任何产物，needs 只是纯串行化",
+    "before_reference_run": { "run": "37424825486", "backend_verify": "3.5 min", "frontend_verify": "0.8 min", "core_e2e": "2.6 min", "wall_clock": "≈6.2 min" },
+    "expected_after": "wall clock ≈ max(3.5, 0.8, 2.6) ≈ 3.5 min",
+    "tradeoff": "后端校验失败时 E2E 仍会跑完（信号更多，runner 分钟更多）",
+    "after_measurement": "以本分支 PR 的 CI 运行时长为准，在 PROJECT_STATUS.md 补记"
+  },
+
+  "database_baseline": {
+    "before_e2e": { "ticket": 1, "record": 5, "participant": 1, "category": 5, "user": 3, "role": 3, "permission": 14 },
+    "after_cleanup": { "ticket": 1, "record": 5, "participant": 1, "category": 5, "user": 3, "role": 3, "permission": 14, "user_role": 5 },
+    "kept_ticket": "FD-20261006-026（四态主链演示单，5 条记录 / 1 条参与关系）",
+    "note": "ticket_daily_sequence 随创建递增，属预期，不回退。E2E 覆写的 .ui-craft/reviews/** 已 git checkout 还原。"
+  },
+
+  "environment_notes": [
+    "8081 端口上存在 11:52 启动的既有后端（早于本轮改动），按其时项目惯例未停止它；E2E 跑在该实例上，后端行为证据来自后端测试与 CI。",
+    "本轮尝试另起后端被端口占用拒绝（APPLICATION FAILED TO START: Port 8081 was already in use），已确认无遗留 java 进程。"
+  ]
+}

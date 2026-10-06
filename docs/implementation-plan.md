@@ -272,7 +272,7 @@ PENDING → PROCESSING → WAITING_FOR_CONFIRMATION → COMPLETED
 
 - [x] **工单与分类模块的自动化测试补齐（本阶段核心实现）**：已完成（2026-10-06）——新增 10 个测试类 / 275 项用例，`clean verify` 由 394 + 88 升到 **638 + 119**，`Failures 0 / Errors 0`；覆盖认证、权限、幂等、事务（含 `@Transactional` 边界断言）、真并发（2/6/8 线程）与时间线（含 context 白名单与未知类型）。测试类由 Agent 负责设计与执行（`AGENTS.md`「测试代码职责」），覆盖率不作为构建失败条件。
 - [x] 从空库执行 Flyway、启动 MySQL/Redis、启动前后端并完成主链演示（2026-10-06：临时库 `flowdesk_stage4_clean` + 后端 8091，66/66 断言通过，证据 `docs/acceptance/2026-10-06-stage4-clean-db-demo.json`；演示库与 8081 上的既有后端未被触碰）。
-- [ ] 后端执行 `test`/`verify`；前端执行 lint、typecheck、unit、build 和核心 E2E（阶段 3 基线：单元/Web **394** + 集成 **88**、单测 **147**、E2E **16**，只增不减）。**后端与前端均已实跑通过（638 + 119；147 单测、17 E2E）；待阶段交接前再复跑一次。**
+- [x] 后端执行 `test`/`verify`；前端执行 lint、typecheck、unit、build 和核心 E2E（阶段 3 基线：单元/Web **394** + 集成 **88**、单测 **147**、E2E **16**，只增不减）。**已复跑（2026-10-06，收口分支 `flow-desk/mvp-hardening`）：`clean verify` → surefire **666** + failsafe **119**；`typecheck`/`lint`/`build` 退出码 0、单测 **23 套件 147 项**、E2E **17 项连续 3 轮全绿**；其中一处 E2E 溢出断言的真实竞态已按 `docs/acceptance/2026-10-06-hardening-stability.json` 修复。**
 - [x] README 补充架构说明、启动步骤、演示账号生成方式、核心流程、测试命令和已知限制（2026-10-06：README 新增「核心流程 / 架构说明 / 测试命令 / 演示账号 / 已知限制」五节）。
 - [x] 把真实实现亮点追加到 `docs/project-highlights.md`，不得把未实现的完整版能力写成成果；同时清理文档里的机器绝对路径（MVP 定义第 4 条）——总览更新到 2026-10-06 并新增 HL-007～HL-010；跟踪文件中的机器绝对路径已清零（历史证据只把路径替换为占位符并加 `_pathsMasked` 说明）。
 

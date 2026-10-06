@@ -120,8 +120,17 @@ public class TicketServiceImpl implements TicketService {
         //1.获取当前提交人
         Long requesterId = currentRequesterPort.currentUserId();
 
-        //2.处理用户submissionKey
-        String submissionKey = UUID.fromString(command.submissionKey()).toString();
+        //2.处理用户submissionKey：HTTP 入口已由 Bean Validation 校验 UUID，这里兜底非 HTTP 调用方
+        String rawSubmissionKey = command.submissionKey();
+        if (rawSubmissionKey == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "提交键必须是 UUID");
+        }
+        String submissionKey;
+        try {
+            submissionKey = UUID.fromString(rawSubmissionKey).toString();
+        } catch (IllegalArgumentException exception) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "提交键必须是 UUID");
+        }
 
         try {
             return Objects.requireNonNull(
@@ -138,19 +147,22 @@ public class TicketServiceImpl implements TicketService {
                     })
             );
         } catch (DuplicateKeyException exception) {
-            //excute抛出异常时，创建事务已经回滚
-            //使用新的事务查询并发请求提交的原工单
-            Ticket existing = transactionTemplate.execute(transactionStatus -> {
-                return ticketMapper.selectCreationByRequesterAndSubmissionKey(requesterId, submissionKey);
-            });
+            //execute 抛出异常时创建事务已经回滚；用新事务查并发请求提交的原工单
+            Ticket existing = transactionTemplate.execute(transactionStatus ->
+                    ticketMapper.selectCreationByRequesterAndSubmissionKey(requesterId, submissionKey));
 
-            //
-            if (existing != null)
+            //提交键命中：并发重试的同一请求，返回首次创建结果
+            if (existing != null) {
                 return toCreatedResult(existing);
+            }
 
-            //没有对应的提交结果，不能将编号等其他冲突当作成功
-            throw exception;
-
+            //提交键未命中：冲突来自其他唯一键（如工单编号），不能当作创建成功，也不回落 500
+            ApiException conflict = new ApiException(
+                    HttpStatus.CONFLICT,
+                    "TICKET_CREATE_CONFLICT",
+                    "工单创建冲突，请重试");
+            conflict.initCause(exception);
+            throw conflict;
         }
     }
 
@@ -204,7 +216,7 @@ public class TicketServiceImpl implements TicketService {
 
         if (!PENDING.equals(visible.getStatus())
                 || visible.getAssigneeId() != null
-                || !command.version().equals(visible.getVersion())) {
+                || !Objects.equals(command.version(), visible.getVersion())) {
             throw new ApiException(
                     HttpStatus.CONFLICT,
                     "TICKET_CONFLICT",
@@ -315,7 +327,7 @@ public class TicketServiceImpl implements TicketService {
         }
 
         // 4. 长度上限与请求校验保持一致；能过 Controller 校验后这里只兜底超长内容
-        if (content.isEmpty() || content.length() > MAX_CONTENT_LENGTH) {
+        if (content == null || content.isEmpty() || content.length() > MAX_CONTENT_LENGTH) {
             throw new ApiException(
                     HttpStatus.BAD_REQUEST,
                     "VALIDATION_FAILED",
@@ -423,7 +435,7 @@ public class TicketServiceImpl implements TicketService {
             throw conflict(visible.getVersion(), visible.getStatus());
         }
 
-        if (content.isEmpty() || content.length() > MAX_CONTENT_LENGTH) {
+        if (content == null || content.isEmpty() || content.length() > MAX_CONTENT_LENGTH) {
             throw new ApiException(
                     HttpStatus.BAD_REQUEST,
                     "VALIDATION_FAILED",

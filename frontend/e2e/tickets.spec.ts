@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import type { APIRequestContext, Page } from '@playwright/test'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { expectNoHorizontalOverflow } from './support/overflow'
 
 /**
  * 工单主链路的真实栈用例（阶段 2 `TASK-020`～`TASK-023-MVP`）。
@@ -70,18 +71,6 @@ async function createIsolationEmployee(request: APIRequestContext, suffix: strin
   }
 }
 
-/**
- * 整页横向溢出量。
- *
- * <p>窄屏最常见的失败不是"难看"而是"整页被撑宽"：表格的 min-content 会把网格轨道顶出去。
- * 断言这个差值为 0，比肉眼看截图可靠。</p>
- */
-async function horizontalOverflow(page: Page): Promise<number> {
-  return page.evaluate(
-    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-  )
-}
-
 test('员工创建工单：双击只建一张、刷新后仍在、列表可回溯，1440 与 375 都不横向溢出', async ({
   page,
   browser,
@@ -106,7 +95,7 @@ test('员工创建工单：双击只建一张、刷新后仍在、列表可回�
   // 等列表真正取完数：骨架还亮着就截图，等于什么都没验证
   await expect(page.locator('.admin-panel__skeleton')).toHaveCount(0)
   await expect(page.locator('.empty-state, .admin-table').first()).toBeVisible()
-  expect(await horizontalOverflow(page)).toBe(0)
+  await expectNoHorizontalOverflow(page)
   await page.screenshot({ path: resolve(reviewDir, 'ticket-list-1440.png'), fullPage: true })
 
   // ---- 新建：分类选项来自启用中的分类 ----
@@ -141,7 +130,7 @@ test('员工创建工单：双击只建一张、刷新后仍在、列表可回�
 
   await page.screenshot({ path: resolve(reviewDir, 'ticket-create-1440.png'), fullPage: true })
   await page.setViewportSize({ width: 375, height: 812 })
-  expect(await horizontalOverflow(page)).toBe(0)
+  await expectNoHorizontalOverflow(page)
   await page.screenshot({ path: resolve(reviewDir, 'ticket-create-375.png'), fullPage: true })
   await page.setViewportSize({ width: 1440, height: 900 })
 
@@ -194,7 +183,7 @@ test('员工创建工单：双击只建一张、刷新后仍在、列表可回�
   await expect(page.locator('.ticket-facts dt:has-text("提交人") + dd')).not.toBeEmpty()
   await expect(page.locator('.ticket-timeline__item').first()).toContainText('创建工单')
   await expect(page.locator('.ticket-timeline__item')).toHaveCount(1)
-  expect(await horizontalOverflow(page)).toBe(0)
+  await expectNoHorizontalOverflow(page)
   await page.screenshot({ path: resolve(reviewDir, 'ticket-detail-1440.png'), fullPage: true })
 
   // ---- 刷新恢复：内存里的 Access Token 会丢，靠 HttpOnly Refresh Cookie 重新恢复身份 ----
@@ -230,13 +219,13 @@ test('员工创建工单：双击只建一张、刷新后仍在、列表可回�
   // ---- 375：列表与详情都不横向溢出，详情由两轨改成上下排列 ----
   await page.setViewportSize({ width: 375, height: 812 })
 
-  expect(await horizontalOverflow(page), '工单列表在 375 下被撑宽').toBe(0)
+  await expectNoHorizontalOverflow(page, '工单列表在 375 下被撑宽')
   await page.screenshot({ path: resolve(reviewDir, 'ticket-list-375.png'), fullPage: true })
 
   await link.click()
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(title)
 
-  expect(await horizontalOverflow(page), '工单详情在 375 下被撑宽').toBe(0)
+  await expectNoHorizontalOverflow(page, '工单详情在 375 下被撑宽')
 
   // "上下排列"不能只看截图：直接比较两个轨道的几何位置。
   //
@@ -362,10 +351,10 @@ test('分类管理：创建、改名、停用启用、删除及桌面窄屏验�
     else await expect(row.getByRole('switch')).toBeChecked()
   }
   await expect(page.locator('.el-message')).toHaveCount(0)
-  expect(await horizontalOverflow(page)).toBe(0)
+  await expectNoHorizontalOverflow(page)
   await page.screenshot({ path: resolve(reviewDir, 'category-list-1440.png'), fullPage: true })
   await page.setViewportSize({ width: 375, height: 812 })
-  expect(await horizontalOverflow(page)).toBe(0)
+  await expectNoHorizontalOverflow(page)
   await page.screenshot({ path: resolve(reviewDir, 'category-list-375.png'), fullPage: true })
   await row.getByRole('button', { name: '删除分类', exact: true }).click()
   const deleting = page.waitForResponse((response) =>

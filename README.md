@@ -35,7 +35,7 @@ FlowDesk 是一个企业工单协作平台，由开发者与 Codex 协作完成�
 
 ## 当前状态
 
-项目启动分析、业务模型、总体架构、数据库逻辑与物理模型、API 契约、工程准备检查和 M0 工程底座已经完成。后续分为“求职 MVP”和“完整版”两层；MVP 阶段 1 Auth 身份入口（`TASK-010`～`TASK-011`，PR #5）、前端外壳与页面骨架（PR #6）、已确认提前实施的完整动态 RBAC（`TASK-055`～`TASK-062`，含管理端五页，PR #8）、阶段 2 员工创建与查询（`TASK-020`～`TASK-023-MVP`，PR #9）与**阶段 3 IT 处理闭环（[PR #10](https://github.com/Crazy-HF/Flow-Desk/pull/10)，合并提交 `1bc2e4c`）**均已合并 `main`。阶段 3 的四步全部完成并通过真实栈验收：步骤①②③ 于 2026-10-06 通过真实栈验收（77/77），步骤④ IT/员工页面与 Playwright 端到端主链同日用真实栈两个账号跑通 `待受理 → 处理中 → 待员工确认 → 已完成`。当前在 `flow-desk/mvp-closeout` 推进 **阶段 4 MVP 验收与求职展示收口**，主要工作已完成：工单与分类模块的自动化测试从零补齐到 **10 个测试类 / 275 项用例**（后端回归口径由 394 + 88 升到 **638 单元/Web + 119 集成**，全部通过），README 补上核心流程、架构、测试命令、演示账号与已知限制，`docs/project-highlights.md` 新增四条可展示亮点，仓库跟踪文件中的机器绝对路径已清零；**空库 Flyway + 三角色登录 + 四态主链演示**用临时库跑通 66 项断言（证据 `docs/acceptance/2026-10-06-stage4-clean-db-demo.json`）。阶段 4 已完成并经 [PR #11](https://github.com/Crazy-HF/Flow-Desk/pull/11) 合并 `main`（合并提交 `f49b65b`）；当前分支 **`flow-desk/mvp-hardening`** 只做收尾（不新开能力）：三处已记录的生产代码问题、测试稳定性与 CI 时长评估。唯一长期遗留是**用户逐项视觉反馈**，进度见 `PROJECT_STATUS.md`。
+项目启动分析、业务模型、总体架构、数据库逻辑与物理模型、API 契约、工程准备检查和 M0 工程底座已经完成。后续分为“求职 MVP”和“完整版”两层；MVP 阶段 1 Auth 身份入口（`TASK-010`～`TASK-011`，PR #5）、前端外壳与页面骨架（PR #6）、已确认提前实施的完整动态 RBAC（`TASK-055`～`TASK-062`，含管理端五页，PR #8）、阶段 2 员工创建与查询（`TASK-020`～`TASK-023-MVP`，PR #9）与**阶段 3 IT 处理闭环（[PR #10](https://github.com/Crazy-HF/Flow-Desk/pull/10)，合并提交 `1bc2e4c`）**均已合并 `main`。阶段 3 的四步全部完成并通过真实栈验收：步骤①②③ 于 2026-10-06 通过真实栈验收（77/77），步骤④ IT/员工页面与 Playwright 端到端主链同日用真实栈两个账号跑通 `待受理 → 处理中 → 待员工确认 → 已完成`。当前在 `flow-desk/mvp-closeout` 推进 **阶段 4 MVP 验收与求职展示收口**，主要工作已完成：工单与分类模块的自动化测试从零补齐到 **10 个测试类 / 275 项用例**（后端回归口径由 394 + 88 升到 **638 单元/Web + 119 集成**，全部通过），README 补上核心流程、架构、测试命令、演示账号与已知限制，`docs/project-highlights.md` 新增四条可展示亮点，仓库跟踪文件中的机器绝对路径已清零；**空库 Flyway + 三角色登录 + 四态主链演示**用临时库跑通 66 项断言（证据 `docs/acceptance/2026-10-06-stage4-clean-db-demo.json`）。阶段 4 已完成并经 [PR #11](https://github.com/Crazy-HF/Flow-Desk/pull/11) 合并 `main`（合并提交 `f49b65b`）；当前分支 **`flow-desk/mvp-hardening`** 只做收尾（不新开能力）：三处已记录的生产代码问题、测试稳定性与 CI 时长评估。原唯一长期遗留（**用户逐项视觉反馈**）已于 **2026-10-06 经用户裁决「不用管，直接当作已通过」**，不再是遗留项；进度见 `PROJECT_STATUS.md`。
 
 MVP 主链固定使用普通员工、IT 支持人员、系统管理员三种内置角色，先完成认证，再交付“员工创建 → IT 领取和处理 → 员工确认”的核心工单闭环；附件、完整状态机、数据概览放入完整版（**RBAC 管理端页面、用户管理与已授权提前实施的分类管理除外**，两者已在阶段 3 交付：用户管理于 2026-09-24 登记为 `TASK-061`/`TASK-062`，同批合并）。动态 RBAC 后端能力已于 2026-09-21 确认提前到阶段 2 之前实施，并已于 2026-09-22 确认**计入 MVP 演示范围**（含管理端页面）；用户角色授权取消“至少一个角色”约束，**允许用户零角色**。详细顺序见 `docs/implementation-plan.md`。
 
@@ -144,8 +144,9 @@ PENDING（待受理） → PROCESSING（处理中） → WAITING_FOR_CONFIRMATIO
 - **单节点设计**：未做多实例下的分布式协调；会话与刷新索引集中在一个 Redis 实例上。
 - **前端打包**：Element Plus 目前全量引入（构建产物约 1.2 MB / gzip 约 379 KB），未做按需引入；构建会打印大 chunk 提示，不影响退出码。
 - **测试策略**：不做覆盖率门禁（`jacoco` 只出报告），以行为断言为准；集成测试依赖 Docker。
-- **已知问题（测试发现，未修改生产代码）**：
-  1. `TicketServiceImpl` 有三处 null 安全不对称——`version` 为 null 会 NPE、`content` 为 null 会 NPE、非法 UUID 会抛 `IllegalArgumentException`，都可能表现为 `500`；HTTP 入口的 Bean Validation 会先挡住，只有非 HTTP 调用方会遇到。
-  2. `TicketQuery.isFixedSortOnly()` 大小写敏感（`orderDirection=ASC` 会被拒绝），而 `PageQuery.isAscending()` 忽略大小写，同一查询对象存在两套口径。
-  3. 创建工单的 `DuplicateKeyException` 兜底分支若冲突来自工单编号唯一键（而非提交键），会回落为 `500` 而不是 `409`；该分支尚未构造出用例，作为未覆盖项记录。
-  4. 本机演示库中 `admin` 账号同时持有三个角色（种子只授予 `SYSTEM_ADMIN`），属长期存在的既有漂移，未被本阶段改动。
+- **已知问题**：
+  1. 本机演示库中 `admin` 账号同时持有三个角色（种子只授予 `SYSTEM_ADMIN`），属长期存在的既有漂移，未改动。
+- **已修缺陷（2026-10-06 收口分支 `flow-desk/mvp-hardening`，均有测试覆盖）**：
+  1. `TicketServiceImpl` 的三处 null 安全不对称：`version` 为 null 现与"版本过期"同一处理（`409/TICKET_CONFLICT`），缺失或非 UUID 的 `submissionKey` 现为 `400/VALIDATION_FAILED`，`content` 为 null 现为 `400/VALIDATION_FAILED`；此前都可能表现为 `500`。HTTP 入口的 Bean Validation 会先挡住，只有非 HTTP 调用方会遇到。
+  2. `TicketQuery` 与 `TicketRecordQuery` 的排序方向改用 `PageQuery` 的同一判定（忽略大小写、空值按升序、空 `orderBy` 视为未请求排序）；`desc`、非法方向与显式 `orderBy` 仍被拒绝。
+  3. 创建工单的 `DuplicateKeyException` 兜底分支在冲突来自工单编号等其他唯一键时返回 `409/TICKET_CREATE_CONFLICT`（原始异常保留为 cause），不再回落 `500`。

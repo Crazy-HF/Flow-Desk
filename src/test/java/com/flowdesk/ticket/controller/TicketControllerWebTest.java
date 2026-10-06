@@ -54,6 +54,7 @@ import static org.hamcrest.Matchers.hasItem;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -395,6 +396,32 @@ class TicketControllerWebTest {
         assertThat(captor.getValue().getOrderDirection()).isEqualTo("asc");
     }
 
+    /**
+     * 排序方向与父类同一口径：大写 {@code ASC} 按升序接受，空的 {@code orderBy}
+     * 视为未请求排序，两者都不再被 400 拒绝。
+     */
+    @Test
+    void listAcceptsUppercaseAndBlankSortDirection() throws Exception {
+        when(ticketQueryService.page(any())).thenReturn(emptyTicketPage());
+
+        mockMvc.perform(get(TICKETS)
+                        .with(ticketUser("TICKET_VIEW_OWN"))
+                        .queryParam("scope", "REQUESTED_BY_ME")
+                        .queryParam("orderDirection", "ASC"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get(TICKETS)
+                        .with(ticketUser("TICKET_VIEW_OWN"))
+                        .queryParam("scope", "REQUESTED_BY_ME")
+                        .queryParam("orderBy", ""))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<TicketQuery> captor = ArgumentCaptor.forClass(TicketQuery.class);
+        verify(ticketQueryService, times(2)).page(captor.capture());
+        assertThat(captor.getAllValues().get(0).getOrderDirection()).isEqualTo("ASC");
+        assertThat(captor.getAllValues().get(1).getOrderBy()).isEmpty();
+    }
+
     /** 缺少 scope 时 {@code @NotNull} 先失败，不会因为 SpEL 拿到 null 而报 403。 */
     @Test
     void listWithoutScopeIsRejectedAsValidationFailure() throws Exception {
@@ -426,8 +453,9 @@ class TicketControllerWebTest {
     }
 
     /**
-     * 工单列表只允许固定 {@code sort} 编码：{@code orderBy} 一律拒绝，
-     * {@code orderDirection} 只接受小写 {@code asc}（{@code TicketQuery.isFixedSortOnly}）。
+     * 工单列表只允许固定 {@code sort} 编码：非空 {@code orderBy} 一律拒绝，
+     * {@code orderDirection} 只接受升序且忽略大小写
+     * （{@code TicketQuery.isFixedSortOnly} 复用 {@code PageQuery.isAscendingDirection()}）。
      */
     @ParameterizedTest(name = "list rejects {0}")
     @MethodSource("clientSideSorting")
@@ -541,6 +569,23 @@ class TicketControllerWebTest {
         verify(ticketQueryService).records(eq(TICKET_NO), captor.capture());
         assertThat(captor.getValue().getOrderBy()).isNull();
         assertThat(captor.getValue().getOrderDirection()).isEqualTo("asc");
+    }
+
+    /** 时间线的排序方向同样忽略大小写：{@code ASC} 与默认值等价，仍属固定顺序。 */
+    @Test
+    void recordsAcceptUppercaseOrderDirection() throws Exception {
+        when(ticketQueryService.records(eq(TICKET_NO), any())).thenReturn(
+                new PageResult<>(List.of(), 1, 20, 0, 0));
+
+        mockMvc.perform(get(TICKETS + "/" + TICKET_NO + "/records")
+                        .with(ticketUser("TICKET_VIEW_OWN"))
+                        .queryParam("orderDirection", "ASC"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<TicketRecordQuery> captor =
+                ArgumentCaptor.forClass(TicketRecordQuery.class);
+        verify(ticketQueryService).records(eq(TICKET_NO), captor.capture());
+        assertThat(captor.getValue().getOrderDirection()).isEqualTo("ASC");
     }
 
     /** 时间线顺序固定为记录序号升序，客户端排序参数一律拒绝。 */

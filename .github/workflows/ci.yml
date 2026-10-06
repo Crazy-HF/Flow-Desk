@@ -55,7 +55,8 @@ jobs:
           pnpm build
 
   core-e2e:
-    needs: [backend-verify, frontend-verify]
+    # 与另外两个 job 并行：本 job 自行安装依赖、构建前端并启动后端，不消费上游产物，
+    # needs 只会白白串行约 3.5 分钟。代价是后端校验失败时 E2E 仍会跑完（信号更多，分钟数更多）。
     runs-on: ubuntu-24.04
     env:
       FLOWDESK_MYSQL_ROOT_PASSWORD: ci-only-root-password

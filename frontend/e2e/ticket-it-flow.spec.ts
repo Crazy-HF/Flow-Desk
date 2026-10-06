@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { expectNoHorizontalOverflow } from './support/overflow'
 
 /**
  * 阶段 3 端到端主链：员工提交 → IT 领取 → 记录处理 → 提交解决 → 员工确认（`TASK-024-MVP`）。
@@ -67,18 +68,6 @@ async function signOut(page: Page): Promise<void> {
   await expect(page).toHaveURL(/\/login/)
   // 等登录表单真正就位再交还给调用方：下一步往往就是换账号登录
   await expect(page.getByPlaceholder('请输入登录名')).toBeVisible()
-}
-
-/**
- * 整页横向溢出量。
- *
- * <p>窄屏最常见的失败不是"难看"而是"整页被撑宽"：动作区里的按钮与说明并排时很容易把
- * 网格轨道顶出去。断言这个差值为 0，比肉眼看截图可靠。</p>
- */
-async function horizontalOverflow(page: Page): Promise<number> {
-  return page.evaluate(
-    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-  )
 }
 
 /** 动作区当前摆出的按钮文案；没有动作区时是空数组。 */
@@ -232,7 +221,7 @@ test('阶段 3 主链：员工提交 → IT 领取 → 处理 → 提交解决 �
   await expect(page.locator('.ticket-timeline__item')).toHaveCount(3)
   await expect(page.locator('.ticket-timeline__item').nth(2)).toContainText('记录处理过程')
   await expect(page.locator('.ticket-timeline__item').nth(2)).toContainText('已远程排查打印服务器')
-  expect(await horizontalOverflow(page)).toBe(0)
+  await expectNoHorizontalOverflow(page)
   await page.screenshot({ path: resolve(reviewDir, 'it-detail-processing-1440.png'), fullPage: true })
 
   // ---------- 4. 提交解决结果 ----------
@@ -290,12 +279,12 @@ test('阶段 3 主链：员工提交 → IT 领取 → 处理 → 提交解决 �
     '提交解决结果',
     '完成工单',
   ])
-  expect(await horizontalOverflow(page)).toBe(0)
+  await expectNoHorizontalOverflow(page)
   await page.screenshot({ path: resolve(reviewDir, 'employee-detail-completed-1440.png'), fullPage: true })
 
   // ---------- 6. 窄屏：动作区与属性栏都不横向溢出 ----------
   await page.setViewportSize({ width: 375, height: 812 })
-  expect(await horizontalOverflow(page), '工单详情在 375 下被撑宽').toBe(0)
+  await expectNoHorizontalOverflow(page, '工单详情在 375 下被撑宽')
   await page.screenshot({ path: resolve(reviewDir, 'employee-detail-completed-375.png'), fullPage: true })
 
   // ---------- 7. IT 工作台：桌面看队列，再收窄看窄屏 ----------
@@ -308,7 +297,7 @@ test('阶段 3 主链：员工提交 → IT 领取 → 处理 → 提交解决 �
   await signIn(page, itUsername)
   await nav(page).getByRole('link', { name: 'IT 工作台', exact: true }).click()
   await expect(page.locator('.admin-panel__skeleton')).toHaveCount(0)
-  expect(await horizontalOverflow(page)).toBe(0)
+  await expectNoHorizontalOverflow(page)
   await page.screenshot({ path: resolve(reviewDir, 'it-queue-1440.png'), fullPage: true })
 
   // 切到「我负责的」：这张刚完成的工单仍在负责人名下
@@ -321,7 +310,7 @@ test('阶段 3 主链：员工提交 → IT 领取 → 处理 → 提交解决 �
   await expect(assignedRow).toContainText('已完成')
 
   await page.setViewportSize({ width: 375, height: 812 })
-  expect(await horizontalOverflow(page), 'IT 工作台在 375 下被撑宽').toBe(0)
+  await expectNoHorizontalOverflow(page, 'IT 工作台在 375 下被撑宽')
   await page.screenshot({ path: resolve(reviewDir, 'it-queue-375.png'), fullPage: true })
 
   expect(pageErrors).toEqual([])
