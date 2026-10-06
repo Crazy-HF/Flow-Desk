@@ -422,7 +422,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/manual-rbac-acceptan
 
 五个页面已在 `frontend/src/views/admin/` 落地并通过全套验证（`typecheck` / `lint` / `build` / 单测 74 项 / E2E 13 项 / 后端 `clean verify` 394 + 88）。
 
-- **共享件与分层**：`components/ProtectedMark.vue`（受保护对象标记，本组页面唯一的 signature）、`components/AdminListPanel.vue`（loading / error / empty 三态容器）、`views/admin/useAdminList.ts`（取数状态机 + 服务端分页）。三者只服务这一层，因此没有新开顶层 `composables/` 目录（`frontend/AGENTS.md` 要求先判断现有分层）。
+- **共享件与分层**：`components/ProtectedMark.vue`（受保护对象标记，本组页面唯一的 signature）、`components/AdminListPanel.vue`（loading / error / empty 三态容器）、`useAdminList.ts`（取数状态机 + 服务端分页）。当初三者只服务这一层，因此没有新开顶层 `composables/` 目录（`frontend/AGENTS.md` 要求先判断现有分层）。
+  **2026-10-06 更正**：上句的"只服务这一层"在 2026-09-29 工单列表（`views/work/TicketListView.vue`）复用 `useAdminList` 与 `useCompactPagination` 之后就不再成立——跨领域 import 私有实现，移动管理端目录会连带弄坏工单页。这两个组合式函数已用 `git mv` 迁到 **`frontend/src/composables/`**，`frontend/AGENTS.md` 同步新增该层与进入条件；`ProtectedMark` 与 `AdminListPanel` 仍只服务管理端，位置不变。
 - **列表密度决定**：三张表都不设"创建时间"列。列宽之和必须落在容器内，多一列就横向溢出；时间属审计信息，交给后续详情页，列表只保留可扫读的身份、状态与关系计数。
 - **缺陷 1（会复发，已写进 `frontend/AGENTS.md`）**：`el-table` 的 `width` / `min-width` 被 `parseInt` 解析，`width="7rem"` 得到 **7px**；症状是列被压成一条、行高被逐字换行撑到 **353px**。首版截图暴露该问题，改为无单位像素数后行高回到 49px。
 - **缺陷 2**：`.page` 是网格，表格的 min-content（固定列宽之和）会把自动轨道撑宽，窄屏（768px）整页横向溢出 130px。给 `.admin-page .page__card` 与 `.admin-panel` 加 `min-width: 0` 后，横向滚动交回表格自己，文档宽度回到视口宽度（已加窄屏 E2E 断言）。
