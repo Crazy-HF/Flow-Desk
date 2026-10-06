@@ -1,0 +1,67 @@
+{
+  "result": "MERGED",
+  "at": "2026-10-06T12:14:12+08:00",
+  "pullRequest": "https://github.com/Crazy-HF/Flow-Desk/pull/10",
+  "method": "merge",
+  "featureBranch": "flow-desk/ticket-it-flow",
+  "featureHeadBeforeHandoff": "9740d20",
+  "featureHead": "ac320ce12925d1c6930a339ebf29d85bce3cffb7",
+  "mergeCommit": "1bc2e4c0ac5a702c74e004ef35d07f40c8eedba2",
+  "baseBeforeMerge": "5b9a96156c9fffc8dd0949029fb74f8c48b0682d",
+  "commits": [
+    "85f24cf feat(ticket): 阶段3 处理记录、提交解决与员工确认、IT 页面与端到端主链",
+    "1f1a959 docs(ticket): 阶段3 验收证据、端到端报告与状态文档同步",
+    "ac320ce fix(e2e): 负责人显示名改为按当前身份读取，去掉对开发机演示库的隐式依赖"
+  ],
+  "ciRuns": [
+    {
+      "run": 37411614020,
+      "sha": "1f1a9593770253df1d98c6ae1b119fb140043078",
+      "event": "pull_request",
+      "conclusion": "failure",
+      "checks": {
+        "backend-verify": "success",
+        "frontend-verify": "success",
+        "core-e2e": "failure"
+      },
+      "failure": {
+        "test": "frontend/e2e/ticket-it-flow.spec.ts 阶段 3 主链",
+        "step": "第 195 行 expect(locator('.ticket-facts dt:has-text(\"负责人\") + dd')).toHaveText(itDisplayName)",
+        "cause": "用例把 IT 显示名写死为「IT 支持人员」，而提交在库里的 R__seed_demo_data.sql 写的是「演示 IT 支持人员」；开发机演示库被长期手工演进成前者，于是本机通过、干净库失败（同一断言在 retry 上复现）",
+        "impact": "15 passed / 1 failed；该断言失败导致步骤③④⑤未在 CI 执行"
+      }
+    },
+    {
+      "run": 37412295816,
+      "sha": "ac320ce12925d1c6930a339ebf29d85bce3cffb7",
+      "event": "pull_request",
+      "conclusion": "success",
+      "checks": {
+        "backend-verify": "success",
+        "frontend-verify": "success",
+        "core-e2e": "success"
+      }
+    }
+  ],
+  "defectFix": {
+    "type": "test-code-only",
+    "file": "frontend/e2e/ticket-it-flow.spec.ts",
+    "change": "默认从 AppHeader 的 .app-header__identity 读取当前登录账号的显示名（沿用 auth.spec.ts 既有做法），仅保留 E2E_IT_DISPLAY_NAME 作为显式覆盖",
+    "localReverification": {
+      "command": "D:\\pnpm\\pnpm.cmd exec playwright test e2e/ticket-it-flow.spec.ts",
+      "result": "1 passed (11.4s)",
+      "note": "本机复跑覆盖了 CI 未执行到的步骤③④⑤；frontend pnpm build 与 pnpm lint 退出码均为 0"
+    },
+    "localSideEffectsCleaned": {
+      "demoDb": "删除本次运行新增的工单 94 及其记录/参与关系，回到基线：工单 1（FD-20261006-026）、记录 5、参与者 1、分类 5、用户 3、角色 3",
+      "evidenceArtifacts": ".ui-craft/reviews/2026-10-06-ticket-it-flow/ 被本次运行覆盖的截图与 runtime-evidence.json 已恢复为已提交版本（git checkout）"
+    },
+    "productionCodeChanged": false
+  },
+  "localMainFastForwarded": true,
+  "mergedTreeEqualsVerifiedTree": true,
+  "postMergeMainRun": 37412702319,
+  "nextBranch": "flow-desk/mvp-closeout",
+  "nextStage": "阶段 4 MVP 验收与求职展示收口（docs/implementation-plan.md 8）",
+  "nextStageCoreWork": "工单与分类模块的自动化测试补齐（当前 35 个测试类没有一个属于 ticket/category 模块）"
+}

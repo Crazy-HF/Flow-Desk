@@ -1,7 +1,9 @@
 # FlowDesk 项目状态
 
-## 当前结论：阶段 3 四步全部完成并通过真实栈验收，进入阶段交接（2026-10-06）
+## 当前结论：阶段 3 已通过 PR #10 合并 main，阶段 4 MVP 收口开工（2026-10-06）
 
+- **阶段交接已完成（2026-10-06）**：阶段 3 的三条提交（`85f24cf` 实现、`1f1a959` 证据与状态文档、`ac320ce` E2E 修正）推送到 `flow-desk/ticket-it-flow`，经 **[PR #10](https://github.com/Crazy-HF/Flow-Desk/pull/10)** 以 merge commit 合并 `main`（合并提交 `1bc2e4c0ac5a702c74e004ef35d07f40c8eedba2`，基线 `5b9a961`）；本地 `main` 已仅快进同步，随后从最新 `main` 创建 **`flow-desk/mvp-closeout`** 承载阶段 4。完整记录见 `docs/acceptance/2026-10-06-stage3-git-handoff.json`。
+- **CI 发现并修掉的真实缺陷（与前两处不同，这次是测试代码）**：首个 PR 运行 `37411614020` 上 `backend-verify`、`frontend-verify` 通过，**`core-e2e` 失败**——`frontend/e2e/ticket-it-flow.spec.ts` 把 IT 显示名写死为「IT 支持人员」，而提交在库里的 `R__seed_demo_data.sql` 是「演示 IT 支持人员」；开发机演示库被长期手工演进成前者，于是**本机通过、干净库失败**（15 passed / 1 failed，同一断言在 retry 上复现），且该断言位于步骤②之后，导致步骤③④⑤在 CI 从未执行。改为默认从 `AppHeader` 的 `.app-header__identity` 读取当前登录账号显示名（沿用 `auth.spec.ts` 既有做法），仅保留 `E2E_IT_DISPLAY_NAME` 作为显式覆盖；**未改动任何生产代码**。修正后本机复跑整条主链 5 步通过（`1 passed (11.4s)`），CI 运行 `37412295816` 三个 job 全绿。本地副作用已清理：本次运行新增的工单 94 及其记录/参与关系已删除（回到工单 1 / 记录 5 / 参与者 1 / 分类 5 / 用户 3 / 角色 3），被覆盖的评审截图与 `runtime-evidence.json` 已 `git checkout` 恢复为已提交版本。
 - **本轮目标与结果**：实现阶段 3 步骤④——IT 页面（队列 / 负责中 / 详情 / 领取 / 处理记录 / 提交解决）、员工详情页确认按钮，以及 Playwright 端到端主链。新增用例 `frontend/e2e/ticket-it-flow.spec.ts` 在真实栈（`local` profile + MySQL 3308 / Redis 6380 / 后端 8081 / preview 4173）上**两个真实账号（`employee`、`it`）交替操作同一张工单**：员工建单 → IT 领取 → 记录处理 → 提交解决 → 员工确认，界面状态依次 `待受理 → 处理中 → 待员工确认 → 已完成`。五步各带 `X-Trace-Id`，时间线实测 5 条按序，1440/375 横向溢出均为 0，页面错误 0。证据 `frontend/e2e` 运行 + `.ui-craft/reviews/2026-10-06-ticket-it-flow/`（`report.md`、9 张截图、`runtime-evidence.json`）。
 - **全量回归（2026-10-06 实跑）**：后端 `.\mvnw.cmd -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → 单元/Web **394**、集成 **88**，失败/错误均 0，`BUILD SUCCESS`，退出码 0；前端 `pnpm typecheck` / `lint`（含 stylelint）/ `build` 退出码 0、单测 **23 套件 147 项**、E2E **16 项**全绿。本阶段仍按用户指示不新增测试类。
 - **本轮发现并修复的真实缺陷（三处，前两处在实现过程中被实测暴露）**：① 确认框正文输入框在**生产构建**里消失——运行时版 Vue 不编译 `template` 选项，`<el-input>` 只渲染出占位注释；单测（开发版 Vue）正常，只有真实浏览器能发现，最终改为单文件组件 `TicketActionContentField.vue`。② 在渲染函数里给 `ElInput` 传 `onUpdate:modelValue` 只会得到一个普通 prop（`modelValue`/`update:modelValue` 都是 props），输入不回流，表现为"怎么填都提交空内容"。③ **后端 `TicketQueryServiceImpl.toDetail` 的 `allowedActions` 缺少 `submit-resolution` 分支**：接口早已实现并验收，详情却不返回该动作名，而界面按 `allowedActions` 渲染按钮，于是负责人能写处理记录却交不出解决结果——端到端主链在"提交解决结果"这一步 `element(s) not found` 暴露。经用户 2026-10-06 当场授权后修正：`canSubmitResolution` 复用 `canProcess` 的同一条判定（处理中 + 本人是负责人 + `TICKET_PROCESS`），`docs/api-design.md` 6.3 已同步。**这是本阶段唯一一处后端改动。**
@@ -10,7 +12,7 @@
 - **本轮环境经验（会复发）**：① 本机 `pnpm` 全局 shim 坏了，前端命令统一用 `D:\pnpm\pnpm.cmd`（Node `D:\nodejs`，v24.20.0）。② Playwright 的 `reuseExistingServer` 会复用旧的 preview，改完前端必须先 `pnpm build` 再看结果，否则测的是旧包。③ 375 视口下侧栏收进抽屉，`主导航` 不在可访问树里，"换账号登录"会被误判失败；换账号前先还原桌面视口。
 - **未覆盖 / 未验证**：**用户逐项视觉反馈仍未取得**（本轮是实现 + 自查，不是审美验收）；未跑 1920 视口；四个动作仍无单元/Web/集成用例（按用户指示不新增测试类，行为证据来自真实栈端到端）；「报告未解决」「转交」「调整」等 6 个动作未实现，服务端不返回、界面也不摆入口。
 - **演示库（清理后直查）**：工单 **1**（保留主链那张 `FD-20261006-026`，完整走完四态，便于打开检查）、记录 5、参与者 1、分类 5、用户 **3**、角色 3；`E2E%` 临时账号已清理。与本文件记录的"工单 0"基线差这一张；清理 SQL 见本轮报告 §7，去掉 `<> 'FD-20261006-026'` 条件再执行一次即可回到 0。`iam_user_role` 中 `admin` 同时持有三角色的**既有漂移未改动**。
-- **下一步（2026-10-06 已执行交接）**：阶段 3 的后端主链与前端页面均已完成并通过真实栈验收，本轮按用户批准的实施计划执行阶段交接：同步状态文档 → 提交 → 推送 → 合并请求 → 合并 `main` → 仅快进同步 → 从最新 `main` 建下一主题分支 `flow-desk/mvp-closeout`。下一阶段为 **阶段 4 MVP 验收与求职展示收口**（`docs/implementation-plan.md` 8），核心实现是补齐工单与分类模块的自动化测试（当前 `src/test/java` 的 35 个测试类**没有一个属于 ticket/category 模块**，与 MVP 最终完成定义第 3 条冲突），随后做空库演示、README 六项内容、`project-highlights` 与机器绝对路径清理。合并结果见本文件「快速定位」。
+- **下一步（阶段 4，已开工）**：在 `flow-desk/mvp-closeout` 上执行 **阶段 4 MVP 验收与求职展示收口**（`docs/implementation-plan.md` 8）。核心实现是**补齐工单与分类模块的自动化测试**——当前 `src/test/java` 的 35 个测试类**没有一个属于 `ticket`/`category` 模块**，与 MVP 最终完成定义第 3 条「认证、权限、幂等、事务、并发和时间线均有对应测试」冲突；随后做空库 Flyway 演示（用临时库名，不动现有演示卷）、README 六项内容（架构、启动、演示账号、核心流程、测试命令、已知限制）、`docs/project-highlights.md` 追加与文档里的机器绝对路径清理。动前端前先读 `frontend/AGENTS.md` 与 `.ui-craft/frontend-redesign-handoff.md`。
 
 ## 历史：阶段 3 步骤①②③ 全部通过真实栈验收（77/77），只剩页面与端到端主链（2026-10-06）
 
@@ -195,11 +197,11 @@
 - 最后更新：2026-10-06
 - 远程仓库：`git@github.com:Crazy-HF/Flow-Desk.git`
 - 稳定分支：`main`
-- 当前基线分支：`main`（阶段 1、前端外壳、第 3 步 RBAC 后端与 RBAC 管理端五页、阶段 2 员工创建与查询均已合并，最新合并提交 `5b9a961`，即 PR #9）
-- 当前工作分支：`flow-desk/ticket-it-flow`（从 PR #9 合并后的最新 `main` `5b9a961` 创建，承载阶段 3 IT 处理闭环；**已关联远程同名分支**，合并前远程头 `9740d20`）；**本轮交接中**——步骤②③④ 的实现、验收脚本、页面、端到端用例与证据文档已提交并推送，等待合并请求合并。
-- 下一次创建分支：`flow-desk/mvp-closeout`（阶段 3 合并 `main` 后，从仅快进同步的最新 `main` 创建，承载阶段 4 MVP 收口）
-- 当前阶段：阶段 3 IT 处理闭环**四步全部完成并通过真实栈验收**——步骤① IT 领取、步骤② 追加处理记录、步骤③ 提交解决结果与员工确认（77/77）、步骤④ IT/员工页面与 Playwright 端到端主链（2026-10-06 真实栈跑通四态）。本轮执行阶段交接：同步文档 → 提交 → 推送 → 合并请求 → 合并 `main` → 仅快进同步 → 建 `flow-desk/mvp-closeout`。
-- 最新提交（本次交接）：两条——① `feat(ticket)`：步骤②③④ 的后端动作、IT 页面、端到端用例与验收脚本，含契约文档 `docs/api-design.md`、`docs/implementation-plan.md`；② `docs(ticket)`：`docs/acceptance/2026-10-06-*` 证据（含三份 `*-pre-fix-fail.json` 原始失败原件）、`.ui-craft/reviews/2026-10-06-ticket-it-flow/`、状态文档。此前分支头为 `9740d20`。合并提交与最终 SHA 见下方「历史」与交接记录。
+- 当前基线分支：`main`（阶段 1、前端外壳、第 3 步 RBAC 后端与 RBAC 管理端五页、阶段 2 员工创建与查询、**阶段 3 IT 处理闭环**均已合并，最新合并提交 `1bc2e4c`，即 PR #10）
+- 当前工作分支：`flow-desk/mvp-closeout`（从 PR #10 合并后的最新 `main` `1bc2e4c` 创建，承载阶段 4 MVP 收口；尚未推送）
+- 下一次创建分支：阶段 4 完成并交接后，从当时最新的 `main` 创建下一主题分支
+- 当前阶段：**阶段 4 MVP 验收与求职展示收口**（`docs/implementation-plan.md` 8）。阶段 3 四步已全部完成、通过真实栈验收（77/77 + E2E）并经 PR #10 合并 `main`（`1bc2e4c`）。阶段 4 的核心实现是补齐工单与分类模块的自动化测试，随后做空库演示与文档收口。
+- 最新提交：`1bc2e4c`（PR #10 合并提交）；阶段 4 分支的交接记录随本分支首条提交写入。阶段 3 的三条提交为 `85f24cf`、`1f1a959`、`ac320ce`。
 - 步骤①②③ 验收证据（2026-10-06）：`docs/acceptance/2026-10-06-stage3-claim-process-resolution-confirm.json`（77/77）、`docs/acceptance/2026-10-06-stage3-step3-summary.json`（汇总、三处脚本修正与环境发现）、`docs/acceptance/2026-10-06-stage3-claim-and-processing-record.json`（步骤①② 45/45）、三份 `*-pre-fix-fail.json`（原始失败原件）。
 - 步骤④ 验收证据（2026-10-06）：`frontend/e2e/ticket-it-flow.spec.ts`（端到端主链，16 项 E2E 全绿中的 1 项）、`.ui-craft/reviews/2026-10-06-ticket-it-flow/report.md` 与同目录 9 张截图 + `runtime-evidence.json`（五步状态码与 `traceId`、界面四态迁移、时间线 5 条、1440/375 溢出 0）。
 - 前一项完成（2026-09-24，**历史成果，已随 PR #8 合并 main**）：**`TASK-060` RBAC 管理端四页 + `TASK-062` 用户管理页 + `TASK-061` 契约对齐**——`frontend/src/views/admin/` 五页（用户管理、角色管理、权限管理、用户角色授权、角色权限授权）、`api/rbac.ts` 与 `api/users.ts`、`ProtectedMark` / `AdminListPanel` 两个共享件与 `useAdminList` 取数状态机；用户管理在 `docs/implementation-plan.md` 正式登记为 `TASK-061`/`TASK-062` 并移出完整版 backlog；替换角色路径按 8.2 契约由 `/role` 改为 `/roles`（后端 + Web 测试 + 文档同步）。**验证**：`./mvnw -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → 单元/Web **394** + 集成 **88** 全绿；前端 `typecheck` / `lint`（含 stylelint 闸门）/ `build` 退出码 0、单测 **17 套件 74 项**、E2E **13 项**全绿（含三条新增：RBAC 真实闭环、用户角色闭环、入口按权限显隐与窄屏），演示库经查无 `E2E_*` 残留。见下方 2026-09-24 记录。
