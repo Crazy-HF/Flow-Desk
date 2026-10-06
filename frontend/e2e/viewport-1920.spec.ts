@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { expectNoHorizontalOverflow } from './support/overflow'
 
 /**
  * 1920 宽屏自查（阶段 4 MVP 收口）。
@@ -28,13 +29,6 @@ mkdirSync(reviewDir, { recursive: true })
 const WIDTH = 1920
 const HEIGHT = 1080
 
-/** 整页横向溢出量：>0 说明有元素把文档撑出了视口。 */
-async function horizontalOverflow(page: Page): Promise<number> {
-  return page.evaluate(
-    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-  )
-}
-
 function nav(page: Page) {
   return page.getByRole('navigation', { name: '主导航' })
 }
@@ -59,7 +53,7 @@ async function signOut(page: Page): Promise<void> {
 async function capture(page: Page, name: string): Promise<void> {
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
   await page.waitForLoadState('networkidle')
-  expect(await horizontalOverflow(page), `${name} 在 1920 下出现整页横向溢出`).toBe(0)
+  await expectNoHorizontalOverflow(page, `${name} 在 1920 下出现整页横向溢出`)
   await page.screenshot({
     path: resolve(reviewDir, `${name}-1920.png`),
     fullPage: true,

@@ -14,6 +14,7 @@ import java.util.List;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.util.StringUtils;
 
 @Getter
 @Setter
@@ -68,8 +69,9 @@ public class TicketQuery extends PageQuery {
                 || !createdFrom.toInstant().isAfter(createdTo.toInstant());
     }
 
+    /** 工单列表只支持固定 {@code sort} 编码；排序方向沿用 {@link PageQuery} 的大小写无关口径。 */
     @AssertTrue(message = "工单排序请使用固定 sort 编码")
     public boolean isFixedSortOnly() {
-        return getOrderBy() == null && "asc".equals(getOrderDirection());
+        return !StringUtils.hasText(getOrderBy()) && isAscendingDirection();
     }
 }

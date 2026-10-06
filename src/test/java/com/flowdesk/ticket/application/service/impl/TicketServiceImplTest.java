@@ -329,9 +329,12 @@ class TicketServiceImplTest {
         verifyNoInteractions(ticketRecordMapper);
     }
 
-    /** 唯一索引冲突不一定来自提交键：查不到原提交就必须原样抛出，不能当成创建成功。 */
+    /**
+     * 唯一索引冲突不一定来自提交键：查不到原提交就是可重试的业务冲突，
+     * 既不能当成创建成功，也不能落成 500；原始异常保留为 cause 便于定位。
+     */
     @Test
-    void createRethrowsDuplicateKeyWhenNoExistingTicketCanBeFound() {
+    void createMapsUnrelatedDuplicateKeyToRetryableConflict() {
         DuplicateKeyException duplicate = new DuplicateKeyException("duplicate ticket_no");
         when(currentRequesterPort.currentUserId()).thenReturn(REQUESTER_ID);
         when(ticketMapper.selectCreationByRequesterAndSubmissionKey(REQUESTER_ID, SUBMISSION_KEY))
@@ -340,12 +343,37 @@ class TicketServiceImplTest {
         when(ticketDailySequenceMapper.selectCurrentForUpdate(any(LocalDate.class))).thenReturn(1L);
         doThrow(duplicate).when(ticketMapper).insert(any(Ticket.class));
 
-        assertThatThrownBy(() -> service.create(createCommand(SUBMISSION_KEY)))
-                .as("编号冲突不能被当作幂等命中")
-                .isSameAs(duplicate);
+        ApiException exception = assertApiException(
+                () -> service.create(createCommand(SUBMISSION_KEY)),
+                HttpStatus.CONFLICT, "TICKET_CREATE_CONFLICT");
 
+        assertThat(exception).as("编号冲突不能被当作幂等命中").hasCause(duplicate);
         verify(ticketMapper, times(2))
                 .selectCreationByRequesterAndSubmissionKey(REQUESTER_ID, SUBMISSION_KEY);
+    }
+
+    /** 非 HTTP 调用方可能给出 null 提交键，结果必须与 Controller 的 Bean Validation 一致。 */
+    @Test
+    void createRejectsMissingSubmissionKeyAsValidationFailure() {
+        when(currentRequesterPort.currentUserId()).thenReturn(REQUESTER_ID);
+
+        assertApiException(
+                () -> service.create(createCommand(null)),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verifyNoInteractions(ticketMapper, ticketDailySequenceMapper, ticketRecordMapper);
+    }
+
+    /** 非 UUID 的提交键同样归入 400，不能以 IllegalArgumentException 冒到 500。 */
+    @Test
+    void createRejectsMalformedSubmissionKeyAsValidationFailure() {
+        when(currentRequesterPort.currentUserId()).thenReturn(REQUESTER_ID);
+
+        assertApiException(
+                () -> service.create(createCommand("not-a-uuid")),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verifyNoInteractions(ticketMapper, ticketDailySequenceMapper, ticketRecordMapper);
     }
 
     // ---------- claim ----------
@@ -435,6 +463,21 @@ class TicketServiceImplTest {
                 HttpStatus.CONFLICT, "TICKET_CONFLICT");
 
         assertThat(exception.resourceVersion()).isEqualTo(3L);
+        assertThat(exception.resourceStatus()).isEqualTo(PENDING);
+        verify(ticketMapper, never()).claimPending(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /** 缺少版本的非 HTTP 调用与"版本过期"同一处理：409 冲突，不是 NPE。 */
+    @Test
+    void claimTreatsMissingVersionAsConflictInsteadOfFailing() {
+        stubEligibleClaimant();
+        stubVisible(detailRow(PENDING, null, 0L));
+
+        ApiException exception = assertApiException(
+                () -> service.claim(TICKET_NO, new ClaimTicketCommand(null)),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).isZero();
         assertThat(exception.resourceStatus()).isEqualTo(PENDING);
         verify(ticketMapper, never()).claimPending(anyLong(), anyLong(), anyLong(), any());
     }
@@ -626,6 +669,20 @@ class TicketServiceImplTest {
         verifyNoInteractions(ticketRecordMapper);
     }
 
+    /** 非 HTTP 调用方给出 null 正文时与空正文同一处理：400，不是 NPE。 */
+    @Test
+    void addProcessingRecordRejectsMissingContentAsValidationFailure() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+
+        assertApiException(
+                () -> service.addProcessingRecord(TICKET_NO, new AddProcessingRecordCommand(3L, null)),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verify(ticketMapper, never()).advanceAssigneeAction(anyLong(), anyLong(), anyLong(), any());
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
     @Test
     void addProcessingRecordRejectsContentOverLimit() {
         stubProcessActor();
@@ -756,6 +813,20 @@ class TicketServiceImplTest {
                 HttpStatus.CONFLICT, "TICKET_CONFLICT");
 
         verify(ticketMapper, never()).submitResolution(anyLong(), anyLong(), anyLong(), any(), any());
+    }
+
+    /** 解决结果缺失正文同样归入 400 校验分支，不能因为 null 变成 500。 */
+    @Test
+    void submitResolutionRejectsMissingContentAsValidationFailure() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+
+        assertApiException(
+                () -> service.submitResolution(TICKET_NO, new SubmitResolutionCommand(3L, null)),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verify(ticketMapper, never()).submitResolution(anyLong(), anyLong(), anyLong(), any(), any());
+        verifyNoInteractions(ticketRecordMapper);
     }
 
     @Test
