@@ -1,0 +1,89 @@
+{
+  "result": "PASS",
+  "at": "2026-10-06T16:05:00+08:00",
+  "scope": "阶段 4：工单与分类模块自动化测试补齐（对应 MVP 最终完成定义第 3 条：认证、权限、幂等、事务、并发和时间线均有对应测试）",
+  "whyThisSliceExists": "补齐前 src/test/java 的 35 个测试类全部属于 auth/iam/common/迁移与测试支撑，ticket 与 category 模块一个都没有，第 3 条不成立。",
+  "command": ".\\mvnw.cmd -B clean verify \"-DargLine=-Djdk.attach.allowAttachSelf=true\"",
+  "javaHome": "<JDK21_HOME>",
+  "counts": {
+    "surefire": { "tests": 638, "failures": 0, "errors": 0, "baseline": 394, "delta": 244 },
+    "failsafe": { "tests": 119, "failures": 0, "errors": 0, "baseline": 88, "delta": 31 },
+    "build": "BUILD SUCCESS",
+    "durationApprox": "4 min"
+  },
+  "newTestClasses": [
+    { "class": "com.flowdesk.ticket.application.service.impl.TicketServiceImplTest", "kind": "unit", "tests": 55 },
+    { "class": "com.flowdesk.ticket.application.service.impl.TicketQueryServiceImplTest", "kind": "unit", "tests": 41 },
+    { "class": "com.flowdesk.category.application.service.impl.CategoryServiceImplTest", "kind": "unit", "tests": 47 },
+    { "class": "com.flowdesk.ticket.controller.TicketControllerWebTest", "kind": "web", "tests": 55 },
+    { "class": "com.flowdesk.category.controller.AdminCategoryControllerWebTest", "kind": "web", "tests": 36 },
+    { "class": "com.flowdesk.category.controller.CategoryControllerWebTest", "kind": "web", "tests": 7 },
+    { "class": "com.flowdesk.common.config.DemoSeedProfileTest", "kind": "unit", "tests": 3 },
+    { "class": "com.flowdesk.ticket.application.service.impl.TicketServiceIT", "kind": "integration", "tests": 16 },
+    { "class": "com.flowdesk.ticket.application.service.impl.TicketQueryServiceIT", "kind": "integration", "tests": 9 },
+    { "class": "com.flowdesk.category.application.service.impl.CategoryServiceIT", "kind": "integration", "tests": 6 }
+  ],
+  "behaviorCoverage": {
+    "认证": [
+      "TicketControllerWebTest：8 个端点各一条无令牌 401",
+      "AdminCategoryControllerWebTest / CategoryControllerWebTest：管理端六端点与 options 的无令牌 401"
+    ],
+    "权限": [
+      "TicketControllerWebTest：列表接口四个 scope 的 @PreAuthorize 分支逐条（有权限放行 / 缺权限 403），创建缺 TICKET_CREATE 403",
+      "CategoryControllerWebTest：TICKET_CREATE 与 TICKET_PROCESS 分别放行、都缺 403",
+      "AdminCategoryControllerWebTest：缺 CATEGORY_MANAGE 403、三个 CATEGORY_* 冲突码",
+      "TicketServiceImplTest：claim 缺 TICKET_CLAIM、addProcessingRecord/submitResolution 缺 TICKET_PROCESS、confirmResolution 缺 TICKET_REQUESTER_ACTION 的 403 与判定顺序",
+      "TicketServiceIT：员工调 claim → 403（真库、真身份）"
+    ],
+    "幂等": [
+      "TicketServiceImplTest：同一 (requesterId, submissionKey) 返回首次创建快照（PENDING/version 0）且不再写库；DuplicateKeyException 兜底命中则返回既有单、查不到则原样抛出",
+      "TicketServiceIT：并发同提交键只落一张工单且两个调用拿到同一编号；重复动作在版本过期时 409 而非重复写入",
+      "CategoryServiceImplTest：enable/disable 目标状态一致时短路（不写库、版本不变）；create/update 的重名冲突两条路径（预检查 + DuplicateKeyException）"
+    ],
+    "事务": [
+      "TicketServiceImplTest / CategoryServiceImplTest：反射断言写方法带 @Transactional、page 为 @Transactional(readOnly = true)",
+      "TicketServiceIT / TicketQueryServiceIT / CategoryServiceIT：不使用测试级 @Transactional，因此服务自身的事务边界与提交/回滚是真实执行的",
+      "TicketServiceIT：状态迁移与不可变时间线在同一事务内（断言动作成功后工单与记录行数同时变化，失败时都不变）"
+    ],
+    "并发": [
+      "TicketServiceIT（Testcontainers 真实 MySQL + CyclicBarrier）：2 线程同提交键并发创建、2 名 IT 并发领取同一工单（恰好一个成功、败者 409 且拿到最新快照）、同版本并发 add-processing-record / submit-resolution / confirm-resolution 各只留一条记录、6 线程同日并发创建序号连续不重复",
+      "CategoryServiceIT：8 路同版本并发修改同一分类 → 恰好 1 成功 7 个 409，版本只 +1"
+    ],
+    "时间线": [
+      "TicketServiceImplTest：四条动作记录 (CLAIM/PROCESS/RESOLUTION/COMPLETION) 的类型、操作者、状态迁移、序号与正文裁剪",
+      "TicketQueryServiceImplTest：15 种 recordType 的 context 白名单（null 字段不进 map）、actorUserId 为 null 时 actor 为 null、未知类型抛 IllegalStateException",
+      "TicketQueryServiceIT：sequence_no 升序、跨页不重不漏、字段白名单在真库上的表现",
+      "TicketServiceIT：从空链到终态的 5 条记录依序 CREATE,CLAIM,PROCESS,RESOLUTION,COMPLETION 且序号 1..5"
+    ]
+  },
+  "productionCodeChanges": [
+    {
+      "file": "src/main/java/com/flowdesk/common/exception/GlobalExceptionHandler.java",
+      "change": "把 MissingServletRequestPartException 登记进 400 处理器",
+      "reason": "实测「创建工单缺 multipart ticket 部分」返回 500/INTERNAL_ERROR，与 docs/api-design.md 10.2 的 400/VALIDATION_FAILED 契约冲突",
+      "authorizedBy": "用户 2026-10-06 选择「A. 修 multipart 400（推荐）」",
+      "test": "TicketControllerWebTest.missingTicketPartIsRejectedAsValidationFailure"
+    },
+    {
+      "file": "src/main/java/com/flowdesk/ticket/mapper/TicketMapper.java",
+      "change": "删除无调用方的 default 别名 selectRequestedByMePage",
+      "reason": "实现内注释自述为兼容旧调用保留，阶段 4 计划内清理",
+      "authorizedBy": "用户在实施计划评审中批准（计划 §5 明确列为唯一允许的生产代码清理）",
+      "test": "既有 ticket 用例与套件全量回归"
+    }
+  ],
+  "knownIssuesNotFixed": [
+    "TicketServiceImpl 三处 null 安全不对称：version 为 null → NPE（:207）、content 为 null → NPE（:318/:426）、非法 UUID → IllegalArgumentException（:124）；HTTP 入口的 Bean Validation 会先挡住，仅非 HTTP 调用方会遇到",
+    "TicketQuery.isFixedSortOnly() 大小写敏感（orderDirection=ASC 被拒），PageQuery.isAscending() 忽略大小写",
+    "create 的 DuplicateKeyException 兜底分支若冲突来自工单编号唯一键会回落 500（未构造出该分支）"
+  ],
+  "frontend": {
+    "typecheck": "exit 0",
+    "lint": "exit 0 (eslint --max-warnings=0 + stylelint 六轴门禁)",
+    "build": "exit 0（仍有大 chunk 提示，不影响退出码）",
+    "unit": "23 套件 / 147 项通过",
+    "e2e": "17 项通过（原 16 项 + 新增 e2e/viewport-1920.spec.ts）",
+    "e2eRaceFixed": "tickets.spec.ts 的 375 视口两轨几何断言改为 expect.poll：原写法在详情返回前会量到加载骨架，实测单跑通过、整套失败（负载相关竞态）"
+  },
+  "pathsMasked": "本文件不含机器绝对路径或密钥"
+}
