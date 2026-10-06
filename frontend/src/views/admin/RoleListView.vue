@@ -21,8 +21,8 @@ import AdminListPanel from '@/components/AdminListPanel.vue'
 import AppPage from '@/components/AppPage.vue'
 import ProtectedMark from '@/components/ProtectedMark.vue'
 import { isProtectedRole, PROTECTED_ROLE_CODE } from '@/constants/authorization'
-import { useAdminList } from './useAdminList'
-import { useCompactPagination } from './useCompactPagination'
+import { useAdminList } from '@/composables/useAdminList'
+import { useCompactPagination } from '@/composables/useCompactPagination'
 
 /** 角色管理（`docs/api-design.md` 8.2.1，`TASK-060`）。 */
 const router = useRouter()

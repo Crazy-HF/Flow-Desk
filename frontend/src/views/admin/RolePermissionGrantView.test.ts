@@ -28,8 +28,8 @@ const adminRole: RoleDetail = {
   id: 3,
   code: 'SYSTEM_ADMIN',
   name: '系统管理员',
-  description: null,
-  createdAt: null,
+  description: undefined,
+  createdAt: undefined,
   permissionIds: [15],
 }
 

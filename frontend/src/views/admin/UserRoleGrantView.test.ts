@@ -29,7 +29,7 @@ const employee: UserDetail = {
   status: 'ENABLED',
   roles: [],
   createdAt: '2026-09-20T08:00:00Z',
-  updatedAt: null,
+  updatedAt: undefined,
   version: 0,
 }
 

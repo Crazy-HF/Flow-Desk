@@ -27,8 +27,8 @@ export interface UserDetail {
   displayName: string
   status: UserStatus
   roles: UserRoleSummary[]
-  createdAt: string | null
-  updatedAt: string | null
+  createdAt?: string
+  updatedAt?: string
   version: number
 }
 

@@ -25,8 +25,8 @@ import {
   PROTECTED_ROLE_CODE,
 } from '@/constants/authorization'
 import { formatDateTime } from '@/utils/format'
-import { useAdminList } from './useAdminList'
-import { useCompactPagination } from './useCompactPagination'
+import { useAdminList } from '@/composables/useAdminList'
+import { useCompactPagination } from '@/composables/useCompactPagination'
 
 /**
  * 角色权限授权（`docs/api-design.md` 8.2.1，`TASK-060`）。

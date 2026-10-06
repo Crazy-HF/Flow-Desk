@@ -27,7 +27,7 @@ const ticketPermission: PermissionDetail = {
   id: 1,
   code: 'TICKET_CREATE',
   name: '创建工单',
-  description: null,
+  description: undefined,
   createdAt: '2026-09-20T08:00:00Z',
   roleIds: [1, 3],
 }

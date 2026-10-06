@@ -42,10 +42,12 @@
 | `src/views/error/` | 框架级错误页 | `ForbiddenView.vue`、`NotFoundView.vue` |
 | `src/views/work/` | 员工工单主链路 + shell 入口页 | 以后放工单列表/详情/新建；当前 `HomeView.vue`、`PlannedWorkView.vue` |
 | `src/views/admin/` | 系统管理端 | 以后的用户管理、分类管理 |
+| `src/composables/` | **跨领域**复用的组合式函数（不含页面与领域查询字段） | `useAdminList`（分页列表取数状态机）、`useCompactPagination`（分页窄屏收敛） |
 
 规则：
 
 - 新页面先判断它属于哪个现有分层，不要新开目录；确实需要新分层时先说明理由。
+- `src/composables/` 是 2026-10-06 新增的层，来自一次真实反例：`useAdminList` 与 `useCompactPagination` 原在 `views/admin/`，理由是"只服务管理端五页"；`views/work/TicketListView.vue` 复用它们之后，工单页开始 import 管理端的私有实现，移动管理端目录就会弄坏工单页。**只有跨领域复用的组合式函数才进这一层**；只服务单一领域的仍留在该领域目录内，不要因为"看起来通用"就上移。
 - 页面文件与其用例**同目录同名**（`HomeView.vue` 与 `HomeView.test.ts` 一起移动）。
 - 路由里的 import 用 `@/views/<层>/<页面>.vue`；同一目录内的相对引用保持 `./<页面>.vue`。
 - 移动页面时用 `git mv`（未跟踪的文件用普通移动），保证重命名历史可追溯。

@@ -28,8 +28,8 @@ export interface CategoryDetail {
   status: CategoryStatus
   /** 展示顺序，非负整数；员工端下拉按 `sortOrder` 再按 `id` 升序。 */
   sortOrder: number
-  createdAt: string | null
-  updatedAt: string | null
+  /** 服务器省略 null 字段（`non_null`），因此存在即非空。 */
+  updatedAt?: string
   version: number
 }
 

@@ -16,8 +16,8 @@ import type { CategoryDetail, CategoryStatus } from '@/api/categories'
 import { describeError } from '@/api/errorMessages'
 import AdminListPanel from '@/components/AdminListPanel.vue'
 import AppPage from '@/components/AppPage.vue'
-import { useAdminList } from './useAdminList'
-import { useCompactPagination } from './useCompactPagination'
+import { useAdminList } from '@/composables/useAdminList'
+import { useCompactPagination } from '@/composables/useCompactPagination'
 
 /**
  * 分类管理（`docs/api-design.md` 8.4，`CATEGORY_MANAGE`）。

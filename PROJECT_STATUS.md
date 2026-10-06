@@ -1,6 +1,6 @@
 # FlowDesk 项目状态
 
-## 当前结论：阶段 4 已合并 main（PR #11），进入 flow-desk/mvp-hardening 收口（2026-10-06）
+## 当前结论：阶段 4 与收口第一批已合并 main（PR #11 / #12），进入 flow-desk/frontend-shared-layer 收尾前端技术债（2026-10-06）
 
 - **阶段 4 交接已完成（2026-10-06）**：`flow-desk/mvp-closeout` 的六条提交（`1ee4bb8` 交接记录、`2bbde6b` 测试补齐、`e685493` 文档收口、`65750e6` 空库演示脚本与 E2E 加固、`0022230` 覆盖矩阵证据、`9c3d227` 交接前状态同步）经 **[PR #11](https://github.com/Crazy-HF/Flow-Desk/pull/11)** 以 merge commit 合并 `main`（合并提交 **`f49b65b`**，基线 `1bc2e4c`；43 files changed、+9553/−127）。CI 首轮即全绿（运行 `37424825486`：`backend-verify` 3.5 分钟、`frontend-verify` 0.8 分钟、`core-e2e` 2.6 分钟，总计 6.2 分钟），本地 `main` 已仅快进同步，随后从最新 `main` 创建 **`flow-desk/mvp-hardening`**。完整记录见 `docs/acceptance/2026-10-06-stage4-git-handoff.json`。
 - **下一阶段范围（用户 2026-10-06 指定：不新开能力，只收尾已确认的测试口径与工程债）**：① 三处已记录的生产代码问题（`TicketServiceImpl` 的 null 安全不对称、`TicketQuery.isFixedSortOnly()` 大小写口径、`create` 兜底分支可能回落 500）；② 测试稳定性（真并发与时序抖动、E2E 负载相关竞态——阶段 4 已修一处）；③ CI 时长与并行度评估（后端 `verify` 目前单进程串行跑 638 + 119，集成测试逐类拉起 MySQL 容器）；④ ~~唯一长期遗留仍是**用户逐项视觉反馈**~~：**2026-10-06 用户裁决「视觉反馈不用管，直接当作已通过」——本项关闭**，不再是遗留或阻塞条件，不重开打样轮。
@@ -19,6 +19,14 @@
   - **A4 文档一致性**：`docs/implementation-plan.md` 第 8 节第 3 条复选框补齐（后端 verify + 前端四件套 + E2E 均已复跑）；用户 2026-10-06「视觉反馈当作已通过」的裁决写入 `AGENTS.md`（首节 + 阶段限制）、`README.md`、本文件、`frontend/AGENTS.md`、`.ui-craft/frontend-redesign-handoff.md`（含清单项勾选）、`.ui-craft/brief.md`、`.ui-craft/surfaces/admin-rbac.md`；历史证据段落按项目惯例不追改。
   - **副作用清理**：E2E 覆写的 `.ui-craft/reviews/**` 截图与证据 JSON 已 `git checkout` 还原；演示库直查回到基线 **工单 1（保留四态主链 `FD-20261006-026`，5 条记录 / 1 条参与关系）/ 记录 5 / 参与者 1 / 分类 5 / 用户 3 / 角色 3 / 权限 14 / 用户角色 5**（`ticket_daily_sequence` 递增属预期，不回退）。
   - **环境事实**：8081 上是 11:52 启动的既有后端（早于本轮改动），按项目惯例未停止它；E2E 跑在该实例上，**后端行为的证据来自后端测试与 CI**，不是这次 E2E。
+
+- **第一批已交接：收口分支经 [PR #12](https://github.com/Crazy-HF/Flow-Desk/pull/12) 合并 main（2026-10-06）**：两条提交 `a16d4d4`（① 生产代码 + ② 测试稳定性 + ③ CI，22 文件 +431/−88）与 `22e89aa`（③ 的 CI 实测时长）推送到 `flow-desk/mvp-hardening`，PR CI 两次运行全绿（`37431135077`、`37431488606`），以 merge commit 合并，**合并提交 `a0071a7`**；本地 `main` 已仅快进同步，随后从最新 `main` 创建 **`flow-desk/frontend-shared-layer`** 承载第二批前端技术债。
+- **第二批（前端技术债，用户 2026-10-06 指定：共享层迁移 + 类型/竞态统一）已完成（2026-10-06，分支 `flow-desk/frontend-shared-layer`，未提交未推送）**：
+  - **共享层迁移（第 5 项）**：`useAdminList.ts`、`useAdminList.test.ts`、`useCompactPagination.ts` 用 `git mv` 从 `frontend/src/views/admin/` 迁到新增的 **`frontend/src/composables/`**；七个调用点（管理端六页 + `views/work/TicketListView.vue`）与测试的 import 全部改为 `@/composables/*`，旧路径零残留。迁移理由写进 `frontend/AGENTS.md`（分层表新增该层 + 一条规则：只有跨领域复用的组合式函数才进这一层），`useAdminList` 的类注释同步改写——它此前明确写着"正确的位置是共享层，等能执行 Git 时一次做掉"。
+  - **列表请求竞态（第 6 项·并发）**：`useAdminList.load` 增加自增请求序号，**只有最新一次请求的结果会被采用**：过期响应既不覆盖 `items`/`total`/`pageNo`，也不改写 loading/error 状态，且不会清掉最新请求仍在进行中的 `retrying`。此前"快速改关键词再点查询"时，先发的旧响应后到会把新结果顶掉或把已就绪的页面打回错误态。新增两个用例（旧响应后到被丢弃、过期失败不改写就绪态）。
+  - **可空响应类型统一（第 6 项·类型）**：四个 `api/` 模块（`tickets.ts`、`users.ts`、`rbac.ts`、`categories.ts`）共 **19 个响应字段**由 `field: T | null` 改为 `field?: T`。依据是 `spring.jackson.default-property-inclusion=non_null`——值为 null 的字段根本不出现在 JSON 里，前端实际拿到 `undefined`，原类型与运行时不符。**生产代码零改动**：`typecheck` 报出的 19 处不匹配全部落在测试夹具（夹具用 `null` 表示"字段不存在"），已逐个改为 `undefined`；这也反证了页面代码本来就只用真值判断，没有依赖 `| null` 的错误语义。`tickets.ts` 里"先别单独改成可选类型"的旧注释同步改写为已统一的说明。
+  - **验证（实跑，2026-10-06）**：`typecheck` / `lint` / `build` 退出码 **0**；单测 **23 套件 149 项**（147 + 2 个竞态用例）；真实栈 E2E **17/17 全绿**（54.6s）。演示库清理回基线（工单 1 / 记录 5 / 参与者 1 / 分类 5 / 用户 3 / 角色 3 / 权限 14 / 用户角色 5），`.ui-craft/reviews/**` 已 `git checkout` 还原。
+  - **本批不改后端**，因此不重跑后端 `verify`；后端基线仍为 surefire 666 + failsafe 119。
 
 - **阶段 4 进度（2026-10-06，分支 `flow-desk/mvp-closeout`，已提交 `1ee4bb8` 与 `2bbde6b`，未推送）**：
   - ✅ **B1 工单与分类模块自动化测试补齐（本阶段核心实现）**：新增 **10 个测试类 / 275 项用例**——单元 `TicketServiceImplTest`(55)、`TicketQueryServiceImplTest`(41)、`CategoryServiceImplTest`(47)；Web 契约 `TicketControllerWebTest`(55)、`AdminCategoryControllerWebTest`(36)、`CategoryControllerWebTest`(7)、`DemoSeedProfileTest`(3)；集成 `TicketServiceIT`(16，含 2/6 线程真并发)、`TicketQueryServiceIT`(9)、`CategoryServiceIT`(6，含 8 线程同版本并发)。**MVP 完成定义第 3 条（认证、权限、幂等、事务、并发、时间线均有对应测试）由此成立。** 全量 `clean verify` → surefire **638**（原 394）/ failsafe **119**（原 88），`Failures 0 / Errors 0`，`BUILD SUCCESS`。
@@ -227,10 +235,10 @@
 - 最后更新：2026-10-06
 - 远程仓库：`git@github.com:Crazy-HF/Flow-Desk.git`
 - 稳定分支：`main`
-- 当前基线分支：`main`（阶段 1、前端外壳、第 3 步 RBAC、阶段 2 员工创建与查询、阶段 3 IT 处理闭环、**阶段 4 MVP 收口**均已合并，最新合并提交 `f49b65b`，即 PR #11）
-- 当前工作分支：`flow-desk/mvp-hardening`（从 PR #11 合并后的最新 `main` `f49b65b` 创建，用户指定只收尾已确认的测试口径与工程债；尚未推送）
-- 下一次创建分支：本收口分支完成并交接后，从当时最新的 `main` 创建下一主题分支（完整版方向待用户指定）
-- 当前阶段：**收口分支 `flow-desk/mvp-hardening`（不新开能力）**——① 三处已记录的生产代码问题（含一处同源排序口径）**已完成并通过全量回归：surefire 666 / failsafe 119**；② 测试稳定性（真并发/时序抖动、E2E 负载相关竞态）与 ③ CI 时长与并行度评估是接下来的两项。阶段 4（MVP 验收与求职展示收口）已全部完成并合并 `main`。原「用户逐项视觉反馈」遗留已于 **2026-10-06 由用户裁决「当作已通过」而关闭**，不再是遗留项。
+- 当前基线分支：`main`（阶段 1、前端外壳、第 3 步 RBAC、阶段 2 员工创建与查询、阶段 3 IT 处理闭环、**阶段 4 MVP 收口**、**收口第一批 ①②③ + 文档一致性**均已合并，最新合并提交 `a0071a7`，即 PR #12）
+- 当前工作分支：`flow-desk/frontend-shared-layer`（从 PR #12 合并后的最新 `main` `a0071a7` 创建，承载第二批前端技术债：共享层迁移与类型/竞态统一；尚未推送）
+- 下一次创建分支：本分支完成并交接后，从当时最新的 `main` 创建下一主题分支（完整版方向待用户指定）
+- 当前阶段：**前端技术债分支 `flow-desk/frontend-shared-layer`**——第 5 项（`useAdminList` / `useCompactPagination` 迁到 `src/composables/`）与第 6 项（列表请求竞态 + 四个 `api/` 模块 19 个响应字段改为可选类型）**均已完成并验证**（`typecheck`/`lint`/`build` 退出码 0、单测 149 项、E2E 17/17）。阶段 4（MVP 验收与求职展示收口）与收口第一批已全部完成并合并 `main`；视觉反馈遗留已按用户 2026-10-06 裁决关闭。
 - 最新提交：`f49b65b`（PR #11 合并提交）；阶段 4 的六条提交为 `1ee4bb8`、`2bbde6b`、`e685493`、`65750e6`、`0022230`、`9c3d227`；阶段 3 的合并提交为 `1bc2e4c`（PR #10）。
 - 步骤①②③ 验收证据（2026-10-06）：`docs/acceptance/2026-10-06-stage3-claim-process-resolution-confirm.json`（77/77）、`docs/acceptance/2026-10-06-stage3-step3-summary.json`（汇总、三处脚本修正与环境发现）、`docs/acceptance/2026-10-06-stage3-claim-and-processing-record.json`（步骤①② 45/45）、三份 `*-pre-fix-fail.json`（原始失败原件）。
 - 步骤④ 验收证据（2026-10-06）：`frontend/e2e/ticket-it-flow.spec.ts`（端到端主链，16 项 E2E 全绿中的 1 项）、`.ui-craft/reviews/2026-10-06-ticket-it-flow/report.md` 与同目录 9 张截图 + `runtime-evidence.json`（五步状态码与 `traceId`、界面四态迁移、时间线 5 条、1440/375 溢出 0）。

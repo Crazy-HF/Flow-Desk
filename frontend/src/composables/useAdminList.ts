@@ -5,17 +5,17 @@ import { DEFAULT_PAGE_SIZE } from '@/api/pagination'
 import type { PageResult } from '@/api/pagination'
 
 /**
- * 管理端列表的取数状态机：loading / ready / error + 服务端分页。
+ * 分页列表的取数状态机：loading / ready / error + 服务端分页。工单列表与管理端五页共用。
  *
- * <p>放在 `views/admin/` 而不是新开顶层 `composables/`：它当初只服务这一层的五个页面，
- * `frontend/AGENTS.md` 要求"判断属于哪个现有分层，不要新开目录"。页面自己持有筛选条件，
- * 通过闭包把当前查询交给 `request`，因此这里不需要知道任何一页的查询字段。</p>
+ * <p>**位置**：`src/composables/`。它原先放在 `views/admin/`，理由是"只服务管理端五页"；
+ * 2026-09-29 工单列表（`views/work/TicketListView.vue`）也开始复用后这条理由失效——
+ * 两个不同领域互相 import 私有实现，改名或移动管理端目录都会连带弄坏工单页。
+ * 2026-10-06 迁到共享层。名字里的 `Admin` 是历史遗留，保留是为了不动七个调用点与既有用例；
+ * 它本身不含任何管理端业务：查询条件由页面持有并通过闭包交给 `request`。</p>
  *
- * <p>**2026-09-29 变化**：工单列表（`views/work/TicketListView.vue`）也复用了它和
- * `useCompactPagination`——两者都不含管理业务，是"查询 + 列表 + 分页"的通用机制。
- * 因此"只服务管理端五页"这条理由已经失效，正确的位置是共享层。本次没有移动文件：
- * 当时执行环境里 shell 不可用，`git mv` 无法执行，而新建文件又删不掉旧文件，
- * 硬做会留下两个同名实现。迁移已登记在 `PROJECT_STATUS.md`，等能执行 Git 时一次做掉。</p>
+ * <p>**并发**：页面在筛选或翻页时可能连续发起多次请求（例如快速改关键词再点查询），
+ * 后发的请求不一定后到。这里用自增序号只接受"最新一次"的结果：过期响应既不覆盖列表，
+ * 也不改 loading/error 状态——否则先到的旧数据会把新结果顶掉，或把已经就绪的页面打回错误态。</p>
  */
 export interface AdminListRequest {
   pageNo: number
@@ -33,6 +33,8 @@ export function useAdminList<T>(request: (page: AdminListRequest) => Promise<Pag
   const errorMessage = ref('')
   /** 重试按钮与"刷新中"的加载态；与首屏骨架分开，避免刷新时整块闪回骨架。 */
   const retrying = ref(false)
+  /** 已发起请求的序号；只有最新一次的结果会被采用。 */
+  let latestRequest = 0
 
   /**
    * 取一页数据。
@@ -42,6 +44,7 @@ export function useAdminList<T>(request: (page: AdminListRequest) => Promise<Pag
    */
   async function load(options: { page?: number; silent?: boolean } = {}): Promise<void> {
     const page = options.page ?? pageNo.value
+    const requestId = ++latestRequest
     retrying.value = true
     if (!options.silent) {
       phase.value = 'loading'
@@ -50,6 +53,9 @@ export function useAdminList<T>(request: (page: AdminListRequest) => Promise<Pag
 
     try {
       const result = await request({ pageNo: page, pageSize: pageSize.value })
+      if (requestId !== latestRequest) {
+        return
+      }
       items.value = result.items
       total.value = result.totalElements
       // 以服务端返回的页码与页大小为准：删除末页最后一条后不会停在空页
@@ -57,10 +63,16 @@ export function useAdminList<T>(request: (page: AdminListRequest) => Promise<Pag
       pageSize.value = result.size
       phase.value = 'ready'
     } catch (error) {
+      if (requestId !== latestRequest) {
+        return
+      }
       errorMessage.value = describeError(error, '列表加载失败，请检查网络后重试')
       phase.value = 'error'
     } finally {
-      retrying.value = false
+      // 过期请求不得清掉"最新请求仍在进行中"的加载态
+      if (requestId === latestRequest) {
+        retrying.value = false
+      }
     }
   }
 

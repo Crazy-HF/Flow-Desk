@@ -29,7 +29,7 @@ const supportRole: RoleDetail = {
   id: 2,
   code: 'IT_SUPPORT',
   name: 'IT 支持人员',
-  description: null,
+  description: undefined,
   createdAt: '2026-09-20T08:00:00Z',
   permissionIds: [4, 5],
 }
