@@ -1,4 +1,5 @@
 {
+  "_pathsMasked": "本文件中的机器绝对路径已替换为占位符（<REPO> / <JDK21_HOME> / <PNPM_HOME> / <USER_HOME>）；命令、退出码、断言与结论均未改动。",
   "stage": "阶段 3 步骤④：IT/员工页面与 Playwright 端到端主链",
   "task": "TASK-033-MVP",
   "date": "2026-10-06",
@@ -11,7 +12,7 @@
     "backend": "http://127.0.0.1:8081 (spring-boot:run, profile=local)",
     "frontend": "vite preview http://127.0.0.1:4173 (pnpm build 产物)",
     "node": "v24.20.0",
-    "pnpm": "D:\\pnpm\\pnpm.cmd 12.3.4（本机全局 pnpm shim 已损坏，故用该路径）"
+    "pnpm": "<PNPM_HOME>\\pnpm.cmd 12.3.4（本机全局 pnpm shim 已损坏，故用该路径）"
   },
   "checks": [
     {
@@ -27,27 +28,27 @@
     },
     {
       "name": "frontend-typecheck",
-      "command": "D:\\pnpm\\pnpm.cmd typecheck",
+      "command": "<PNPM_HOME>\\pnpm.cmd typecheck",
       "result": "PASS",
       "exitCode": 0
     },
     {
       "name": "frontend-lint",
-      "command": "D:\\pnpm\\pnpm.cmd lint",
+      "command": "<PNPM_HOME>\\pnpm.cmd lint",
       "result": "PASS",
       "exitCode": 0,
       "note": "含 stylelint 闸门（颜色/间距/字号/圆角/阴影/动效六轴必须引用 token）"
     },
     {
       "name": "frontend-build",
-      "command": "D:\\pnpm\\pnpm.cmd build",
+      "command": "<PNPM_HOME>\\pnpm.cmd build",
       "result": "PASS",
       "exitCode": 0,
       "note": "仅既有的大 chunk 提示，不影响退出码"
     },
     {
       "name": "frontend-unit",
-      "command": "D:\\pnpm\\pnpm.cmd test:unit --run --maxWorkers=1",
+      "command": "<PNPM_HOME>\\pnpm.cmd test:unit --run --maxWorkers=1",
       "result": "PASS",
       "exitCode": 0,
       "testFiles": 23,
@@ -56,7 +57,7 @@
     },
     {
       "name": "frontend-e2e",
-      "command": "D:\\pnpm\\pnpm.cmd test:e2e",
+      "command": "<PNPM_HOME>\\pnpm.cmd test:e2e",
       "result": "PASS",
       "exitCode": 0,
       "total": 16,

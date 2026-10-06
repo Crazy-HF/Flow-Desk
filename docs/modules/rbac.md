@@ -274,11 +274,11 @@ Web 测试沿用 `AuthWebTest` 的既有做法：`@ActiveProfiles("test")` + 排
 
 ```powershell
 # 单元/Web + 集成（Testcontainers 需要 Docker；-DargLine 是本机 Mockito 自附加所必需）
-$env:JAVA_HOME='D:\Idea\Jdk\Jdk21'; .\mvnw.cmd -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"
+$env:JAVA_HOME='&lt;JDK21_HOME&gt;'; .\mvnw.cmd -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"
 
 # 真实栈
 docker compose up -d mysql redis
-$env:JAVA_HOME='D:\Idea\Jdk\Jdk21'; .\mvnw.cmd spring-boot:run "-Dspring-boot.run.profiles=local"
+$env:JAVA_HOME='&lt;JDK21_HOME&gt;'; .\mvnw.cmd spring-boot:run "-Dspring-boot.run.profiles=local"
 
 # 手工链路（可重复执行，结束时清理临时对象并还原库）
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/manual-rbac-acceptance.ps1

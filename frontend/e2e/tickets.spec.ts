@@ -238,12 +238,29 @@ test('员工创建工单：双击只建一张、刷新后仍在、列表可回�
 
   expect(await horizontalOverflow(page), '工单详情在 375 下被撑宽').toBe(0)
 
-  // "上下排列"不能只看截图：直接比较两个轨道的几何位置
+  // "上下排列"不能只看截图：直接比较两个轨道的几何位置。
+  //
+  // 这里用 `expect.poll` 而不是一次性测量：点进详情后正文与时间线是另一个请求的结果，
+  // 在它还回到之前，主轨道没有内容（高度为 0），一次性测量会得出"两轨并排"的假结论。
+  // 2026-10-06 的阶段 4 全量套件复现过：单跑本用例通过、整套跑失败在同一行。
+  await expect
+    .poll(
+      async () => {
+        const main = await page.locator('.ticket-detail__main').boundingBox()
+        const side = await page.locator('.ticket-detail__side').boundingBox()
+        if (!main || !side) {
+          return false
+        }
+        return side.y >= main.y + main.height - 1
+      },
+      { message: '375 下详情页的两条轨道没有改成上下排列' },
+    )
+    .toBe(true)
+
   const mainBox = await page.locator('.ticket-detail__main').boundingBox()
   const sideBox = await page.locator('.ticket-detail__side').boundingBox()
   expect(mainBox).not.toBeNull()
   expect(sideBox).not.toBeNull()
-  expect(sideBox!.y).toBeGreaterThanOrEqual(mainBox!.y + mainBox!.height - 1)
   expect(sideBox!.width).toBeCloseTo(mainBox!.width, 0)
 
   await page.screenshot({ path: resolve(reviewDir, 'ticket-detail-375.png'), fullPage: true })

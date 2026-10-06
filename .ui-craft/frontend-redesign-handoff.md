@@ -19,7 +19,7 @@
 5. `docs/api-design.md` 8.2/8.2.1、`docs/modules/rbac.md` 与当前页面/共享组件代码。
 
 图片目录相对仓库根：`.ui-craft/references/`。
-当前机器绝对目录：`D:/Idea/item/flow-Desk/.ui-craft/references/`。
+当前机器绝对目录：`<REPO>/.ui-craft/references/`。
 文档以仓库相对路径为准，以便换机器后继续使用。
 
 ## 3. 已确认方向与暂定尺度

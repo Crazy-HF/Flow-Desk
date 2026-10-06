@@ -199,6 +199,8 @@ M0 工程底座（已完成，PR #4）
 
 ## 7. 阶段 3：IT 处理闭环
 
+**交付结论（2026-10-06）**：本节四步全部完成——步骤①②③ 通过真实栈验收（`claim`/`add-processing-record` 45/45，`submit-resolution`/`confirm-resolution` 77/77），步骤④ IT/员工页面与 Playwright 端到端主链在真实栈跑通四态；分支 `flow-desk/ticket-it-flow` 经 [PR #10](https://github.com/Crazy-HF/Flow-Desk/pull/10) 以 merge commit 合并 `main`（合并提交 `1bc2e4c`）。CI 首次运行（`37411614020`）在 `core-e2e` 暴露一处**测试代码**缺陷：E2E 把 IT 显示名写死而种子数据不同，干净库失败、开发机通过；已改为按当前登录身份读取，修正后运行 `37412295816` 三个 job 全绿。完整记录见 `docs/acceptance/2026-10-06-stage3-git-handoff.json`。
+
 目标：用最短但完整的状态链演示员工与 IT 协作。
 
 MVP 状态主链：
@@ -265,6 +267,16 @@ PENDING → PROCESSING → WAITING_FOR_CONFIRMATION → COMPLETED
 **步骤①②③ 验收执行方式（2026-10-06）**：`scripts/stage3-ticket-actions-acceptance.ps1`（PowerShell 5.1 兼容，脚本本身必须保存为带 BOM 的 UTF-8；自行从仓库根 `.env` 读取数据库连接）在 `local` profile + 真实 MySQL/Redis + 后端 8081 上按 77 项断言逐条执行，结束时输出无 BOM 的 JSON 证据与清理 SQL，并包含一条数据库直查断言。演示库漂移已记录：`iam_user_role` 中 `admin` 同时持有 `EMPLOYEE`、`IT_SUPPORT` 与 `SYSTEM_ADMIN`，因此脚本对 `admin` 只记录实际状态、不做绝对值断言。本阶段按用户指示不新增测试类，四个动作的行为证据来自真实栈 HTTP 调用。
 
 ## 8. 阶段 4：MVP 验收与求职展示收口
+
+**当前阶段（2026-10-06 起，分支 `flow-desk/mvp-closeout`）**。进度：
+
+- [x] **工单与分类模块的自动化测试补齐（本阶段核心实现）**：已完成（2026-10-06）——新增 10 个测试类 / 275 项用例，`clean verify` 由 394 + 88 升到 **638 + 119**，`Failures 0 / Errors 0`；覆盖认证、权限、幂等、事务（含 `@Transactional` 边界断言）、真并发（2/6/8 线程）与时间线（含 context 白名单与未知类型）。测试类由 Agent 负责设计与执行（`AGENTS.md`「测试代码职责」），覆盖率不作为构建失败条件。
+- [x] 从空库执行 Flyway、启动 MySQL/Redis、启动前后端并完成主链演示（2026-10-06：临时库 `flowdesk_stage4_clean` + 后端 8091，66/66 断言通过，证据 `docs/acceptance/2026-10-06-stage4-clean-db-demo.json`；演示库与 8081 上的既有后端未被触碰）。
+- [ ] 后端执行 `test`/`verify`；前端执行 lint、typecheck、unit、build 和核心 E2E（阶段 3 基线：单元/Web **394** + 集成 **88**、单测 **147**、E2E **16**，只增不减）。**后端与前端均已实跑通过（638 + 119；147 单测、17 E2E）；待阶段交接前再复跑一次。**
+- [x] README 补充架构说明、启动步骤、演示账号生成方式、核心流程、测试命令和已知限制（2026-10-06：README 新增「核心流程 / 架构说明 / 测试命令 / 演示账号 / 已知限制」五节）。
+- [x] 把真实实现亮点追加到 `docs/project-highlights.md`，不得把未实现的完整版能力写成成果；同时清理文档里的机器绝对路径（MVP 定义第 4 条）——总览更新到 2026-10-06 并新增 HL-007～HL-010；跟踪文件中的机器绝对路径已清零（历史证据只把路径替换为占位符并加 `_pathsMasked` 说明）。
+
+**原计划条目（保持原文）**：
 
 - 准备仅在 `demo`/`test` 生效的三角色演示账号和分类数据，不提交公共默认生产密码。
 - 从空库执行 Flyway、启动 MySQL/Redis、启动前后端并完成主链演示。
@@ -381,16 +393,17 @@ MVP 最终完成定义：
 
 遇到以下情况必须暂停确认：修改已执行的历史迁移、改变 MVP 四状态主链或固定三角色边界、引入新基础设施、扩大管理员数据权限，或发现安全/跨存储方案无法成立。
 
-## 11. 当前会话开工入口（阶段 2）
+## 11. 当前会话开工入口（阶段 4）
 
 新会话只需依次阅读：
 
 1. `AGENTS.md`
 2. `PROJECT_STATUS.md`
-3. 本文第 2、4、6 节（MVP 边界与阶段 2 切片）
-4. `docs/api-design.md` 的工单相关章节（创建、列表、详情与时间线）
-5. `docs/business-model.md` 的工单状态与角色职责、`docs/database-design.md` 的工单相关表
+3. 本文第 8 节（阶段 4 收口清单与当前进度）与第 2、4 节（MVP 边界）
+4. `docs/api-design.md` 的工单与分类章节（6.3/6.4 动作契约、5.3～5.5 查询、8.4 分类管理）
+5. `docs/business-model.md` 的工单状态与角色职责、`docs/database-design.md` 的工单相关表与 CHECK 约束
 6. `docs/technical-architecture.md` 5.1（应用层分层硬约束）与涉及事务/并发的部分
-7. `frontend/AGENTS.md`（若本阶段要动前端页面）
+7. 现有测试形态参照：`src/test/java/com/flowdesk/iam/application/service/impl/IamUserServiceIT.java`（Testcontainers 真并发）与 `src/test/java/com/flowdesk/iam/controller/IamUserControllerWebTest.java`（Web 契约 + `MockedPersistenceConfiguration`）
+8. `frontend/AGENTS.md`（若本阶段要动前端页面）
 
-接续第一步不是直接写代码，而是按 `PROJECT_STATUS.md` 与本节确认 `TASK-020`～`TASK-023-MVP` 的接口与数据模型落地顺序，再按切片实施；业务代码按 `AGENTS.md`「学习主导规则」由用户主导，测试由 Agent 负责。历史入口：Auth 会话开工卡见 `docs/modules/auth.md` 第 9 节（阶段 1 已完成，仅供参考）。
+接续第一步不是直接写业务代码，而是按 `PROJECT_STATUS.md` 与本文第 8 节确认本阶段的收口清单与测试覆盖矩阵，再分片实施。`ServiceImpl` 业务逻辑仍按 `AGENTS.md`「分工补充」由用户编写，**测试类由 Agent 负责**；补齐测试时若发现生产代码缺陷，先报告证据与影响，取得授权后再改。历史入口：阶段 2 的工单切片见本文 6.1，阶段 3 见 7.1，Auth 会话开工卡见 `docs/modules/auth.md` 第 9 节（均已完成，仅供参考）。
