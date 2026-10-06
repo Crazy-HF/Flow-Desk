@@ -1,0 +1,59 @@
+{
+  "stage": "阶段 3 IT 处理闭环",
+  "slice": "步骤② 当前负责人追加处理记录（POST /fd/v1/tickets/{ticketNo}/actions/add-processing-record）",
+  "date": "2026-10-06",
+  "timezone": "Asia/Shanghai",
+  "branch": "flow-desk/ticket-it-flow",
+  "baseCommit": "9740d20",
+  "purpose": "确认步骤② 代码写入后工作区后端可构建、既有测试不回归；不构成本动作接口的验收证据。",
+  "command": ".\\mvnw.cmd -B clean verify \"-DargLine=-Djdk.attach.allowAttachSelf=true\"",
+  "environment": {
+    "javaHome": "D:\\Idea\\Jdk\\Jdk21",
+    "docker": "可用（本机已有 mysql:8.4.11、redis:8.8.0 镜像，集成测试经 Testcontainers 运行）",
+    "note": "本轮未并行运行前端测试，避免与容器争内存。"
+  },
+  "result": {
+    "exitCode": 0,
+    "build": "BUILD SUCCESS",
+    "totalTime": "02:52 min",
+    "unitWebTests": {"run": 394, "failures": 0, "errors": 0, "skipped": 0},
+    "integrationTests": {"run": 88, "failures": 0, "errors": 0, "skipped": 0}
+  },
+  "scope": {
+    "written": [
+      "AddProcessingRecordCommand（新增，version + content，正文在紧凑构造器内 strip）",
+      "TicketController.addProcessingRecord：POST /{ticketNo}/actions/add-processing-record",
+      "TicketService.addProcessingRecord：复用 TicketClaimResult 作为统一动作结果",
+      "TicketMapper.advanceAssigneeAction：version/status/assignee_id 三条件更新，递增 version 与 record_seq，不触碰 action_deadline_at",
+      "TicketServiceImpl.addProcessingRecord：身份 → TICKET_PROCESS → 可见性 404 → 状态/负责人/版本 409 → 内容长度 → 条件更新 → 读回 record_seq → 追加 PROCESS 记录",
+      "TicketQueryServiceImpl.toDetail：allowedActions 由固定空数组改为按条件追加 claim / add-processing-record"
+    ],
+    "notWritten": [
+      "submit-resolution 与 confirm-resolution（步骤③，未开始）",
+      "IT 与员工页面、端到端主链（步骤④，未开始）",
+      "未新增测试类（按用户指示本阶段使用编译、现有检查与真实栈验收）"
+    ]
+  },
+  "covered": "既有 394 项单元/Web 测试与 88 项集成测试全部通过；生产代码 clean compile 通过；新增 Mapper 方法与新增服务方法未破坏任何既有上下文（MockedPersistenceConfiguration 已覆盖全部 9 个 @Mapper，本切片未新增 Mapper 接口）。",
+  "notCovered": [
+    "add-processing-record 与 claim 两个动作都没有专项单元/Web/集成用例（本阶段按用户指示不新增测试类）",
+    "当时没有真实栈（local profile + MySQL/Redis + HTTP）调用记录；该缺口已于同日由 docs/acceptance/2026-10-06-stage3-claim-and-processing-record.json 补齐",
+    "没有前端改动，因此未执行前端 typecheck/lint/build/单测/E2E"
+  ],
+  "supersededBy": {
+    "file": "docs/acceptance/2026-10-06-stage3-claim-and-processing-record.json",
+    "why": "本文件记录的是 09:44 那次修复前的 verify，其后 TicketQueryServiceImpl.toDetail 仍把旧三元表达式传给 TicketDetailResult，allowedActions 恒为空数组。修正后已重新执行全量 verify，结论见下方 latestVerify。"
+  },
+  "latestVerify": {
+    "at": "2026-10-06T10:00:21+08:00",
+    "command": ".\\mvnw.cmd -B clean verify \"-DargLine=-Djdk.attach.allowAttachSelf=true\"",
+    "exitCode": 0,
+    "build": "BUILD SUCCESS",
+    "totalTime": "02:43 min",
+    "unitWebTests": {"run": 394, "failures": 0, "errors": 0},
+    "integrationTests": {"run": 88, "failures": 0, "errors": 0},
+    "log": "%TEMP%\\fd-verify-final.log"
+  },
+  "conclusion": "后端构建与既有测试无回归；本文件本身不构成接口验收证据，步骤①② 的运行验证结论见 2026-10-06-stage3-claim-and-processing-record.json。",
+  "log": "首次 verify 完整日志为本机临时文件 %TEMP%\\fd-verify-stage3-step2.log（148 KB）；修正后为 %TEMP%\\fd-verify-final.log，仓库内只保留汇总。"
+}

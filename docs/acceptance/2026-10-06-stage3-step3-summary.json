@@ -1,0 +1,112 @@
+{
+  "stage": "阶段 3 IT 处理闭环",
+  "slices": [
+    "步骤① IT 领取 POST /fd/v1/tickets/{ticketNo}/actions/claim",
+    "步骤② 当前负责人追加处理记录 POST /fd/v1/tickets/{ticketNo}/actions/add-processing-record",
+    "步骤③ 提交解决结果 POST /fd/v1/tickets/{ticketNo}/actions/submit-resolution",
+    "步骤③ 员工确认 POST /fd/v1/tickets/{ticketNo}/actions/confirm-resolution"
+  ],
+  "at": "2026-10-06T10:50:35+08:00",
+  "timezone": "Asia/Shanghai",
+  "branch": "flow-desk/ticket-it-flow",
+  "baseCommit": "9740d20",
+  "result": "步骤①②③ 全部通过真实栈验收（77/77）。步骤④ 页面与端到端主链未开始。",
+  "stack": {
+    "profile": "local",
+    "backend": "Spring Boot，本机 8081，MySQL 容器 flowdesk-mysql-1（3308）、Redis 容器 flowdesk-redis-1（6380）",
+    "script": "scripts/stage3-ticket-actions-acceptance.ps1",
+    "command": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\stage3-ticket-actions-acceptance.ps1",
+    "evidence": "docs/acceptance/2026-10-06-stage3-claim-process-resolution-confirm.json",
+    "assertions": {"total": 77, "passed": 77, "failed": 0},
+    "traceIds": "每条断言都带 X-Trace-Id，可与后端日志逐条对齐（日志 %TEMP%\\fd-backend-step3.log）"
+  },
+  "regression": {
+    "command": ".\\mvnw.cmd -B clean verify \"-DargLine=-Djdk.attach.allowAttachSelf=true\"",
+    "at": "2026-10-06T10:48:52+08:00",
+    "exitCode": 0,
+    "build": "BUILD SUCCESS",
+    "totalTime": "02:46 min",
+    "unitWebTests": {"run": 394, "failures": 0, "errors": 0},
+    "integrationTests": {"run": 88, "failures": 0, "errors": 0},
+    "log": "%TEMP%\\fd-verify-step3.log",
+    "note": "本阶段仍不新增测试类：两个动作没有单元/Web/集成用例，行为证据来自真实栈 HTTP 调用。"
+  },
+  "verified": {
+    "submit-resolution": [
+      "员工（非负责人）403/TICKET_ACTION_FORBIDDEN",
+      "纯空白正文 400/VALIDATION_FAILED",
+      "版本过期 409/TICKET_CONFLICT",
+      "首次成功 200：status=WAITING_FOR_CONFIRMATION、version+1",
+      "确认期限由服务端计算且为提交时刻 +7 天（offsetDays=7）",
+      "同版本重复提交 409",
+      "待确认状态下追加处理记录 409（状态守卫生效）"
+    ],
+    "confirm-resolution": [
+      "提交人详情 allowedActions=[\"confirm-resolution\"]，并可见确认期限",
+      "当前负责人（只有 IT_SUPPORT）403：权限闸门先于身份闸门",
+      "非提交人无法让工单完成：admin 有 TICKET_REQUESTER_ACTION 但对本工单不可见，返回 404，且工单仍为 WAITING_FOR_CONFIRMATION",
+      "版本过期 409",
+      "首次成功 200：status=COMPLETED、version+1、期限清空、负责人保留（assigneeId=2）"
+    ],
+    "terminal": [
+      "详情 completionMethod=REQUESTER_CONFIRMED、endedAt 有值、allowedActions 为空",
+      "再次确认 409、再次领取 409、终态追加处理记录 409（终态不可重开）"
+    ],
+    "timeline": [
+      "记录序列 CREATE,CLAIM,PROCESS,PROCESS,PROCESS,RESOLUTION,COMPLETION",
+      "sequenceNo 1..7 严格递增且从 1 开始",
+      "RESOLUTION：PROCESSING→WAITING_FOR_CONFIRMATION、正文首尾空白已裁剪、deadlineAt 已暴露",
+      "COMPLETION：completionMethod=REQUESTER_CONFIRMED、操作者为提交人（actorId=1）"
+    ],
+    "databaseDirectQuery": [
+      "ticket 快照：COMPLETED | REQUESTER_CONFIRMED | action_deadline_at NULL | ended_at SET | assignee_id 2 | version 6",
+      "证明终态同时满足 ck_ticket_status_deadline、ck_ticket_status_ended、ck_ticket_status_completion_method 三个 CHECK 约束"
+    ]
+  },
+  "fixes": [
+    {
+      "where": "验收脚本断言（不是业务代码）",
+      "symptom": "首轮 confirm.assignee.409 得到 403",
+      "cause": "it 只有 IT_SUPPORT，没有 TICKET_REQUESTER_ACTION，服务端按权限先拒绝；我原来的断言假设它会走到提交人身份判断",
+      "fix": "改为断言 confirm.assignee.403（权限闸门），身份闸门另用具备该权限的账号验证"
+    },
+    {
+      "where": "验收脚本断言（不是业务代码）",
+      "symptom": "次轮 confirm.nonRequester.409 得到 404",
+      "cause": "admin 虽有 TICKET_REQUESTER_ACTION，但待确认工单对非提交人/非参与者不可见（selectVisibleDetail 只放行提交人、待受理队列、参与者），因此先返回 404",
+      "fix": "改为断言「非提交人无法让工单完成」：失败码限定在 403/404/409，并追加一条决定性断言——尝试之后工单仍为 WAITING_FOR_CONFIRMATION"
+    },
+    {
+      "where": "验收脚本 stderr 处理",
+      "symptom": "db.snapshot.terminalFieldsConsistent 报 QUERY_FAILED，且原因被吞成密码警告文本",
+      "cause": "$ErrorActionPreference='Stop' 下原生命令的 stderr 会变成终止性错误，2>$null 把真实输出一起吞掉",
+      "fix": "查询期间临时把偏好设为 Continue，显式合并 stderr，再从输出里挑出含制表符的数据行"
+    }
+  ],
+  "environmentFindings": [
+    "演示库漂移仍在：iam_user_role 中 admin(id=3) 同时拥有 EMPLOYEE、IT_SUPPORT、SYSTEM_ADMIN，而 R__seed_demo_data.sql 只授予 SYSTEM_ADMIN。因此 admin 持有 TICKET_CLAIM 与 TICKET_REQUESTER_ACTION；脚本对 admin 的动作只记录实际状态，不做绝对值断言。未擅自修改授权数据。",
+    "ticket_daily_sequence：2026-10-06 → 11。这是 create 递增日序号的预期行为，清理工单不会回退它。",
+    "待确认/待补充状态对非提交人、非参与者不可见，因此「非提交人身份闸门」在真实栈上只能观察到 403 或 404；要得到 409 需要构造「可见但不是提交人」的组合（例如让某个参与者同时具备 TICKET_REQUESTER_ACTION）。当前未构造。"
+  ],
+  "databaseBaselineAfterCleanup": {
+    "counts": {"ticket": 0, "ticket_record": 0, "ticket_participant": 0, "ticket_category": 5, "iam_user": 3, "iam_role": 3, "iam_permission": 14, "ticket_daily_sequence": 1},
+    "comparedWith": "docs/acceptance/stage2-cleanup-evidence.json 的演示基线 [分类 5, 工单 0, 记录 0, 参与者 0, 日序号 0, 用户 3, 角色 3, 权限 14]",
+    "difference": "日序号由 0 变为 1 行（2026-10-06 → 11），原因见 environmentFindings 第 2 条。",
+    "cleanedTickets": "本轮与上一轮验收产生的全部 FD-20261006-* 工单已删除"
+  },
+  "evidenceFiles": {
+    "passing": "docs/acceptance/2026-10-06-stage3-claim-process-resolution-confirm.json",
+    "preFixFailFirstRun": "docs/acceptance/stage3-ticket-actions-20261006095519-pre-fix-fail.json（步骤② 缺陷修复前：45 项中 44 通过）",
+    "preFixFailSecondRun": "docs/acceptance/stage3-ticket-actions-20261006104921-pre-fix-fail.json（步骤③ 首轮：75 项中 73 通过）",
+    "preFixFailThirdRun": "docs/acceptance/stage3-ticket-actions-20261006105005-pre-fix-fail.json（步骤③ 次轮：76 项中 75 通过）",
+    "steps12Only": "docs/acceptance/2026-10-06-stage3-claim-and-processing-record.json（步骤①② 验收，45/45）",
+    "note": "三次失败运行各自保留了原始记录，未改写为成功。"
+  },
+  "notCovered": [
+    "前端未改动，本轮未执行前端 typecheck/lint/build/单测/E2E；步骤④ 页面与端到端主链未开始",
+    "按用户指示本阶段不新增测试类：四个动作都没有单元/Web/集成用例",
+    "确认期限超时自动完成（AUTO_CONFIRM_TIMEOUT）未实现，属完整版定时任务",
+    "详情可见性未构造『负责人缺少 TICKET_VIEW_PARTICIPATED』的边界组合",
+    "待补充（WAITING_FOR_REQUESTER）相关动作未实现"
+  ]
+}

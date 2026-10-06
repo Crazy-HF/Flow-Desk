@@ -91,8 +91,10 @@
 - `TASK-010` 五个后端接口与 `TASK-011` Vue 登录外壳、身份恢复均已完成并通过验收；后端 `verify` 共 53 项单元/Web 测试与 17 项集成测试全绿，前端 22 项单元测试及类型检查、Lint、构建、7 项 E2E 全绿。阶段 1 已通过 PR #5 合并进入 `main`。
 - 公共安全基线归 `common/config/FoundationSecurityConfiguration`，Auth 专用链负责 JWT 请求认证、Refresh 轮换与重用检测、退出、`/auth/me` 和本人改密。第 3 步（动态 RBAC）先于阶段 2 实施；阶段 2 只推进 `TASK-020`～`TASK-023-MVP` 的员工工单创建与查询闭环。
 
-## 当前分支提交边界（2026-09-30）
+## 当前分支提交边界（2026-10-06）
 
-- 阶段 2 已于 2026-09-29 验收通过并经 PR #9 合并 main（5b9a961），当前分支为 `flow-desk/ticket-it-flow`，承载阶段 3 IT 处理闭环；阶段 3 步骤① IT 领取代码已完成并随本分支提交、推送，步骤② 当前负责人追加处理记录仅完成分析。后续继续提交解决结果、员工确认及页面主链。
-- 2026-09-30 用户明确授权本轮「同步文档 + 提交 + 推送，**不进行 PR**」：领取切片、文档同步与回归证据已随提交 `505e58c` 推送到 `origin/flow-desk/ticket-it-flow`，本地与远程一致，分支保持未合并；该授权不延伸至阶段 3 后续切片，也不构成创建 PR 或合并的授权。
-- 本次提交前实跑 `.\mvnw.cmd -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"`：单元/Web **394** + 集成 **88**，失败/错误均 0，`BUILD SUCCESS`，退出码 0；证据 `docs/acceptance/2026-09-30-ticket-claim-backend-verify.json`。该结果只说明构建通过、既有测试无回归，**领取接口本身尚无专项用例与真实栈证据**，不得据此说步骤① 已运行验证通过。此前 Mapper/事务替身缺失及 V6 迁移断言造成的测试错误已修复。
+- 阶段 2 已于 2026-09-29 验收通过并经 PR #9 合并 main（5b9a961），当前分支为 `flow-desk/ticket-it-flow`，承载阶段 3 IT 处理闭环。**阶段 3 的四步（① 领取 ② 追加处理记录 ③ 提交解决 + 员工确认 ④ IT/员工页面与端到端主链）全部完成**：步骤①②③ 于 2026-10-06 通过真实栈验收（77/77），步骤④ 于同日用 `frontend/e2e/ticket-it-flow.spec.ts` 在真实栈跑通四态主链。
+- 2026-09-30 用户明确授权「同步文档 + 提交 + 推送，**不进行 PR**」：领取切片、文档同步与回归证据已随提交 `505e58c` 推送到 `origin/flow-desk/ticket-it-flow`，本地与远程一致，分支保持未合并。该授权当时只覆盖那一次提交，**不延伸至阶段 3 后续切片**（步骤②③④ 的代码、脚本、页面、端到端用例与证据文档，直到 2026-10-06 才随本轮交接提交）。
+- **2026-10-06 阶段交接（用户批准本轮实施计划，视为本次交接授权）**：按本文件的完整顺序执行「同步状态文档 → 提交 → 推送 → 合并请求 → 合并 `main` → 仅快进同步 → 从最新 `main` 创建下一主题分支」。步骤②③④ 的实现、验收脚本、页面、端到端用例与全部证据文档随本轮两条提交进入 `flow-desk/ticket-it-flow` 并创建合并请求。合并结果与下一分支见 `PROJECT_STATUS.md`「快速定位」。
+- 2026-10-06 用户就一处后端缺口单独授权：「阶段 3 端到端主链发现 `TicketQueryServiceImpl` 的 `allowedActions` 缺 `submit-resolution` 分支」——已按授权修正为 `canSubmitResolution = canProcess` 并同步 `docs/api-design.md` 6.3。这是本阶段唯一一处后端业务代码改动，**该授权不延伸到其它后端逻辑**。
+- 本阶段每次标"通过"前的回归实跑口径：`.\mvnw.cmd -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"`（单元/Web **394** + 集成 **88**）、前端 `pnpm typecheck` / `lint` / `build` / `test:unit --run --maxWorkers=1`（**23 套件 147 项**）/ `test:e2e`（**16 项**）。本机 `pnpm` 全局 shim 已损坏，前端命令统一用 `D:\pnpm\pnpm.cmd`。

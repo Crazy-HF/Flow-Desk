@@ -1,0 +1,150 @@
+{
+  "stage": "阶段 3 步骤④：IT/员工页面与 Playwright 端到端主链",
+  "task": "TASK-033-MVP",
+  "date": "2026-10-06",
+  "branch": "flow-desk/ticket-it-flow",
+  "result": "PASS",
+  "environment": {
+    "profile": "local",
+    "mysql": "flowdesk-mysql-1 (127.0.0.1:3308)",
+    "redis": "flowdesk-redis-1 (127.0.0.1:6380)",
+    "backend": "http://127.0.0.1:8081 (spring-boot:run, profile=local)",
+    "frontend": "vite preview http://127.0.0.1:4173 (pnpm build 产物)",
+    "node": "v24.20.0",
+    "pnpm": "D:\\pnpm\\pnpm.cmd 12.3.4（本机全局 pnpm shim 已损坏，故用该路径）"
+  },
+  "checks": [
+    {
+      "name": "backend-verify",
+      "command": ".\\mvnw.cmd -B clean verify \"-DargLine=-Djdk.attach.allowAttachSelf=true\"",
+      "result": "PASS",
+      "exitCode": 0,
+      "unitWebTests": 394,
+      "integrationTests": 88,
+      "failures": 0,
+      "errors": 0,
+      "note": "BUILD SUCCESS；本轮含一处后端 allowedActions 修正（用户当日授权）"
+    },
+    {
+      "name": "frontend-typecheck",
+      "command": "D:\\pnpm\\pnpm.cmd typecheck",
+      "result": "PASS",
+      "exitCode": 0
+    },
+    {
+      "name": "frontend-lint",
+      "command": "D:\\pnpm\\pnpm.cmd lint",
+      "result": "PASS",
+      "exitCode": 0,
+      "note": "含 stylelint 闸门（颜色/间距/字号/圆角/阴影/动效六轴必须引用 token）"
+    },
+    {
+      "name": "frontend-build",
+      "command": "D:\\pnpm\\pnpm.cmd build",
+      "result": "PASS",
+      "exitCode": 0,
+      "note": "仅既有的大 chunk 提示，不影响退出码"
+    },
+    {
+      "name": "frontend-unit",
+      "command": "D:\\pnpm\\pnpm.cmd test:unit --run --maxWorkers=1",
+      "result": "PASS",
+      "exitCode": 0,
+      "testFiles": 23,
+      "tests": 147,
+      "note": "本轮新增动作用例：4 个动作的接口契约、动作区渲染与权限收口、领取/记录/提交/确认的调用参数、409 版本对齐、正文为空拦截、确认框必须渲染出输入框"
+    },
+    {
+      "name": "frontend-e2e",
+      "command": "D:\\pnpm\\pnpm.cmd test:e2e",
+      "result": "PASS",
+      "exitCode": 0,
+      "total": 16,
+      "passed": 16,
+      "failed": 0,
+      "note": "真实栈执行；其中新增主链 frontend/e2e/ticket-it-flow.spec.ts"
+    }
+  ],
+  "mainChain": {
+    "spec": "frontend/e2e/ticket-it-flow.spec.ts",
+    "actors": ["employee", "it"],
+    "ticketNo": "FD-20261006-026",
+    "steps": [
+      { "step": "create", "status": 201, "traceId": "e4c9b6bd-e91e-416f-b565-88ebe5dbc1d7" },
+      { "step": "claim", "status": 200, "traceId": "e4a8a867-cf5a-42d9-b7e1-385e84edf09f" },
+      { "step": "add-processing-record", "status": 200, "traceId": "ac092bc1-6388-4e54-b220-9b4253b8813e" },
+      { "step": "submit-resolution", "status": 200, "traceId": "14f8260f-2e2f-4e59-a219-69422e33aac0" },
+      { "step": "confirm-resolution", "status": 200, "traceId": "6694ce50-7464-407a-a826-5f6b072d8fd6" }
+    ],
+    "uiStatusTransitions": ["待受理", "处理中", "待员工确认", "已完成"],
+    "timelineTypes": ["创建工单", "领取工单", "记录处理过程", "提交解决结果", "完成工单"],
+    "uiAssertions": [
+      "员工在待受理阶段看不到动作区（allowedActions 为空则不摆按钮）",
+      "IT 工作台默认停在「待受理」，用编号能查到刚提交的那张工单",
+      "领取后按钮按新快照换成「记录处理过程」+「提交解决结果」，负责人变为 IT",
+      "只填空格的正文被界面拦下：不发请求、提示、弹窗不关、时间线不多出记录",
+      "提交解决后 IT 侧不再有动作，属性栏出现「当前期限」",
+      "员工侧只出现「确认已解决」，同一个期限字段显示为「确认期限」",
+      "确认后进入已完成，完成方式为「员工确认完成」，动作区消失",
+      "已完成工单仍留在负责人名下（Terminal 态保留负责人）"
+    ],
+    "viewports": [1440, 375],
+    "horizontalOverflow": 0,
+    "pageErrors": []
+  },
+  "defectsFoundAndFixed": [
+    {
+      "id": "DEF-1",
+      "where": "frontend",
+      "symptom": "确认框里的正文输入框在生产构建中整个消失，只剩一行标签",
+      "rootCause": "应用按运行时版 Vue 打包，defineComponent 的 template 选项不会被编译，el-input 渲染为占位注释；单元测试用开发版 Vue（含编译器）因此无法发现",
+      "fix": "改为单文件组件 frontend/src/views/work/TicketActionContentField.vue（构建期编译）",
+      "authorization": "无需授权（前端实现范围内）"
+    },
+    {
+      "id": "DEF-2",
+      "where": "frontend",
+      "symptom": "在渲染函数里给 ElInput 传 onUpdate:modelValue 时输入不回流，表现为填了内容却提交空正文",
+      "rootCause": "ElInput 的 modelValue / update:modelValue 都声明为 props，h() 里的 onUpdate:modelValue 只是普通 prop",
+      "fix": "由单文件组件的 v-model 由编译器生成正确的 prop + 监听组合",
+      "authorization": "无需授权（前端实现范围内）"
+    },
+    {
+      "id": "DEF-3",
+      "where": "backend",
+      "symptom": "IT 详情页永远没有「提交解决结果」按钮，端到端主链在该步 element(s) not found",
+      "rootCause": "TicketQueryServiceImpl.toDetail 的 allowedActions 只有 claim / add-processing-record / confirm-resolution 三个分支，缺 submit-resolution；界面按该字段渲染按钮，因此接口虽已实现并验收也无法从界面触发",
+      "fix": "新增 canSubmitResolution = canProcess（前置条件相同：PROCESSING + 本人是负责人 + TICKET_PROCESS），并同步 docs/api-design.md 6.3",
+      "authorization": "2026-10-06 用户当场明确授权（选项：授权我补这一个条件）"
+    }
+  ],
+  "notVerified": [
+    "用户逐项视觉反馈未取得（本轮是实现 + 自查，不是审美验收）",
+    "未跑 1920 视口（本轮要求 1440 与 375）",
+    "四个动作仍无单元/Web/集成用例（按用户指示本阶段不新增测试类）",
+    "报告未解决 / 转交 / 调整等 6 个动作未实现，服务端不返回，界面无入口"
+  ],
+  "demoDatabaseAfterCleanup": {
+    "tickets": 1,
+    "ticketRecords": 5,
+    "ticketParticipants": 1,
+    "categories": 5,
+    "users": 3,
+    "roles": 3,
+    "note": "保留 FD-20261006-026（完整走完四态的主链样本）；与 PROJECT_STATUS 记录的工单 0 基线差这一张，清理 SQL 见 .ui-craft/reviews/2026-10-06-ticket-it-flow/report.md 第 7 节",
+    "knownDrift": "iam_user_role 中 admin 同时持有 EMPLOYEE / IT_SUPPORT / SYSTEM_ADMIN（既有漂移，本轮未改动授权数据）"
+  },
+  "artifacts": [
+    "frontend/e2e/ticket-it-flow.spec.ts",
+    "frontend/src/views/work/TicketQueueView.vue",
+    "frontend/src/views/work/TicketActionContentField.vue",
+    ".ui-craft/reviews/2026-10-06-ticket-it-flow/report.md",
+    ".ui-craft/reviews/2026-10-06-ticket-it-flow/runtime-evidence.json",
+    ".ui-craft/reviews/2026-10-06-ticket-it-flow/*.png"
+  ],
+  "git": {
+    "committed": false,
+    "pushed": false,
+    "note": "工作区全部改动未提交、未推送；交接顺序（提交 → 推送 → 合并请求 → 合并 main → 快进同步 → 建下一分支）待用户明确授权"
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "stage": "阶段 3 IT 处理闭环",
+  "slices": [
+    "步骤① IT 领取 POST /fd/v1/tickets/{ticketNo}/actions/claim",
+    "步骤② 当前负责人追加处理记录 POST /fd/v1/tickets/{ticketNo}/actions/add-processing-record"
+  ],
+  "at": "2026-10-06T10:00:59+08:00",
+  "timezone": "Asia/Shanghai",
+  "branch": "flow-desk/ticket-it-flow",
+  "baseCommit": "9740d20",
+  "result": "步骤①② 真实栈验收通过；本轮同时发现并修复一个代码缺陷（见 defect）。",
+  "stack": {
+    "profile": "local",
+    "backend": "Spring Boot，本机 8081 端口，MySQL 容器 flowdesk-mysql-1（3308）、Redis 容器 flowdesk-redis-1（6380）",
+    "script": "scripts/stage3-ticket-actions-acceptance.ps1",
+    "command": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\stage3-ticket-actions-acceptance.ps1",
+    "evidence": "docs/acceptance/2026-10-06-stage3-claim-and-processing-record.json",
+    "assertions": {"total": 45, "passed": 45, "failed": 0},
+    "traceIds": "证据文件内每条断言都带 X-Trace-Id，可与后端日志逐条对齐（日志 %TEMP%\\fd-backend-stage3b.log）"
+  },
+  "verified": {
+    "claim": [
+      "匿名 401",
+      "员工 403/TICKET_ACTION_FORBIDDEN",
+      "编号不存在 404/TICKET_NOT_FOUND",
+      "版本过期 409/TICKET_CONFLICT",
+      "缺少 version 400",
+      "首次领取 200：status=PROCESSING、version 0→1、assignee=it(id=2)",
+      "同版本重复领取 409 且冲突快照返回当前 version/status"
+    ],
+    "addProcessingRecord": [
+      "员工（非负责人）403/TICKET_ACTION_FORBIDDEN",
+      "纯空白正文 400/VALIDATION_FAILED",
+      "版本过期 409/TICKET_CONFLICT",
+      "首次成功 200：状态仍 PROCESSING、负责人不变、version 1→2",
+      "同版本重复提交 409",
+      "正文 10000 字符 200、10001 字符 400",
+      "并发同版本两次：恰好一个 200、一个 409",
+      "首尾空白被裁剪后入库（时间线 content 无前后空格）"
+    ],
+    "allowedActions": [
+      "it 对本人负责的 PROCESSING 工单返回 [\"add-processing-record\"]",
+      "同一详情不再返回 claim"
+    ],
+    "timeline": [
+      "记录序列 CREATE,CLAIM,PROCESS,PROCESS,PROCESS",
+      "sequenceNo 严格递增 1..5 且从 1 开始",
+      "PROCESS 记录操作者为 it，CLAIM 记录状态迁移 PENDING→PROCESSING"
+    ]
+  },
+  "defect": {
+    "file": "src/main/java/com/flowdesk/ticket/application/service/impl/TicketQueryServiceImpl.java",
+    "line": 317,
+    "symptom": "toDetail 已按条件构建 allowedActions 变量，但返回语句仍传入旧的三元表达式 canClaim ? List.of(\"claim\") : List.of()，导致 allowedActions 恒为空数组；it 在详情上看不到任何可用动作。",
+    "detectedBy": "首轮真实栈验收第 1 次执行：detail.allowedActions.hasProcess 断言 FAIL（allowedActions= 空）",
+    "diagnosis": "先用运行进程的 classpath 确认运行的是 target/classes，再用 javap 反汇编 toDetail 确认字节码里同时存在 add-processing-record 的 List.add 与旧的 List.of 分支，最后核对源文件确认返回语句未被替换。",
+    "fix": "返回语句改为传入 allowedActions 变量。",
+    "regressionEvidence": "修复后 clean verify 重新执行：单元/Web 394 + 集成 88，失败/错误 0，BUILD SUCCESS（%TEMP%\\fd-verify-final.log，2026-10-06T10:00:21+08:00）",
+    "preFixEvidence": "docs/acceptance/stage3-ticket-actions-20261006095519-pre-fix-fail.json（45 项中 44 通过、1 失败，保留原始失败记录，未改写为成功）"
+  },
+  "environmentFindings": [
+    "演示库漂移：iam_user_role 中 admin(id=3) 同时拥有 EMPLOYEE 与 IT_SUPPORT 角色，而 R__seed_demo_data.sql 只授予 SYSTEM_ADMIN。因此 admin 实际持有 TICKET_CLAIM/TICKET_VIEW_QUEUE，领取返回 200 而不是 404。脚本已改为记录实际结果、不做绝对值断言。此漂移不是本轮引入的，未擅自修改授权数据。",
+    "ticket_daily_sequence 现有 1 行：2026-10-06 → 5。这是 create 递增日序号的预期行为，清理工单不会回退它（同一天继续编号，避免复用已用过的编号）。",
+    "本机默认 shell 是 Windows PowerShell 5.1：任何要被它执行的 .ps1 必须保存为带 BOM 的 UTF-8，否则中文注释会按系统代码页解析成乱码并报语法错误。edit 工具重写文件会去掉 BOM，需重新补。",
+    "在 pwsh 的 -Command 里先声明 function 会让该次工具调用静默不执行（无输出、无文件、无报错）；改用 powershell -File 执行脚本文件正常。"
+  ],
+  "smokeChecks": {
+    "detailRawBody": "GET /fd/v1/tickets/FD-20261006-002 返回 {\"status\":\"PROCESSING\",\"assignee\":{\"id\":2},\"version\":4,\"allowedActions\":[]}，用于定位缺陷。",
+    "assignedScope": "GET /fd/v1/tickets?scope=ASSIGNED_TO_ME 返回 200，totalElements=1。"
+  },
+  "databaseBaselineAfterCleanup": {
+    "counts": {"ticket": 0, "ticket_record": 0, "ticket_participant": 0, "ticket_category": 5, "iam_user": 3, "iam_role": 3, "iam_permission": 14, "ticket_daily_sequence": 1},
+    "comparedWith": "docs/acceptance/stage2-cleanup-evidence.json 的演示基线 [分类 5, 工单 0, 记录 0, 参与者 0, 日序号 0, 用户 3, 角色 3, 权限 14]",
+    "difference": "日序号由 0 变为 1 行（2026-10-06 → 5），原因见 environmentFindings 第 2 条。",
+    "cleanedTickets": ["FD-20261006-001", "FD-20261006-002", "FD-20261006-003", "FD-20261006-004", "FD-20261006-005"]
+  },
+  "notCovered": [
+    "前端未改动，本轮未执行前端 typecheck/lint/build/单测/E2E",
+    "按用户指示本阶段不新增测试类：两个动作仍没有单元/Web/集成用例，证据来自真实栈 HTTP 调用",
+    "步骤③ 提交解决结果与员工确认、步骤④ 页面与端到端主链仍未开始",
+    "详情可见性未覆盖『负责人缺少 TICKET_VIEW_PARTICIPATED』的边界：当前 it 角色同时持有三个 view 权限，未构造该组合"
+  ]
+}
