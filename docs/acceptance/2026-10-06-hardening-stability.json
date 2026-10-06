@@ -83,7 +83,20 @@
     "before_reference_run": { "run": "37424825486", "backend_verify": "3.5 min", "frontend_verify": "0.8 min", "core_e2e": "2.6 min", "wall_clock": "≈6.2 min" },
     "expected_after": "wall clock ≈ max(3.5, 0.8, 2.6) ≈ 3.5 min",
     "tradeoff": "后端校验失败时 E2E 仍会跑完（信号更多，runner 分钟更多）",
-    "after_measurement": "以本分支 PR 的 CI 运行时长为准，在 PROJECT_STATUS.md 补记"
+    "after_measurement": {
+      "pr": "https://github.com/Crazy-HF/Flow-Desk/pull/12",
+      "run": "37431135077",
+      "conclusion": "success",
+      "jobs": {
+        "backend_verify": "2m43s",
+        "core_e2e": "2m37s",
+        "frontend_verify": "56s",
+        "all_started_at": "2026-10-06T07:40:30Z"
+      },
+      "wall_clock": "2.77 min",
+      "before_wall_clock": "≈6.2 min（串行，运行 37424825486）",
+      "delta": "总时长减少约 55%，覆盖范围不变（三个 job 全绿）"
+    }
   },
 
   "database_baseline": {
