@@ -15,8 +15,8 @@ export interface RoleDetail {
   id: number
   code: string
   name: string
-  description: string | null
-  createdAt: string | null
+  description?: string
+  createdAt?: string
   /** 已授权的权限 ID，升序。 */
   permissionIds: number[]
 }
@@ -25,8 +25,8 @@ export interface PermissionDetail {
   id: number
   code: string
   name: string
-  description: string | null
-  createdAt: string | null
+  description?: string
+  createdAt?: string
   /** 已引用该权限的角色 ID。 */
   roleIds: number[]
 }
@@ -38,8 +38,8 @@ export interface UserRoleGrant {
   roleId: number
   roleCode: string
   roleName: string
-  grantedBy: number | null
-  grantedAt: string | null
+  grantedBy?: number
+  grantedAt?: string
 }
 
 /** 角色权限授权关系；历史预置关系可能没有授权时间。 */
@@ -49,8 +49,8 @@ export interface RolePermissionGrant {
   permissionId: number
   permissionCode: string
   permissionName: string
-  grantedBy: number | null
-  grantedAt: string | null
+  grantedBy?: number
+  grantedAt?: string
 }
 
 export interface RoleListParams extends PageQueryParams {

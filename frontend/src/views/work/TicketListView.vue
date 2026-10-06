@@ -22,8 +22,8 @@ import {
 import type { TicketSortChoice } from '@/constants/tickets'
 import { useAuthStore } from '@/stores/auth'
 import { formatDateTime } from '@/utils/format'
-import { useAdminList } from '@/views/admin/useAdminList'
-import { useCompactPagination } from '@/views/admin/useCompactPagination'
+import { useAdminList } from '@/composables/useAdminList'
+import { useCompactPagination } from '@/composables/useCompactPagination'
 
 /**
  * 工单列表（`docs/api-design.md` 5.3，`GET /fd/v1/tickets`）。

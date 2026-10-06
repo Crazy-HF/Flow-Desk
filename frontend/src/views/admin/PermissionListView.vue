@@ -11,8 +11,8 @@ import AdminListPanel from '@/components/AdminListPanel.vue'
 import AppPage from '@/components/AppPage.vue'
 import ProtectedMark from '@/components/ProtectedMark.vue'
 import { isProtectedPermission, PROTECTED_PERMISSION_CODE } from '@/constants/authorization'
-import { useAdminList } from './useAdminList'
-import { useCompactPagination } from './useCompactPagination'
+import { useAdminList } from '@/composables/useAdminList'
+import { useCompactPagination } from '@/composables/useCompactPagination'
 
 /** 权限管理（`docs/api-design.md` 8.2.1，`TASK-060`）。 */
 const keyword = ref('')

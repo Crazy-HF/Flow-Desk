@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import type { PageResult } from '@/api/pagination'
-import { useAdminList } from './useAdminList'
+import { useAdminList } from '@/composables/useAdminList'
 
 interface Row {
   id: number
@@ -69,5 +69,52 @@ describe('useAdminList', () => {
     await list.changePageSize(50)
 
     expect(request).toHaveBeenLastCalledWith({ pageNo: 1, pageSize: 50 })
+  })
+
+  it('先发的旧响应后到时被丢弃，不覆盖新结果', async () => {
+    let releaseFirst: (value: PageResult<Row>) => void = () => undefined
+    const first = new Promise<PageResult<Row>>((resolve) => {
+      releaseFirst = resolve
+    })
+    const request = vi
+      .fn()
+      .mockReturnValueOnce(first)
+      .mockResolvedValueOnce(pageOf([{ id: 2 }], 1, 1))
+    const list = useAdminList<Row>(request)
+
+    const stale = list.load()
+    await list.load()
+    expect(list.items.value).toEqual([{ id: 2 }])
+
+    releaseFirst(pageOf([{ id: 1 }], 1, 99))
+    await stale
+
+    expect(list.items.value).toEqual([{ id: 2 }])
+    expect(list.total.value).toBe(1)
+    expect(list.phase.value).toBe('ready')
+    expect(list.retrying.value).toBe(false)
+  })
+
+  it('过期请求失败时不把已经就绪的页面打回错误态', async () => {
+    let rejectFirst: (reason: unknown) => void = () => undefined
+    const first = new Promise<PageResult<Row>>((_resolve, reject) => {
+      rejectFirst = reject
+    })
+    const request = vi
+      .fn()
+      .mockReturnValueOnce(first)
+      .mockResolvedValueOnce(pageOf([{ id: 3 }]))
+    const list = useAdminList<Row>(request)
+
+    const stale = list.load()
+    await list.load()
+    expect(list.phase.value).toBe('ready')
+
+    rejectFirst({ response: { data: { code: 'ACCESS_DENIED' } } })
+    await stale
+
+    expect(list.phase.value).toBe('ready')
+    expect(list.errorMessage.value).toBe('')
+    expect(list.items.value).toEqual([{ id: 3 }])
   })
 })

@@ -22,8 +22,8 @@ import AppPage from '@/components/AppPage.vue'
 import ProtectedMark from '@/components/ProtectedMark.vue'
 import { isProtectedRole } from '@/constants/authorization'
 import { useAuthStore } from '@/stores/auth'
-import { useAdminList } from './useAdminList'
-import { useCompactPagination } from './useCompactPagination'
+import { useAdminList } from '@/composables/useAdminList'
+import { useCompactPagination } from '@/composables/useCompactPagination'
 
 /** 用户管理（`docs/api-design.md` 8.2，`TASK-062`）。 */
 const auth = useAuthStore()

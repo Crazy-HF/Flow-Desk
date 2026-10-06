@@ -13,8 +13,8 @@ import AdminListPanel from '@/components/AdminListPanel.vue'
 import AppPage from '@/components/AppPage.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import { formatDateTime } from '@/utils/format'
-import { useAdminList } from './useAdminList'
-import { useCompactPagination } from './useCompactPagination'
+import { useAdminList } from '@/composables/useAdminList'
+import { useCompactPagination } from '@/composables/useCompactPagination'
 
 /**
  * 用户角色授权（`docs/api-design.md` 8.2.1，`TASK-060`）。

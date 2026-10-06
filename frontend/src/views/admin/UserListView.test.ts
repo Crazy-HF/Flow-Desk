@@ -40,8 +40,8 @@ const employeeAccount: UserDetail = {
   displayName: '演示员工',
   status: 'ENABLED',
   roles: [],
-  createdAt: null,
-  updatedAt: null,
+  createdAt: undefined,
+  updatedAt: undefined,
   version: 0,
 }
 

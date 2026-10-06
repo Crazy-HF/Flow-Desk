@@ -56,12 +56,11 @@ export interface TicketCategorySummary {
 /**
  * 列表项：只有识别与筛选所需字段，不含问题正文。
  *
- * <p>可空字段沿用既有约定写成 `| null`（与 `users.ts` / `rbac.ts` / `categories.ts` 一致）。
- * 但要记住一个事实：后端配了 `spring.jackson.default-property-inclusion=non_null`
+ * <p>可选字段写成 `field?: T`（`users.ts` / `rbac.ts` / `categories.ts` 同一写法）。依据是一个
+ * 事实：后端配了 `spring.jackson.default-property-inclusion=non_null`
  * （`src/main/resources/application.yml`），值为 null 的字段**不会出现在 JSON 里**，
- * 前端实际拿到的是 `undefined`。所以判空一律用真值判断或 `?.`，
- * **不要用 `'assignee' in row` 这类"键是否存在"的写法**，也先别单独把这里改成可选类型——
- * 那会让四个 `api/` 模块对同一件事有两种写法。</p>
+ * 前端实际拿到的是 `undefined`。此前四个模块都写成 `| null`，类型与运行时不符（2026-10-06 统一）。
+ * 判空一律用真值判断或 `?.`，**不要用 `'assignee' in row` 这类"键是否存在"的写法**。</p>
  */
 export interface TicketListItem {
   ticketNo: string
@@ -71,9 +70,9 @@ export interface TicketListItem {
   status: TicketStatus
   requester: TicketUserSummary
   /** 待受理工单没有负责人（该键在响应里不出现）。 */
-  assignee: TicketUserSummary | null
+  assignee?: TicketUserSummary
   /** 待补充或待确认时的当前有效截止时间，其他状态下不出现。 */
-  actionDeadlineAt: string | null
+  actionDeadlineAt?: string
   createdAt: string
   updatedAt: string
   version: number
@@ -83,12 +82,12 @@ export interface TicketListItem {
 export interface TicketDetail extends TicketListItem {
   description: string
   /** 仅已完成时有值，其他状态下不出现。 */
-  completionMethod: string | null
+  completionMethod?: string
   /** 仅已关闭时有值，其他状态下不出现。 */
-  closeMethod: string | null
-  closeReason: string | null
+  closeMethod?: string
+  closeReason?: string
   /** 终态结束时间，非终态下不出现。 */
-  endedAt: string | null
+  endedAt?: string
   /**
    * 后端按当前用户、角色、工单关系与状态计算的可用动作。
    *
@@ -114,7 +113,7 @@ export interface TicketRecord {
   recordType: string
   actorType: TicketActorType
   /** 系统动作没有操作人（该键在响应里不出现，见上面的 `non_null` 说明）。 */
-  actor: TicketUserSummary | null
+  actor?: TicketUserSummary
   createdAt: string
   context: Record<string, unknown>
 }
@@ -192,9 +191,9 @@ export interface TicketActionResult {
   ticketNo: string
   status: TicketStatus
   /** 当前或最后负责人；终止状态下保留，没有负责人时不出现（`non_null` 约定）。 */
-  assignee: TicketUserSummary | null
+  assignee?: TicketUserSummary
   /** 只有待补充与待确认有值，其他状态下不出现。 */
-  actionDeadlineAt: string | null
+  actionDeadlineAt?: string
   version: number
   /** 动作发生时间，由服务端给出，不用客户端时钟。 */
   actionTime: string
