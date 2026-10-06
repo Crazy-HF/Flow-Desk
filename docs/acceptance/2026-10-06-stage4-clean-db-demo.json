@@ -1,0 +1,719 @@
+{
+    "_pathsMasked":  "本文件里的机器绝对路径已替换为占位符（\u003cREPO\u003e / \u003cJDK21_HOME\u003e / \u003cTEMP\u003e）；命令、退出码、断言与结论均未改动。",
+    "stage":  "阶段 4：从空库执行 Flyway + 三角色登录 + 四态主链演示",
+    "date":  "2026-10-06",
+    "result":  "PASS",
+    "script":  {
+                   "path":  "scripts/stage4-clean-db-demo.ps1",
+                   "lines":  1145,
+                   "invocation":  "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\stage4-clean-db-demo.ps1",
+                   "powershellVersion":  "5.1.22000.2538",
+                   "exitCode":  0,
+                   "startedAt":  "2026-10-06T14:33:49",
+                   "finishedAt":  "2026-10-06T14:34:18",
+                   "durationSeconds":  28.8
+               },
+    "isolation":  {
+                      "tempDatabase":  "flowdesk_stage4_clean",
+                      "tempDatabaseCollation":  "utf8mb4 / utf8mb4_0900_ai_ci",
+                      "tempDatabaseConnectionString":  "jdbc:mysql://localhost:3308/flowdesk_stage4_clean?useUnicode=true\u0026characterEncoding=utf8\u0026connectionTimeZone=UTC\u0026forceConnectionTimeZoneToSession=true",
+                      "tempDatabaseUser":  "root",
+                      "tempDatabaseUserReason":  "容器内应用用户 flowdesk 只有 flowdesk.* 权限（SHOW GRANTS 实测），无法 CREATE DATABASE；给它在临时库上临时授权会在容器里留下授权残留，故本次临时运行统一用 .env 的 root 口令，结束即删库。",
+                      "backendPort":  8091,
+                      "backendProfile":  "demo",
+                      "dbContainer":  "flowdesk-mysql-1",
+                      "redisEndpoint":  "localhost:6380（既有实例，只写会话键）",
+                      "demoDatabase":  "flowdesk",
+                      "demoDatabaseWritten":  false,
+                      "existingDemoBackendPort":  8081,
+                      "existingDemoBackendPidsBefore":  [
+                                                            45612
+                                                        ]
+                  },
+    "backend":  {
+                    "command":  "mvnw.cmd -B spring-boot:run -Dspring-boot.run.profiles=demo -Dspring-boot.run.arguments=--server.port=8091",
+                    "workingDirectory":  "\u003cREPO\u003e",
+                    "readyAfterSeconds":  18.1,
+                    "healthEndpoint":  "/actuator/health",
+                    "healthBody":  "{\"status\":\"UP\"}",
+                    "listenerPid":  24744,
+                    "wrapperPid":  43244,
+                    "stdoutLog":  "\u003cTEMP\u003e\\flowdesk-stage4-clean-20261006-143349\\backend-stdout.log",
+                    "stderrLog":  "\u003cTEMP\u003e\\flowdesk-stage4-clean-20261006-143349\\backend-stderr.log",
+                    "launchMethod":  "System.Diagnostics.Process + cmd.exe（本机 Start-Process 因 NO_PROXY/no_proxy 重复键不可用）",
+                    "logHighlights":  [
+                                          "2026-10-06T14:33:59.972+08:00  INFO [traceId=] 24744 --- [flowdesk] [           main] com.flowdesk.FlowDeskApplication         : The following 1 profile is active: \"demo\"",
+                                          "2026-10-06T14:34:03.913+08:00  INFO [traceId=] 24744 --- [flowdesk] [           main] org.flywaydb.core.FlywayExecutor         : Database: jdbc:mysql://localhost:3308/flowdesk_stage4_clean?useUnicode=true\u0026characterEncoding=utf8\u0026connectionTimeZone=UTC\u0026forceConnectionTimeZoneToSession=true (MySQL 8.4)",
+                                          "2026-10-06T14:34:03.947+08:00  WARN [traceId=] 24744 --- [flowdesk] [           main] o.f.c.internal.database.base.Database    : Flyway upgrade recommended: MySQL 8.4 is newer than this version of Flyway and support has not been tested. The latest supported version of MySQL is 8.1.",
+                                          "2026-10-06T14:34:04.005+08:00  INFO [traceId=] 24744 --- [flowdesk] [           main] o.f.c.i.s.JdbcTableSchemaHistory         : Schema history table `flowdesk_stage4_clean`.`flyway_schema_history` does not exist yet",
+                                          "2026-10-06T14:34:04.054+08:00  INFO [traceId=] 24744 --- [flowdesk] [           main] o.f.c.i.s.JdbcTableSchemaHistory         : Creating Schema History table `flowdesk_stage4_clean`.`flyway_schema_history` ...",
+                                          "2026-10-06T14:34:04.224+08:00  INFO [traceId=] 24744 --- [flowdesk] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema `flowdesk_stage4_clean` to version \"1 - create schema\"",
+                                          "2026-10-06T14:34:04.945+08:00  INFO [traceId=] 24744 --- [flowdesk] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema `flowdesk_stage4_clean` to version \"2 - seed rbac\"",
+                                          "2026-10-06T14:34:05.030+08:00  INFO [traceId=] 24744 --- [flowdesk] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema `flowdesk_stage4_clean` to version \"4 - rename password hash to password\"",
+                                          "2026-10-06T14:34:05.192+08:00  INFO [traceId=] 24744 --- [flowdesk] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema `flowdesk_stage4_clean` to version \"5 - enable dynamic rbac\"",
+                                          "2026-10-06T14:34:05.366+08:00  INFO [traceId=] 24744 --- [flowdesk] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema `flowdesk_stage4_clean` to version \"6 - add ticket daily sequence\"",
+                                          "2026-10-06T14:34:05.466+08:00  INFO [traceId=] 24744 --- [flowdesk] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema `flowdesk_stage4_clean` with repeatable migration \"seed demo data\"",
+                                          "2026-10-06T14:34:05.533+08:00  INFO [traceId=] 24744 --- [flowdesk] [           main] o.f.core.internal.command.DbMigrate      : Successfully applied 6 migrations to schema `flowdesk_stage4_clean`, now at version v6 (execution time 00:00.976s)",
+                                          "2026-10-06T14:34:08.574+08:00  INFO [traceId=] 24744 --- [flowdesk] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 8091 (http) with context path \u0027/\u0027",
+                                          "2026-10-06T14:34:08.596+08:00  INFO [traceId=] 24744 --- [flowdesk] [           main] com.flowdesk.FlowDeskApplication         : Started FlowDeskApplication in 9.175 seconds (process running for 9.594)"
+                                      ]
+                },
+    "flyway":  {
+                   "historyTable":  "flyway_schema_history",
+                   "records":  [
+                                   {
+                                       "installedRank":  1,
+                                       "version":  "1",
+                                       "description":  "create schema",
+                                       "script":  "V1__create_schema.sql",
+                                       "type":  "SQL",
+                                       "success":  1,
+                                       "executionTime":  645
+                                   },
+                                   {
+                                       "installedRank":  2,
+                                       "version":  "2",
+                                       "description":  "seed rbac",
+                                       "script":  "V2__seed_rbac.sql",
+                                       "type":  "SQL",
+                                       "success":  1,
+                                       "executionTime":  32
+                                   },
+                                   {
+                                       "installedRank":  3,
+                                       "version":  "4",
+                                       "description":  "rename password hash to password",
+                                       "script":  "V4__rename_password_hash_to_password.sql",
+                                       "type":  "SQL",
+                                       "success":  1,
+                                       "executionTime":  97
+                                   },
+                                   {
+                                       "installedRank":  4,
+                                       "version":  "5",
+                                       "description":  "enable dynamic rbac",
+                                       "script":  "V5__enable_dynamic_rbac.sql",
+                                       "type":  "SQL",
+                                       "success":  1,
+                                       "executionTime":  131
+                                   },
+                                   {
+                                       "installedRank":  5,
+                                       "version":  "6",
+                                       "description":  "add ticket daily sequence",
+                                       "script":  "V6__add_ticket_daily_sequence.sql",
+                                       "type":  "SQL",
+                                       "success":  1,
+                                       "executionTime":  50
+                                   },
+                                   {
+                                       "installedRank":  6,
+                                       "version":  "-",
+                                       "description":  "seed demo data",
+                                       "script":  "R__seed_demo_data.sql",
+                                       "type":  "SQL",
+                                       "success":  1,
+                                       "executionTime":  21
+                                   }
+                               ],
+                   "appliedVersions":  "1,2,4,5,6",
+                   "repeatableScripts":  [
+                                             "R__seed_demo_data.sql"
+                                         ],
+                   "allSuccess":  true
+               },
+    "seed":  {
+                 "users":  3,
+                 "roles":  3,
+                 "permissions":  14,
+                 "categories":  5,
+                 "disabledCategories":  1,
+                 "usernames":  "employee,it,admin",
+                 "categoryNames":  "?????/ENABLED,????/ENABLED,????/ENABLED,????/ENABLED,?????/DISABLED",
+                 "seededByRepeatable":  true
+             },
+    "logins":  [
+                   {
+                       "expectedRole":  "EMPLOYEE",
+                       "username":  "employee",
+                       "loginStatus":  200,
+                       "loginTraceId":  "68e5ecf8-6ac4-4211-a676-0c80b2dfd20c",
+                       "meStatus":  200,
+                       "meTraceId":  "b5426e61-5214-47db-8a9f-c05e6f0eb71a",
+                       "userId":  1,
+                       "displayName":  "演示员工",
+                       "roles":  [
+                                     "EMPLOYEE"
+                                 ],
+                       "permissions":  [
+                                           "TICKET_CREATE",
+                                           "TICKET_REQUESTER_ACTION",
+                                           "TICKET_VIEW_OWN"
+                                       ]
+                   },
+                   {
+                       "expectedRole":  "IT_SUPPORT",
+                       "username":  "it",
+                       "loginStatus":  200,
+                       "loginTraceId":  "4085e98b-e0fe-4876-9638-280dad0ec5a1",
+                       "meStatus":  200,
+                       "meTraceId":  "2d1566ac-7411-45cd-a751-d62e58bee523",
+                       "userId":  2,
+                       "displayName":  "演示 IT 支持人员",
+                       "roles":  [
+                                     "IT_SUPPORT"
+                                 ],
+                       "permissions":  [
+                                           "DASHBOARD_VIEW",
+                                           "TICKET_CLAIM",
+                                           "TICKET_CLOSE",
+                                           "TICKET_PROCESS",
+                                           "TICKET_TRANSFER",
+                                           "TICKET_VIEW_PARTICIPATED",
+                                           "TICKET_VIEW_QUEUE"
+                                       ]
+                   },
+                   {
+                       "expectedRole":  "SYSTEM_ADMIN",
+                       "username":  "admin",
+                       "loginStatus":  200,
+                       "loginTraceId":  "3b73a459-45a9-482f-b83a-90b949b8b132",
+                       "meStatus":  200,
+                       "meTraceId":  "f9f69f6b-9dff-497d-a49c-9756c0502ec9",
+                       "userId":  3,
+                       "displayName":  "演示系统管理员",
+                       "roles":  [
+                                     "SYSTEM_ADMIN"
+                                 ],
+                       "permissions":  [
+                                           "CATEGORY_MANAGE",
+                                           "RBAC_MANAGE",
+                                           "TICKET_ADMIN_HANDOFF",
+                                           "USER_MANAGE"
+                                       ]
+                   }
+               ],
+    "mainChain":  [
+                      {
+                          "step":  1,
+                          "actor":  "employee",
+                          "action":  "create-ticket",
+                          "method":  "POST",
+                          "path":  "/fd/v1/tickets",
+                          "httpStatus":  201,
+                          "traceId":  "eaff6c96-226a-4824-ad9f-7845149d6942",
+                          "ticketNo":  "FD-20261006-001",
+                          "statusAfter":  "PENDING",
+                          "versionAfter":  0
+                      },
+                      {
+                          "step":  2,
+                          "actor":  "it",
+                          "action":  "claim",
+                          "method":  "POST",
+                          "path":  "/fd/v1/tickets/FD-20261006-001/actions/claim",
+                          "httpStatus":  200,
+                          "traceId":  "f2440369-0eb7-4109-a69c-99c39c331d49",
+                          "ticketNo":  "FD-20261006-001",
+                          "statusAfter":  "PROCESSING",
+                          "versionAfter":  1
+                      },
+                      {
+                          "step":  3,
+                          "actor":  "it",
+                          "action":  "add-processing-record",
+                          "method":  "POST",
+                          "path":  "/fd/v1/tickets/FD-20261006-001/actions/add-processing-record",
+                          "httpStatus":  200,
+                          "traceId":  "aa32a364-e2e2-47fb-bd04-b92ebd680f53",
+                          "ticketNo":  "FD-20261006-001",
+                          "statusAfter":  "PROCESSING",
+                          "versionAfter":  2
+                      },
+                      {
+                          "step":  4,
+                          "actor":  "it",
+                          "action":  "submit-resolution",
+                          "method":  "POST",
+                          "path":  "/fd/v1/tickets/FD-20261006-001/actions/submit-resolution",
+                          "httpStatus":  200,
+                          "traceId":  "280e8cd2-ea23-436b-b90e-65db62e46b23",
+                          "ticketNo":  "FD-20261006-001",
+                          "statusAfter":  "WAITING_FOR_CONFIRMATION",
+                          "versionAfter":  3,
+                          "actionDeadlineAt":  "2026-10-13 06:34:14.003000",
+                          "deadlineOffsetSecondsFromSevenDays":  0
+                      },
+                      {
+                          "step":  5,
+                          "actor":  "employee",
+                          "action":  "confirm-resolution",
+                          "method":  "POST",
+                          "path":  "/fd/v1/tickets/FD-20261006-001/actions/confirm-resolution",
+                          "httpStatus":  200,
+                          "traceId":  "5ade0cc8-70f3-478e-b2d7-5cf23a57fbad",
+                          "ticketNo":  "FD-20261006-001",
+                          "statusAfter":  "COMPLETED",
+                          "versionAfter":  4
+                      }
+                  ],
+    "finalDatabaseState":  {
+                               "ticketNo":  "FD-20261006-001",
+                               "snapshot":  "status=COMPLETED completion_method=REQUESTER_CONFIRMED action_deadline_at=NULL ended_at=SET assignee_id=2 version=4 requester_id=1",
+                               "fields":  {
+                                              "status":  "COMPLETED",
+                                              "completionMethod":  "REQUESTER_CONFIRMED",
+                                              "actionDeadlineAt":  "NULL",
+                                              "endedAt":  "SET",
+                                              "assigneeId":  2,
+                                              "version":  4,
+                                              "requesterId":  1
+                                          },
+                               "ticketRecords":  [
+                                                     {
+                                                         "sequenceNo":  1,
+                                                         "recordType":  "CREATE",
+                                                         "actorType":  "USER",
+                                                         "actorUserId":  1
+                                                     },
+                                                     {
+                                                         "sequenceNo":  2,
+                                                         "recordType":  "CLAIM",
+                                                         "actorType":  "USER",
+                                                         "actorUserId":  2
+                                                     },
+                                                     {
+                                                         "sequenceNo":  3,
+                                                         "recordType":  "PROCESS",
+                                                         "actorType":  "USER",
+                                                         "actorUserId":  2
+                                                     },
+                                                     {
+                                                         "sequenceNo":  4,
+                                                         "recordType":  "RESOLUTION",
+                                                         "actorType":  "USER",
+                                                         "actorUserId":  2
+                                                     },
+                                                     {
+                                                         "sequenceNo":  5,
+                                                         "recordType":  "COMPLETION",
+                                                         "actorType":  "USER",
+                                                         "actorUserId":  1
+                                                     }
+                                                 ],
+                               "recordTypes":  [
+                                                   "CREATE",
+                                                   "CLAIM",
+                                                   "PROCESS",
+                                                   "RESOLUTION",
+                                                   "COMPLETION"
+                                               ],
+                               "recordSequences":  [
+                                                       1,
+                                                       2,
+                                                       3,
+                                                       4,
+                                                       5
+                                                   ]
+                           },
+    "negativeAssertions":  [
+                               {
+                                   "name":  "terminal.reClaim.409",
+                                   "status":  409,
+                                   "code":  "TICKET_CONFLICT",
+                                   "traceId":  "99c3bc43-6d87-4c69-80b1-33d578bdeb5f",
+                                   "expected":  409,
+                                   "passed":  true
+                               }
+                           ],
+    "assertions":  [
+                       {
+                           "name":  "precondition.tempDatabaseAbsentBeforeRun",
+                           "passed":  true,
+                           "detail":  "运行前 information_schema 中 flowdesk_stage4_clean 的 schema 数=0"
+                       },
+                       {
+                           "name":  "precondition.tempDatabaseIsNotDemoDatabase",
+                           "passed":  true,
+                           "detail":  "temp=flowdesk_stage4_clean demo=flowdesk"
+                       },
+                       {
+                           "name":  "precondition.portFreeBeforeStart",
+                           "passed":  true,
+                           "detail":  "启动前 8091 监听 PID=[]"
+                       },
+                       {
+                           "name":  "precondition.emptyDatabaseAfterCreate",
+                           "passed":  true,
+                           "detail":  "CREATE 之后临时库内表数量=0（Flyway 尚未运行）"
+                       },
+                       {
+                           "name":  "backend.healthUpWithin90s",
+                           "passed":  true,
+                           "detail":  "等待 18.1 秒后 /actuator/health = {\"status\":\"UP\"}"
+                       },
+                       {
+                           "name":  "backend.listeningOnTempPort",
+                           "passed":  true,
+                           "detail":  "监听 PID=[24744]"
+                       },
+                       {
+                           "name":  "backend.processIdentityHasTempPort",
+                           "passed":  true,
+                           "detail":  "PID=24744 命令行含 --server.port=8091：True"
+                       },
+                       {
+                           "name":  "backend.processIsNotExistingDemoBackend",
+                           "passed":  true,
+                           "detail":  "临时 8091 PID=24744；既有 8081 PID=[45612]"
+                       },
+                       {
+                           "name":  "flyway.appliedVersionsAre1_2_4_5_6",
+                           "passed":  true,
+                           "detail":  "实际版本链=[1,2,4,5,6]（V3 是历史遗留已删除版本，不应出现）"
+                       },
+                       {
+                           "name":  "flyway.noFailedRecord",
+                           "passed":  true,
+                           "detail":  "记录数=6，success 全为 1：True"
+                       },
+                       {
+                           "name":  "seed.users.count3",
+                           "passed":  true,
+                           "detail":  "iam_user=3"
+                       },
+                       {
+                           "name":  "seed.users.areDemoThree",
+                           "passed":  true,
+                           "detail":  "usernames=[employee,it,admin]"
+                       },
+                       {
+                           "name":  "seed.roles.count3",
+                           "passed":  true,
+                           "detail":  "iam_role=3"
+                       },
+                       {
+                           "name":  "seed.permissions.count14",
+                           "passed":  true,
+                           "detail":  "iam_permission=14"
+                       },
+                       {
+                           "name":  "seed.categories.count5",
+                           "passed":  true,
+                           "detail":  "ticket_category=5"
+                       },
+                       {
+                           "name":  "seed.categories.disabledCount1",
+                           "passed":  true,
+                           "detail":  "DISABLED 分类数=1"
+                       },
+                       {
+                           "name":  "seed.demoSeedOnlyInThisProfile",
+                           "passed":  true,
+                           "detail":  "flyway 记录里的 repeatable 脚本=[R__seed_demo_data.sql]；它由 demo Profile 的 classpath:db/demo 位置引入"
+                       },
+                       {
+                           "name":  "login.employee.200",
+                           "passed":  true,
+                           "detail":  "status=200 traceId=68e5ecf8-6ac4-4211-a676-0c80b2dfd20c"
+                       },
+                       {
+                           "name":  "login.it.200",
+                           "passed":  true,
+                           "detail":  "status=200 traceId=4085e98b-e0fe-4876-9638-280dad0ec5a1"
+                       },
+                       {
+                           "name":  "login.admin.200",
+                           "passed":  true,
+                           "detail":  "status=200 traceId=3b73a459-45a9-482f-b83a-90b949b8b132"
+                       },
+                       {
+                           "name":  "login.employee.rolesContainsEMPLOYEE",
+                           "passed":  true,
+                           "detail":  "roles=EMPLOYEE userId=1"
+                       },
+                       {
+                           "name":  "login.it.rolesContainsIT_SUPPORT",
+                           "passed":  true,
+                           "detail":  "roles=IT_SUPPORT userId=2"
+                       },
+                       {
+                           "name":  "login.admin.rolesContainsSYSTEM_ADMIN",
+                           "passed":  true,
+                           "detail":  "roles=SYSTEM_ADMIN userId=3"
+                       },
+                       {
+                           "name":  "login.tokensIssued",
+                           "passed":  true,
+                           "detail":  "三条 accessToken 均已取得（不落盘、不写进证据）"
+                       },
+                       {
+                           "name":  "categories.options.hasEnabledAccountCategory",
+                           "passed":  true,
+                           "detail":  "options=账号与权限|网络访问|办公设备|软件安装；选用 id=1 name=账号与权限"
+                       },
+                       {
+                           "name":  "chain.step1.create.201",
+                           "passed":  true,
+                           "detail":  "status=201 traceId=eaff6c96-226a-4824-ad9f-7845149d6942"
+                       },
+                       {
+                           "name":  "chain.step1.db.statusPENDING",
+                           "passed":  true,
+                           "detail":  "status=PENDING version=0 requesterId=1"
+                       },
+                       {
+                           "name":  "chain.step1.db.versionZero",
+                           "passed":  true,
+                           "detail":  "version=0"
+                       },
+                       {
+                           "name":  "chain.step1.db.noAssignee",
+                           "passed":  true,
+                           "detail":  "assignee_id=[-1]"
+                       },
+                       {
+                           "name":  "chain.step2.claim.200",
+                           "passed":  true,
+                           "detail":  "status=200 traceId=f2440369-0eb7-4109-a69c-99c39c331d49"
+                       },
+                       {
+                           "name":  "chain.step2.db.statusPROCESSING",
+                           "passed":  true,
+                           "detail":  "status=PROCESSING"
+                       },
+                       {
+                           "name":  "chain.step2.db.assigneeIsIt",
+                           "passed":  true,
+                           "detail":  "assignee_id=2 itUserId=2"
+                       },
+                       {
+                           "name":  "chain.step2.db.versionIncremented",
+                           "passed":  true,
+                           "detail":  "expected=1 actual=1"
+                       },
+                       {
+                           "name":  "chain.step3.addProcessingRecord.200",
+                           "passed":  true,
+                           "detail":  "status=200 traceId=aa32a364-e2e2-47fb-bd04-b92ebd680f53"
+                       },
+                       {
+                           "name":  "chain.step3.db.statusUnchanged",
+                           "passed":  true,
+                           "detail":  "before=PROCESSING after=PROCESSING"
+                       },
+                       {
+                           "name":  "chain.step3.db.assigneeUnchanged",
+                           "passed":  true,
+                           "detail":  "before=2 after=2"
+                       },
+                       {
+                           "name":  "chain.step3.db.versionPlusOne",
+                           "passed":  true,
+                           "detail":  "expected=2 actual=2"
+                       },
+                       {
+                           "name":  "chain.step4.submitResolution.200",
+                           "passed":  true,
+                           "detail":  "status=200 traceId=280e8cd2-ea23-436b-b90e-65db62e46b23"
+                       },
+                       {
+                           "name":  "chain.step4.db.statusWAITING_FOR_CONFIRMATION",
+                           "passed":  true,
+                           "detail":  "status=WAITING_FOR_CONFIRMATION"
+                       },
+                       {
+                           "name":  "chain.step4.db.deadlinePresent",
+                           "passed":  true,
+                           "detail":  "action_deadline_at=[2026-10-13 06:34:14.003000]"
+                       },
+                       {
+                           "name":  "chain.step4.db.deadlineIsResolutionPlus7DaysWithin60s",
+                           "passed":  true,
+                           "detail":  "action_deadline_at - (RESOLUTION 记录 created_at + 7 天) = 0 秒（要求 |差值| \u003c= 60）"
+                       },
+                       {
+                           "name":  "chain.step4.response.deadlineIsSevenDaysWithin60s",
+                           "passed":  true,
+                           "detail":  "响应 actionDeadlineAt=[2026-10-13T06:34:14.003Z] actionTime=[2026-10-06T06:34:14.003Z] 差值=604800 秒（604800=7 天）"
+                       },
+                       {
+                           "name":  "chain.step4.db.assigneeStillIt",
+                           "passed":  true,
+                           "detail":  "assignee_id=2"
+                       },
+                       {
+                           "name":  "chain.step5.confirmResolution.200",
+                           "passed":  true,
+                           "detail":  "status=200 traceId=5ade0cc8-70f3-478e-b2d7-5cf23a57fbad"
+                       },
+                       {
+                           "name":  "chain.step5.db.statusCOMPLETED",
+                           "passed":  true,
+                           "detail":  "status=COMPLETED"
+                       },
+                       {
+                           "name":  "chain.step5.db.versionPlusOne",
+                           "passed":  true,
+                           "detail":  "expected=4 actual=4"
+                       },
+                       {
+                           "name":  "chain.traceIdPresentOnAllFiveSteps",
+                           "passed":  true,
+                           "detail":  "五步 X-Trace-Id=[eaff6c96-226a-4824-ad9f-7845149d6942 , f2440369-0eb7-4109-a69c-99c39c331d49 , aa32a364-e2e2-47fb-bd04-b92ebd680f53 , 280e8cd2-ea23-436b-b90e-65db62e46b23 , 5ade0cc8-70f3-478e-b2d7-5cf23a57fbad]"
+                       },
+                       {
+                           "name":  "chain.successStatusesAre201Then200",
+                           "passed":  true,
+                           "detail":  "五步状态码=[201,200,200,200,200]"
+                       },
+                       {
+                           "name":  "final.status.COMPLETED",
+                           "passed":  true,
+                           "detail":  "status=COMPLETED"
+                       },
+                       {
+                           "name":  "final.completionMethod.REQUESTER_CONFIRMED",
+                           "passed":  true,
+                           "detail":  "completion_method=REQUESTER_CONFIRMED"
+                       },
+                       {
+                           "name":  "final.actionDeadlineAtNull",
+                           "passed":  true,
+                           "detail":  "action_deadline_at=[NULL]"
+                       },
+                       {
+                           "name":  "final.endedAtNotNull",
+                           "passed":  true,
+                           "detail":  "ended_at=SET"
+                       },
+                       {
+                           "name":  "final.assigneeIdStillIt",
+                           "passed":  true,
+                           "detail":  "assignee_id=2 itUserId=2"
+                       },
+                       {
+                           "name":  "final.requesterIdIsEmployee",
+                           "passed":  true,
+                           "detail":  "requester_id=1 employeeUserId=1"
+                       },
+                       {
+                           "name":  "final.ticketRecord.count5",
+                           "passed":  true,
+                           "detail":  "本工单记录=5，临时库记录总数=5"
+                       },
+                       {
+                           "name":  "final.ticketRecord.typesOrdered",
+                           "passed":  true,
+                           "detail":  "record_type 依序=[CREATE,CLAIM,PROCESS,RESOLUTION,COMPLETION]"
+                       },
+                       {
+                           "name":  "final.ticketRecord.sequences1To5",
+                           "passed":  true,
+                           "detail":  "sequence_no=[1,2,3,4,5]"
+                       },
+                       {
+                           "name":  "final.ticketRecord.createActorIsEmployee",
+                           "passed":  true,
+                           "detail":  "CREATE 记录 actor_user_id=1"
+                       },
+                       {
+                           "name":  "terminal.reClaim.409",
+                           "passed":  true,
+                           "detail":  "status=409 code=TICKET_CONFLICT traceId=99c3bc43-6d87-4c69-80b1-33d578bdeb5f"
+                       },
+                       {
+                           "name":  "terminal.reClaim.stateUnchanged",
+                           "passed":  true,
+                           "detail":  "status=COMPLETED version=4"
+                       },
+                       {
+                           "name":  "cleanup.port8091HasNoListener",
+                           "passed":  true,
+                           "detail":  "netstat -ano 中 :8091 的 LISTENING 行=[]"
+                       },
+                       {
+                           "name":  "cleanup.dropDatabaseSucceeded",
+                           "passed":  true,
+                           "detail":  "DROP DATABASE IF EXISTS flowdesk_stage4_clean 退出码=0"
+                       },
+                       {
+                           "name":  "cleanup.tempDatabaseGone",
+                           "passed":  true,
+                           "detail":  "information_schema 中 flowdesk_stage4_clean 的 schema 数=0"
+                       },
+                       {
+                           "name":  "cleanup.demoDatabaseCountsUnchanged",
+                           "passed":  true,
+                           "detail":  "运行前 用户=3/工单=1/分类=5/记录=5/工单号=[FD-20261006-026]；运行后 用户=3/工单=1/分类=5/记录=5/工单号=[FD-20261006-026]"
+                       },
+                       {
+                           "name":  "cleanup.existingDemoBackendUntouched",
+                           "passed":  true,
+                           "detail":  "既有后端 8081：运行前 PID=[45612]，运行后 PID=[45612]"
+                       },
+                       {
+                           "name":  "cleanup.existingDemoBackendStillListening",
+                           "passed":  true,
+                           "detail":  "既有后端运行后仍在 8081 监听：True"
+                       }
+                   ],
+    "totals":  {
+                   "total":  66,
+                   "passed":  66,
+                   "failed":  0
+               },
+    "cleanup":  {
+                    "startedAt":  "2026-10-06T14:34:15",
+                    "killedListenerPids":  [
+                                               24744
+                                           ],
+                    "killGuard":  "只杀命令行含 --server.port=8091 的监听进程；8081 的既有后端不在候选内",
+                    "port":  8091,
+                    "listenersAfter":  [
+
+                                       ],
+                    "listeningPidsAfter":  [
+
+                                           ],
+                    "dropDatabaseExitCode":  0,
+                    "tempDatabaseExistsAfter":  false,
+                    "demoDatabaseBefore":  {
+                                               "users":  3,
+                                               "tickets":  1,
+                                               "categories":  5,
+                                               "records":  5,
+                                               "maxTicketId":  92,
+                                               "userRoleLinks":  5,
+                                               "ticketNos":  "FD-20261006-026",
+                                               "at":  "2026-10-06T14:33:50"
+                                           },
+                    "demoDatabaseAfter":  {
+                                              "users":  3,
+                                              "tickets":  1,
+                                              "categories":  5,
+                                              "records":  5,
+                                              "maxTicketId":  92,
+                                              "userRoleLinks":  5,
+                                              "ticketNos":  "FD-20261006-026",
+                                              "at":  "2026-10-06T14:34:18"
+                                          },
+                    "existingDemoBackendPidsBefore":  [
+                                                          45612
+                                                      ],
+                    "existingDemoBackendPidsAfter":  [
+                                                         45612
+                                                     ],
+                    "containersUntouched":  true,
+                    "dockerCommandsUsed":  [
+                                               "docker exec（远程执行 mysql 客户端）"
+                                           ],
+                    "composeDownExecuted":  false,
+                    "volumesRemoved":  false,
+                    "finishedAt":  "2026-10-06T14:34:18"
+                },
+    "notes":  [
+                  "临时后端启动方式：System.Diagnostics.Process（cmd.exe /c mvnw.cmd ...），未使用 Start-Process",
+                  "临时后端 JVM PID=24744（父进程 cmd.exe PID=43244）"
+              ]
+}
