@@ -12,6 +12,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.List;
@@ -61,15 +62,22 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * 查询参数缺失、类型不符，或路径变量类型不符（例如把非数字传给 {@code long} 主键）。
+     * 查询参数缺失、类型不符，路径变量类型不符（例如把非数字传给 {@code long} 主键），
+     * 或 {@code multipart/form-data} 缺少必需的 part（例如创建工单缺 {@code ticket} 部分）。
      *
-     * <p>这三类都是调用方把请求写错了，按 10.2 统一错误契约应当返回
+     * <p>这四类都是调用方把请求写错了，按 10.2 统一错误契约应当返回
      * {@code 400/VALIDATION_FAILED}；不处理的话会落到末位的兜底分支变成
      * {@code 500/INTERNAL_ERROR}，把调用方的问题报成服务端故障。
      * 对外不回显参数名与原始取值，避免把内部字段名泄露出去。</p>
+     *
+     * <p>{@code MissingServletRequestPartException} 与
+     * {@code MissingServletRequestParameterException} 是兄弟类型而非父子，
+     * 所以必须单独登记，否则创建工单缺少 {@code ticket} 部分会返回 500
+     * （2026-10-06 由 {@code TicketControllerWebTest} 实测暴露，经用户授权修正）。</p>
      */
     @ExceptionHandler({
             MissingServletRequestParameterException.class,
+            MissingServletRequestPartException.class,
             MethodArgumentTypeMismatchException.class
     })
     ResponseEntity<R<ErrorDetails>> handleBadRequestParameter(Exception exception) {

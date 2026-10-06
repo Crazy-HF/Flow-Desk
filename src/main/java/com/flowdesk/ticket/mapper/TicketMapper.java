@@ -149,19 +149,6 @@ public interface TicketMapper extends BaseMapper<Ticket> {
             @Param("createdFrom") LocalDateTime createdFrom,
             @Param("createdTo") LocalDateTime createdTo);
 
-    /** 兼容用户尚未更新的步骤④调用，更新后可清理此别名。 */
-    default Page<TicketListRow> selectRequestedByMePage(
-            Page<TicketListRow> page,
-            long requesterId,
-            TicketQuery query,
-            String keywordPattern,
-            LocalDateTime createdFrom,
-            LocalDateTime createdTo) {
-        return selectScopedPage(page, requesterId, query,
-                keywordPattern, createdFrom, createdTo);
-    }
-
-
     /** 领取待处理工单。 */
     @Update("""
         UPDATE ticket

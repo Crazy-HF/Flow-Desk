@@ -1,4 +1,5 @@
 {
+  "_pathsMasked": "本文件中的机器绝对路径已替换为占位符（<REPO> / <JDK21_HOME> / <PNPM_HOME> / <USER_HOME>）；命令、退出码、断言与结论均未改动。",
   "result": "MERGED",
   "at": "2026-10-06T12:14:12+08:00",
   "pullRequest": "https://github.com/Crazy-HF/Flow-Desk/pull/10",
@@ -48,7 +49,7 @@
     "file": "frontend/e2e/ticket-it-flow.spec.ts",
     "change": "默认从 AppHeader 的 .app-header__identity 读取当前登录账号的显示名（沿用 auth.spec.ts 既有做法），仅保留 E2E_IT_DISPLAY_NAME 作为显式覆盖",
     "localReverification": {
-      "command": "D:\\pnpm\\pnpm.cmd exec playwright test e2e/ticket-it-flow.spec.ts",
+      "command": "<PNPM_HOME>\\pnpm.cmd exec playwright test e2e/ticket-it-flow.spec.ts",
       "result": "1 passed (11.4s)",
       "note": "本机复跑覆盖了 CI 未执行到的步骤③④⑤；frontend pnpm build 与 pnpm lint 退出码均为 0"
     },
@@ -60,7 +61,17 @@
   },
   "localMainFastForwarded": true,
   "mergedTreeEqualsVerifiedTree": true,
-  "postMergeMainRun": 37412702319,
+  "postMergeMainRun": {
+    "run": 37412702319,
+    "event": "push",
+    "sha": "1bc2e4c0ac5a702c74e004ef35d07f40c8eedba2",
+    "conclusion": "success",
+    "checks": {
+      "backend-verify": "success",
+      "frontend-verify": "success",
+      "core-e2e": "success"
+    }
+  },
   "nextBranch": "flow-desk/mvp-closeout",
   "nextStage": "阶段 4 MVP 验收与求职展示收口（docs/implementation-plan.md 8）",
   "nextStageCoreWork": "工单与分类模块的自动化测试补齐（当前 35 个测试类没有一个属于 ticket/category 模块）"
