@@ -235,7 +235,13 @@ test('阶段 3 主链：员工提交 → IT 领取 → 处理 → 提交解决 �
   await expect(page.locator('.ticket-meta')).toContainText('待员工确认')
   // 交出解决结果之后 IT 侧不能再改处理记录
   expect(await actionLabels(page)).toEqual([])
-  await expect(page.locator('.ticket-facts dt:has-text("当前期限") + dd')).not.toBeEmpty()
+  /**
+   * 同一个期限字段，IT 侧读到的与员工侧不同：期限属于"提交人什么时候之前要确认"这件事，
+   * 而 IT 此刻没有任何可做动作（确认归提交人）。所以这里同时钉住两点——标签是「确认期限」
+   * 而不是一个对谁都能读的「当前期限」，以及"到期不会自动处理"这句限定对负责人照样要说。
+   */
+  await expect(page.locator('.ticket-facts dt:has-text("确认期限") + dd')).not.toBeEmpty()
+  await expect(page.locator('.ticket-facts__hint')).toContainText('需要提交人手动确认')
   await page.screenshot({ path: resolve(reviewDir, 'it-detail-waiting-1440.png'), fullPage: true })
   await signOut(page)
 

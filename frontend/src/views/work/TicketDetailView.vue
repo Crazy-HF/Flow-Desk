@@ -178,17 +178,18 @@ const availableActions = computed(() =>
 const runningAction = ref<TicketActionName | null>(null)
 
 /**
- * 当前期限这一栏怎么读。
+ * 期限这一栏怎么读。
  *
- * <p>`actionDeadlineAt` 是同一个字段，对三种人却是三件事：负责人看的是"等员工回到什么时候"，
- * 提交人在待补充时看的是"我要在什么时候之前补充"，在待确认时看的是"我要在什么时候之前确认"。
- * 标签与提示都按**当前工单状态**取，不写成一个对谁都能读但谁都不准的"期限"。</p>
+ * <p>`actionDeadlineAt` 是同一个字段，对两种人却是两件事：对**要动手的那个人**说的是
+ * "我要在什么时候之前做完"，对**等结果的那个人**说的是"等到什么时候为止"。所以标签按
+ * **当前工单状态**取（等待态各有各的期限名），提示再按**这件事归谁做**分岔——两个等待态
+ * 都不再有一个对谁都能读、但谁都不准的"当前期限"。</p>
  *
  * <p>两种等待态都要写清"到期不会自动处理"：本版本没有超时自动任务
  * （`docs/implementation-plan.md` 9.3 第 4 条的用户裁决），期限到期不会自动改变状态。
- * **提示按状态给，不按可做动作给**——负责人只有「撤回补充请求」这一件事可做，若用
- * `availableActions.includes('supplement')` 判断，负责人在待补充时反而看不到这句提示，
- * 而界面恰恰就在暗示"到点系统会处理"。</p>
+ * **提示按状态与角色给，不按可做动作的多寡给**——负责人只有「撤回补充请求」这一件事可做，
+ * 若用"有没有动作"判断，负责人在待补充时反而看不到这句提示，而界面恰恰就在暗示
+ * "到点系统会处理"。</p>
  */
 const deadlineFact = computed<{ label: string; hint?: string } | null>(() => {
   if (!detail.value?.actionDeadlineAt) {
@@ -196,10 +197,16 @@ const deadlineFact = computed<{ label: string; hint?: string } | null>(() => {
   }
 
   if (detail.value.status === 'WAITING_FOR_CONFIRMATION') {
-    return {
-      label: '确认期限',
-      hint: '到期不会自动处理，仍需要提交人手动确认。',
-    }
+    // 同一句提示不能同时说给两个人：提交人要做的是"去确认"，负责人要做的是"别催、等提交人"
+    return availableActions.value.includes('confirm-resolution')
+      ? {
+          label: '确认期限',
+          hint: '到期不会自动处理，仍需要你手动确认。',
+        }
+      : {
+          label: '确认期限',
+          hint: '到期不会自动处理，需要提交人手动确认，工单会一直停在待员工确认。',
+        }
   }
 
   if (detail.value.status === 'WAITING_FOR_REQUESTER') {
@@ -215,7 +222,11 @@ const deadlineFact = computed<{ label: string; hint?: string } | null>(() => {
         }
   }
 
-  return { label: '当前期限' }
+  /**
+   * 只有两个等待态会有期限（`ck_ticket_status_deadline`），走到这里说明状态与字段对不上。
+   * 不去猜一个好看的标签：把日期原样显示出来，标签直说是"期限"。
+   */
+  return { label: '期限' }
 })
 
 /** 动作失败的原因：显示在动作区里，而不是只在右上角闪一下。 */

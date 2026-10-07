@@ -443,6 +443,7 @@ describe('TicketDetailView', () => {
     expect(actionLabels(wrapper)).toEqual(['确认已解决'])
     // 待确认时属性栏把期限解释成"我要在什么时候之前确认"
     expect(wrapper.get('.ticket-facts').text()).toContain('确认期限')
+    expect(wrapper.get('.ticket-facts__hint').text()).toContain('仍需要你手动确认')
 
     await openActionBox(wrapper, '确认已解决')
     // 确认是终态动作：弹窗里说明清楚后果，且不需要写正文
@@ -456,6 +457,33 @@ describe('TicketDetailView', () => {
   })
 
   // ---------- 片 B：补充往返 ----------
+
+  /**
+   * 同一个期限字段，负责人读到的不是同一句话。
+   *
+   * <p>待确认时负责人没有任何可做动作（确认归提交人），若提示按"有没有动作"给，负责人在这里
+   * 看不到任何限定，界面就只剩一个日期在暗示"到点系统会处理"；而这句提示必须说给两种人各自的
+   * 处境：提交人要做的是去确认，负责人要做的是等提交人。</p>
+   */
+  it('待确认时负责人看到的是"确认期限"，并写明到期要等提交人手动确认', async () => {
+    useAuthStore().user = support
+    vi.mocked(getTicket).mockResolvedValue({
+      ...detail,
+      status: 'WAITING_FOR_CONFIRMATION',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      actionDeadlineAt: '2026-10-06T02:00:00Z',
+      version: 9,
+      allowedActions: [],
+    })
+
+    const { wrapper } = await mountPage()
+
+    const facts = wrapper.get('.ticket-facts')
+    expect(facts.text()).toContain('确认期限')
+    // 不写这一句，负责人只能猜"到点会不会自动关掉"
+    expect(facts.text()).toContain('到期不会自动处理')
+    expect(wrapper.get('.ticket-facts__hint').text()).toContain('需要提交人手动确认')
+  })
 
   it('提交人补充信息：命中补充接口，成功后回到处理中并刷新时间线', async () => {
     useAuthStore().user = requester
