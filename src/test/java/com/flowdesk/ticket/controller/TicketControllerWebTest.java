@@ -10,7 +10,9 @@ import com.flowdesk.ticket.application.command.ClaimTicketCommand;
 import com.flowdesk.ticket.application.command.ConfirmResolutionCommand;
 import com.flowdesk.ticket.application.command.CreateTicketCommand;
 import com.flowdesk.ticket.application.command.ReportUnresolvedCommand;
+import com.flowdesk.ticket.application.command.RequestSupplementCommand;
 import com.flowdesk.ticket.application.command.SubmitResolutionCommand;
+import com.flowdesk.ticket.application.command.SupplementCommand;
 import com.flowdesk.ticket.application.command.WithdrawSupplementRequestCommand;
 import com.flowdesk.ticket.application.query.TicketQuery;
 import com.flowdesk.ticket.application.query.TicketRecordQuery;
@@ -52,6 +54,7 @@ import java.util.Map;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItem;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -99,6 +102,7 @@ class TicketControllerWebTest {
     /** 片 A：两个"从等待态退回处理中"的动作，动作名与接口路径末段逐字一致。 */
     private static final String WITHDRAW_SUPPLEMENT_REQUEST = "withdraw-supplement-request";
     private static final String REPORT_UNRESOLVED = "report-unresolved";
+    private static final String REQUEST_SUPPLEMENT = "request-supplement";
     private static final String SUBMISSION_KEY = "3f1c2b7e-1d4a-4f2b-9c6e-8a7d5b0c1e2f";
     private static final long CATEGORY_ID = 7L;
     private static final long REQUESTER_ID = 3L;
@@ -970,7 +974,278 @@ class TicketControllerWebTest {
         assertThat(captor.getValue().reason()).isEqualTo("问题又出现了");
     }
 
+    // ---------- 片 B：补充往返 ----------
+
+    /**
+     * {@code request-supplement} 是 JSON 端点，与其他 JSON 动作同一口径：
+     * 无令牌 401、权限由服务层给出 {@code 403/TICKET_ACTION_FORBIDDEN}。
+     */
+    @Test
+    void requestSupplementRequiresAuthentication() throws Exception {
+        mockMvc.perform(actionRequest(REQUEST_SUPPLEMENT, """
+                        {"version": 3, "content": "请补充打印机型号"}
+                        """))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_REQUIRED"));
+
+        verifyNoInteractions(ticketService, ticketQueryService);
+    }
+
+    @Test
+    void requestSupplementIsForbiddenForEmployeeAuthorities() throws Exception {
+        when(ticketService.requestSupplement(eq(TICKET_NO), any()))
+                .thenThrow(new ApiException(HttpStatus.FORBIDDEN, "TICKET_ACTION_FORBIDDEN",
+                        "无处理工单权限"));
+
+        mockMvc.perform(actionRequest(REQUEST_SUPPLEMENT, """
+                        {"version": 3, "content": "请补充打印机型号"}
+                        """).with(ticketUser("TICKET_CREATE", "TICKET_VIEW_OWN",
+                        "TICKET_REQUESTER_ACTION")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("TICKET_ACTION_FORBIDDEN"));
+
+        verify(ticketService).requestSupplement(eq(TICKET_NO), any());
+    }
+
+    /** 版本、正文两类字段校验：都没到服务层就被 Bean Validation 拦下。 */
+    @ParameterizedTest(name = "request-supplement rejects {0}")
+    @MethodSource("invalidRequestSupplementBodies")
+    void requestSupplementRejectsInvalidBody(String caseName, String requestBody, String field)
+            throws Exception {
+        mockMvc.perform(actionRequest(REQUEST_SUPPLEMENT, requestBody)
+                        .with(ticketUser("TICKET_PROCESS")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.data.fieldErrors[*].field", hasItem(field)));
+
+        verifyNoInteractions(ticketService);
+    }
+
+    static Stream<Arguments> invalidRequestSupplementBodies() {
+        return Stream.of(
+                Arguments.of("a missing version", """
+                        {"content": "请补充打印机型号"}
+                        """, "version"),
+                Arguments.of("a negative version", """
+                        {"version": -1, "content": "请补充打印机型号"}
+                        """, "version"),
+                Arguments.of("a blank content", """
+                        {"version": 3, "content": "   "}
+                        """, "content"),
+                Arguments.of("a missing content", """
+                        {"version": 3}
+                        """, "content"),
+                Arguments.of("content over 10000 characters", """
+                        {"version": 3, "content": "%s"}
+                        """.formatted("补".repeat(10001)), "content"));
+    }
+
+    /** 冲突与不可见沿用同一错误契约：409 带当前快照，404 不区分"无权"与"不存在"。 */
+    @Test
+    void requestSupplementConflictCarriesCurrentSnapshot() throws Exception {
+        when(ticketService.requestSupplement(eq(TICKET_NO), any()))
+                .thenThrow(new ApiException(HttpStatus.CONFLICT, "TICKET_CONFLICT",
+                        "工单状态或版本已变化，请刷新后重试", 6L, "PROCESSING"));
+
+        mockMvc.perform(actionRequest(REQUEST_SUPPLEMENT, """
+                        {"version": 3, "content": "请补充打印机型号"}
+                        """).with(ticketUser("TICKET_PROCESS")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("TICKET_CONFLICT"))
+                .andExpect(jsonPath("$.data.version").value(6))
+                .andExpect(jsonPath("$.data.status").value("PROCESSING"));
+    }
+
+    @Test
+    void requestSupplementReportsNotFoundWhenTicketIsInvisible() throws Exception {
+        when(ticketService.requestSupplement(eq(TICKET_NO), any()))
+                .thenThrow(new ApiException(HttpStatus.NOT_FOUND, "TICKET_NOT_FOUND", "工单不存在"));
+
+        mockMvc.perform(actionRequest(REQUEST_SUPPLEMENT, """
+                        {"version": 3, "content": "请补充打印机型号"}
+                        """).with(ticketUser("TICKET_PROCESS")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("TICKET_NOT_FOUND"))
+                .andExpect(jsonPath("$.data.traceId").exists());
+    }
+
+    /** 请求补充成功：进入「待补充」，响应带回服务端计算的补充期限。 */
+    @Test
+    void requestSupplementReturnsTicketActionEnvelopeWithDeadline() throws Exception {
+        when(ticketService.requestSupplement(eq(TICKET_NO), any()))
+                .thenReturn(waitingForRequesterAction());
+
+        mockMvc.perform(actionRequest(REQUEST_SUPPLEMENT, """
+                        {"version": 3, "content": "  请补充打印机型号与错误截图  "}
+                        """).with(ticketUser("TICKET_PROCESS")))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.ticketNo").value(TICKET_NO))
+                .andExpect(jsonPath("$.data.status").value("WAITING_FOR_REQUESTER"))
+                .andExpect(jsonPath("$.data.assignee.id").value(ASSIGNEE_ID))
+                .andExpect(jsonPath("$.data.actionDeadlineAt").value("2026-10-13T08:00:00Z"))
+                .andExpect(jsonPath("$.data.version").value(4))
+                .andExpect(jsonPath("$.data.actionTime").value("2026-10-06T08:00:00Z"));
+
+        ArgumentCaptor<RequestSupplementCommand> captor =
+                ArgumentCaptor.forClass(RequestSupplementCommand.class);
+        verify(ticketService).requestSupplement(eq(TICKET_NO), captor.capture());
+        assertThat(captor.getValue().version()).isEqualTo(3L);
+        assertThat(captor.getValue().content()).as("正文在命令构造器中去除了首尾空白")
+                .isEqualTo("请补充打印机型号与错误截图");
+    }
+
+    @Test
+    void supplementRequiresAuthentication() throws Exception {
+        mockMvc.perform(supplementRequest("""
+                        {"version": 5, "content": "型号是 M404dn"}
+                        """))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_REQUIRED"));
+
+        verifyNoInteractions(ticketService, ticketQueryService);
+    }
+
+    /**
+     * 缺少 {@code ticket} 部分要按 10.2 的调用方输入错误返回 400，
+     * 不能回落 500——这条与创建工单缺 part 是同一处登记（{@code MissingServletRequestPartException}）。
+     */
+    @Test
+    void supplementWithoutTicketPartIsRejectedAsValidationFailure() throws Exception {
+        String body = mockMvc.perform(multipart(TICKETS + "/" + TICKET_NO + "/actions/supplement")
+                        .with(ticketUser("TICKET_REQUESTER_ACTION")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(body).as("不泄露内部类名或堆栈").doesNotContain("Exception", "at com.flowdesk");
+        verifyNoInteractions(ticketService);
+    }
+
+    /**
+     * 本版本只接受正文：带文件部分必须返回 400 并说明不支持附件，**不能静默忽略**——
+     * 静默忽略会让调用方以为附件已经收下（`docs/api-design.md` 6.4 的范围裁决）。
+     *
+     * <p>两个 part 都在同一次 {@code multipart(...)} 里给出：先构造再认证，
+     * 才能保证"已认证 + 带文件"这个组合本身被测到。</p>
+     */
+    @Test
+    void supplementRejectsFilePartWithExplicitValidationFailure() throws Exception {
+        mockMvc.perform(multipart(TICKETS + "/" + TICKET_NO + "/actions/supplement")
+                        .file(ticketPart("""
+                                {"version": 5, "content": "型号是 M404dn"}
+                                """))
+                        .file(filePart("screenshot.png", "fake-image-bytes"))
+                        .with(ticketUser("TICKET_REQUESTER_ACTION")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.message", containsString("本版本不支持附件")));
+
+        verifyNoInteractions(ticketService);
+    }
+
+    /** 空文件部分同样按"出现了文件"处理：判定的依据是 part 存在，不是字节数为正。 */
+    @Test
+    void supplementRejectsEmptyFilePartToo() throws Exception {
+        mockMvc.perform(multipart(TICKETS + "/" + TICKET_NO + "/actions/supplement")
+                        .file(ticketPart("""
+                                {"version": 5, "content": "型号是 M404dn"}
+                                """))
+                        .file(filePart("empty.txt", ""))
+                        .with(ticketUser("TICKET_REQUESTER_ACTION")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+
+        verifyNoInteractions(ticketService);
+    }
+
+    @ParameterizedTest(name = "supplement rejects {0}")
+    @MethodSource("invalidSupplementBodies")
+    void supplementRejectsInvalidTicketPart(String caseName, String ticketJson, String field)
+            throws Exception {
+        mockMvc.perform(supplementRequest(ticketJson).with(ticketUser("TICKET_REQUESTER_ACTION")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.data.fieldErrors[*].field", hasItem(field)));
+
+        verifyNoInteractions(ticketService);
+    }
+
+    static Stream<Arguments> invalidSupplementBodies() {
+        return Stream.of(
+                Arguments.of("a missing version", """
+                        {"content": "型号是 M404dn"}
+                        """, "version"),
+                Arguments.of("a blank content", """
+                        {"version": 5, "content": "   "}
+                        """, "content"),
+                Arguments.of("content over 10000 characters", """
+                        {"version": 5, "content": "%s"}
+                        """.formatted("补".repeat(10001)), "content"));
+    }
+
+    /** multipart 的 {@code ticket} 部分必须原样到达服务层，并被反序列化成命令对象。 */
+    @Test
+    void supplementReturnsTicketActionEnvelopeAndReachesService() throws Exception {
+        when(ticketService.supplement(eq(TICKET_NO), any())).thenReturn(processingAction());
+
+        assertReturnActionEnvelope(mockMvc.perform(supplementRequest("""
+                        {"version": 5, "content": "  型号是 M404dn  "}
+                        """).with(ticketUser("TICKET_REQUESTER_ACTION"))));
+
+        ArgumentCaptor<SupplementCommand> captor =
+                ArgumentCaptor.forClass(SupplementCommand.class);
+        verify(ticketService).supplement(eq(TICKET_NO), captor.capture());
+        assertThat(captor.getValue().version()).isEqualTo(5L);
+        assertThat(captor.getValue().content()).isEqualTo("型号是 M404dn");
+    }
+
+    @Test
+    void supplementIsForbiddenForItAuthorities() throws Exception {
+        when(ticketService.supplement(eq(TICKET_NO), any()))
+                .thenThrow(new ApiException(HttpStatus.FORBIDDEN, "TICKET_ACTION_FORBIDDEN",
+                        "无提交人操作权限"));
+
+        mockMvc.perform(supplementRequest("""
+                        {"version": 5, "content": "型号是 M404dn"}
+                        """).with(ticketUser("TICKET_PROCESS", "TICKET_VIEW_PARTICIPATED")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("TICKET_ACTION_FORBIDDEN"));
+
+        verify(ticketService).supplement(eq(TICKET_NO), any());
+    }
+
     // ---------- 辅助 ----------
+
+    /** 片 B 两个动作的成功信封：请求补充进入「待补充」，提交补充回到「处理中」。 */
+    private static TicketActionResult waitingForRequesterAction() {
+        return new TicketActionResult(
+                TICKET_NO,
+                "WAITING_FOR_REQUESTER",
+                new TicketUserSummaryResult(ASSIGNEE_ID, "演示 IT 支持人员"),
+                CREATED_AT.plusSeconds(7 * 24 * 3600),
+                4L,
+                CREATED_AT);
+    }
+
+    private static MockMultipartHttpServletRequestBuilder supplementRequest(String ticketJson) {
+        return multipart(TICKETS + "/" + TICKET_NO + "/actions/supplement")
+                .file(ticketPart(ticketJson));
+    }
+
+    /** multipart 里的 JSON 命令部分：部件必须自带 {@code application/json}，否则后端无法反序列化。 */
+    private static MockMultipartFile ticketPart(String ticketJson) {
+        return new MockMultipartFile(
+                "ticket", "ticket.json", MediaType.APPLICATION_JSON_VALUE,
+                ticketJson.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static MockMultipartFile filePart(String fileName, String fileContent) {
+        return new MockMultipartFile(
+                "files", fileName, MediaType.IMAGE_PNG_VALUE,
+                fileContent.getBytes(StandardCharsets.UTF_8));
+    }
 
     /** 片 A 两个动作的入参：动作名 + 各自动作的合法请求体。 */
     static Stream<Arguments> returnActionCases() {

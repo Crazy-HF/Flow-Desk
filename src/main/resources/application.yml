@@ -62,6 +62,9 @@ flowdesk:
   ticket:
     # 员工确认期限：IT 提交解决结果后 7×24 小时（docs/kickoff.md 已确认规则）。
     confirmation-window: 7d
+    # 员工补充期限：IT 请求补充后 7×24 小时（docs/kickoff.md 4.12 已确认规则）。
+    # 本版本只写入并在界面展示，到期不会自动关闭工单（用户 2026-10-06 裁决）。
+    supplement-window: 7d
 
 jwt:
   secret: ${FLOWDESK_JWT_SECRET}

@@ -243,8 +243,6 @@ public interface TicketMapper extends BaseMapper<Ticket> {
      * <p>与 {@link #reportUnresolved} 形状相同、只有状态与身份列不同。刻意写成两条独立的 SQL，
      * 而不是把状态与身份列参数化：条件更新里的"预期状态 + 预期负责人"是判定的一部分，
      * 参数化会让"谁能推进哪一步"从 SQL 里消失。</p>
-     *
-     * <p><strong>分工</strong>：本条由 Agent 写入；用户 2026-10-06 决定**后续动作的 Mapper 由用户编写**。</p>
      */
     @Update("""
     UPDATE ticket
@@ -283,6 +281,60 @@ public interface TicketMapper extends BaseMapper<Ticket> {
       AND requester_id = #{actorId}
     """)
     int reportUnresolved(
+            @Param("ticketId") long ticketId,
+            @Param("expectedVersion") long expectedVersion,
+            @Param("actorId") long actorId,
+            @Param("now") LocalDateTime now);
+
+    /**
+     * 当前负责人请求员工补充信息：进入待补充并写入补充期限。
+     *
+     * <p>状态与期限必须**在同一条 UPDATE 里原子写入**：{@code ck_ticket_status_deadline} 要求
+     * {@code WAITING_FOR_REQUESTER} 必须有期限、其他状态必须为空，拆成两次更新会在中间撞约束。</p>
+     *
+     * <p><strong>分工</strong>：本条由用户写入（2026-10-06 决定后续动作的 Mapper 由用户编写）。</p>
+     */
+    @Update("""
+    UPDATE ticket
+    SET status = 'WAITING_FOR_REQUESTER',
+        action_deadline_at = #{deadlineAt},
+        version = version + 1,
+        record_seq = record_seq + 1,
+        updated_at = #{now}
+    WHERE id = #{ticketId}
+      AND version = #{expectedVersion}
+      AND status = 'PROCESSING'
+      AND assignee_id = #{actorId}
+    """)
+    int requestSupplement(
+            @Param("ticketId") long ticketId,
+            @Param("expectedVersion") long expectedVersion,
+            @Param("actorId") long actorId,
+            @Param("deadlineAt") LocalDateTime deadlineAt,
+            @Param("now") LocalDateTime now);
+
+    /**
+     * 提交人补充信息：回到处理中，并让原补充期限失效；负责人保留。
+     *
+     * <p>与 {@link #withdrawSupplementRequest} 形状相同、只有状态与身份列不同。刻意写成两条
+     * 独立的 SQL，而不是把状态与身份列参数化：条件更新里的"预期状态 + 预期提交人/负责人"
+     * 是判定的一部分，参数化会让"谁能推进哪一步"从 SQL 里消失。</p>
+     *
+     * <p><strong>分工</strong>：本条由用户写入（2026-10-06 决定后续动作的 Mapper 由用户编写）。</p>
+     */
+    @Update("""
+    UPDATE ticket
+    SET status = 'PROCESSING',
+        action_deadline_at = NULL,
+        version = version + 1,
+        record_seq = record_seq + 1,
+        updated_at = #{now}
+    WHERE id = #{ticketId}
+      AND version = #{expectedVersion}
+      AND status = 'WAITING_FOR_REQUESTER'
+      AND requester_id = #{actorId}
+    """)
+    int supplement(
             @Param("ticketId") long ticketId,
             @Param("expectedVersion") long expectedVersion,
             @Param("actorId") long actorId,

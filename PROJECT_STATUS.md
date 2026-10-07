@@ -1,6 +1,26 @@
 # FlowDesk 项目状态
 
-## 当前结论：完整工单状态机片 A 已完成、已推送并创建合并请求（按用户指示本轮不合并）（2026-10-06）
+## 当前结论：片 A 已合并 main，片 B 基础件与业务实现已写入、测试等内容等待用户统一发起（2026-10-07）
+
+- **片 A 已交接完成（2026-10-07）**：三条提交 `d3b0849`（两个动作实现）、`46230ee`（单元/Web/集成用例）、`7e9c0c7`（前端登记与派发、验收脚本与证据）经 **[PR #14](https://github.com/Crazy-HF/Flow-Desk/pull/14) 以 merge commit 合并 `main`**（合并提交 **`5f4026f`**，基线 `1f85c93`；三个 job `backend-verify`/`frontend-verify`/`core-e2e` 全绿）。本地 `main` 已仅快进同步，随后从最新 `main` 创建 **`flow-desk/ticket-supplement-roundtrip`** 承载片 B。片 A 的完整交付细节见本文件下方「片 A 交付记录」段。
+- **片 B（补充往返）当前进度——停在等待点**：分支 `flow-desk/ticket-supplement-roundtrip`（从 `5f4026f` 创建，**未提交、未推送**）。已写入：
+  - **基础件**：`RequestSupplementCommand`、`SupplementCommand`（均为 `version` + `content`，上限 10000）、`TicketService` 两个方法签名、`TicketMapper.requestSupplement` / `TicketMapper.supplement` 两条条件更新（状态与期限在**同一条 UPDATE** 内原子写入，避开 `ck_ticket_status_deadline` 的中间态）、`TicketController` 两个端点（`supplement` 为 `multipart/form-data`，**文件 part 显式 400 而非静默忽略**）、`TicketQueryServiceImpl.allowedActions` 两格（`request-supplement` 与 `canProcess` 同族相邻、`supplement` 独立判定为「待补充 + 本人是提交人」，顺序 `... submit-resolution, request-supplement, confirm-resolution, ... report-unresolved, supplement`）、`TicketProperties.supplementWindow`（默认 7d、下限 1m）与 `application.yml` 的 `flowdesk.ticket.supplement-window`。
+  - **业务实现**：`TicketServiceImpl.requestSupplement` / `supplement`（门禁顺序与既有动作逐字对齐；`supplement` **刻意不判定期限是否已过**——本版本没有超时自动关闭，期限只用于展示，拦住过期提交比不做更糟；理由写在方法注释里）。
+  - **测试（越界产物，见下条）**：`TicketServiceImplTest`（111 项，含 `requestSupplement` 12 项与 `TicketProperties` 两个用例）、新增 `TicketSupplementServiceImplTest`（18 项）、`TicketQueryServiceImplTest`（50 项）、`TicketControllerWebTest`（94 项，含 6 项 multipart 文件部分用例）。四个类在本机为绿（`surefire:test` 定向执行），**尚未跑全量 `clean verify`、未跑前端任何检查**。
+  - **用户指示（2026-10-07，已写入 `AGENTS.md`「Codex 的职责」的测试时机条目）**：当前完成的先放着、**不抽回**；**测试等内容在用户完成代码编写后由用户统一进行**；Agent 只做用户明确点名的那一层（「mapper 也由我写入」只授权 Mapper），基础件写入后停下等待，等待期间的编译/测试标红属预期。
+  - **未开始**：前端动作登记与派发（`TICKET_ACTIONS` 两格、`api/tickets.ts` 两个函数、详情页期限标签与「到期不会自动处理」文案）、E2E、真实栈验收脚本（含**替换**片 A 脚本与 `TicketServiceIT` 里的 SQL 造数）、文档同步（`api-design.md` 6.3/6.4、`implementation-plan.md` 9.3 片 B 交付记录）、片 C 与片 D。
+
+## 附件存储口径（回答 2026-10-07 用户提问：是否要先补 OSS）
+
+- **已确认的 v1 存储方案是本地受控目录，不是 OSS**：
+  - `docs/technical-architecture.md` 6.3「附件内容」：**已确认** v1 将附件内容保存在后端控制的**本地持久化目录**，MySQL 只保存附件元数据与业务归属；下载必须经过身份、工单权限与归属校验；该节同时写明「本地文件方案适合单实例演示，成本低、行为直观；缺点是后端实例不能随意横向扩容。**对象存储属于未来替换方向，不纳入 v1**」。
+  - `docs/kickoff.md` 3.3「v1 附件边界」：在线预览、图片处理、病毒扫描、断点续传和**对象存储集群不属于 v1**。
+  - `docs/database-design.md` 10「存储边界」：附件文件内容的权威存储是「后端控制的本地持久化目录」。
+- **因此排序上不需要先补 OSS**：附件上传/下载属完整版 backlog 第 2 项（`docs/implementation-plan.md` 299-300），该项已按本地目录设计好落地点——受控上传/下载、单文件 10 MiB、最多 5 个且总计 25 MiB、白名单（JPEG/PNG/PDF/TXT/DOCX/XLSX）、服务端随机存储名、暂存与最终目录同卷 + 原子移动、失败补偿与孤儿对账（`docs/engineering-readiness.md` 7.2），并且 `FLOWDESK_ATTACHMENT_ROOT` 环境变量与 `ticket_attachment` 表（`V1`）**都已就位**。
+- **改为 OSS 的代价（若坚持 OSS，属范围扩张，须单独确认）**：需要选定并引入新的外部依赖（阿里云 OSS / MinIO 等）+ 凭据与网络、把 v1 的「单实例可演示」变成「依赖外部服务才可演示」、重写下载授权路径（签名 URL 与后端授权边界的关系）、重做失败补偿与孤儿对账（本地原子移动换成远端最终一致）——与 `AGENTS.md`「未经用户确认不引入额外基础设施」和「优先选择适合当前项目规模的简单方案」直接冲突，而简历价值用「原子移动 + 对账 + 权限继承」讲已经足够。
+- **结论（待用户裁决，暂按本地方案准备）**：**不先补 OSS**。片 B 收口后再按 backlog 第 2 项设计附件，存储走本地受控目录；若确实要 OSS，先作为独立主题做技术选型与影响分析，再动代码。
+
+## 片 A 交付记录（2026-10-06 完成，2026-10-07 经 PR #14 合并）
 
 - **完整版 backlog 第 1 项「完整工单状态机」的开工裁决（用户 2026-10-06 逐条确认，已写入 `docs/implementation-plan.md` 9.3）**：
   1. **分 4 片**、每片独立验收并交接：**A 退回处理中**（`report-unresolved` + `withdraw-supplement-request`）→ **B 补充往返**（`request-supplement` + `supplement` + `supplement-window`）→ **C 调整与转交**（`change-category`/`change-priority`/`transfer` + `transfer-candidates`）→ **D 结束路径**（`close` + `cancel`）。
@@ -269,13 +289,14 @@
 - 环境前置：JDK 21.0.12、Node.js 24.20.0、pnpm 12.3.4、Docker 29.7.2 已验证；本机已有 `redis:8.8.0`、`mysql:8.4.11` 镜像。**跑后端测试的两个必备参数（2026-09-23 实测，会复发）**：① 受限沙箱下 Mockito inline mock maker 无法自附加，必须加 `-DargLine=-Djdk.attach.allowAttachSelf=true`，否则所有 Spring 测试一起报 `Could not self-attach to current VM using external process`（看起来像代码回归）；② Testcontainers 集成测试需要访问 Docker 命名管道 `\\.\pipe\docker_engine`，受限沙箱会报 `Could not find a valid Docker environment` / `AccessDeniedException`，需在放宽文件策略的会话里执行。完整验收命令：`.\mvnw.cmd -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"`。本地启动 profile 用 `local` 即可（`spring.profiles.group.local=demo` 已配置）。演示账号 `employee` / `it` / `admin`，密码统一为 `123456`（见 `db/demo/R__seed_demo_data.sql` 头部注释，2026-09-20 由 `demo.*` 改名）。本机已有过两类运行障碍并已修复：① Flyway 校验失败——历史表残留已删除的 V3 迁移记录，处置为删除该行（等价 `flyway repair`）；② Redis 残留旧实现写入的 hash 类型会话键，会让"撤销全部会话"抛 `WRONGTYPE`，已清理。另需注意：本机 Argon2id 校验约 2 秒/次（并发登录可拖到十几秒），前端 e2e 因此串行执行并放宽超时；跑 e2e 需要 `FLOWDESK_ALLOWED_ORIGINS` 包含 `http://127.0.0.1:4173`（本地 `.env` 已加）；③ `frontend/node_modules` 若缺 `.modules.yaml`，`pnpm add` 会报 `ERR_PNPM_PACKAGE_MANAGER_REMOVE_MODULES_DIR`，而受限沙箱的写受限令牌删不掉该目录里的预存文件（批量 `Access to the path is denied`）——处置是在放宽文件策略的会话里删掉 `node_modules` 后重装，不要在残缺目录上反复重试。
 - 待确认事项：① Element Plus 目前是**全量引入**（打包约 1.07 MB / gzip 348 KB），是否改为按需引入（需新增 `unplugin-vue-components`、`unplugin-auto-import` 两个 dev 依赖）；② ~~登录页占位文案~~ **2026-09-24 复核：登录页与 E2E 已统一为「请输入登录名」「请输入密码」，与本条描述不符，视为已解决**；③ 首页 `h1`「欢迎回来」用的是展示级字号 `clamp(1.75rem, 5vw, 2.5rem)`，是否收小到页面标题刻度（管理端五页已改用业务页标题刻度 `--fd-font-size-lg`，首页仍待用户决定）；④ ~~用户管理是否登记为正式任务条目、8.1/8.2 与 `rbac.md` 第 1 节的 backlog 表述~~ **2026-09-24 用户确认：登记**——已写入 `TASK-061`（后端）/`TASK-062`（管理端页面），`docs/api-design.md` 8.1/8.2 与 `docs/modules/rbac.md` 第 1 节同步改写，用户管理从完整版 backlog 移出；⑤ ~~`disable` 与替换角色是否属于本次补齐范围~~ **已包含**；⑥ ~~测试职责口径~~ **2026-09-23 已澄清：测试由 Agent（本会话执行者）负责**；⑦ ~~替换角色路径单复数~~ **2026-09-24 用户裁决：以契约 8.2 的复数 `/roles` 为准**——后端 `IamUserController` 已改为 `@PutMapping("/{userId}/roles")`，`IamUserControllerWebTest` 七处断言同步，`docs/api-design.md` 8.2 与实现一致；新增 ⑧ **`USER_ROLE_REQUIRED` 已从 `frontend/src/api/errorMessages.ts` 删除**（后端自 2026-09-22 不再返回该编码），如需保留映射请告知。`TASK-060` 的页面交互、批量授权、权限码搜索与 `api/` 落层均已确认并落地。历史处置：JaCoCo 覆盖率门禁已确认取消（2026-09-19），`pom.xml` 只保留 `jacoco:report` 供 CI 上传工件。
 
-## 下一步：完整版开工前的收口清单（2026-10-06 分析，**均待用户确认**）
+## 下一步：完整版 backlog 的当前排期（2026-10-07 更新）
 
-仅依据当前代码与已发布契约整理，**确认前不写业务代码**（用户 2026-10-06：技术债"做完再动页面"）：
-
-1. **要定的设计（4 项）**：① 完整工单状态机——剩余 **6 个 IT 动作**（调整分类/优先级、转交、请求补充、撤回补充请求、关闭）+ **3 个员工动作**（补充、未解决反馈、撤销），契约表在 `docs/api-design.md` 6.3/6.4，但需逐动作确认权限、字段、错误码、审计与时间线 `context`；② 附件落地方案——`docs/api-design.md` §7 仍标"草案"，限制已确认（10 MiB/5 个/25 MiB、白名单、双端校验），**文件与数据库提交顺序、失败补偿、孤儿对账未定**；③ 超时自动任务（6.5）——扫描与幂等策略未定（无 MQ，纯调度）；④ 数据概览——`DASHBOARD_VIEW` 权限码已预置，指标口径与可见范围未定。
-2. **代码里已存在的真实缺口**：`IamUserServiceImpl` 两处 `//TODO 工单模块未实现`（`:460` 停用用户、`:632` 替换角色）——目标用户仍负责活动工单时没有管理性交接流程，属完整版 backlog 第 4 项。
-3. **不需要额外补的（省掉重复投入）**：权限码与角色授权已在 `V2__seed_rbac.sql` 预置（`TICKET_TRANSFER`、`TICKET_CLOSE`、`TICKET_ADMIN_HANDOFF`、`DASHBOARD_VIEW`）；表结构与 CHECK 约束已在 `V1__create_schema.sql` 预置（`ticket_attachment`、`ticket_relation`、`close_reason`/`completion_method`/`action_deadline_at`/`ended_at` 等）；`.env` 已被 `.gitignore` 忽略，仓库只跟踪 `.env.example`。
+1. **完整工单状态机（backlog 第 1 项）已开工并按 4 片推进**，逐片交付与验收边界见 `docs/implementation-plan.md` 9.3：片 A 已完成并合并（PR #14 → `5f4026f`）；**片 B 补充往返进行中**（当前分支，基础件与业务实现已写入，测试等内容按用户 2026-10-07 指示由用户统一发起）；片 C 调整与转交（`change-category`/`change-priority`/`transfer` + `transfer-candidates`）、片 D 结束路径（`close`/`cancel`）未开工。逐动作的权限、字段、错误码与时间线 `context` 已在 9.3 的裁决与 `docs/api-design.md` 6.3/6.4 中定稿，**不需要新增迁移或权限码**。
+2. **附件落地方案（backlog 第 2 项）——存储走本地受控目录，不引 OSS**：限制已确认（10 MiB/5 个/25 MiB、白名单、双端校验），文件与数据库提交顺序、原子移动、失败补偿与孤儿对账的设计在 `docs/engineering-readiness.md` 7.2，落地时按它实现。取向与依据见本文件「附件存储口径」。
+3. **超时自动任务（backlog 第 3 项）**：扫描与幂等策略未定（无 MQ，纯调度）；片 B 只写期限不自动改变状态，界面文案必须写明"到期不会自动处理"。
+4. **管理性交接（backlog 第 4 项）**：`IamUserServiceImpl` 两处 `//TODO 工单模块未实现`（`:460` 停用用户、`:632` 替换角色）——目标用户仍负责活动工单时没有交接流程。
+5. **数据概览（backlog 第 5 项）**：`DASHBOARD_VIEW` 权限码已预置，指标口径与可见范围未定。
+6. **不需要额外补的（省掉重复投入）**：权限码与角色授权已在 `V2__seed_rbac.sql` 预置（`TICKET_TRANSFER`、`TICKET_CLOSE`、`TICKET_ADMIN_HANDOFF`、`DASHBOARD_VIEW`）；表结构与 CHECK 约束已在 `V1__create_schema.sql` 预置（`ticket_attachment`、`ticket_relation`、`close_reason`/`completion_method`/`action_deadline_at`/`ended_at` 等）；`.env` 已被 `.gitignore` 忽略，仓库只跟踪 `.env.example`。
 4. **前端配套**：新动作的界面入口与附件上传/下载 UI 未做（当前界面只摆已实现动作，不摆"按不动的按钮"）；`frontend/AGENTS.md` 的六态、视觉决策契约与 `src/composables/` 分层规则对新页面同样生效。
 
 ## 2026-09-24 TASK-060 / TASK-062 管理端五页 + TASK-061 契约对齐（全套验证通过，未提交）
@@ -791,11 +812,11 @@
 
 ## 当前任务与下一大步骤
 
-当前任务：完成阶段 2 收尾验收；后端业务步骤与真实栈切片①～⑥已通过。员工页面实现已在工作区，尚缺完整自动化与真实浏览器验证。
+**当前任务（2026-10-07）：片 B 补充往返**——分支 `flow-desk/ticket-supplement-roundtrip`（从 `5f4026f` 创建）。基础件与 `TicketServiceImpl` 两个业务方法已写入；**按用户 2026-10-07 指示，测试/前端/E2E/验收脚本/文档等内容由用户在实现完成后统一发起**，Agent 在此停止推进（规则见 `AGENTS.md`「Codex 的职责」的测试时机条目）。
 
-- **当前待办**：恢复命令执行环境；验证共享 Mapper Mock 配置、运行后端完整 `verify`；运行前端检查与真实 E2E/截图，并确认演示数据已清理。测试结果以复跑输出为准。
-
-- **已确认（2026-09-28）**：按实施计划 6.1 的八步推进；创建仅写工单与首条记录，不写提交人到 IT 参与表；无附件创建保留 multipart JSON ticket 部分；阶段 2 `allowedActions=[]`。
+- **当前待办（等用户）**：用户确认/调整 `TicketServiceImpl.requestSupplement` 与 `supplement` 后，统一发起后续内容——前端两个动作的登记与派发、E2E、真实栈验收脚本（含替换片 A 的 SQL 造数）、文档同步、全量回归。
+- **下一大步骤**：片 C（调整与转交）、片 D（结束路径），见 `docs/implementation-plan.md` 9.3；随后是 backlog 第 2 项附件（本地受控目录方案）。
+- **已确认（2026-09-28，仍生效）**：Agent 直接写基础 domain/Controller/Mapper/Command/Query/Result/服务接口；ServiceImpl 逐项先给文字和流程图，再给完整代码供用户编写，不写入。**2026-10-07 补充**：只做用户明确点名的那一层，基础件写入后停下等待。
 - **步骤①已验收（2026-09-28）**：六个生产文件由用户完成；Agent review 与 `./mvnw.cmd -B -DskipTests compile` 通过。真实 MySQL/Redis/后端验证员工和 IT 各 200、无认证 401、零权限 403、仅 id/name、停用过滤、同 sort_order 按 ID 排序、空集 200/[]。临时分类及用户角色数据已还原。
 - **步骤②已验收（2026-09-28）**：用户补齐认证适配器组件注册；真实栈 8082 启动成功、V6 迁移成功；创建 201/每日编号、工单与首条记录初值、401/403、8 例非法输入/分类 400 均通过；定向触发器注入记录失败验证工单与每日序号一起回滚，未写 participant。临时数据与触发器已清理。编号此前已验证并发、北京时间切日、次日从 1、1000 和旧编号回填。
 - **最新分工已确认**：Agent 直接写基础 domain/Controller/Mapper/Command/Query/Result/服务接口；ServiceImpl 逐项先给文字和流程图，再给完整代码供用户编写，不写入。本阶段不新增测试类，使用编译和真实栈验收，规则已同步 AGENTS.md。

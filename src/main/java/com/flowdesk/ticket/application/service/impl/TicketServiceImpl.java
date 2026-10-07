@@ -815,6 +815,226 @@ public class TicketServiceImpl implements TicketService {
                 instant.atOffset(ZoneOffset.UTC));
     }
 
+    /** 当前负责人请求员工补充信息：进入「待补充」，期限由服务端按配置计算。 */
+    @Override
+    @Transactional
+    public TicketActionResult requestSupplement(
+            String ticketNo, RequestSupplementCommand command) {
+        // 1. 身份与处理权限
+        long actorId = currentRequesterPort.currentUserId();
+        if (!ticketReadPermissionPort.hasAuthority(TICKET_PROCESS)) {
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN,
+                    "TICKET_ACTION_FORBIDDEN",
+                    "无处理工单权限");
+        }
+
+        // 2. 可见性：无权查看与编号不存在统一 404，不向调用方确认工单是否存在
+        TicketDetailRow visible = ticketMapper.selectVisibleDetail(
+                ticketNo,
+                actorId,
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_OWN"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_QUEUE"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_PARTICIPATED"));
+
+        if (visible == null) {
+            throw new ApiException(
+                    HttpStatus.NOT_FOUND,
+                    "TICKET_NOT_FOUND",
+                    "工单不存在");
+        }
+
+        // 3. 只有「处理中」的当前负责人可以请求补充；「待补充」期间要再次请求应先撤回
+        if (!PROCESSING.equals(visible.getStatus())
+                || visible.getAssigneeId() == null
+                || visible.getAssigneeId() != actorId) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        // 4. 版本必须与客户端读到的一致
+        if (!Objects.equals(command.version(), visible.getVersion())) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        // 5. 必须写清需要补充什么；null 必须在 isEmpty 之前判掉（非 HTTP 调用方不走 Bean Validation）
+        String content = command.content();
+        if (content == null || content.isEmpty() || content.length() > MAX_CONTENT_LENGTH) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_FAILED",
+                    "需要补充的内容长度必须在 1 到 10000 之间");
+        }
+
+        Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
+        LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+
+        // 6. 补充期限从本次请求时刻起算
+        LocalDateTime deadlineAt = now.plus(ticketProperties.supplementWindow());
+
+        // 7. 条件更新是唯一胜者判定：状态、负责人与版本都在 WHERE 里；
+        //    状态与期限必须在同一条 UPDATE 内落库，否则中间态会撞 ck_ticket_status_deadline
+        int updatedRows = ticketMapper.requestSupplement(
+                visible.getId(),
+                command.version(),
+                actorId,
+                deadlineAt,
+                now);
+
+        if (updatedRows != 1) {
+            Ticket current = ticketMapper.selectClaimConflictSnapshotForUpdate(visible.getId());
+            if (current == null) {
+                throw new IllegalStateException("请求补充冲突后无法读取工单快照");
+            }
+            throw conflict(current.getVersion(), current.getStatus());
+        }
+
+        Ticket updated = ticketMapper.selectById(visible.getId());
+        if (updated == null
+                || updated.getRecordSeq() == null
+                || updated.getVersion() == null) {
+            throw new IllegalStateException("请求补充后无法读取工单快照");
+        }
+
+        // 8. 不可变时间线：需要补充的内容与本次期限；负责人没变，仍由本人继续处理
+        TicketRecord record = new TicketRecord();
+        record.setTicketId(updated.getId());
+        record.setSequenceNo(updated.getRecordSeq());
+        record.setRecordType("SUPPLEMENT_REQUEST");
+        record.setActorType("USER");
+        record.setActorUserId(actorId);
+        record.setContent(content);
+        record.setFromStatus(PROCESSING);
+        record.setToStatus(WAITING_FOR_REQUESTER);
+        record.setDeadlineAt(deadlineAt);
+        record.setCreatedAt(now);
+
+        if (ticketRecordMapper.insert(record) != 1) {
+            throw new IllegalStateException("补充请求记录插入失败");
+        }
+
+        TicketUserSummaryResult assignee = new TicketUserSummaryResult(
+                visible.getAssigneeId(),
+                visible.getAssigneeDisplayName());
+
+        return new TicketActionResult(
+                updated.getTicketNo(),
+                WAITING_FOR_REQUESTER,
+                assignee,
+                now.plus(ticketProperties.supplementWindow()).atOffset(ZoneOffset.UTC),
+                updated.getVersion(),
+                instant.atOffset(ZoneOffset.UTC));
+    }
+
+    /** 提交人补充信息：回到「处理中」，原补充期限失效，原负责人继续处理。 */
+    @Override
+    @Transactional
+    public TicketActionResult supplement(String ticketNo, SupplementCommand command) {
+        // 1. 身份与提交人动作权限
+        long actorId = currentRequesterPort.currentUserId();
+        if (!ticketReadPermissionPort.hasAuthority(TICKET_REQUESTER_ACTION)) {
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN,
+                    "TICKET_ACTION_FORBIDDEN",
+                    "无提交人操作权限");
+        }
+
+        // 2. 可见性：无权查看与编号不存在统一 404
+        TicketDetailRow visible = ticketMapper.selectVisibleDetail(
+                ticketNo,
+                actorId,
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_OWN"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_QUEUE"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_PARTICIPATED"));
+
+        if (visible == null) {
+            throw new ApiException(
+                    HttpStatus.NOT_FOUND,
+                    "TICKET_NOT_FOUND",
+                    "工单不存在");
+        }
+
+        // 3. 只有提交人能在「待补充」上补充信息；负责人能看到工单但不是提交人，按冲突返回
+        if (!WAITING_FOR_REQUESTER.equals(visible.getStatus())
+                || visible.getRequesterId() == null
+                || visible.getRequesterId() != actorId) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        // 4. 版本必须与客户端读到的一致
+        if (!Objects.equals(command.version(), visible.getVersion())) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        /**
+         * 5. 补充正文：本版本只接受正文，附件属完整版 backlog 第 2 项（用户 2026-10-06 裁决）。
+         *
+         * <p><strong>刻意不判定"是否已过 `action_deadline_at`"</strong>：本版本没有超时自动关闭
+         * （自动任务属 backlog 第 3 项），期限只用于界面展示。若在这里拒绝过期提交，等于把
+         * "系统还没实现自动关闭"变成"员工连信息都补不进来"，比不做更糟。</p>
+         */
+        String content = command.content();
+        if (content == null || content.isEmpty() || content.length() > MAX_CONTENT_LENGTH) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_FAILED",
+                    "补充内容长度必须在 1 到 10000 之间");
+        }
+
+        Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
+        LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+
+        // 6. 条件更新：清空补充期限、回到处理中；assignee_id 不动（补充不等于换人）
+        int updatedRows = ticketMapper.supplement(
+                visible.getId(),
+                command.version(),
+                actorId,
+                now);
+
+        if (updatedRows != 1) {
+            Ticket current = ticketMapper.selectClaimConflictSnapshotForUpdate(visible.getId());
+            if (current == null) {
+                throw new IllegalStateException("提交补充信息冲突后无法读取工单快照");
+            }
+            throw conflict(current.getVersion(), current.getStatus());
+        }
+
+        Ticket updated = ticketMapper.selectById(visible.getId());
+        if (updated == null
+                || updated.getRecordSeq() == null
+                || updated.getVersion() == null) {
+            throw new IllegalStateException("提交补充信息后无法读取工单快照");
+        }
+
+        // 7. 不可变时间线：补充正文与状态迁移；期限已失效，因此不写 deadline_at
+        TicketRecord record = new TicketRecord();
+        record.setTicketId(updated.getId());
+        record.setSequenceNo(updated.getRecordSeq());
+        record.setRecordType("REQUESTER_SUPPLEMENT");
+        record.setActorType("USER");
+        record.setActorUserId(actorId);
+        record.setContent(content);
+        record.setFromStatus(WAITING_FOR_REQUESTER);
+        record.setToStatus(PROCESSING);
+        record.setCreatedAt(now);
+
+        if (ticketRecordMapper.insert(record) != 1) {
+            throw new IllegalStateException("补充记录插入失败");
+        }
+
+        // 8. 负责人没变、期限已清空，摘要直接取本事务读到的可见快照
+        TicketUserSummaryResult assignee = new TicketUserSummaryResult(
+                visible.getAssigneeId(),
+                visible.getAssigneeDisplayName());
+
+        return new TicketActionResult(
+                updated.getTicketNo(),
+                PROCESSING,
+                assignee,
+                null,
+                updated.getVersion(),
+                instant.atOffset(ZoneOffset.UTC));
+    }
+
     /** 创建工单 */
     private TicketCreatedResult createTicket(CreateTicketCommand command, Long requesterId, String submissionKey) {
         //1.校验分类
