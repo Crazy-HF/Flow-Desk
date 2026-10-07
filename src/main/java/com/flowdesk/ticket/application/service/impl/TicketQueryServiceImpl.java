@@ -293,17 +293,21 @@ public class TicketQueryServiceImpl implements TicketQueryService {
                 && ticketReadPermissionPort.hasAuthority(TICKET_PROCESS);
 
         /**
-         * 提交解决结果与追加处理记录的前置条件**完全相同**（处理中、本人是负责人、具备处理权限），
-         * 所以直接复用同一条判定，而不是复制一份迟早会不一致的表达式。
+         * 处理中负责人可用的三个动作前置条件**完全相同**（处理中、本人是负责人、具备处理权限），
+         * 因此共用同一条判定，而不是各写一份迟早会不一致的表达式。
          *
-         * <p>这个分支曾经缺失：`POST /actions/submit-resolution` 早已实现并通过真实栈验收
-         * （`docs/acceptance/2026-10-06-stage3-claim-process-resolution-confirm.json`），
+         * <p>{@code submit-resolution} 曾经缺失：`POST /actions/submit-resolution` 早已实现并通过
+         * 真实栈验收（`docs/acceptance/2026-10-06-stage3-claim-process-resolution-confirm.json`），
          * 但详情不返回这个动作名——界面按 `allowedActions` 渲染按钮，于是负责人能写处理记录
          * 却交不出解决结果。阶段 3 端到端主链实测到的正是这一步。</p>
+         *
+         * <p>片 B 的 {@code request-supplement} 属于同一族：它在「处理中」可用，「待补充」时
+         * 自己不再可用（要重新请求应先撤回，见 `docs/kickoff.md` 4.12）。</p>
          */
         boolean canSubmitResolution = canProcess;
+        boolean canRequestSupplement = canProcess;
 
-        // 待确认状态下 IT 侧只暴露已实现的动作：报告未解决、转交与调整尚未实现，
+        // 待确认状态只暴露提交人已实现的动作；IT 侧在这一状态下的转交与关闭尚未实现，
         // 因此这里不返回，避免前端渲染按不动的按钮。
         boolean canConfirm = STATUS_WAITING_FOR_CONFIRMATION.equals(row.getStatus())
                 && row.getRequesterId() == currentUserId
@@ -320,6 +324,11 @@ public class TicketQueryServiceImpl implements TicketQueryService {
         // 前置条件完全相同，直接复用 canConfirm，不复制表达式（阶段 3 的 submit-resolution 就是这样漏的）
         boolean canReportUnresolved = canConfirm;
 
+        // 提交人在「待补充」上只有一件事可做：补充信息。人不是负责人，因此不能复用 canProcess 一族
+        boolean canSupplement = STATUS_WAITING_FOR_REQUESTER.equals(row.getStatus())
+                && row.getRequesterId() == currentUserId
+                && ticketReadPermissionPort.hasAuthority(TICKET_REQUESTER_ACTION);
+
         // 一个动作一个条件，动作名与接口路径末段逐字一致。
         List<String> allowedActions = new ArrayList<>();
 
@@ -335,6 +344,10 @@ public class TicketQueryServiceImpl implements TicketQueryService {
             allowedActions.add("submit-resolution");
         }
 
+        if (canRequestSupplement) {
+            allowedActions.add("request-supplement");
+        }
+
         if (canConfirm) {
             allowedActions.add("confirm-resolution");
         }
@@ -345,6 +358,10 @@ public class TicketQueryServiceImpl implements TicketQueryService {
 
         if (canReportUnresolved) {
             allowedActions.add("report-unresolved");
+        }
+
+        if (canSupplement) {
+            allowedActions.add("supplement");
         }
 
         return new TicketDetailResult(

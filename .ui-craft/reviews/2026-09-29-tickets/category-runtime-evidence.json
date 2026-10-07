@@ -1,30 +1,30 @@
 {
-  "name": "E2E_STAGE2_CATEGORY_1791258232448",
+  "name": "E2E_STAGE2_CATEGORY_1791339604296",
   "checks": [
     {
       "action": "create",
       "status": 201,
-      "traceId": "1e3258c8-174b-4742-867b-75243129d865"
+      "traceId": "e226e78d-1441-41d5-b2b8-e7310b33ed52"
     },
     {
       "action": "update",
       "status": 200,
-      "traceId": "e43d05dd-1db2-425e-9b10-c0192c8339e1"
+      "traceId": "935bdd10-18b8-40ce-adaf-c44251eeb9f5"
     },
     {
       "action": "disable",
       "status": 200,
-      "traceId": "8eff23f5-ab00-40fd-aed4-691b5c47bdaf"
+      "traceId": "1ebe0b83-7ee5-4dab-96bf-71a66ea21a73"
     },
     {
       "action": "enable",
       "status": 200,
-      "traceId": "b3dadec7-772c-4966-b9a6-aff435ebe2b3"
+      "traceId": "26dac5e8-9ddd-4673-887d-6c2c259085de"
     },
     {
       "action": "delete",
       "status": 200,
-      "traceId": "f3bd7ec6-a3fe-496f-ac0c-a396e6bb12cb"
+      "traceId": "db5b0d1f-8d47-468d-81bb-baedba666665"
     }
   ],
   "viewports": [

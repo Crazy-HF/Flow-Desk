@@ -6,7 +6,9 @@ import com.flowdesk.ticket.application.command.ClaimTicketCommand;
 import com.flowdesk.ticket.application.command.ConfirmResolutionCommand;
 import com.flowdesk.ticket.application.command.CreateTicketCommand;
 import com.flowdesk.ticket.application.command.ReportUnresolvedCommand;
+import com.flowdesk.ticket.application.command.RequestSupplementCommand;
 import com.flowdesk.ticket.application.command.SubmitResolutionCommand;
+import com.flowdesk.ticket.application.command.SupplementCommand;
 import com.flowdesk.ticket.application.command.WithdrawSupplementRequestCommand;
 import com.flowdesk.ticket.application.port.CategoryAvailabilityPort;
 import com.flowdesk.ticket.application.port.CurrentRequesterPort;
@@ -106,7 +108,7 @@ class TicketServiceImplTest {
 
     private static final String SUBMISSION_KEY = "3f1c9f4e-2a6b-4b7c-8d9e-0a1b2c3d4e5f";
     private static final TicketProperties DEFAULT_PROPERTIES =
-            new TicketProperties(Duration.ofDays(7));
+            new TicketProperties(Duration.ofDays(7), Duration.ofDays(7));
 
     @Mock
     private TicketMapper ticketMapper;
@@ -879,7 +881,8 @@ class TicketServiceImplTest {
         LocalDateTime deadline = NOW_UTC.plus(Duration.ofHours(1));
         stubSubmittableTicket(3L, deadline);
 
-        TicketActionResult result = service(CLOCK, new TicketProperties(Duration.ofHours(1)))
+        TicketActionResult result = service(CLOCK,
+                new TicketProperties(Duration.ofHours(1), null))
                 .submitResolution(TICKET_NO, new SubmitResolutionCommand(3L, "已恢复"));
 
         verify(ticketMapper).submitResolution(TICKET_ID, 3L, IT_USER_ID, deadline, NOW_UTC);
@@ -1588,21 +1591,292 @@ class TicketServiceImplTest {
                 .hasMessageContaining("反馈未解决后无法读取工单快照");
     }
 
+    // ---------- requestSupplement ----------
+
+    /**
+     * 权限闸门先于可见性：本人确实是"处理中"的负责人，但缺 {@code TICKET_PROCESS} 时，
+     * 在读取工单之前就该被 403 拦下，不能靠"是不是负责人"推断能不能处理。
+     */
+    @Test
+    void requestSupplementChecksProcessPermissionBeforeVisibility() {
+        when(currentRequesterPort.currentUserId()).thenReturn(IT_USER_ID);
+        when(ticketReadPermissionPort.hasAuthority("TICKET_PROCESS")).thenReturn(false);
+
+        assertApiException(
+                () -> service.requestSupplement(TICKET_NO,
+                        new RequestSupplementCommand(3L, "请补充打印机型号")),
+                HttpStatus.FORBIDDEN, "TICKET_ACTION_FORBIDDEN");
+
+        verify(ticketMapper, never()).selectVisibleDetail(
+                any(), anyLong(), anyBoolean(), anyBoolean(), anyBoolean());
+    }
+
+    @Test
+    void requestSupplementReportsNotFoundWhenTicketIsNotVisible() {
+        stubProcessActor();
+        when(ticketMapper.selectVisibleDetail(
+                any(), anyLong(), anyBoolean(), anyBoolean(), anyBoolean()))
+                .thenReturn(null);
+
+        assertApiException(
+                () -> service.requestSupplement(TICKET_NO,
+                        new RequestSupplementCommand(3L, "请补充打印机型号")),
+                HttpStatus.NOT_FOUND, "TICKET_NOT_FOUND");
+
+        verify(ticketMapper, never()).requestSupplement(
+                anyLong(), anyLong(), anyLong(), any(), any());
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    @Test
+    void requestSupplementReportsConflictWhenTicketIsNotProcessing() {
+        stubProcessActor();
+        stubVisible(detailRow(WAITING_FOR_CONFIRMATION, IT_USER_ID, 3L));
+
+        ApiException exception = assertApiException(
+                () -> service.requestSupplement(TICKET_NO,
+                        new RequestSupplementCommand(3L, "请补充打印机型号")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceStatus()).isEqualTo(WAITING_FOR_CONFIRMATION);
+        assertThat(exception.resourceVersion()).as("冲突快照取可见行").isEqualTo(3L);
+    }
+
+    /** 能看到"处理中"的工单但不是负责人：同样按冲突返回，不回显"你不是负责人"。 */
+    @Test
+    void requestSupplementReportsConflictWhenActorIsNotTheCurrentAssignee() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID + 1, 3L));
+
+        assertApiException(
+                () -> service.requestSupplement(TICKET_NO,
+                        new RequestSupplementCommand(3L, "请补充打印机型号")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never()).requestSupplement(
+                anyLong(), anyLong(), anyLong(), any(), any());
+    }
+
+    @Test
+    void requestSupplementReportsConflictWhenTicketHasNoAssignee() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, null, 3L));
+
+        assertApiException(
+                () -> service.requestSupplement(TICKET_NO,
+                        new RequestSupplementCommand(3L, "请补充打印机型号")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+    }
+
+    @Test
+    void requestSupplementReportsConflictWhenCommandVersionIsStale() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+
+        ApiException exception = assertApiException(
+                () -> service.requestSupplement(TICKET_NO,
+                        new RequestSupplementCommand(3L, "请补充打印机型号")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).as("响应携带当前版本供前端刷新").isEqualTo(5L);
+        verify(ticketMapper, never()).requestSupplement(
+                anyLong(), anyLong(), anyLong(), any(), any());
+    }
+
+    /**
+     * 顺序陷阱：状态已变但请求正文也是空白时，必须回报 409 而不是 400——
+     * 否则用户会以为"把内容填上就能提交"，而真正的问题是工单已被别人推进。
+     */
+    @Test
+    void requestSupplementReportsConflictBeforeValidatingBlankContent() {
+        stubProcessActor();
+        stubVisible(detailRow(WAITING_FOR_REQUESTER, IT_USER_ID, 3L));
+
+        assertApiException(
+                () -> service.requestSupplement(TICKET_NO,
+                        new RequestSupplementCommand(3L, "   ")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+    }
+
+    @Test
+    void requestSupplementRejectsBlankContentWhenVersionMatches() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+
+        assertApiException(
+                () -> service.requestSupplement(TICKET_NO,
+                        new RequestSupplementCommand(3L, "   ")),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verify(ticketMapper, never()).requestSupplement(
+                anyLong(), anyLong(), anyLong(), any(), any());
+    }
+
+    /** 非 HTTP 调用方（脚本、其它服务）不走 Bean Validation，null 必须在服务内兜住而不是 NPE。 */
+    @Test
+    void requestSupplementRejectsNullContentWithoutThrowing() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+
+        assertApiException(
+                () -> service.requestSupplement(TICKET_NO,
+                        new RequestSupplementCommand(3L, null)),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+    }
+
+    @Test
+    void requestSupplementRejectsContentOverLimit() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+
+        assertApiException(
+                () -> service.requestSupplement(TICKET_NO,
+                        new RequestSupplementCommand(3L, "补".repeat(10001))),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+    }
+
+    @Test
+    void requestSupplementAcceptsContentAtExactLimit() {
+        stubSuccessfulRequestSupplement(3L, Duration.ofDays(7));
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 5, 4L));
+
+        TicketActionResult result = service.requestSupplement(TICKET_NO,
+                new RequestSupplementCommand(3L, "补".repeat(10000)));
+
+        assertThat(result.status()).isEqualTo(WAITING_FOR_REQUESTER);
+    }
+
+    /** 期限取配置而不是写死 7 天：窗口配成 1 小时时，落库期限必须跟着变。 */
+    @Test
+    void requestSupplementUsesConfiguredSupplementWindow() {
+        LocalDateTime deadline = NOW_UTC.plus(Duration.ofHours(1));
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+        when(ticketMapper.requestSupplement(TICKET_ID, 3L, IT_USER_ID, deadline, NOW_UTC))
+                .thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 5, 4L));
+        when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
+
+        TicketActionResult result = service(CLOCK,
+                new TicketProperties(null, Duration.ofHours(1)))
+                .requestSupplement(TICKET_NO,
+                        new RequestSupplementCommand(3L, "请补充打印机型号"));
+
+        verify(ticketMapper).requestSupplement(TICKET_ID, 3L, IT_USER_ID, deadline, NOW_UTC);
+        ArgumentCaptor<TicketRecord> records = ArgumentCaptor.forClass(TicketRecord.class);
+        verify(ticketRecordMapper).insert(records.capture());
+        assertThat(records.getValue().getDeadlineAt())
+                .as("时间线记录与条件更新使用同一期限").isEqualTo(deadline);
+        assertThat(result.actionDeadlineAt())
+                .as("返回结果的期限按 UTC 偏移").isEqualTo(deadline.atOffset(ZoneOffset.UTC));
+    }
+
+    @Test
+    void requestSupplementMovesTicketToWaitingForRequesterAndKeepsAssignee() {
+        stubSuccessfulRequestSupplement(3L, Duration.ofDays(7));
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 5, 4L));
+
+        TicketActionResult result = service.requestSupplement(TICKET_NO,
+                new RequestSupplementCommand(3L, "  请补充打印机型号与错误截图  "));
+
+        LocalDateTime deadline = NOW_UTC.plus(Duration.ofDays(7));
+        verify(ticketMapper).requestSupplement(TICKET_ID, 3L, IT_USER_ID, deadline, NOW_UTC);
+
+        ArgumentCaptor<TicketRecord> records = ArgumentCaptor.forClass(TicketRecord.class);
+        verify(ticketRecordMapper).insert(records.capture());
+        TicketRecord record = records.getValue();
+        assertThat(record.getRecordType()).isEqualTo("SUPPLEMENT_REQUEST");
+        assertThat(record.getSequenceNo()).as("序号取递增后的 recordSeq").isEqualTo(5);
+        assertThat(record.getActorType()).isEqualTo("USER");
+        assertThat(record.getActorUserId()).isEqualTo(IT_USER_ID);
+        assertThat(record.getContent()).as("需要补充的内容去除首尾空白后落库")
+                .isEqualTo("请补充打印机型号与错误截图");
+        assertThat(record.getReason()).as("请求补充不是原因类动作").isNull();
+        assertThat(record.getFromStatus()).isEqualTo(PROCESSING);
+        assertThat(record.getToStatus()).isEqualTo(WAITING_FOR_REQUESTER);
+        assertThat(record.getDeadlineAt()).as("记录与工单写入同一补充期限").isEqualTo(deadline);
+        assertThat(record.getCreatedAt()).as("落库时间按 UTC 毫秒截断").isEqualTo(NOW_UTC);
+
+        assertThat(result.ticketNo()).isEqualTo(TICKET_NO);
+        assertThat(result.status()).isEqualTo(WAITING_FOR_REQUESTER);
+        assertThat(result.assignee()).as("请求补充不换人，负责人仍在")
+                .isEqualTo(new TicketUserSummaryResult(IT_USER_ID, IT_DISPLAY_NAME));
+        assertThat(result.actionDeadlineAt()).isEqualTo(deadline.atOffset(ZoneOffset.UTC));
+        assertThat(result.version()).isEqualTo(4L);
+        assertThat(result.actionTime()).isEqualTo(NOW.atOffset(ZoneOffset.UTC));
+    }
+
+    @Test
+    void requestSupplementReportsConflictWithReloadedSnapshotWhenConditionalUpdateLoses() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+        when(ticketMapper.requestSupplement(
+                anyLong(), anyLong(), anyLong(), any(), any())).thenReturn(0);
+        when(ticketMapper.selectClaimConflictSnapshotForUpdate(TICKET_ID))
+                .thenReturn(conflictSnapshot(WAITING_FOR_REQUESTER, 4L));
+
+        ApiException exception = assertApiException(
+                () -> service.requestSupplement(TICKET_NO,
+                        new RequestSupplementCommand(3L, "请补充打印机型号")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).as("携带读回的最新版本").isEqualTo(4L);
+        assertThat(exception.resourceStatus()).as("携带读回的最新状态")
+                .isEqualTo(WAITING_FOR_REQUESTER);
+        verify(ticketMapper, never()).selectById(TICKET_ID);
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    @Test
+    void requestSupplementFailsWhenConflictSnapshotCannotBeRead() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+        when(ticketMapper.requestSupplement(
+                anyLong(), anyLong(), anyLong(), any(), any())).thenReturn(0);
+        when(ticketMapper.selectClaimConflictSnapshotForUpdate(TICKET_ID)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.requestSupplement(TICKET_NO,
+                new RequestSupplementCommand(3L, "请补充打印机型号")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("请求补充冲突后无法读取工单快照");
+    }
+
+    @Test
+    void requestSupplementFailsWhenUpdatedRecordSeqIsMissing() {
+        stubSuccessfulRequestSupplement(3L, Duration.ofDays(7));
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, null, 4L));
+
+        assertThatThrownBy(() -> service.requestSupplement(TICKET_NO,
+                new RequestSupplementCommand(3L, "请补充打印机型号")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("请求补充后无法读取工单快照");
+
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
     // ---------- TicketProperties ----------
 
     @Test
     void ticketPropertiesDefaultToSevenDaysWhenUnset() {
-        assertThat(new TicketProperties(null).confirmationWindow())
+        assertThat(new TicketProperties(null, null).confirmationWindow())
                 .as("未配置时使用已确认的 7×24 小时默认值")
+                .isEqualTo(Duration.ofDays(7));
+        assertThat(new TicketProperties(null, null).supplementWindow())
+                .as("补充期限与确认期限同口径：缺省也是 7×24 小时")
                 .isEqualTo(Duration.ofDays(7));
     }
 
     @Test
     void ticketPropertiesRejectWindowBelowOneMinute() {
-        assertThatThrownBy(() -> new TicketProperties(Duration.ofSeconds(30)))
+        assertThatThrownBy(() -> new TicketProperties(Duration.ofSeconds(30), null))
                 .as("小于 1 分钟的确认期限会让员工无法在期限内操作")
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("confirmation-window");
+
+        assertThatThrownBy(() -> new TicketProperties(null, Duration.ofSeconds(30)))
+                .as("补充期限与确认期限同口径，不能小于 1 分钟")
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("supplement-window");
     }
 
     // ---------- 事务边界 ----------
@@ -1643,6 +1917,19 @@ class TicketServiceImplTest {
                 .getMethod("reportUnresolved", String.class, ReportUnresolvedCommand.class)
                 .isAnnotationPresent(Transactional.class))
                 .as("reportUnresolved 由声明式事务包住条件更新与时间线写入").isTrue();
+    }
+
+    /** 片 B 的补充往返（请求补充 + 提交补充）同样必须由声明式事务包住条件更新与时间线写入。 */
+    @Test
+    void supplementRoundTripMethodsDeclareTransactionBoundaries() throws NoSuchMethodException {
+        assertThat(TicketServiceImpl.class
+                .getMethod("requestSupplement", String.class, RequestSupplementCommand.class)
+                .isAnnotationPresent(Transactional.class))
+                .as("requestSupplement 由声明式事务包住条件更新与时间线写入").isTrue();
+        assertThat(TicketServiceImpl.class
+                .getMethod("supplement", String.class, SupplementCommand.class)
+                .isAnnotationPresent(Transactional.class))
+                .as("supplement 由声明式事务包住条件更新与时间线写入").isTrue();
     }
 
     // ---------- 辅助 ----------
@@ -1786,6 +2073,16 @@ class TicketServiceImplTest {
         stubVisible(detailRow(WAITING_FOR_CONFIRMATION, IT_USER_ID, 4L));
         when(ticketMapper.reportUnresolved(TICKET_ID, 4L, REQUESTER_ID, NOW_UTC))
                 .thenReturn(1);
+    }
+
+    /** 请求补充路径的公共前置：有处理权限、本人是「处理中」的负责人、版本 3。 */
+    private void stubSuccessfulRequestSupplement(long version, Duration supplementWindow) {
+        LocalDateTime deadline = NOW_UTC.plus(supplementWindow);
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, version));
+        when(ticketMapper.requestSupplement(TICKET_ID, version, IT_USER_ID, deadline, NOW_UTC))
+                .thenReturn(1);
+        when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
     }
 
     private void stubVisible(TicketDetailRow row) {

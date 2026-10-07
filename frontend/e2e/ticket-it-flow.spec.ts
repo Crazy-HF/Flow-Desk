@@ -191,8 +191,8 @@ test('阶段 3 主链：员工提交 → IT 领取 → 处理 → 提交解决 �
 
   // 领取后按钮立刻换成处理动作：版本已经 +1，界面必须按新快照重算
   await expect(page.locator('.ticket-meta')).toContainText('处理中')
-  // 处理中状态下负责人同时具备两个动作，顺序由前端登记表决定
-  expect(await actionLabels(page)).toEqual(['记录处理过程', '提交解决结果'])
+  // 处理中状态下负责人同时具备三个动作（片 B 起多了「请求补充信息」），顺序由前端登记表决定
+  expect(await actionLabels(page)).toEqual(['记录处理过程', '提交解决结果', '请求补充信息'])
   await expect(page.locator('.ticket-facts dt:has-text("负责人") + dd')).toHaveText(itDisplayName)
 
   // ---------- 3. 追加处理记录 ----------
@@ -235,7 +235,13 @@ test('阶段 3 主链：员工提交 → IT 领取 → 处理 → 提交解决 �
   await expect(page.locator('.ticket-meta')).toContainText('待员工确认')
   // 交出解决结果之后 IT 侧不能再改处理记录
   expect(await actionLabels(page)).toEqual([])
-  await expect(page.locator('.ticket-facts dt:has-text("当前期限") + dd')).not.toBeEmpty()
+  /**
+   * 同一个期限字段，IT 侧读到的与员工侧不同：期限属于"提交人什么时候之前要确认"这件事，
+   * 而 IT 此刻没有任何可做动作（确认归提交人）。所以这里同时钉住两点——标签是「确认期限」
+   * 而不是一个对谁都能读的「当前期限」，以及"到期不会自动处理"这句限定对负责人照样要说。
+   */
+  await expect(page.locator('.ticket-facts dt:has-text("确认期限") + dd')).not.toBeEmpty()
+  await expect(page.locator('.ticket-facts__hint')).toContainText('需要提交人手动确认')
   await page.screenshot({ path: resolve(reviewDir, 'it-detail-waiting-1440.png'), fullPage: true })
   await signOut(page)
 

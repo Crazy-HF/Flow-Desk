@@ -1,5 +1,6 @@
 package com.flowdesk.ticket.controller;
 
+import com.flowdesk.common.exception.ApiException;
 import com.flowdesk.common.web.R;
 import com.flowdesk.common.web.PageResult;
 import com.flowdesk.ticket.application.query.TicketQuery;
@@ -10,6 +11,8 @@ import com.flowdesk.ticket.application.command.SubmitResolutionCommand;
 import com.flowdesk.ticket.application.command.ConfirmResolutionCommand;
 import com.flowdesk.ticket.application.command.WithdrawSupplementRequestCommand;
 import com.flowdesk.ticket.application.command.ReportUnresolvedCommand;
+import com.flowdesk.ticket.application.command.RequestSupplementCommand;
+import com.flowdesk.ticket.application.command.SupplementCommand;
 import com.flowdesk.ticket.application.result.*;
 import com.flowdesk.ticket.application.service.TicketQueryService;
 import com.flowdesk.ticket.application.command.CreateTicketCommand;
@@ -20,6 +23,9 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/fd/v1/tickets")
@@ -73,7 +79,7 @@ public class TicketController {
                 .body(R.success(ticketService.create(command)));
     }
 
-    /** 领取工单。 */
+    /** 领取工单 */
     @PostMapping("/{ticketNo}/actions/claim")
     public R<TicketActionResult> claim(
             @PathVariable String ticketNo,
@@ -119,5 +125,30 @@ public class TicketController {
             @PathVariable String ticketNo,
             @Valid @RequestBody ReportUnresolvedCommand command) {
         return R.success(ticketService.reportUnresolved(ticketNo, command));
+    }
+
+    /** 当前负责人请求员工补充信息；进入待补充并写入服务端计算的补充期限。 */
+    @PostMapping("/{ticketNo}/actions/request-supplement")
+    public R<TicketActionResult> requestSupplement(
+            @PathVariable String ticketNo,
+            @Valid @RequestBody RequestSupplementCommand command) {
+        return R.success(ticketService.requestSupplement(ticketNo, command));
+    }
+
+    /**提交人补充信息；回到处理中并让补充期限失效。*/
+    @PostMapping(value = "/{ticketNo}/actions/supplement",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public R<TicketActionResult> supplement(
+            @PathVariable String ticketNo,
+            @Valid @RequestPart("ticket") SupplementCommand command,
+            @RequestPart(name = "files", required = false) List<MultipartFile> files) {
+        if (files != null && !files.isEmpty()) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_FAILED",
+                    "本版本不支持附件，请只提交补充正文");
+        }
+
+        return R.success(ticketService.supplement(ticketNo, command));
     }
 }

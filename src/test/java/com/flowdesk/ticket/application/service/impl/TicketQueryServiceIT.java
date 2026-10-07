@@ -86,6 +86,7 @@ class TicketQueryServiceIT {
     private static final String PENDING = "PENDING";
     private static final String PROCESSING = "PROCESSING";
     private static final String WAITING_FOR_CONFIRMATION = "WAITING_FOR_CONFIRMATION";
+    private static final String WAITING_FOR_REQUESTER = "WAITING_FOR_REQUESTER";
     private static final String COMPLETED = "COMPLETED";
 
     private static final String MEDIUM = "MEDIUM";
@@ -563,20 +564,26 @@ class TicketQueryServiceIT {
                 "处理中动作", PROCESSING, assigneeId, MEDIUM, BASE_TIME, BASE_TIME);
         String waitingNo = insertTicket(requesterId, categoryId,
                 "待确认动作", WAITING_FOR_CONFIRMATION, assigneeId, MEDIUM, BASE_TIME, BASE_TIME);
+        String supplementNo = insertTicket(requesterId, categoryId,
+                "待补充动作", WAITING_FOR_REQUESTER, assigneeId, MEDIUM, BASE_TIME, BASE_TIME);
         String completedNo = insertTicket(requesterId, categoryId,
                 "已完成动作", COMPLETED, assigneeId, MEDIUM, BASE_TIME, BASE_TIME);
 
-        // 处理中 + 本人负责人：既要能追加处理记录，也要能提交解决结果
+        // 处理中 + 本人负责人：追加处理记录、提交解决结果，以及请求员工补充（片 B）
         authenticateAs(assigneeId);
         assertThat(ticketQueryService.detail(processingNo).allowedActions())
-                .as("阶段 3 回归：负责人必须同时拿到两个动作")
-                .containsExactlyInAnyOrder("add-processing-record", "submit-resolution");
+                .as("阶段 3 回归 + 片 B：负责人必须同时拿到三个处理类动作")
+                .containsExactlyInAnyOrder("add-processing-record", "submit-resolution",
+                        "request-supplement");
         assertThat(ticketQueryService.detail(completedNo).allowedActions())
                 .as("终态没有可执行动作")
                 .isEmpty();
         assertThat(ticketQueryService.detail(waitingNo).allowedActions())
                 .as("负责人不是提交人，不能确认")
                 .isEmpty();
+        assertThat(ticketQueryService.detail(supplementNo).allowedActions())
+                .as("待补充期间负责人只能撤回补充请求，不能再提交解决结果")
+                .containsExactly("withdraw-supplement-request");
 
         // 待确认 + 提交人：确认与「问题仍未解决」两个动作的前置条件完全相同，
         // 顺序由装配顺序决定（片 A 起从一格变成两格，旧断言只写了 confirm-resolution）
@@ -584,6 +591,9 @@ class TicketQueryServiceIT {
         assertThat(ticketQueryService.detail(waitingNo).allowedActions())
                 .as("待确认时提交人同时拿到确认与反馈未解决，顺序固定")
                 .containsExactly("confirm-resolution", "report-unresolved");
+        assertThat(ticketQueryService.detail(supplementNo).allowedActions())
+                .as("待补充时提交人只能补充信息（片 B），且拿不到负责人的撤回入口")
+                .containsExactly("supplement");
         assertThat(ticketQueryService.detail(processingNo).allowedActions())
                 .as("提交人没有处理权限，看不到处理动作")
                 .isEmpty();
@@ -710,8 +720,11 @@ class TicketQueryServiceIT {
                                 Long assigneeId, String priority,
                                 LocalDateTime createdAt, LocalDateTime updatedAt) {
         String ticketNo = "FD-20260202-" + FIXTURE_SEQUENCE.incrementAndGet();
-        LocalDateTime actionDeadlineAt =
-                WAITING_FOR_CONFIRMATION.equals(status) ? createdAt.plusDays(7) : null;
+        // 两个等待态都要求有截止时间：ck_ticket_status_deadline 不接受"等待中却没有期限"
+        LocalDateTime actionDeadlineAt = WAITING_FOR_CONFIRMATION.equals(status)
+                || WAITING_FOR_REQUESTER.equals(status)
+                ? createdAt.plusDays(7)
+                : null;
         LocalDateTime endedAt = COMPLETED.equals(status) ? updatedAt : null;
         String completionMethod = COMPLETED.equals(status) ? "REQUESTER_CONFIRMED" : null;
 

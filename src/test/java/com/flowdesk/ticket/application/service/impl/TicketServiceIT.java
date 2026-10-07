@@ -9,7 +9,9 @@ import com.flowdesk.ticket.application.command.ClaimTicketCommand;
 import com.flowdesk.ticket.application.command.ConfirmResolutionCommand;
 import com.flowdesk.ticket.application.command.CreateTicketCommand;
 import com.flowdesk.ticket.application.command.ReportUnresolvedCommand;
+import com.flowdesk.ticket.application.command.RequestSupplementCommand;
 import com.flowdesk.ticket.application.command.SubmitResolutionCommand;
+import com.flowdesk.ticket.application.command.SupplementCommand;
 import com.flowdesk.ticket.application.command.WithdrawSupplementRequestCommand;
 import com.flowdesk.ticket.application.query.TicketRecordQuery;
 import com.flowdesk.ticket.application.result.TicketActionResult;
@@ -83,12 +85,11 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
  *       {@code ck_ticket_status_assignee} 在真实状态迁移后仍然成立。</li>
  * </ol>
  *
- * <p><b>片 A（退回处理中）的临时造数手段</b>：{@code withdrawSupplementRequest} 要求工单处于
- * {@code WAITING_FOR_REQUESTER}，而进入该状态要靠片 B 的 {@code request-supplement}——
- * 当前没有任何接口可以做到。因此 {@link #insertWaitingForRequesterTicket} 用 {@link JdbcTemplate}
- * 直接把一张已领取的工单置位（状态、期限 = now + 7d、{@code version + 1}、{@code record_seq + 1}），
- * 并补一条 {@code SUPPLEMENT_REQUEST} 记录保持时间线连贯，形状与一次真实动作落库后一致。
- * 片 B 落地后这些用例应改为走 {@code request-supplement} 造数，本注释随之失效。</p>
+ * <p><b>「待补充」状态的进入方式（片 B 之后）</b>：{@code withdrawSupplementRequest} 与
+ * {@code supplement} 都要求工单处于 {@code WAITING_FOR_REQUESTER}。片 A 期间没有任何接口能进入
+ * 该状态，只能直接改库置位；片 B 的 {@code request-supplement} 落地后，{@link #insertWaitingForRequesterTicket}
+ * 改为「建单 → 领取 → 请求补充」的真实链路，版本号、记录序号与期限都来自真实动作，
+ * 造数只用于准备起点，不再伪造状态迁移的结果。</p>
  *
  * <p>与既有 IT 约定一致：{@code @ActiveProfiles("test")} + Testcontainers 临时库、
  * 不使用测试级 {@code @Transactional}（外层事务会掩盖 {@code REQUIRES_NEW} 与
@@ -120,13 +121,12 @@ class TicketServiceIT {
     private static final Duration CONFIRMATION_WINDOW = Duration.ofDays(7);
 
     /**
-     * 「待补充」造数用的期限。
+     * 与 {@code application.yml} 的 {@code flowdesk.ticket.supplement-window} 一致。
      *
-     * <p>片 B 之前没有 {@code flowdesk.ticket.supplement-window} 配置，也没有任何接口能进入
-     * {@link #WAITING_FOR_REQUESTER}，因此这里固定按 7×24 小时造数；片 B 落地后应改为
-     * 走 {@code request-supplement} 接口并使用它自己的窗口配置。</p>
+     * <p>片 B 落地后，「待补充」不再靠直接改库造数，而是由 {@code request-supplement} 真实进入，
+     * 因此这个窗口既用于断言服务端算出的期限，也用于断言它落库后的值。</p>
      */
-    private static final Duration SUPPLEMENT_FIXTURE_WINDOW = Duration.ofDays(7);
+    private static final Duration SUPPLEMENT_WINDOW = Duration.ofDays(7);
 
     /** 直接造数用的工单号，避开当日序号分配出来的编号空间。 */
     private static final AtomicInteger FIXTURE_SEQUENCE = new AtomicInteger(900);
@@ -771,9 +771,9 @@ class TicketServiceIT {
     /**
      * 片 A 正常路径：当前负责人撤回补充请求后，工单从「待补充」回到「处理中」。
      *
-     * <p>工单由 {@link #insertWaitingForRequesterTicket} 直接造数——片 B 之前没有接口能进入
-     * {@code WAITING_FOR_REQUESTER}，该方法是临时手段，片 B 落地后改用
-     * {@code request-supplement}。</p>
+     * <p>「待补充」由 {@link #insertWaitingForRequesterTicket} 经真实链路进入
+     * （建单 → 领取 → 请求补充），因此时间线前两条就是 {@code CREATE} 与 {@code CLAIM}，
+     * 第三条是片 B 的补充请求记录。</p>
      */
     @Test
     void withdrawSupplementRequestReturnsTicketToProcessingAndClearsSupplementDeadline() {
@@ -784,7 +784,8 @@ class TicketServiceIT {
 
         assertThat(statusOf(ticketId)).isEqualTo(WAITING_FOR_REQUESTER);
         assertThat(supplementDeadline)
-                .as("造数必须满足 ck_ticket_status_deadline：待补充要有期限").isNotNull();
+                .as("待补充由 request-supplement 真实进入，因此必然有期限")
+                .isNotNull();
 
         authenticateAs(itUserId, IT_SUPPORT);
         TicketActionResult withdrawn = ticketService.withdrawSupplementRequest(
@@ -803,14 +804,14 @@ class TicketServiceIT {
                 .isNull();
         assertThat(endedAtOf(ticketId)).as("退回后不是终态").isNull();
         assertThat(assigneeOf(ticketId)).isEqualTo(itUserId);
-        assertThat(recordSeqOf(ticketId)).isEqualTo(3);
+        assertThat(recordSeqOf(ticketId)).isEqualTo(4);
 
         List<Map<String, Object>> rows = timelineOf(ticketId);
         assertThat(rows).extracting(row -> ((Number) row.get("sequence_no")).intValue())
-                .as("补的 SUPPLEMENT_REQUEST 与撤回记录接在同一条时间线上")
-                .containsExactly(1, 2, 3);
+                .as("补充请求与撤回记录接在同一条时间线上")
+                .containsExactly(1, 2, 3, 4);
         assertThat(rows).extracting(row -> row.get("record_type"))
-                .containsExactly("CREATE", "SUPPLEMENT_REQUEST",
+                .containsExactly("CREATE", "CLAIM", "SUPPLEMENT_REQUEST",
                         "SUPPLEMENT_REQUEST_WITHDRAWN");
         assertThat(lastRecordTypeOf(ticketId)).isEqualTo("SUPPLEMENT_REQUEST_WITHDRAWN");
         assertThat(recordReason(ticketId, "SUPPLEMENT_REQUEST_WITHDRAWN"))
@@ -865,12 +866,185 @@ class TicketServiceIT {
         assertThat(versionOf(ticketId)).as("终态版本只 +1").isEqualTo(versionBefore + 1);
         assertThat(countRecords(ticketId, "SUPPLEMENT_REQUEST_WITHDRAWN"))
                 .as("只多一条撤回记录").isEqualTo(1);
-        assertThat(recordSeqOf(ticketId)).isEqualTo(3);
+        assertThat(recordSeqOf(ticketId)).isEqualTo(4);
         assertThat(actionDeadlineOf(ticketId))
                 .as("ck_ticket_status_deadline：退回处理中后期限为 NULL").isNull();
         assertThat(recordReason(ticketId, "SUPPLEMENT_REQUEST_WITHDRAWN"))
                 .as("落库原因只能来自其中一个赢家")
                 .isIn("第一条撤回原因", "第二条撤回原因");
+    }
+
+    // ---------- 片 B：补充往返 ----------
+
+    /**
+     * 片 B 正常往返：请求补充 → 员工补充，工单回到「处理中」，负责人不变、期限清空。
+     *
+     * <p>这条用例把两段独立的事实串起来：{@code request-supplement} 写入的期限与服务端算出的
+     * 窗口一致，{@code supplement} 之后期限被清空（{@code ck_ticket_status_deadline} 要求
+     * 非等待态必须为空）。补充不等于换人，因此负责人一路保持。</p>
+     */
+    @Test
+    void supplementRoundTripReturnsTicketToProcessingAndKeepsAssignee() {
+        authenticateAs(employeeId, EMPLOYEE);
+        TicketCreatedResult created = createTicket(UUID.randomUUID().toString(), "补充往返");
+        long ticketId = ticketIdOf(created.ticketNo());
+
+        authenticateAs(itUserId, IT_SUPPORT);
+        TicketActionResult claimed = ticketService.claim(
+                created.ticketNo(), new ClaimTicketCommand(created.version()));
+        TicketActionResult requested = ticketService.requestSupplement(
+                created.ticketNo(),
+                new RequestSupplementCommand(claimed.version(), "  请补充打印机型号  "));
+
+        assertThat(requested.status()).isEqualTo(WAITING_FOR_REQUESTER);
+        assertThat(requested.version()).as("请求补充只推进一个版本")
+                .isEqualTo(claimed.version() + 1L);
+        assertThat(requested.actionDeadlineAt()).as("期限由服务端计算").isNotNull();
+        assertThat(Duration.between(requested.actionTime(), requested.actionDeadlineAt()))
+                .as("补充期限来自 flowdesk.ticket.supplement-window，不接受客户端传入")
+                .isEqualTo(SUPPLEMENT_WINDOW);
+        assertThat(actionDeadlineOf(ticketId))
+                .as("ck_ticket_status_deadline：待补充必须有期限，且与响应一致")
+                .isEqualTo(requested.actionDeadlineAt().toLocalDateTime());
+        assertThat(statusOf(ticketId)).isEqualTo(WAITING_FOR_REQUESTER);
+        assertThat(assigneeOf(ticketId)).as("请求补充不换人").isEqualTo(itUserId);
+        assertThat(recordSeqOf(ticketId)).isEqualTo(3);
+
+        authenticateAs(employeeId, EMPLOYEE);
+        TicketActionResult supplemented = ticketService.supplement(
+                created.ticketNo(),
+                new SupplementCommand(requested.version(), "  型号是 L3153，报错见附件说明  "));
+
+        assertThat(supplemented.status()).isEqualTo(PROCESSING);
+        assertThat(supplemented.version()).isEqualTo(requested.version() + 1L);
+        assertThat(supplemented.actionDeadlineAt()).as("回到处理中不再有期限").isNull();
+        assertThat(supplemented.assignee().id()).as("原负责人继续处理").isEqualTo(itUserId);
+
+        assertThat(statusOf(ticketId)).isEqualTo(PROCESSING);
+        assertThat(actionDeadlineOf(ticketId))
+                .as("ck_ticket_status_deadline：离开待补充后期限必须为 NULL")
+                .isNull();
+        assertThat(endedAtOf(ticketId)).as("补充后不是终态").isNull();
+        assertThat(assigneeOf(ticketId)).isEqualTo(itUserId);
+        assertThat(recordSeqOf(ticketId)).isEqualTo(4);
+
+        List<Map<String, Object>> rows = timelineOf(ticketId);
+        assertThat(rows).extracting(row -> ((Number) row.get("sequence_no")).intValue())
+                .as("记录序号从 1 起连续无跳号")
+                .containsExactly(1, 2, 3, 4);
+        assertThat(rows).extracting(row -> row.get("record_type"))
+                .containsExactly("CREATE", "CLAIM", "SUPPLEMENT_REQUEST", "REQUESTER_SUPPLEMENT");
+        assertThat(recordContent(ticketId, "SUPPLEMENT_REQUEST"))
+                .as("请求内容去除首尾空白后落库").isEqualTo("请补充打印机型号");
+        assertThat(recordContent(ticketId, "REQUESTER_SUPPLEMENT"))
+                .as("补充正文去除首尾空白后落库").isEqualTo("型号是 L3153，报错见附件说明");
+        assertThat(recordDeadlineOf(ticketId, "SUPPLEMENT_REQUEST"))
+                .as("请求记录同时冻结当时的补充期限")
+                .isEqualTo(requested.actionDeadlineAt().toLocalDateTime());
+        assertThat(recordDeadlineOf(ticketId, "REQUESTER_SUPPLEMENT"))
+                .as("补充记录不写期限：期限已经失效").isNull();
+
+        // 补充完成后负责人可以继续推进，往返是闭环而不是死胡同
+        authenticateAs(itUserId, IT_SUPPORT);
+        TicketActionResult processed = ticketService.addProcessingRecord(
+                created.ticketNo(),
+                new AddProcessingRecordCommand(supplemented.version(), "已按补充信息定位到驱动问题"));
+        assertThat(processed.status()).isEqualTo(PROCESSING);
+        assertThat(processed.version()).isEqualTo(supplemented.version() + 1L);
+    }
+
+    /**
+     * 真并发：两个线程用同一版本请求补充。
+     *
+     * <p>两边都通过前置校验后同时执行条件更新，只有一个影响 1 行，败者读回已经 +1 的版本。
+     * 终态版本只 +1、补充请求记录只多 1 条、期限只写一次。</p>
+     */
+    @Test
+    void concurrentRequestSupplementWithSameVersionHasExactlyOneWinner() throws Exception {
+        long ticketId = insertProcessingTicket(employeeId, itUserId);
+        String ticketNo = ticketNoOf(ticketId);
+        long versionBefore = versionOf(ticketId);
+
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        List<Object> results = runConcurrently(List.<Callable<Object>>of(
+                () -> requestSupplementAfterBarrier(barrier, ticketNo, versionBefore, "第一次请求补充"),
+                () -> requestSupplementAfterBarrier(barrier, ticketNo, versionBefore, "第二次请求补充")));
+
+        List<TicketActionResult> winners = results.stream()
+                .filter(TicketActionResult.class::isInstance)
+                .map(TicketActionResult.class::cast)
+                .toList();
+        assertThat(winners).as("同版本并发请求补充只能有一个成功").hasSize(1);
+        assertThat(winners.getFirst().status()).isEqualTo(WAITING_FOR_REQUESTER);
+        assertThat(winners.getFirst().version()).isEqualTo(versionBefore + 1L);
+        assertThat(winners.getFirst().actionDeadlineAt()).isEqualTo(
+                winners.getFirst().actionTime().plus(SUPPLEMENT_WINDOW));
+
+        ApiException loser = singleApiException(results);
+        assertThat(loser.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(loser.code()).isEqualTo("TICKET_CONFLICT");
+        assertThat(loser.resourceVersion()).as("冲突响应携带库里最新版本")
+                .isEqualTo(versionOf(ticketId));
+        assertThat(loser.resourceStatus()).isEqualTo(WAITING_FOR_REQUESTER);
+
+        assertThat(versionOf(ticketId)).as("终态版本只 +1").isEqualTo(versionBefore + 1);
+        assertThat(countRecords(ticketId, "SUPPLEMENT_REQUEST"))
+                .as("只多一条补充请求记录").isEqualTo(1);
+        assertThat(recordSeqOf(ticketId))
+                .as("造数直接给出「处理中」，因此这里是 CREATE + 一次成功的补充请求")
+                .isEqualTo(2);
+        assertThat(statusOf(ticketId)).isEqualTo(WAITING_FOR_REQUESTER);
+        assertThat(actionDeadlineOf(ticketId))
+                .as("期限只能由赢家写入一次").isNotNull();
+        assertThat(recordContent(ticketId, "SUPPLEMENT_REQUEST"))
+                .as("落库内容只能来自其中一个赢家")
+                .isIn("第一次请求补充", "第二次请求补充");
+    }
+
+    /**
+     * 跨动作互斥：同一张「处理中」工单上并发执行 {@code request-supplement} 与
+     * {@code submit-resolution}。
+     *
+     * <p>两个动作都要求「处理中 + 本人是负责人」，条件更新的预期状态也相同，因此只可能有一个
+     * 影响 1 行。终态必须与落库的那条记录自洽：补充请求 → {@code WAITING_FOR_REQUESTER} +
+     * {@code SUPPLEMENT_REQUEST}；提交解决 → {@code WAITING_FOR_CONFIRMATION} + {@code RESOLUTION}。
+     * 这也是"待补充期间不能直接提交解决结果"在并发下的表现。</p>
+     */
+    @Test
+    void concurrentSupplementRequestAndResolutionSubmitHaveExactlyOneWinner() throws Exception {
+        long ticketId = insertProcessingTicket(employeeId, itUserId);
+        String ticketNo = ticketNoOf(ticketId);
+        long versionBefore = versionOf(ticketId);
+
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        List<Object> results = runConcurrently(List.<Callable<Object>>of(
+                () -> requestSupplementAfterBarrier(barrier, ticketNo, versionBefore, "并发请求补充"),
+                () -> resolveAfterBarrier(barrier, ticketNo, versionBefore, "并发提交解决")));
+
+        List<TicketActionResult> winners = results.stream()
+                .filter(TicketActionResult.class::isInstance)
+                .map(TicketActionResult.class::cast)
+                .toList();
+        assertThat(winners).as("跨动作并发只能有一个成功").hasSize(1);
+        singleApiException(results);
+
+        String finalStatus = statusOf(ticketId);
+        assertThat(versionOf(ticketId)).as("跨动作并发后版本只 +1").isEqualTo(versionBefore + 1);
+
+        if (WAITING_FOR_REQUESTER.equals(finalStatus)) {
+            assertThat(countRecords(ticketId, "SUPPLEMENT_REQUEST"))
+                    .as("赢的是请求补充").isEqualTo(1);
+            assertThat(countRecords(ticketId, "RESOLUTION")).isZero();
+            assertThat(actionDeadlineOf(ticketId))
+                    .as("ck_ticket_status_deadline：待补充必须有期限").isNotNull();
+        } else {
+            assertThat(finalStatus).as("赢的只能是提交解决").isEqualTo(WAITING_FOR_CONFIRMATION);
+            assertThat(countRecords(ticketId, "RESOLUTION"))
+                    .as("赢的是提交解决").isEqualTo(1);
+            assertThat(countRecords(ticketId, "SUPPLEMENT_REQUEST")).isZero();
+            assertThat(actionDeadlineOf(ticketId))
+                    .as("ck_ticket_status_deadline：待确认必须有期限").isNotNull();
+        }
     }
 
     /**
@@ -1081,7 +1255,9 @@ class TicketServiceIT {
         assertThat(statusOf(ticketId)).isEqualTo(WAITING_FOR_REQUESTER);
         assertThat(actionDeadlineOf(ticketId)).as("未执行的撤回不能清空期限").isNotNull();
         assertThat(countRecords(ticketId, "SUPPLEMENT_REQUEST_WITHDRAWN")).isZero();
-        assertThat(versionOf(ticketId)).isEqualTo(1);
+        assertThat(versionOf(ticketId))
+                .as("领取 +1、请求补充 +1；两次被 403 拦下的撤回都没有推进版本")
+                .isEqualTo(2);
     }
 
     /** 能看见工单但不是当前负责人：撤回按冲突返回，而不是 403 或 404。 */
@@ -1190,6 +1366,14 @@ class TicketServiceIT {
         authenticateAs(itUserId, IT_SUPPORT);
         return ticketService.withdrawSupplementRequest(
                 ticketNo, new WithdrawSupplementRequestCommand(version, reason));
+    }
+
+    private Object requestSupplementAfterBarrier(
+            CyclicBarrier barrier, String ticketNo, long version, String content) throws Exception {
+        barrier.await(30, TimeUnit.SECONDS);
+        authenticateAs(itUserId, IT_SUPPORT);
+        return ticketService.requestSupplement(
+                ticketNo, new RequestSupplementCommand(version, content));
     }
 
     private Object reportAfterBarrier(
@@ -1343,33 +1527,26 @@ class TicketServiceIT {
     }
 
     /**
-     * 片 B 之前的临时造数：没有接口能进入 {@code WAITING_FOR_REQUESTER}，
-     * 因此直接把一张已领取工单置位，并补一条 {@code SUPPLEMENT_REQUEST} 记录保持时间线连贯。
+     * 用真实动作把工单推进到「待补充」：建单 → 领取 → 请求补充。
      *
-     * <p>形状与一次真实动作落库后一致：{@code version + 1}、{@code record_seq + 1}、
-     * 期限 = now + 7d（满足 {@code ck_ticket_status_deadline} 与 {@code ck_ticket_status_assignee}）。
-     * 片 B 的 {@code request-supplement} 落地后应改为走接口造数。</p>
+     * <p>片 A 期间这里直接改库置位（当时没有任何接口能进入该状态）。片 B 之后改为走
+     * {@code request-supplement}，因此版本号、{@code record_seq} 与期限都来自真实链路，
+     * 用例断言的起点不再是自己拼出来的行。</p>
+     *
+     * <p>返回时把身份留在 {@code itUserId}（与请求补充的执行者一致），调用方按需重新认证。</p>
      */
     private long insertWaitingForRequesterTicket(long requesterId, long assigneeId) {
-        LocalDateTime deadline = LocalDateTime.now(ZoneOffset.UTC)
-                .plus(SUPPLEMENT_FIXTURE_WINDOW).truncatedTo(ChronoUnit.MILLIS);
-        long ticketId = insertTicketRow(requesterId, WAITING_FOR_REQUESTER, assigneeId, deadline);
-        insertCreateRecord(ticketId, requesterId);
-        jdbc.update("""
-                UPDATE ticket
-                SET version = version + 1,
-                    record_seq = record_seq + 1,
-                    updated_at = CURRENT_TIMESTAMP(3)
-                WHERE id = ?
-                """, ticketId);
-        jdbc.update("""
-                INSERT INTO ticket_record (
-                    ticket_id, sequence_no, record_type, actor_type, actor_user_id,
-                    content, from_status, to_status, deadline_at, created_at
-                ) VALUES (?, 2, 'SUPPLEMENT_REQUEST', 'USER', ?, ?, 'PROCESSING',
-                          'WAITING_FOR_REQUESTER', ?, CURRENT_TIMESTAMP(3))
-                """, ticketId, assigneeId, "请补充打印机型号与错误截图", deadline);
-        return ticketId;
+        authenticateAs(requesterId, EMPLOYEE);
+        TicketCreatedResult created = createTicket(UUID.randomUUID().toString(), "待补充工单");
+
+        authenticateAs(assigneeId, IT_SUPPORT);
+        TicketActionResult claimed = ticketService.claim(
+                created.ticketNo(), new ClaimTicketCommand(created.version()));
+
+        ticketService.requestSupplement(created.ticketNo(),
+                new RequestSupplementCommand(claimed.version(), "请补充打印机型号与错误截图"));
+
+        return ticketIdOf(created.ticketNo());
     }
 
     /** 造一张 record_seq = 1 的工单，与创建动作落库后的形状一致。 */
@@ -1488,6 +1665,13 @@ class TicketServiceIT {
         return jdbc.queryForObject("""
                 SELECT reason FROM ticket_record WHERE ticket_id = ? AND record_type = ?
                 """, String.class, ticketId, recordType);
+    }
+
+    /** 记录自己冻结的期限：请求补充写值，补充完成不写值。 */
+    private LocalDateTime recordDeadlineOf(long ticketId, String recordType) {
+        return jdbc.queryForObject("""
+                SELECT deadline_at FROM ticket_record WHERE ticket_id = ? AND record_type = ?
+                """, LocalDateTime.class, ticketId, recordType);
     }
 
     /** 时间线按序号升序：sequence_no 是 INT UNSIGNED，比较前先归一化成 int。 */

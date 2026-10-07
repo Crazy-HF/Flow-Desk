@@ -185,6 +185,23 @@ export interface ReportUnresolvedPayload {
   reason: string
 }
 
+/** 请求员工补充信息：正文最长 10000 字符，补充期限由服务端按配置计算。 */
+export interface RequestSupplementPayload {
+  version: number
+  content: string
+}
+
+/**
+ * 提交补充信息：正文约束与处理记录一致。
+ *
+ * <p>接口是 `multipart/form-data`（契约本身的形式，附件落地后复用同一个请求），所以这里描述的
+ * 是 `ticket` 部件里的 JSON 内容，不是请求体的全部。</p>
+ */
+export interface SupplementPayload {
+  version: number
+  content: string
+}
+
 export interface CreatedTicket {
   ticketNo: string
   status: TicketStatus
@@ -412,6 +429,47 @@ export async function reportUnresolved(
   const response = await http.post<ApiEnvelope<TicketActionResult>>(
     `/tickets/${encodeURIComponent(ticketNo)}/actions/report-unresolved`,
     payload,
+  )
+  return response.data.data
+}
+
+/**
+ * 当前负责人请求员工补充信息（`docs/api-design.md` 6.3，完整状态机片 B）。
+ *
+ * <p>工单从「处理中」进入「待员工补充」，负责人保持不变；补充期限由服务端按
+ * `flowdesk.ticket.supplement-window`（默认 7 天）计算，前端不参与推算，也不判定期限。
+ * 「待补充」期间要再次请求必须先撤回——服务端只允许从「处理中」发起。</p>
+ */
+export async function requestSupplementTicket(
+  ticketNo: string,
+  payload: RequestSupplementPayload,
+): Promise<TicketActionResult> {
+  const response = await http.post<ApiEnvelope<TicketActionResult>>(
+    `/tickets/${encodeURIComponent(ticketNo)}/actions/request-supplement`,
+    payload,
+  )
+  return response.data.data
+}
+
+/**
+ * 提交人补充信息（`docs/api-design.md` 6.4，完整状态机片 B）。
+ *
+ * <p>工单从「待员工补充」回到「处理中」，原补充期限由服务端清空，原负责人继续处理。
+ * 请求是 `multipart/form-data`，写法与 {@link createTicket} 完全一致：只发送 `ticket` 部件，
+ * **该部件必须自带 `application/json` 类型**，否则 `@RequestPart` 会按部件自己的 Content-Type
+ * 选转换器并给出 `415`。附件（`files` 部件）属完整版 backlog 第 2 项，本版本传文件 part 会得到
+ * `400/VALIDATION_FAILED`，因此这里不拼任何文件字段。</p>
+ */
+export async function supplementTicket(
+  ticketNo: string,
+  payload: SupplementPayload,
+): Promise<TicketActionResult> {
+  const form = new FormData()
+  form.append('ticket', new Blob([JSON.stringify(payload)], { type: 'application/json' }))
+
+  const response = await http.post<ApiEnvelope<TicketActionResult>>(
+    `/tickets/${encodeURIComponent(ticketNo)}/actions/supplement`,
+    form,
   )
   return response.data.data
 }

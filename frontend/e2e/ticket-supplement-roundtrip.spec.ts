@@ -5,16 +5,15 @@ import { resolve } from 'node:path'
 import { expectNoHorizontalOverflow } from './support/overflow'
 
 /**
- * 完整工单状态机片 A：员工反馈「问题仍未解决」，工单从「待员工确认」退回「处理中」。
+ * 完整工单状态机片 B：补充往返。
  *
- * <p>本片有两个动作，这里只覆盖能从界面自然到达的那一个：`report-unresolved`（提交人在待确认
- * 状态反馈未解决）。另一个 `withdraw-supplement-request`（当前负责人撤回补充请求）需要工单先处于
- * 「待员工补充」；片 B 之前只能靠 SQL 置位，片 B 的 `request-supplement` 落地后已由
- * `ticket-supplement-roundtrip.spec.ts` 从界面自然覆盖，本文件因此不再单独跑它。</p>
- *
- * <p>这条用例证明的是界面上的三件事：动作按钮确实由详情的 `allowedActions` 驱动（提交人在待确认
- * 时同时看到「确认已解决」和「问题仍未解决」）；反馈未解决后状态真的回到处理中且员工侧不再有动作；
- * 退回之后 IT 还能继续处理——往返是闭环的，不是把工单推进死胡同。</p>
+ * <p>覆盖四个界面事实，全部从真实点击产生，不用 SQL 造状态：</p>
+ * <p>1. **请求补充**：IT 负责人从「处理中」把工单推进到「待员工补充」，并拿到服务端算出的期限；
+ * 进入该状态后负责人**不能再提交解决结果**（`docs/kickoff.md` 4.11 末两条规则），只剩撤回入口。</p>
+ * <p>2. **期限的读法按视角不同**：负责人看「补充期限」，提交人看「补充截止时间」；两者都要看到
+ * 「到期不会自动处理」这句——本版本没有超时自动任务，界面不能暗示"到点系统会关单"。</p>
+ * <p>3. **提交补充信息**：提交人补充后工单回到「处理中」，期限从属性栏消失，原负责人继续处理。</p>
+ * <p>4. **时间线不可变**：请求补充与提交补充各留下一条记录，顺序与正文都能在页面上读到。</p>
  *
  * <p><strong>这条用例会向演示库写入一张工单且无法通过接口撤销</strong>，清理顺序与 SQL 见
  * `frontend/e2e/tickets.spec.ts` 文件头（先删 `ticket_participant` 与 `ticket_record`，再删 `ticket`）。</p>
@@ -25,7 +24,7 @@ const employeeUsername = process.env.E2E_EMPLOYEE_USERNAME ?? 'employee'
 const itUsername = process.env.E2E_IT_USERNAME ?? 'it'
 
 /** 评审产物目录：与其它视觉评审放在同一处。 */
-const reviewDir = resolve(process.cwd(), '../.ui-craft/reviews/2026-10-06-slice-a-return-actions')
+const reviewDir = resolve(process.cwd(), '../.ui-craft/reviews/2026-10-07-slice-b-supplement-roundtrip')
 mkdirSync(reviewDir, { recursive: true })
 
 interface StepEvidence {
@@ -95,12 +94,13 @@ function record(
   steps.push({ step, status: response.status(), traceId, detail })
 }
 
-test('片 A：员工反馈问题仍未解决，工单退回处理中且 IT 可以继续处理', async ({ page }) => {
+test('片 B：IT 请求补充、员工补充，工单回到处理中且 IT 可继续处理', async ({ page }) => {
   test.setTimeout(180_000)
   const suffix = Date.now().toString().slice(-6)
-  const title = `E2E 片A未解决 ${suffix}`
-  const description = 'E2E 片 A 用例：验证待确认 → 问题未解决 → 处理中的往返，以及退回后 IT 仍可继续处理。'
-  const unresolvedReason = '按说明重启后仍然打印乱码，问题没有解决。'
+  const title = `E2E 片B补充 ${suffix}`
+  const description = 'E2E 片 B 用例：验证处理中 → 待员工补充 → 处理中的往返，以及两个视角下的期限说明。'
+  const requestContent = '请补充打印机型号，以及打印时弹出的完整报错文字。'
+  const supplementContent = '型号是 L3153，报错是"打印机未响应"，重启后仍然出现。'
   const steps: StepEvidence[] = []
   const pageErrors: string[] = []
   page.on('pageerror', (error) => pageErrors.push(error.message))
@@ -128,7 +128,7 @@ test('片 A：员工反馈问题仍未解决，工单退回处理中且 IT 可�
   record(steps, 'create', created, `${ticketNo} 由员工通过界面创建`)
   await signOut(page)
 
-  // ---------- 2. IT 领取并提交解决结果 ----------
+  // ---------- 2. IT 领取并请求补充 ----------
   await signIn(page, itUsername)
   await nav(page).getByRole('link', { name: 'IT 工作台', exact: true }).click()
   await page.getByLabel('工单关键词').fill(ticketNo)
@@ -142,73 +142,92 @@ test('片 A：员工反馈问题仍未解决，工单退回处理中且 IT 可�
   expect(claimed.status()).toBe(200)
   record(steps, 'claim', claimed, 'IT 领取成功')
 
-  const resolved = await performAction(
+  const requested = await performAction(
     page,
-    '提交解决结果',
-    '已更换打印服务器证书，请重启后确认是否恢复。',
-    '/actions/submit-resolution',
+    '请求补充信息',
+    requestContent,
+    '/actions/request-supplement',
   )
-  expect(resolved.status()).toBe(200)
-  record(steps, 'submit-resolution', resolved, '进入待员工确认并生成确认期限')
-  await expect(page.locator('.ticket-meta')).toContainText('待员工确认')
+  expect(requested.status()).toBe(200)
+  record(steps, 'request-supplement', requested, '进入待员工补充并生成补充期限')
 
-  /**
-   * 片 A 的关键断言：提交人此时应该同时看到「确认已解决」与「问题仍未解决」。
-   * 两个动作的前置条件完全相同（待确认 + 本人是提交人 + TICKET_REQUESTER_ACTION），
-   * 所以顺序只由前端登记表决定，与后端拼接顺序无关。
-   */
+  await expect(page.locator('.ticket-meta')).toContainText('待员工补充')
+  // 待补充期间负责人不能再提交解决结果（docs/kickoff.md 4.11），只剩撤回入口
+  expect(await actionLabels(page)).toEqual(['撤回补充请求'])
+  // 负责人视角：这是"等员工回到什么时候"
+  const itFacts = page.locator('.ticket-facts')
+  await expect(itFacts).toContainText('补充期限')
+  await expect(itFacts).toContainText('到期不会自动处理')
+  await page.screenshot({
+    path: resolve(reviewDir, 'it-waiting-for-supplement-1440.png'),
+    fullPage: true,
+  })
   await signOut(page)
+
+  // ---------- 3. 员工看请求与截止时间，再补充 ----------
   await signIn(page, employeeUsername)
   await page.goto(`/tickets/${ticketNo}`)
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(title)
-  await expect(page.locator('.ticket-meta')).toContainText('待员工确认')
-  expect(await actionLabels(page)).toEqual(['确认已解决', '问题仍未解决'])
+  await expect(page.locator('.ticket-meta')).toContainText('待员工补充')
+  // 提交人在待补充上只能做一件事：补充信息
+  expect(await actionLabels(page)).toEqual(['提交补充信息'])
+
+  const employeeFacts = page.locator('.ticket-facts')
+  await expect(employeeFacts).toContainText('补充截止时间')
+  await expect(employeeFacts).toContainText('到期不会自动关闭工单')
+  // 请求内容进入时间线，员工能读到"需要补充什么"
+  const requestRecord = page
+    .locator('.ticket-timeline__item')
+    .filter({ hasText: '请求补充信息' })
+  await expect(requestRecord).toHaveCount(1)
+  await expect(requestRecord).toContainText(requestContent)
   await page.screenshot({
-    path: resolve(reviewDir, 'employee-waiting-confirmation-1440.png'),
+    path: resolve(reviewDir, 'employee-waiting-for-supplement-1440.png'),
     fullPage: true,
   })
 
-  // ---------- 3. 反馈问题未解决 ----------
-  const unresolved = await performAction(
+  const supplemented = await performAction(
     page,
-    '问题仍未解决',
-    unresolvedReason,
-    '/actions/report-unresolved',
+    '提交补充信息',
+    supplementContent,
+    '/actions/supplement',
   )
-  expect(unresolved.status()).toBe(200)
-  record(steps, 'report-unresolved', unresolved, '工单退回处理中')
+  expect(supplemented.status()).toBe(200)
+  record(steps, 'supplement', supplemented, '员工补充后回到处理中')
 
-  // 状态回到处理中，员工侧不再有任何动作（员工不是负责人）
+  // ---------- 4. 回到处理中：期限消失、员工侧无动作、时间线两条新记录 ----------
   await expect(page.locator('.ticket-meta')).toContainText('处理中')
   await expect(page.locator('.ticket-action-panel')).toHaveCount(0)
-  // 未解决反馈进入时间线，解决结果仍在（不可变）
-  await expect(page.locator('.ticket-timeline__item').last()).toContainText('反馈问题仍未解决')
-  await expect(page.locator('.ticket-timeline__item').filter({ hasText: '提交解决结果' })).toHaveCount(1)
+  await expect(employeeFacts).not.toContainText('补充截止时间')
+  const supplementRecord = page
+    .locator('.ticket-timeline__item')
+    .filter({ hasText: '提交补充信息' })
+  await expect(supplementRecord).toHaveCount(1)
+  await expect(supplementRecord).toContainText(supplementContent)
   await page.screenshot({
     path: resolve(reviewDir, 'employee-back-to-processing-1440.png'),
     fullPage: true,
   })
 
-  // ---------- 4. 退回之后 IT 仍能继续处理 ----------
+  // ---------- 5. 补充之后 IT 仍能继续处理 ----------
   await signOut(page)
   await signIn(page, itUsername)
   await page.goto(`/tickets/${ticketNo}`)
   await expect(page.locator('.ticket-meta')).toContainText('处理中')
-  // 处理中 + 本人负责人：三个动作（片 B 起「请求补充信息」也在这里）
   expect(await actionLabels(page)).toEqual(['记录处理过程', '提交解决结果', '请求补充信息'])
 
   const processed = await performAction(
     page,
     '记录处理过程',
-    '已确认证书更换生效，补充驱动为最新版本，继续观察打印队列。',
+    '已按补充的型号重新安装驱动，继续观察打印队列。',
     '/actions/add-processing-record',
   )
   expect(processed.status()).toBe(200)
-  record(steps, 'add-processing-record', processed, '退回后可继续处理')
+  record(steps, 'add-processing-record', processed, '补充后可继续处理')
 
-  // ---------- 5. 窄屏不溢出 ----------
+  // ---------- 6. 窄屏不溢出 ----------
   await page.setViewportSize({ width: 375, height: 812 })
-  await expectNoHorizontalOverflow(page, '片 A 详情页在 375 下被撑宽')
+  await expectNoHorizontalOverflow(page, '片 B 详情页在 375 下被撑宽')
   await page.screenshot({
     path: resolve(reviewDir, 'it-detail-375.png'),
     fullPage: true,

@@ -13,7 +13,9 @@ import {
   getTicket,
   listTicketRecords,
   reportUnresolved,
+  requestSupplementTicket,
   submitResolution,
+  supplementTicket,
   withdrawSupplementRequest,
 } from '@/api/tickets'
 import type { TicketActionResult, TicketDetail, TicketRecord } from '@/api/tickets'
@@ -37,8 +39,9 @@ import { formatDateTime } from '@/utils/format'
 import TicketActionContentField from './TicketActionContentField.vue'
 
 /**
- * 工单详情与处理时间线（`docs/api-design.md` 5.4 / 5.5），以及这张工单上可执行的四个动作
- * （6.3：`claim` / `add-processing-record` / `submit-resolution` / `confirm-resolution`）。
+ * 工单详情与处理时间线（`docs/api-design.md` 5.4 / 5.5），以及这张工单上可执行的六个动作
+ * （6.3：`claim` / `add-processing-record` / `submit-resolution` / `request-supplement` /
+ * `withdraw-supplement-request`；6.4：`confirm-resolution` / `report-unresolved` / `supplement`）。
  *
  * <p>三处容易读错的地方，这里显式处理：</p>
  * <p>1. **无权与不存在是同一种结果**。后端对"没有查看权限"和"编号不存在"统一返回
@@ -46,9 +49,9 @@ import TicketActionContentField from './TicketActionContentField.vue'
  * 不去猜"大概是没有权限"。</p>
  * <p>2. **按钮来自 `allowedActions`，不是前端推导**。后端按当前用户、角色、工单关系与状态算好
  * 可用动作；界面再用 `permittedActions` 叠一层本账号权限判断（应对"取详情之后被撤权"的窗口）。
- * 「提交解决结果」目前还不在服务端放行的动作里，所以它只在服务端开始返回时才会出现——
- * 这不是漏做，是不摆按不动的按钮。</p>
- * <p>3. **动作结果里的 `version` 必须回写到详情**。四个动作都带乐观锁：不刷新就拿旧版本
+ * 完整状态机里剩下的动作（调整分类/优先级、转交、关闭、取消）尚未在服务端放行，
+ * 所以它们只在服务端开始返回时才会出现——这不是漏做，是不摆按不动的按钮。</p>
+ * <p>3. **动作结果里的 `version` 必须回写到详情**。每个动作都带乐观锁：不刷新就拿旧版本
  * 再发一次，会得到 `409/TICKET_CONFLICT`。所以每次动作成功后重新取详情与时间线，
  * 冲突（409）时也主动重新取一次，把版本对齐到服务端的当前值。</p>
  *
@@ -174,6 +177,58 @@ const availableActions = computed(() =>
 /** 正在执行的动作名；同一时刻只放行一个，按钮据此整体禁用。 */
 const runningAction = ref<TicketActionName | null>(null)
 
+/**
+ * 期限这一栏怎么读。
+ *
+ * <p>`actionDeadlineAt` 是同一个字段，对两种人却是两件事：对**要动手的那个人**说的是
+ * "我要在什么时候之前做完"，对**等结果的那个人**说的是"等到什么时候为止"。所以标签按
+ * **当前工单状态**取（等待态各有各的期限名），提示再按**这件事归谁做**分岔——两个等待态
+ * 都不再有一个对谁都能读、但谁都不准的"当前期限"。</p>
+ *
+ * <p>两种等待态都要写清"到期不会自动处理"：本版本没有超时自动任务
+ * （`docs/implementation-plan.md` 9.3 第 4 条的用户裁决），期限到期不会自动改变状态。
+ * **提示按状态与角色给，不按可做动作的多寡给**——负责人只有「撤回补充请求」这一件事可做，
+ * 若用"有没有动作"判断，负责人在待补充时反而看不到这句提示，而界面恰恰就在暗示
+ * "到点系统会处理"。</p>
+ */
+const deadlineFact = computed<{ label: string; hint?: string } | null>(() => {
+  if (!detail.value?.actionDeadlineAt) {
+    return null
+  }
+
+  if (detail.value.status === 'WAITING_FOR_CONFIRMATION') {
+    // 同一句提示不能同时说给两个人：提交人要做的是"去确认"，负责人要做的是"别催、等提交人"
+    return availableActions.value.includes('confirm-resolution')
+      ? {
+          label: '确认期限',
+          hint: '到期不会自动处理，仍需要你手动确认。',
+        }
+      : {
+          label: '确认期限',
+          hint: '到期不会自动处理，需要提交人手动确认，工单会一直停在待员工确认。',
+        }
+  }
+
+  if (detail.value.status === 'WAITING_FOR_REQUESTER') {
+    // 提交人看到的是"我要在什么时候之前补充"，负责人看到的是"等员工回到什么时候"
+    return availableActions.value.includes('supplement')
+      ? {
+          label: '补充截止时间',
+          hint: '到期不会自动关闭工单，仍需提交人手动补充。',
+        }
+      : {
+          label: '补充期限',
+          hint: '到期不会自动处理，工单会一直停在待员工补充。',
+        }
+  }
+
+  /**
+   * 只有两个等待态会有期限（`ck_ticket_status_deadline`），走到这里说明状态与字段对不上。
+   * 不去猜一个好看的标签：把日期原样显示出来，标签直说是"期限"。
+   */
+  return { label: '期限' }
+})
+
 /** 动作失败的原因：显示在动作区里，而不是只在右上角闪一下。 */
 const actionError = ref('')
 
@@ -212,6 +267,9 @@ const actionRequests: Record<
     withdrawSupplementRequest(ticketNo, { ...payload, reason: content }),
   'report-unresolved': (ticketNo, payload, content) =>
     reportUnresolved(ticketNo, { ...payload, reason: content }),
+  'request-supplement': (ticketNo, payload, content) =>
+    requestSupplementTicket(ticketNo, { ...payload, content }),
+  supplement: (ticketNo, payload, content) => supplementTicket(ticketNo, { ...payload, content }),
 }
 
 async function performAction(name: TicketActionName, content: string): Promise<void> {
@@ -596,11 +654,18 @@ async function runAction(name: TicketActionName): Promise<void> {
                 <dt>负责人</dt>
                 <dd>{{ detail.assignee?.displayName ?? '未分配' }}</dd>
 
-                <template v-if="detail.actionDeadlineAt">
-                  <!-- 同一个字段对两种人是两件事：负责人看的是"等员工确认到什么时候"，
-                       提交人看的是"我要在什么时候之前确认"。标签按当前视角给。 -->
-                  <dt>{{ availableActions.includes('confirm-resolution') ? '确认期限' : '当前期限' }}</dt>
-                  <dd>{{ formatDateTime(detail.actionDeadlineAt) }}</dd>
+                <template v-if="deadlineFact">
+                  <!-- 同一个字段对三种人是三件事：负责人看的是"等员工到什么时候"，
+                       提交人在待补充时看的是"我要在什么时候之前补充"，在待确认时看的是"什么时候之前确认"。
+                       标签与提示都由 deadlineFact 按当前视角给出。 -->
+                  <dt>{{ deadlineFact.label }}</dt>
+                  <dd>
+                    {{ formatDateTime(detail.actionDeadlineAt) }}
+                    <span
+                      v-if="deadlineFact.hint"
+                      class="ticket-facts__hint"
+                    >{{ deadlineFact.hint }}</span>
+                  </dd>
                 </template>
 
                 <dt>创建时间</dt>

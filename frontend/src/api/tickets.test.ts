@@ -14,7 +14,9 @@ import {
   getTicket,
   listTicketRecords,
   listTickets,
+  requestSupplementTicket,
   submitResolution,
+  supplementTicket,
 } from './tickets'
 
 /** 只回信封里的 `data`：本文件测的是请求契约，不是响应解码。 */
@@ -203,6 +205,39 @@ describe('工单接口封装', () => {
       expect(result.status).toBe('WAITING_FOR_CONFIRMATION')
       expect(result.version).toBe(8)
       expect(result.actionDeadlineAt).toBe('2026-10-06T05:00:00Z')
+    })
+
+    it('请求补充发版本号与正文，路径末段与动作名逐字一致', async () => {
+      await requestSupplementTicket('FD-20260929-001', { version: 9, content: '请补充打印机型号' })
+
+      expect(http.post).toHaveBeenCalledWith(
+        '/tickets/FD-20260929-001/actions/request-supplement',
+        { version: 9, content: '请补充打印机型号' },
+      )
+    })
+
+    /**
+     * 补充信息是 `multipart/form-data`（`docs/api-design.md` 6.4）：契约要求正文放在 `ticket`
+     * 部件里，而该部件必须自带 `application/json`，否则 `@RequestPart` 会按部件自己的
+     * Content-Type 选转换器并给出 415。附件部分本版本不发送——传了会得到 400。
+     */
+    it('提交补充信息走 multipart，ticket 部件带 application/json 类型', async () => {
+      await supplementTicket('FD-20260929-001', { version: 10, content: '型号是 L3153' })
+
+      const call = vi.mocked(http.post).mock.calls[0]
+      expect(call?.[0]).toBe('/tickets/FD-20260929-001/actions/supplement')
+
+      const body = call?.[1] as FormData
+      expect(body).toBeInstanceOf(FormData)
+      // 只发 ticket 部件：本版本带文件 part 会被服务端显式拒绝
+      expect([...body.keys()]).toEqual(['ticket'])
+
+      const part = body.get('ticket')
+      expect(part).toBeInstanceOf(Blob)
+      expect((part as Blob).type).toBe('application/json')
+      await expect((part as Blob).text()).resolves.toBe(
+        JSON.stringify({ version: 10, content: '型号是 L3153' }),
+      )
     })
   })
 })

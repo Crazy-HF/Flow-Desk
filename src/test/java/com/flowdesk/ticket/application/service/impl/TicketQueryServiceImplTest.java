@@ -335,10 +335,13 @@ class TicketQueryServiceImplTest {
     }
 
     /**
-     * 2026-10-06 缺陷回归：{@code PROCESSING} 的当前负责人必须同时拿到追加处理记录与提交解决结果。
+     * 2026-10-06 缺陷回归：{@code PROCESSING} 的当前负责人必须同时拿到追加处理记录、提交解决结果
+     * 与请求补充三格。
      *
-     * <p>两条动作顺序固定；{@code submit-resolution} 曾经缺失，导致负责人能写处理记录却交不出
-     * 解决结果——界面按 {@code allowedActions} 渲染按钮，缺一项就等于该动作不可达。</p>
+     * <p>三条动作顺序固定；{@code submit-resolution} 曾经缺失，导致负责人能写处理记录却交不出
+     * 解决结果——界面按 {@code allowedActions} 渲染按钮，缺一项就等于该动作不可达。
+     * {@code request-supplement} 是片 B 新增的同一族判定（处理中 + 本人是负责人 + {@code TICKET_PROCESS}），
+     * 因此本用例的期望值从一对改为三条。</p>
      */
     @Test
     void detailAllowsProcessingAndResolutionActionsForAssigneeInFixedOrder() {
@@ -349,8 +352,9 @@ class TicketQueryServiceImplTest {
         TicketDetailResult result = service.detail(TICKET_NO);
 
         assertThat(result.allowedActions())
-                .as("负责人拿到的两个动作，顺序固定且 submit-resolution 必须在")
-                .containsExactly("add-processing-record", "submit-resolution");
+                .as("负责人拿到的三个动作，顺序固定且 submit-resolution 必须在")
+                .containsExactly(
+                        "add-processing-record", "submit-resolution", "request-supplement");
     }
 
     @Test
@@ -469,9 +473,54 @@ class TicketQueryServiceImplTest {
         assertActions(service.detail(TICKET_NO));
     }
 
+    // ---------- allowedActions：片 B 新增两格 ----------
+
     /**
-     * 两格新动作只属于各自的等待态：{@code PROCESSING} 上即使持有全部相关权限，
-     * 也不该多出 {@code withdraw-supplement-request} 或 {@code report-unresolved}。
+     * 「待补充」+ 本人是提交人 + {@code TICKET_REQUESTER_ACTION}：恰好一格补充动作。
+     *
+     * <p>提交人在这个状态上不是负责人，因此不能复用 {@code canProcess} 一族的判定；
+     * 同时也不该拿到 {@code report-unresolved} 或 {@code confirm-resolution}——
+     * 那两格只属于「待确认」。</p>
+     */
+    @Test
+    void detailAllowsSupplementForRequesterOfWaitingForRequester() {
+        stubCurrentUser(REQUESTER_ID);
+        grant("TICKET_REQUESTER_ACTION");
+        stubVisible(detailRow(WAITING_FOR_REQUESTER, IT_USER_ID, 5L));
+
+        TicketDetailResult result = service.detail(TICKET_NO);
+
+        assertThat(result.allowedActions())
+                .as("提交人在待补充上只应该拿到补充这一格")
+                .containsExactly("supplement");
+    }
+
+    @Test
+    void detailHidesSupplementWithoutRequesterActionAuthority() {
+        stubCurrentUser(REQUESTER_ID);
+        stubVisible(detailRow(WAITING_FOR_REQUESTER, IT_USER_ID, 5L));
+
+        assertActions(service.detail(TICKET_NO));
+    }
+
+    /** 同状态但当前用户是负责人：即使同时持有提交人权限，补充那一格也不出现。 */
+    @Test
+    void detailHidesSupplementForAssigneeOfWaitingForRequester() {
+        stubCurrentUser(IT_USER_ID);
+        grant("TICKET_REQUESTER_ACTION", "TICKET_PROCESS");
+        stubVisible(detailRow(WAITING_FOR_REQUESTER, IT_USER_ID, 5L));
+
+        TicketDetailResult result = service.detail(TICKET_NO);
+
+        assertThat(result.allowedActions())
+                .as("负责人能撤回也能转交，但不能替提交人补充信息")
+                .containsExactly("withdraw-supplement-request");
+    }
+
+    /**
+     * 等待态专属的格子只属于各自的等待态：{@code PROCESSING} 上即使持有全部相关权限，
+     * 也不该多出 {@code withdraw-supplement-request}、{@code supplement} 或
+     * {@code report-unresolved}——它们只有工单停在对应等待态时才可达。
      */
     @Test
     void detailDoesNotOfferReturnActionsOutsideTheirWaitingStates() {
@@ -483,8 +532,9 @@ class TicketQueryServiceImplTest {
         TicketDetailResult result = service.detail(TICKET_NO);
 
         assertThat(result.allowedActions())
-                .as("处理中只暴露处理与提交解决结果两个动作")
-                .containsExactly("add-processing-record", "submit-resolution");
+                .as("处理中只暴露处理、提交解决结果与请求补充三个动作")
+                .containsExactly(
+                        "add-processing-record", "submit-resolution", "request-supplement");
     }
 
     /** 终态不再暴露任何动作：本人是提交人且持有全部权限、且具备领取资格也不能例外。 */
