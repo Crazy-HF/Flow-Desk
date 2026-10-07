@@ -152,8 +152,14 @@ test('片 B：IT 请求补充、员工补充，工单回到处理中且 IT 可�
   record(steps, 'request-supplement', requested, '进入待员工补充并生成补充期限')
 
   await expect(page.locator('.ticket-meta')).toContainText('待员工补充')
-  // 待补充期间负责人不能再提交解决结果（docs/kickoff.md 4.11），只剩撤回入口
-  expect(await actionLabels(page)).toEqual(['撤回补充请求'])
+  // 待补充期间负责人不能再提交解决结果（docs/kickoff.md 4.11），剩下的入口是撤回，
+  // 外加片 C 的调整分类、调整优先级与转交
+  expect(await actionLabels(page)).toEqual([
+    '撤回补充请求',
+    '调整分类',
+    '调整优先级',
+    '转交工单',
+  ])
   // 负责人视角：这是"等员工回到什么时候"
   const itFacts = page.locator('.ticket-facts')
   await expect(itFacts).toContainText('补充期限')
@@ -214,7 +220,14 @@ test('片 B：IT 请求补充、员工补充，工单回到处理中且 IT 可�
   await signIn(page, itUsername)
   await page.goto(`/tickets/${ticketNo}`)
   await expect(page.locator('.ticket-meta')).toContainText('处理中')
-  expect(await actionLabels(page)).toEqual(['记录处理过程', '提交解决结果', '请求补充信息'])
+  expect(await actionLabels(page)).toEqual([
+    '记录处理过程',
+    '提交解决结果',
+    '请求补充信息',
+    '调整分类',
+    '调整优先级',
+    '转交工单',
+  ])
 
   const processed = await performAction(
     page,

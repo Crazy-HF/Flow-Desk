@@ -1961,6 +1961,23 @@ h1 {
   font-size: var(--fd-font-size-sm);
 }
 
+/* 字段下面的说明（正在取选项 / 一个可选项都没有）。它是这个字段的一部分，不是另一段正文，
+   所以比标签小一号、不占额外间距；用 span 是结构约束（label 里不能放块级元素），这里补上换行。 */
+.ticket-action-dialog__hint {
+  display: block;
+  margin-top: var(--fd-space-1);
+  color: var(--fd-color-text-subtle);
+  font-size: var(--fd-font-size-sm);
+}
+
+/* 选项取失败的说明：与"确实没有可选项"必须能一眼分开，所以用语义色而不是次要文字。
+   它说明的是这一次选择取不到数据，改成整块告警会把弹窗里的标题和按钮一起压下去。 */
+.ticket-action-dialog__error {
+  margin: 0;
+  color: var(--fd-color-danger);
+  font-size: var(--fd-font-size-sm);
+}
+
 /* 属性栏：标签与值两列。标签列用 auto，宽度跟着最长标签走，值列吃掉剩余宽度。 */
 .ticket-facts {
   display: grid;

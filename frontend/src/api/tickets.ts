@@ -54,6 +54,18 @@ export interface TicketCategorySummary {
 }
 
 /**
+ * 转交候选人选项（`docs/api-design.md` 7.4，`GET /tickets/{ticketNo}/transfer-candidates`）。
+ *
+ * <p>只有标识与显示名：专用最小字段接口，不替代通用的用户搜索，也不返回用户名或角色。
+ * 两个字段在服务端都由行数据直接给出、不会为 null，所以这里不写成 `field?: T`
+ * （`non_null` 约定只影响可能为 null 的字段，写法与 `CategoryOption` 一致）。</p>
+ */
+export interface TicketAssigneeOption {
+  id: number
+  displayName: string
+}
+
+/**
  * 列表项：只有识别与筛选所需字段，不含问题正文。
  *
  * <p>可选字段写成 `field?: T`（`users.ts` / `rbac.ts` / `categories.ts` 同一写法）。依据是一个
@@ -200,6 +212,27 @@ export interface RequestSupplementPayload {
 export interface SupplementPayload {
   version: number
   content: string
+}
+
+/** 调整分类（`docs/api-design.md` 6.3）：目标分类必须存在且启用，原因 strip 后 1～1000 字符。 */
+export interface ChangeCategoryPayload {
+  version: number
+  categoryId: number
+  reason: string
+}
+
+/** 调整优先级：允许状态与分类调整相同，原因约束一致。 */
+export interface ChangePriorityPayload {
+  version: number
+  priority: TicketPriority
+  reason: string
+}
+
+/** 直接转交：新负责人必须仍是候选人接口列出的启用 IT 用户，原因约束一致。 */
+export interface TransferPayload {
+  version: number
+  newAssigneeId: number
+  reason: string
 }
 
 export interface CreatedTicket {
@@ -470,6 +503,72 @@ export async function supplementTicket(
   const response = await http.post<ApiEnvelope<TicketActionResult>>(
     `/tickets/${encodeURIComponent(ticketNo)}/actions/supplement`,
     form,
+  )
+  return response.data.data
+}
+
+/**
+ * 当前负责人调整工单分类（`docs/api-design.md` 6.3，完整状态机片 C）。
+ *
+ * <p>「处理中」与「待补充」两个状态都允许调整：状态、负责人与当前期限都不变，只替换分类并追加一条
+ * `CATEGORY_CHANGE` 记录。目标分类必须存在且处于启用状态，停用分类由服务端拒绝（`400`）。</p>
+ */
+export async function changeTicketCategory(
+  ticketNo: string,
+  payload: ChangeCategoryPayload,
+): Promise<TicketActionResult> {
+  const response = await http.post<ApiEnvelope<TicketActionResult>>(
+    `/tickets/${encodeURIComponent(ticketNo)}/actions/change-category`,
+    payload,
+  )
+  return response.data.data
+}
+
+/**
+ * 当前负责人调整工单优先级。
+ *
+ * <p>允许状态、身份与分类调整完全相同，服务端因此复用同一条判定；前端不复制"什么状态能调整"，
+ * 只按 `allowedActions` 摆按钮。同值调整服务端会放行，界面上由弹窗校验挡掉——见 `TicketDetailView`。</p>
+ */
+export async function changeTicketPriority(
+  ticketNo: string,
+  payload: ChangePriorityPayload,
+): Promise<TicketActionResult> {
+  const response = await http.post<ApiEnvelope<TicketActionResult>>(
+    `/tickets/${encodeURIComponent(ticketNo)}/actions/change-priority`,
+    payload,
+  )
+  return response.data.data
+}
+
+/**
+ * 当前负责人把工单直接转交给另一名 IT 支持人员。
+ *
+ * <p>采用直接转交：接收方不需要确认，成功后新负责人立即承担处理责任；状态与当前期限不变，
+ * 「待员工补充」期间转交也不会重新计算补充期限。候选人由服务端按"启用、仍是 IT 处理人、
+ * 排除提交人与当前负责人"筛出，前端不自行过滤。</p>
+ */
+export async function transferTicket(
+  ticketNo: string,
+  payload: TransferPayload,
+): Promise<TicketActionResult> {
+  const response = await http.post<ApiEnvelope<TicketActionResult>>(
+    `/tickets/${encodeURIComponent(ticketNo)}/actions/transfer`,
+    payload,
+  )
+  return response.data.data
+}
+
+/**
+ * 查询可以接手这张工单的同事（`docs/api-design.md` 7.4）。
+ *
+ * <p>只有「处理中」「待补充」的当前负责人且具备 `TICKET_TRANSFER` 才可调用：状态或负责人变化得到
+ * `409/TICKET_CONFLICT`，工单不可见得到 `404/TICKET_NOT_FOUND`。**一个候选人都没有时返回空数组**，
+ * 不是错误——界面据此说明"暂时转不出去"，而不是摆一个空的必填下拉。</p>
+ */
+export async function listTransferCandidates(ticketNo: string): Promise<TicketAssigneeOption[]> {
+  const response = await http.get<ApiEnvelope<TicketAssigneeOption[]>>(
+    `/tickets/${encodeURIComponent(ticketNo)}/transfer-candidates`,
   )
   return response.data.data
 }

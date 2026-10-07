@@ -194,8 +194,15 @@ test('片 A：员工反馈问题仍未解决，工单退回处理中且 IT 可�
   await signIn(page, itUsername)
   await page.goto(`/tickets/${ticketNo}`)
   await expect(page.locator('.ticket-meta')).toContainText('处理中')
-  // 处理中 + 本人负责人：三个动作（片 B 起「请求补充信息」也在这里）
-  expect(await actionLabels(page)).toEqual(['记录处理过程', '提交解决结果', '请求补充信息'])
+  // 处理中 + 本人负责人：六个动作（片 B 起「请求补充信息」、片 C 起调整与转交都在这里）
+  expect(await actionLabels(page)).toEqual([
+    '记录处理过程',
+    '提交解决结果',
+    '请求补充信息',
+    '调整分类',
+    '调整优先级',
+    '转交工单',
+  ])
 
   const processed = await performAction(
     page,

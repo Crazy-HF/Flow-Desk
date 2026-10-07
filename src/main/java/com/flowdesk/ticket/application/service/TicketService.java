@@ -1,14 +1,17 @@
 package com.flowdesk.ticket.application.service;
 
-import com.flowdesk.ticket.application.command.CreateTicketCommand;
-import com.flowdesk.ticket.application.command.ClaimTicketCommand;
 import com.flowdesk.ticket.application.command.AddProcessingRecordCommand;
-import com.flowdesk.ticket.application.command.SubmitResolutionCommand;
+import com.flowdesk.ticket.application.command.ChangeCategoryCommand;
+import com.flowdesk.ticket.application.command.ChangePriorityCommand;
+import com.flowdesk.ticket.application.command.ClaimTicketCommand;
 import com.flowdesk.ticket.application.command.ConfirmResolutionCommand;
-import com.flowdesk.ticket.application.command.WithdrawSupplementRequestCommand;
+import com.flowdesk.ticket.application.command.CreateTicketCommand;
 import com.flowdesk.ticket.application.command.ReportUnresolvedCommand;
 import com.flowdesk.ticket.application.command.RequestSupplementCommand;
+import com.flowdesk.ticket.application.command.SubmitResolutionCommand;
 import com.flowdesk.ticket.application.command.SupplementCommand;
+import com.flowdesk.ticket.application.command.TransferCommand;
+import com.flowdesk.ticket.application.command.WithdrawSupplementRequestCommand;
 import com.flowdesk.ticket.application.result.TicketActionResult;
 import com.flowdesk.ticket.application.result.TicketCreatedResult;
 
@@ -45,4 +48,16 @@ public interface TicketService {
     /** 提交人补充信息；回到处理中并让原补充期限失效，负责人保留。 */
     TicketActionResult supplement(
             String ticketNo, SupplementCommand command);
+
+    /** 当前负责人调整工单分类；状态、负责人与期限都不变。 */
+    TicketActionResult changeCategory(
+            String ticketNo, ChangeCategoryCommand command);
+
+    /** 当前负责人调整工单优先级；状态、负责人与期限都不变。 */
+    TicketActionResult changePriority(
+            String ticketNo, ChangePriorityCommand command);
+
+    /** 当前负责人直接转交给另一名 IT 支持人员；状态与期限不变，负责人立即替换。 */
+    TicketActionResult transfer(
+            String ticketNo, TransferCommand command);
 }

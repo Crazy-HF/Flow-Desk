@@ -3,19 +3,22 @@ package com.flowdesk.ticket.controller;
 import com.flowdesk.common.exception.ApiException;
 import com.flowdesk.common.web.R;
 import com.flowdesk.common.web.PageResult;
-import com.flowdesk.ticket.application.query.TicketQuery;
-import com.flowdesk.ticket.application.query.TicketRecordQuery;
-import com.flowdesk.ticket.application.command.ClaimTicketCommand;
 import com.flowdesk.ticket.application.command.AddProcessingRecordCommand;
-import com.flowdesk.ticket.application.command.SubmitResolutionCommand;
+import com.flowdesk.ticket.application.command.ChangeCategoryCommand;
+import com.flowdesk.ticket.application.command.ChangePriorityCommand;
+import com.flowdesk.ticket.application.command.ClaimTicketCommand;
 import com.flowdesk.ticket.application.command.ConfirmResolutionCommand;
-import com.flowdesk.ticket.application.command.WithdrawSupplementRequestCommand;
+import com.flowdesk.ticket.application.command.CreateTicketCommand;
 import com.flowdesk.ticket.application.command.ReportUnresolvedCommand;
 import com.flowdesk.ticket.application.command.RequestSupplementCommand;
+import com.flowdesk.ticket.application.command.SubmitResolutionCommand;
 import com.flowdesk.ticket.application.command.SupplementCommand;
+import com.flowdesk.ticket.application.command.TransferCommand;
+import com.flowdesk.ticket.application.command.WithdrawSupplementRequestCommand;
+import com.flowdesk.ticket.application.query.TicketQuery;
+import com.flowdesk.ticket.application.query.TicketRecordQuery;
 import com.flowdesk.ticket.application.result.*;
 import com.flowdesk.ticket.application.service.TicketQueryService;
-import com.flowdesk.ticket.application.command.CreateTicketCommand;
 import com.flowdesk.ticket.application.service.TicketService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -68,6 +71,13 @@ public class TicketController {
             @PathVariable String ticketNo,
             @Valid @ModelAttribute TicketRecordQuery query) {
         return R.success(ticketQueryService.records(ticketNo, query));
+    }
+
+    /** 候选人 :先由服务校验工单可见性，再返回仍可接收该工单的启用 IT 用户。 */
+    @GetMapping("/{ticketNo}/transfer-candidates")
+    public R<List<TicketAssigneeOptionResult>> transferCandidates(
+            @PathVariable String ticketNo) {
+        return R.success(ticketQueryService.transferCandidates(ticketNo));
     }
 
     /**创建工单*/
@@ -151,4 +161,29 @@ public class TicketController {
 
         return R.success(ticketService.supplement(ticketNo, command));
     }
+
+    /** 当前负责人调整分类；状态、负责人与期限不变。 */
+    @PostMapping("/{ticketNo}/actions/change-category")
+    public R<TicketActionResult> changeCategory(
+            @PathVariable String ticketNo,
+            @Valid @RequestBody ChangeCategoryCommand command) {
+        return R.success(ticketService.changeCategory(ticketNo, command));
+    }
+
+    /** 当前负责人调整优先级；状态、负责人与期限不变。 */
+    @PostMapping("/{ticketNo}/actions/change-priority")
+    public R<TicketActionResult> changePriority(
+            @PathVariable String ticketNo,
+            @Valid @RequestBody ChangePriorityCommand command) {
+        return R.success(ticketService.changePriority(ticketNo, command));
+    }
+
+    /** 当前负责人直接转交；状态与期限不变，负责人立即替换。 */
+    @PostMapping("/{ticketNo}/actions/transfer")
+    public R<TicketActionResult> transfer(
+            @PathVariable String ticketNo,
+            @Valid @RequestBody TransferCommand command) {
+        return R.success(ticketService.transfer(ticketNo, command));
+    }
+
 }

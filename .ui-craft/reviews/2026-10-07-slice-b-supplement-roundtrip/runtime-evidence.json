@@ -1,0 +1,36 @@
+{
+  "ticketNo": "FD-20261007-034",
+  "title": "E2E 片B补充 591303",
+  "steps": [
+    {
+      "step": "create",
+      "status": 201,
+      "traceId": "c19c12ed-e9e0-4929-901f-91703d657698",
+      "detail": "FD-20261007-034 由员工通过界面创建"
+    },
+    {
+      "step": "claim",
+      "status": 200,
+      "traceId": "ea377588-3188-44bd-a45f-b9e7c96159ac",
+      "detail": "IT 领取成功"
+    },
+    {
+      "step": "request-supplement",
+      "status": 200,
+      "traceId": "1ce25850-e47f-449d-a132-8e7ba066be09",
+      "detail": "进入待员工补充并生成补充期限"
+    },
+    {
+      "step": "supplement",
+      "status": 200,
+      "traceId": "1ecf21c7-c47b-4eac-a489-d2ac5a124e44",
+      "detail": "员工补充后回到处理中"
+    },
+    {
+      "step": "add-processing-record",
+      "status": 200,
+      "traceId": "21e8424d-5616-464d-aa9a-76467641b4a5",
+      "detail": "补充后可继续处理"
+    }
+  ]
+}

@@ -8,12 +8,14 @@ import com.flowdesk.ticket.application.port.TicketClaimantPort;
 import com.flowdesk.ticket.application.port.TicketReadPermissionPort;
 import com.flowdesk.ticket.application.query.TicketQuery;
 import com.flowdesk.ticket.application.query.TicketRecordQuery;
+import com.flowdesk.ticket.application.result.TicketAssigneeOptionResult;
 import com.flowdesk.ticket.application.result.TicketCategorySummaryResult;
 import com.flowdesk.ticket.application.result.TicketDetailResult;
 import com.flowdesk.ticket.application.result.TicketListItemResult;
 import com.flowdesk.ticket.application.result.TicketRecordResult;
 import com.flowdesk.ticket.application.result.TicketUserSummaryResult;
 import com.flowdesk.ticket.domain.TicketScope;
+import com.flowdesk.ticket.infrastructure.persistence.TicketAssigneeRow;
 import com.flowdesk.ticket.infrastructure.persistence.TicketDetailRow;
 import com.flowdesk.ticket.infrastructure.persistence.TicketListRow;
 import com.flowdesk.ticket.infrastructure.persistence.TicketRecordRow;
@@ -46,6 +48,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -75,12 +78,14 @@ class TicketQueryServiceImplTest {
     private static final long REQUESTER_ID = 42L;
     private static final long IT_USER_ID = 7L;
     private static final long OTHER_IT_USER_ID = 9L;
+    private static final long NEW_IT_USER_ID = 11L;
     private static final long TICKET_ID = 1001L;
     private static final long CATEGORY_ID = 3L;
 
     private static final String TICKET_NO = "FD-20261006-001";
     private static final String REQUESTER_DISPLAY_NAME = "演示员工";
     private static final String IT_DISPLAY_NAME = "演示 IT 支持人员";
+    private static final String NEW_IT_DISPLAY_NAME = "演示 IT 三号";
     private static final String PENDING = "PENDING";
     private static final String PROCESSING = "PROCESSING";
     private static final String WAITING_FOR_REQUESTER = "WAITING_FOR_REQUESTER";
@@ -336,12 +341,13 @@ class TicketQueryServiceImplTest {
 
     /**
      * 2026-10-06 缺陷回归：{@code PROCESSING} 的当前负责人必须同时拿到追加处理记录、提交解决结果
-     * 与请求补充三格。
+     * 、请求补充，以及片 C 的分类与优先级调整。
      *
-     * <p>三条动作顺序固定；{@code submit-resolution} 曾经缺失，导致负责人能写处理记录却交不出
+     * <p>动作顺序固定；{@code submit-resolution} 曾经缺失，导致负责人能写处理记录却交不出
      * 解决结果——界面按 {@code allowedActions} 渲染按钮，缺一项就等于该动作不可达。
      * {@code request-supplement} 是片 B 新增的同一族判定（处理中 + 本人是负责人 + {@code TICKET_PROCESS}），
-     * 因此本用例的期望值从一对改为三条。</p>
+     * 片 C 的 {@code change-category} 与 {@code change-priority} 属于同一族，因此本用例的期望值
+     * 从三条扩到五条。{@code transfer} 不在这里：它单独要求 {@code TICKET_TRANSFER}，本用例没有授予。</p>
      */
     @Test
     void detailAllowsProcessingAndResolutionActionsForAssigneeInFixedOrder() {
@@ -352,9 +358,10 @@ class TicketQueryServiceImplTest {
         TicketDetailResult result = service.detail(TICKET_NO);
 
         assertThat(result.allowedActions())
-                .as("负责人拿到的三个动作，顺序固定且 submit-resolution 必须在")
+                .as("负责人拿到的五个动作，顺序固定且 submit-resolution 必须在")
                 .containsExactly(
-                        "add-processing-record", "submit-resolution", "request-supplement");
+                        "add-processing-record", "submit-resolution", "request-supplement",
+                        "change-category", "change-priority");
     }
 
     @Test
@@ -433,7 +440,7 @@ class TicketQueryServiceImplTest {
 
     // ---------- allowedActions：片 A 新增两格 ----------
 
-    /** 「待补充」+ 本人是负责人 + {@code TICKET_PROCESS}：恰好一格撤回动作。 */
+    /** 「待补充」+ 本人是负责人 + {@code TICKET_PROCESS}：撤回这一格，外加大片 C 的两个调整动作。 */
     @Test
     void detailAllowsWithdrawSupplementRequestForCurrentAssigneeOfWaitingForRequester() {
         stubCurrentUser(IT_USER_ID);
@@ -443,8 +450,9 @@ class TicketQueryServiceImplTest {
         TicketDetailResult result = service.detail(TICKET_NO);
 
         assertThat(result.allowedActions())
-                .as("待补充时负责人只应该拿到撤回这一格")
-                .containsExactly("withdraw-supplement-request");
+                .as("待补充时负责人能撤回、也能调整分类与优先级，但没有转交权限")
+                .containsExactly("withdraw-supplement-request",
+                        "change-category", "change-priority");
     }
 
     @Test
@@ -513,8 +521,9 @@ class TicketQueryServiceImplTest {
         TicketDetailResult result = service.detail(TICKET_NO);
 
         assertThat(result.allowedActions())
-                .as("负责人能撤回也能转交，但不能替提交人补充信息")
-                .containsExactly("withdraw-supplement-request");
+                .as("负责人能撤回也能调整，但不能替提交人补充信息")
+                .containsExactly("withdraw-supplement-request",
+                        "change-category", "change-priority");
     }
 
     /**
@@ -532,9 +541,10 @@ class TicketQueryServiceImplTest {
         TicketDetailResult result = service.detail(TICKET_NO);
 
         assertThat(result.allowedActions())
-                .as("处理中只暴露处理、提交解决结果与请求补充三个动作")
+                .as("处理中只暴露处理、提交解决结果、请求补充与两个调整动作")
                 .containsExactly(
-                        "add-processing-record", "submit-resolution", "request-supplement");
+                        "add-processing-record", "submit-resolution", "request-supplement",
+                        "change-category", "change-priority");
     }
 
     /** 终态不再暴露任何动作：本人是提交人且持有全部权限、且具备领取资格也不能例外。 */
@@ -542,7 +552,8 @@ class TicketQueryServiceImplTest {
     void detailReturnsNoActionsForTerminalTicket() {
         stubCurrentUser(REQUESTER_ID);
         grant("TICKET_VIEW_OWN", "TICKET_VIEW_QUEUE", "TICKET_VIEW_PARTICIPATED",
-                "TICKET_CLAIM", "TICKET_PROCESS", "TICKET_REQUESTER_ACTION");
+                "TICKET_CLAIM", "TICKET_PROCESS", "TICKET_REQUESTER_ACTION",
+                "TICKET_TRANSFER");
         when(ticketClaimantPort.isEligibleClaimant(REQUESTER_ID)).thenReturn(true);
         stubVisible(detailRow(COMPLETED, IT_USER_ID, 5L));
 
@@ -814,14 +825,199 @@ class TicketQueryServiceImplTest {
                 .containsEntry("toStatus", PROCESSING);
     }
 
+    // ---------- allowedActions：片 C 新增三格 ----------
+
+    /**
+     * 「处理中」+ 本人是负责人 + {@code TICKET_PROCESS} 与 {@code TICKET_TRANSFER}：六个动作齐。
+     *
+     * <p>三个动作共用同一条"状态属于可调整态且本人是负责人"的身份判定，权限各自独立：
+     * 调整需要 {@code TICKET_PROCESS}，转交需要 {@code TICKET_TRANSFER}。缺任何一条权限，
+     * 对应的按钮就不该出现——界面按 {@code allowedActions} 渲染，</p>
+     */
+    @Test
+    void detailAllowsAdjustAndTransferForAssigneeWithBothAuthorities() {
+        stubCurrentUser(IT_USER_ID);
+        grant("TICKET_PROCESS", "TICKET_TRANSFER");
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+
+        assertActions(service.detail(TICKET_NO),
+                "add-processing-record", "submit-resolution", "request-supplement",
+                "change-category", "change-priority", "transfer");
+    }
+
+    /**
+     * 转交与"处理"是两条独立授权：只有 {@code TICKET_TRANSFER} 时，转交仍然可用，
+     * 而依赖 {@code TICKET_PROCESS} 的处理记录、解决结果、请求补充与两个调整动作都不出现。
+     *
+     * <p>返回 {@code 409} 的角色判定只要求"本人是当前负责人"；能否转交由权限码单独决定，
+     * 因此可以只给一个角色配 {@code TICKET_TRANSFER} 而不给处理权限。</p>
+     */
+    @Test
+    void detailAllowsTransferWithoutProcessAuthority() {
+        stubCurrentUser(IT_USER_ID);
+        grant("TICKET_TRANSFER");
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+
+        assertActions(service.detail(TICKET_NO), "transfer");
+    }
+
+    /** 有转交权限但不是当前负责人：不能凭权限替别人调整或转交。 */
+    @Test
+    void detailHidesAdjustAndTransferForNonAssignee() {
+        stubCurrentUser(OTHER_IT_USER_ID);
+        grant("TICKET_PROCESS", "TICKET_TRANSFER");
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+
+        assertActions(service.detail(TICKET_NO));
+    }
+
+    /** 无人负责的工单不存在"当前负责人"，三格都不出现。 */
+    @Test
+    void detailHidesAdjustAndTransferWhenTicketHasNoAssignee() {
+        stubCurrentUser(IT_USER_ID);
+        grant("TICKET_PROCESS", "TICKET_TRANSFER");
+        stubVisible(detailRow(PROCESSING, null, 3L));
+
+        assertActions(service.detail(TICKET_NO));
+    }
+
+    /** 提交人自己不是负责人：即使持有全部相关权限也不该看到调整与转交。 */
+    @Test
+    void detailHidesAdjustAndTransferForRequesterOfProcessing() {
+        stubCurrentUser(REQUESTER_ID);
+        grant("TICKET_PROCESS", "TICKET_TRANSFER", "TICKET_REQUESTER_ACTION");
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+
+        assertActions(service.detail(TICKET_NO));
+    }
+
+    /** 「待确认」不在可调整态：负责人持有两个权限也拿不到这三格。 */
+    @Test
+    void detailHidesAdjustAndTransferOnWaitingForConfirmation() {
+        stubCurrentUser(IT_USER_ID);
+        grant("TICKET_PROCESS", "TICKET_TRANSFER");
+        stubVisible(detailRow(WAITING_FOR_CONFIRMATION, IT_USER_ID, 3L));
+
+        assertActions(service.detail(TICKET_NO));
+    }
+
+    /** 「待补充」+ 负责人 + 两个权限：撤回在前、调整居中、转交最后，顺序固定。 */
+    @Test
+    void detailAllowsAdjustAndTransferOnWaitingForRequesterInFixedOrder() {
+        stubCurrentUser(IT_USER_ID);
+        grant("TICKET_PROCESS", "TICKET_TRANSFER");
+        stubVisible(detailRow(WAITING_FOR_REQUESTER, IT_USER_ID, 5L));
+
+        assertActions(service.detail(TICKET_NO),
+                "withdraw-supplement-request",
+                "change-category", "change-priority", "transfer");
+    }
+
+    // ---------- transferCandidates ----------
+
+    /** 候选人接口与转交动作共用 {@code TICKET_TRANSFER}，且权限闸门先于可见性。 */
+    @Test
+    void transferCandidatesRejectsActorWithoutTransferAuthority() {
+        stubCurrentUser(IT_USER_ID);
+
+        assertApiException(() -> service.transferCandidates(TICKET_NO),
+                HttpStatus.FORBIDDEN, "TICKET_ACTION_FORBIDDEN");
+
+        verify(ticketMapper, never())
+                .selectVisibleDetail(any(), anyLong(), anyBoolean(), anyBoolean(), anyBoolean());
+        verify(ticketMapper, never()).selectTransferCandidates(anyLong(), anyLong());
+    }
+
+    @Test
+    void transferCandidatesReportsNotFoundWhenTicketIsNotVisible() {
+        stubCurrentUser(IT_USER_ID);
+        grant("TICKET_TRANSFER");
+
+        assertApiException(() -> service.transferCandidates(TICKET_NO),
+                HttpStatus.NOT_FOUND, "TICKET_NOT_FOUND");
+
+        verify(ticketMapper, never()).selectTransferCandidates(anyLong(), anyLong());
+    }
+
+    /** 契约要求该接口重新校验状态：不是可调整态就不返回候选人。 */
+    @Test
+    void transferCandidatesReportsConflictWhenTicketIsNotAdjustable() {
+        stubCurrentUser(IT_USER_ID);
+        grant("TICKET_TRANSFER");
+        stubVisible(detailRow(PENDING, null, 3L));
+
+        ApiException exception = assertApiException(() -> service.transferCandidates(TICKET_NO),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).isEqualTo(3L);
+        assertThat(exception.resourceStatus()).isEqualTo(PENDING);
+        verify(ticketMapper, never()).selectTransferCandidates(anyLong(), anyLong());
+    }
+
+    /** 可查看但不是负责人（例如历史参与者）与动作接口口径一致：409，不是 403。 */
+    @Test
+    void transferCandidatesReportsConflictWhenActorIsNotTheCurrentAssignee() {
+        stubCurrentUser(OTHER_IT_USER_ID);
+        grant("TICKET_TRANSFER");
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+
+        assertApiException(() -> service.transferCandidates(TICKET_NO),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never()).selectTransferCandidates(anyLong(), anyLong());
+    }
+
+    @Test
+    void transferCandidatesReportsConflictWhenTicketHasNoAssignee() {
+        stubCurrentUser(IT_USER_ID);
+        grant("TICKET_TRANSFER");
+        stubVisible(detailRow(PROCESSING, null, 3L));
+
+        assertApiException(() -> service.transferCandidates(TICKET_NO),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never()).selectTransferCandidates(anyLong(), anyLong());
+    }
+
+    /** 成功路径：排除条件由 SQL 用「提交人 + 当前负责人」两个入参表达，映射只带两个字段。 */
+    @Test
+    void transferCandidatesMapsRowsAndPassesRequesterAndCurrentAssignee() {
+        stubCurrentUser(IT_USER_ID);
+        grant("TICKET_TRANSFER");
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+        when(ticketMapper.selectTransferCandidates(REQUESTER_ID, IT_USER_ID))
+                .thenReturn(List.of(assigneeRow(NEW_IT_USER_ID, NEW_IT_DISPLAY_NAME)));
+
+        List<TicketAssigneeOptionResult> candidates = service.transferCandidates(TICKET_NO);
+
+        verify(ticketMapper).selectTransferCandidates(REQUESTER_ID, IT_USER_ID);
+        assertThat(candidates)
+                .as("只暴露选择新负责人所需的最小字段")
+                .containsExactly(
+                        new TicketAssigneeOptionResult(NEW_IT_USER_ID, NEW_IT_DISPLAY_NAME));
+    }
+
+    /** 没有可转交对象时返回空列表，而不是 null——前端据此渲染空态。 */
+    @Test
+    void transferCandidatesReturnsEmptyListWhenNoOtherItUserExists() {
+        stubCurrentUser(IT_USER_ID);
+        grant("TICKET_TRANSFER");
+        stubVisible(detailRow(WAITING_FOR_REQUESTER, IT_USER_ID, 3L));
+        when(ticketMapper.selectTransferCandidates(REQUESTER_ID, IT_USER_ID))
+                .thenReturn(List.of());
+
+        assertThat(service.transferCandidates(TICKET_NO)).isEmpty();
+    }
+
     // ---------- 事务边界 ----------
 
-    /** 三个查询方法都只读：不写库，也不该在事务里拿写锁。 */
+    /** 四个查询方法都只读：不写库，也不该在事务里拿写锁。 */
     @Test
     void queryMethodsDeclareReadOnlyTransactions() throws NoSuchMethodException {
         assertReadOnly("page", TicketQuery.class);
         assertReadOnly("detail", String.class);
         assertReadOnly("records", String.class, TicketRecordQuery.class);
+        assertReadOnly("transferCandidates", String.class);
     }
 
     // ---------- 辅助 ----------
@@ -921,6 +1117,13 @@ class TicketQueryServiceImplTest {
 
     private static TicketDetailRow detailRow(String status, Long assigneeId, long version) {
         return detailRow(status, assigneeId, version, REQUESTER_ID);
+    }
+
+    private static TicketAssigneeRow assigneeRow(long id, String displayName) {
+        TicketAssigneeRow row = new TicketAssigneeRow();
+        row.setId(id);
+        row.setDisplayName(displayName);
+        return row;
     }
 
     private static TicketDetailRow detailRow(

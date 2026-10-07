@@ -13,6 +13,7 @@ import {
   ticketStatusLabel,
   ticketStatusTone,
 } from './tickets'
+import type { TicketActionName } from './tickets'
 
 /** 用固定格式器，断言的是"挑了哪些字段"，不是本地化格式。 */
 const format = (value: string | null | undefined): string => `T(${value})`
@@ -55,6 +56,11 @@ describe('工单展示映射', () => {
         // 完整状态机片 A：撤回补充请求（当前负责人）与反馈未解决（提交人）
         ['withdraw-supplement-request', 'TICKET_PROCESS'],
         ['report-unresolved', 'TICKET_REQUESTER_ACTION'],
+        // 完整状态机片 C：调整分类与调整优先级跟"记录处理过程"同权限；
+        // 转交是另一条授权（IT_SUPPORT 单独持有 TICKET_TRANSFER）
+        ['change-category', 'TICKET_PROCESS'],
+        ['change-priority', 'TICKET_PROCESS'],
+        ['transfer', 'TICKET_TRANSFER'],
         // 完整状态机片 B：补充信息（提交人）
         ['supplement', 'TICKET_REQUESTER_ACTION'],
       ])
@@ -71,6 +77,45 @@ describe('工单展示映射', () => {
       // 原因类动作的上限是 1000，与 WithdrawSupplementRequestCommand / ReportUnresolvedCommand 对齐
       expect(TICKET_ACTIONS['withdraw-supplement-request'].content?.maxLength).toBe(1000)
       expect(TICKET_ACTIONS['report-unresolved'].content?.maxLength).toBe(1000)
+    })
+
+    /**
+     * 片 C 的三个动作与前面的动作有一处结构性差别：先选目标值，再写原因。
+     *
+     * <p>原因走 `reason` 而不是 `content`（后端的请求字段就叫 `reason`），所以这里同时钉住
+     * "三个动作都没有 `content`"：哪天有人顺手补一个 `content`，弹窗里就会出现两个说明输入框。</p>
+     */
+    it('片 C 三个动作各自声明目标值来源与原因上限，且不混用 content', () => {
+      const cases: [TicketActionName, 'category' | 'priority' | 'assignee', boolean][] = [
+        ['change-category', 'category', false],
+        ['change-priority', 'priority', false],
+        ['transfer', 'assignee', true],
+      ]
+
+      for (const [name, source, destructive] of cases) {
+        const meta = TICKET_ACTIONS[name]
+        expect(meta.select?.source).toBe(source)
+        expect(meta.destructive).toBe(destructive)
+        expect(meta.content).toBeUndefined()
+        // 与 ChangeCategoryCommand / ChangePriorityCommand / TransferCommand 的 @Size(max = 1000) 对齐
+        expect(meta.reason?.maxLength).toBe(1000)
+        expect(meta.reason?.label.trim()).not.toBe('')
+      }
+    })
+
+    /**
+     * 没有可选项时的提示是转交唯一的说明：候选人接口返回空数组不是错误，界面只能靠这句话
+     * 讲清"为什么这个动作现在做不了"。三个动作各写一句，不能留空，也不能共用一句套话。
+     */
+    it('每个需要选目标值的动作都有自己的空态说明', () => {
+      const empties = (['change-category', 'change-priority', 'transfer'] as const).map((name) => {
+        const select = TICKET_ACTIONS[name].select
+        expect(select?.placeholder).toContain('请选择')
+        return select?.emptyText ?? ''
+      })
+
+      expect(empties.every((text) => text.trim() !== '')).toBe(true)
+      expect(new Set(empties).size).toBe(empties.length)
     })
 
     /**
@@ -110,8 +155,14 @@ describe('工单展示映射', () => {
       expect(permittedActions(['claim'], allowNone)).toEqual([])
     })
 
+    /**
+     * 片 C 登记 `transfer` 之后，这条断言从"全部忽略"变成"只渲染登记过的那一个"。
+     *
+     * <p>`close` 仍然没有登记（片 D 的动作），所以它继续被忽略——这正是要保留这条用例的原因：
+     * 服务端将来放行某个界面还没实现的动作名时，界面不会摆出一个按不动的按钮。</p>
+     */
     it('登记表之外的动作名被忽略，不会变成按不动的按钮', () => {
-      expect(permittedActions(['transfer', 'close'], () => true)).toEqual([])
+      expect(permittedActions(['transfer', 'close'], () => true)).toEqual(['transfer'])
     })
   })
 

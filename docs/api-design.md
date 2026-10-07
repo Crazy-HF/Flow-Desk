@@ -260,15 +260,19 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 
 以上动作都要求当前用户是当前负责人；`claim` 例外，它要求当前用户是有效 IT 支持人员，工单仍无人负责且不能由其本人提交。
 
-**实现状态（2026-10-06）**：本表 9 个 IT 动作中，`claim`、`add-processing-record` 与 `submit-resolution` 已实现并通过真实栈验收；6.4 的 `confirm-resolution` 同样已实现并验收。
+**实现状态（截至 2026-10-07）**：本表 9 个 IT 动作中，`claim`、`add-processing-record`、`submit-resolution`、`withdraw-supplement-request`（片 A）、`report-unresolved`（片 A）、`request-supplement`（片 B）、`change-category`、`change-priority`、`transfer`（片 C）均已实现；6.4 的 `confirm-resolution`、`supplement`、`report-unresolved` 同样已实现。**只剩 `close`（片 D）与 6.4 的 `cancel`（片 D）未实现。**
 - `claim`：`POST /fd/v1/tickets/{ticketNo}/actions/claim`、`ClaimTicketCommand`、`TicketServiceImpl.claim`、`TicketMapper.claimPending`、`TicketParticipantMapper.recordAssignment`。
 - `add-processing-record`：`POST /fd/v1/tickets/{ticketNo}/actions/add-processing-record`、`AddProcessingRecordCommand`、`TicketServiceImpl.addProcessingRecord`、`TicketMapper.advanceAssigneeAction`（状态与负责人不变，只递增 `version` 与 `record_seq` 并追加不可变 `PROCESS` 记录）。
 - `submit-resolution`：`POST /fd/v1/tickets/{ticketNo}/actions/submit-resolution`、`SubmitResolutionCommand`、`TicketServiceImpl.submitResolution`、`TicketMapper.submitResolution`（进入 `WAITING_FOR_CONFIRMATION`，期限按 `flowdesk.ticket.confirmation-window`（默认 `7d`）由服务端计算，追加 `RESOLUTION` 记录）。
 - `confirm-resolution`（6.4）：`POST /fd/v1/tickets/{ticketNo}/actions/confirm-resolution`、`ConfirmResolutionCommand`、`TicketServiceImpl.confirmResolution`、`TicketMapper.confirmResolution`（进入终态 `COMPLETED`，期限清空、`completion_method='REQUESTER_CONFIRMED'`、写入 `ended_at`，保留负责人，追加 `COMPLETION` 记录）。
 - `withdraw-supplement-request`（**2026-10-06 完成，完整状态机片 A**）：`POST /fd/v1/tickets/{ticketNo}/actions/withdraw-supplement-request`、`WithdrawSupplementRequestCommand`（`version` + `reason` 1～1000）、`TicketServiceImpl.withdrawSupplementRequest`、`TicketMapper.withdrawSupplementRequest`（从 `WAITING_FOR_REQUESTER` 回到 `PROCESSING`、清空期限、负责人不变，追加 `SUPPLEMENT_REQUEST_WITHDRAWN` 记录）。
 - `report-unresolved`（**2026-10-06 完成，完整状态机片 A**）：`POST /fd/v1/tickets/{ticketNo}/actions/report-unresolved`、`ReportUnresolvedCommand`（`version` + `reason` 1～1000）、`TicketServiceImpl.reportUnresolved`、`TicketMapper.reportUnresolved`（从 `WAITING_FOR_CONFIRMATION` 回到 `PROCESSING`、清空期限、**负责人保留**，追加 `UNSATISFIED_FEEDBACK` 记录；之前的解决结果作为历史保留）。
+- `request-supplement`（**2026-10-07 完成，完整状态机片 B**）：`POST /fd/v1/tickets/{ticketNo}/actions/request-supplement`、`RequestSupplementCommand`（`version` + `content` 1～10000）、`TicketServiceImpl.requestSupplement`、`TicketMapper.requestSupplement`（进入 `WAITING_FOR_REQUESTER`，期限按 `flowdesk.ticket.supplement-window`（默认 `7d`）由服务端计算；**状态与期限写在同一条 UPDATE 内**，因此不会出现 `ck_ticket_status_deadline` 不允许的中间态，追加 `SUPPLEMENT_REQUEST` 记录）。
+- `change-category` / `change-priority`（**2026-10-07 完成，完整状态机片 C**）：`POST .../actions/change-category`、`.../change-priority`、`ChangeCategoryCommand` / `ChangePriorityCommand`（`version` + `categoryId` / `priority` + `reason` 1～1000）、`TicketServiceImpl.changeCategory` / `changePriority`、`TicketMapper.changeCategory` / `changePriority`（状态、负责人与期限都不变，只替换列并追加 `CATEGORY_CHANGE` / `PRIORITY_CHANGE` 记录；目标分类必须存在且启用）。
+- `transfer`（**2026-10-07 完成，完整状态机片 C**）：`POST .../actions/transfer`、`TransferCommand`（`version` + `newAssigneeId` + `reason` 1～1000）、`TicketServiceImpl.transfer`、`TicketMapper.transfer`（原子替换负责人，状态与期限不变，追加 `TRANSFER` 记录并写入 `ticket_participant` 新负责人一行）。**只要求 `TICKET_TRANSFER`，不要求 `TICKET_PROCESS`**——两条授权彼此独立；提交前按 `user_id` 升序锁住双方 `iam_user` 行并复核「启用 + 仍持有 IT_SUPPORT」。
+- `GET /fd/v1/tickets/{ticketNo}/transfer-candidates`（**2026-10-07 完成，片 C**，契约见 7.4）：`TicketQueryServiceImpl.transferCandidates` 复用详情同一条可见性 SQL，只返回**启用且持有 `IT_SUPPORT`** 的候选人的 `id` 与 `displayName`，排除提交人与当前负责人；调用者不是当前负责人或状态不在 `PROCESSING`/`WAITING_FOR_REQUESTER` 时 `409`，工单不可见时 `404`，没有候选人时返回空数组。
 
-其余 6 个动作仍未实现，**本表契约均未修改**。动作结果统一为 `TicketActionResult`（`ticketNo`、最新 `status`、负责人摘要、当前期限、最新 `version`、动作时间）。详情 `allowedActions` 现按条件返回 `claim`、`add-processing-record`、`submit-resolution`、`confirm-resolution`；逐条 `traceId` 的验收证据见 `docs/acceptance/2026-10-06-stage3-claim-process-resolution-confirm.json`（**77/77 通过**），汇总见 `docs/acceptance/2026-10-06-stage3-step3-summary.json`；阶段进度见 `docs/implementation-plan.md` 7.1。
+其余 IT 动作只剩 `close`（片 D）未实现，**本表契约均未修改**。动作结果统一为 `TicketActionResult`（`ticketNo`、最新 `status`、负责人摘要、当前期限、最新 `version`、动作时间）。详情 `allowedActions` 按条件返回：`claim`（待受理、非提交人、具备领取资格）；**处理中与待补充的当前负责人**：`add-processing-record`、`submit-resolution`、`request-supplement`（需 `TICKET_PROCESS`）与 `change-category`、`change-priority`（需 `TICKET_PROCESS`）、`transfer`（需 `TICKET_TRANSFER`）；待补充的当前负责人：`withdraw-supplement-request`；待确认的提交人：`confirm-resolution`、`report-unresolved`；待补充的提交人：`supplement`。逐条 `traceId` 的验收证据：阶段 3 见 `docs/acceptance/2026-10-06-stage3-claim-process-resolution-confirm.json`（**77/77 通过**）与汇总 `docs/acceptance/2026-10-06-stage3-step3-summary.json`；片 A 见 `docs/acceptance/2026-10-06-slice-a-return-actions.json`（78/78）；片 B 见 `docs/acceptance/2026-10-07-slice-b-supplement-roundtrip.json`（67/67）；片 C 见 `docs/acceptance/2026-10-07-slice-c-adjust-transfer.json`（127/127）；阶段进度见 `docs/implementation-plan.md` 7.1。
 
 **`submit-resolution` 从 `allowedActions` 缺失的修正（2026-10-06，用户当场授权）**：`TicketQueryServiceImpl.toDetail` 原先只构造 `claim`、`add-processing-record`、`confirm-resolution` 三个动作，接口虽已实现并验收，详情却不返回该动作名。界面按 `allowedActions` 渲染按钮，因此负责人能写处理记录却交不出解决结果——阶段 3 端到端主链（`frontend/e2e/ticket-it-flow.spec.ts`）在"提交解决结果"这一步实测暴露。现在 `canSubmitResolution` 复用 `canProcess` 的同一条判定（处理中 + 本人是负责人 + `TICKET_PROCESS`），两者前置条件完全相同，不复制表达式。
 
@@ -288,6 +292,8 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 | `cancel` | 四种非终态 | `version`、`reason` | 进入 `CANCELED` |
 
 这些动作都要求当前用户是工单提交人。`supplement` 使用 `multipart/form-data`，正文和附件至少存在一项；其他动作使用 JSON。
+
+**实现状态（截至 2026-10-07）**：`confirm-resolution`（阶段 3）、`report-unresolved`（片 A）、`supplement`（片 B）与 `request-supplement`（片 B，IT 侧）均已实现；**只剩 `cancel`（片 D）未实现**。`supplement` 的实现见 6.3 的状态清单。
 
 **范围裁决（2026-10-06，用户确认）**：附件上传/下载、文件与数据库提交顺序、失败补偿与孤儿对账属完整版 backlog 第 2 项，尚未设计落地。因此 `supplement` **先按"正文版"实现**：请求形状不变（`multipart/form-data`，`ticket` part 携带 JSON），但只接受正文；请求里出现文件 part 时返回 `400/VALIDATION_FAILED` 并说明本版本不支持附件，**不静默忽略**。附件落地后本条随之失效。
 
@@ -368,6 +374,8 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 只返回可接收该工单的启用 IT 用户标识和显示名称，排除提交人、当前负责人以及不再具有 IT 处理能力的用户。接口必须重新校验工单状态为 `PROCESSING` 或 `WAITING_FOR_REQUESTER`。
 
 普通员工不能调用该接口；系统管理员的管理性交接候选人由后续管理接口单独提供，避免扩大管理员对工单内容的访问。
+
+**实现状态（2026-10-07，片 C）**：「不再具有 IT 处理能力」在本版本取**角色口径**——`iam_user.status = 'ENABLED'` 且仍持有 `IT_SUPPORT` 角色，与 `claim` 的领取资格共用同一条判定（`IamTicketClaimantAdapter.lockEligibleClaimant`），因此候选人列表与转交动作的资格复核不会出现两套标准。返回元素为 `TicketAssigneeOptionResult`（只有 `id` 与 `displayName`，不含用户名或角色）。**没有候选人时返回空数组而不是错误**，界面据此显示空态并禁止提交。调用者不是当前负责人（但有权查看）或状态不在可处理态时 `409/TICKET_CONFLICT` 并带当前快照，工单不可见时 `404/TICKET_NOT_FOUND`。注意一个已知口径：若管理员把 `TICKET_TRANSFER` 权限从 `IT_SUPPORT` 角色上撤掉，候选人仍会出现（他依然能处理工单），只是接手后不能再转交——因为"能否接手"与"能否再转交"是两条独立授权。验证证据见 `docs/acceptance/2026-10-07-slice-c-adjust-transfer.json`（127/127 通过）。
 
 ### 7.5 关联工单选择
 

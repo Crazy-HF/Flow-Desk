@@ -1,25 +1,70 @@
 # FlowDesk 项目状态
 
-## 当前结论：片 B 收口执行中（分支已推送、基点 `5e0e83e`），片 C 在独立工作树并行开工（2026-10-07）
+## 当前结论：片 C 已实现、测试与真实栈验收全绿（127/127），**未提交、未交接**（2026-10-07）
+
+- **工作树现状**：只剩 `D:\Idea\item\flow-Desk`，分支 `flow-desk/ticket-adjust-transfer`（远端 `origin/flow-desk/ticket-adjust-transfer-2`，基点为片 B 合并后的 `main` `aa0417b`）。片 C 的全部改动都在这个工作树里、**尚未提交**：12 个主代码文件、6 个测试文件、前端登记与派发、验收脚本、证据文件与文档。并行工作树 `D:\Idea\item\flow-Desk-sliceC` 已按用户要求删除且未保留（见「工作树删除记录」段）——**片 C 的代码是重新写的，不是那棵树里的存量**。
 
 - **片 A 已交接完成（2026-10-07）**：三条提交 `d3b0849`（两个动作实现）、`46230ee`（单元/Web/集成用例）、`7e9c0c7`（前端登记与派发、验收脚本与证据）经 **[PR #14](https://github.com/Crazy-HF/Flow-Desk/pull/14) 以 merge commit 合并 `main`**（合并提交 **`5f4026f`**，基线 `1f85c93`；三个 job `backend-verify`/`frontend-verify`/`core-e2e` 全绿）。片 A 的完整交付细节见本文件下方「片 A 交付记录」段。
-- **片 B（补充往返）已完成编码并推送**：分支 **`flow-desk/ticket-supplement-roundtrip`**（从 `5f4026f` 创建，提交 **`5e0e83e`**，15 文件 +1582/−36，已推送 `origin` 并设为跟踪分支）。已写入：
+- **片 B（补充往返）已交接完成（2026-10-07）**：分支 **`flow-desk/ticket-supplement-roundtrip`**（从 `5f4026f` 创建）的两条提交 `5e0e83e`（后端实现与用例）与 `e3ed3f1`（收口：前端接通、E2E、真实栈验收脚本与证据、文档同步），加一条 CI 修正 `73524a4`，经 **[PR #15](https://github.com/Crazy-HF/Flow-Desk/pull/15) 以 merge commit 合并 `main`**（合并提交 **`aa0417b`**，基线 `5f4026f`）。CI 首轮 `core-e2e` 失败于 `ticket-it-flow.spec.ts` 仍断言旧标签「当前期限」，修正为按状态与角色给标签与提示后，运行 `37564858602` 三个 job 全绿。本地 `main` 已仅快进同步，随后从 `aa0417b` 创建 **`flow-desk/ticket-adjust-transfer-2`** 承载片 C。片 B 的交付内容：
   - **基础件**：`RequestSupplementCommand`、`SupplementCommand`（均为 `version` + `content`，上限 10000）、`TicketService` 两个方法签名、`TicketMapper.requestSupplement` / `TicketMapper.supplement` 两条条件更新（状态与期限在**同一条 UPDATE** 内原子写入，避开 `ck_ticket_status_deadline` 的中间态）、`TicketController` 两个端点（`supplement` 为 `multipart/form-data`，**文件 part 显式 400 而非静默忽略**）、`TicketQueryServiceImpl.allowedActions` 两格（`request-supplement` 与 `canProcess` 同族相邻、`supplement` 独立判定为「待补充 + 本人是提交人」）、`TicketProperties.supplementWindow`（默认 7d、下限 1m）与 `application.yml` 的 `flowdesk.ticket.supplement-window`。
   - **业务实现**：`TicketServiceImpl.requestSupplement` / `supplement`（门禁顺序与既有动作逐字对齐；`supplement` **刻意不判定期限是否已过**——本版本没有超时自动关闭，期限只用于展示，拦住过期提交比不做更糟；理由写在方法注释里）。
   - **测试**：`TicketServiceImplTest`（含 `requestSupplement` 与 `TicketProperties` 用例）、新增 `TicketSupplementServiceImplTest`、`TicketQueryServiceImplTest`、`TicketControllerWebTest`（含 6 项 multipart 文件部分用例）；四项均随 `5e0e83e` 入库。
-  - **收口待办（本轮执行）**：`TicketServiceIT` 去除片 A 遗留的 SQL 临时造数并新增片 B 集成用例、后端全量 `clean verify`、前端动作登记与派发、前端单测、E2E、真实栈验收脚本与证据、文档同步（`api-design.md` 6.3/6.4、`implementation-plan.md` 9.3）。
-- **用户裁决（2026-10-07，本轮）**：片 A 观察项「`supplement` 兜底用 `content.isEmpty()` 放行纯空白」**不改**。理由与边界见下方「片 A 观察项裁决」段。
+  - **收口已完成（`e3ed3f1`）**：`TicketServiceIT` 去除片 A 遗留的 SQL 临时造数并新增片 B 集成用例、前端动作登记与派发、前端单测、E2E、真实栈验收脚本与证据、`PROJECT_STATUS.md` 同步。**后端全量 `clean verify` 由 CI 的 `backend-verify` 在本 PR 上实跑并通过**；`api-design.md` 6.3/6.4 与 `implementation-plan.md` 9.3 的片 B 交付记录当时未回头补写，已随片 C 的文档同步一并补齐（2026-10-07）。
+- **用户裁决（2026-10-07）**：片 A 观察项「`supplement` 兜底用 `content.isEmpty()` 放行纯空白」**不改**；另外授权本轮「需要我写入的直接写入」，因此片 C 的 `changeCategory` 判空由 Agent 直接补入。理由与边界见下方「片 A 观察项裁决」段。
+- **片 C（调整与转交）已完成实现、测试与真实栈验收（2026-10-07）**：
+  - **后端**：`change-category`、`change-priority`、`transfer` 与 `GET /fd/v1/tickets/{ticketNo}/transfer-candidates`；三条条件更新、固定锁顺序（`user_id` 升序锁「原负责人 + 新负责人」两行）与锁后资格复核、`ticket_participant` 新负责人一行、`CATEGORY_CHANGE`/`PRIORITY_CHANGE`/`TRANSFER` 三类记录与 `allowedActions` 三格；**不需要新增迁移与权限码**。转交只要 `TICKET_TRANSFER`，**不要求** `TICKET_PROCESS`（两条授权独立）。
+  - **期间修掉一处真实缺陷（2026-10-07 用户授权「需要我写入的直接写入」）**：`TicketServiceImpl.changeCategory` 漏了 `visible == null` 判空（同文件其余 10 处都有），编号不存在或不可见时在 `visible.getStatus()` 上 NPE → `500/INTERNAL_ERROR`，与契约要求的 `404/TICKET_NOT_FOUND` 冲突。新增的 404 用例在修复前实测为红（`NullPointerException ... because "visible" is null`），补上判空后转绿。
+  - **测试**：`TicketServiceImplTest` 执行 **170**、`TicketQueryServiceImplTest` **64**、`TicketControllerWebTest` **121**、`TicketQueryServiceIT` **9**（`allowedActions` 断言按新契约更新）、`TicketServiceIT` **38**（含**互转并发不死锁**、锁后资格复核、同版本「转交 vs 撤回」并发）。后端全量 `.\mvnw.cmd -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → surefire **881** + failsafe **140**，`Failures 0 / Errors 0`，`BUILD SUCCESS`（wrapper 退出码 0；注意用 `| Select-String` 之类的管道会让终端显示 exit code 1，那是管道假象，判据以 `BUILD SUCCESS` 与 wrapper 退出码为准）。
+  - **真实栈验收**：`scripts/slice-c-adjust-transfer-acceptance.ps1` 在**并行后端 8092**（用户自己启动的 8081 全程未被触碰）上执行 **127 项断言、127 通过、退出码 0**，证据 `docs/acceptance/2026-10-07-slice-c-adjust-transfer.json`（无 BOM UTF-8，可回读解析）；脚本自建临时 IT 用户作为转交目标并在收尾删除，演示库运行前后的 7 项计数与工单号指纹逐字一致。修复前的那次红运行按惯例保留为 `docs/acceptance/2026-10-07-slice-c-adjust-transfer-pre-fix-fail.json`（46 项、2 红），**未改写为成功**。
+  - **前端**：`TICKET_ACTIONS` 三格（分类/优先级/候选人 + 原因）、`TicketActionSelectField.vue`、`api/tickets.ts` 四个函数、详情页穷尽式派发；`typecheck` / `lint` / `build` 退出码 0，单测 **23 套件 172 项**（原 155：constants +4、详情页 +9、接口 +4）。
+  - **E2E（实跑）**：`pnpm test:e2e` **20 项全部通过（2.8 分钟）**，含新增的 `frontend/e2e/ticket-adjust-transfer.spec.ts`（27.7s：员工建单 → IT 领取 → 调整分类 → 调整优先级 → 转交给接口临时创建的第二名 IT → 接手人登录并提交解决结果 → 员工确认完成）。**注意后端基址**：8092 上跑的是新构建；用户自己启动的 8081（进程 32868，启动于 10:09）是**旧构建**，鉴权后请求片 C 端点返回 `404 RESOURCE_NOT_FOUND`，因此本轮 E2E 用 `FLOWDESK_API_TARGET=http://127.0.0.1:8092` 把预览代理指向新后端（未重启/未触碰 8081）。截图存 `.ui-craft/reviews/2026-10-07-slice-c-adjust-transfer/`（4 张，1440 与 375），**已由 Agent 实际查看**：六个动作按登记表顺序、语义色正确、转交后「负责人」显示新负责人、窄屏无溢出、无默认蓝残留。
+  - **收尾清理（已执行）**：E2E 覆写的 `.ui-craft/reviews/**` 已 `git checkout` 还原（新增的两个片 B/片 C 评审目录仍是未跟踪产物）；演示库回到**运行前基线**——删除了本轮 E2E 创建的 5 张 `E2E %` 工单及其记录/参与关系、以及本轮创建的两个账号（`E2E_transfer_target_*`、新的 `E2E_ticket_isolation_*`），当前为 工单 0 / 记录 0 / 参与者 0 / 用户 6（3 个历史 `E2E_ticket_isolation_*` 未删，见「遗留」段）。
+  - **一处显示口径（已知，非缺陷）**：时间线上 `CATEGORY_CHANGE` 只显示原因，不显示「原分类 → 新分类」——记录行里只有分类 id，没有名称；当前分类在「工单信息」里可见，本次不扩大范围去补名称查询。
+  - **未做**：Git 提交、推送、PR、合并（等用户授权本轮交接）。
+- **片 D（结束路径）未开工**：`close`（三种原因 + `DUPLICATE` 关联）与 `cancel`。
+- **演示库现状（2026-10-07 直查）**：工单 0 / 记录 0 / 参与者 0 / 分类 5 / 角色 4 / 权限 14 / 用户 **6**；其中 3 个是历史 E2E 用例留下的 `E2E_ticket_isolation_*` 账号（不是本轮产生，本轮脚本与用例都没有删除它们），`ticket_daily_sequence` 为 `2026-10-06=60 ;; 2026-10-07=26`（递增属预期，不回退）。
 
-## 并行会话分工（2026-10-07 用户要求落盘）
+## 已知问题：转交与「工单侧动作」的交叉死锁（2026-10-07 实测，未修改业务代码）
+
+- **现象**：`TicketServiceIT.concurrentTransferAndWithdrawOnSameTicketHaveExactlyOneWinner` 在全量集成测试中偶发失败——同一个负责人、同一张工单上「转交」与「撤回补充请求」并发时，InnoDB 检测到死锁并回滚其中一个。
+- **机制**：转交按 `user_id` 升序先锁「原负责人 + 新负责人」两行 `iam_user`，再去改工单行；撤回先在工单行上做条件更新，随后插入 `ticket_record` 时因 `actor_user_id` 外键去申请同一条 `iam_user` 行的共享锁。两条路径的加锁顺序是 `user → ticket` 与 `ticket → user`，首尾相接成环。
+- **影响**：回滚是安全的（事务级原子回滚，版本只 +1、只多一条记录），但调用方拿到 `500/INTERNAL_ERROR`，而不是可以立刻重试的 `409/TICKET_CONFLICT`。
+- **当前处置**：`TicketServiceIT` 里该用例按真实行为断言——胜者唯一、不变量成立（版本 +1、只多一条记录），败者要么是 `409`，要么是 InnoDB 死锁回滚；**未放松其它断言**，也**未修改业务代码**。
+- **候选修法（待用户裁决，属业务代码改动）**：让 `TicketServiceImpl.transfer` **先锁工单行**（`TicketMapper.selectClaimConflictSnapshotForUpdate` 已有这条加锁查询）、**再按 `user_id` 升序锁两行用户**。这样所有动作都以工单行起手，环消失；IAM 侧「提交前锁住用户行并复核资格」的保证不受影响。代价是多一次工单行的加锁读。
+- **文档同步**：`docs/project-highlights.md` HL-011 已把这条边界写成「已知边界」段，讲解该条亮点时必须一并说明。
+
+## 遗留：演示库里的 3 个 E2E 账号
+
+- `E2E_ticket_isolation_436217` / `_516012` / `_596550` 是历史 E2E 用例（`frontend/e2e/tickets.spec.ts` 的数据隔离用例）留下的账号。本项目没有删除用户的接口，因此它们一直在库里；本轮**没有**删除它们（不是本轮创建的行）。如需回到「用户 3」的干净基线：
+
+  ```sql
+  DELETE ur FROM iam_user_role ur JOIN iam_user u ON u.id = ur.user_id
+   WHERE u.username LIKE 'E2E_ticket_isolation_%';
+  DELETE FROM iam_user WHERE username LIKE 'E2E_ticket_isolation_%';
+  ```
+
+## 工作树删除记录（2026-10-07）
+
+用户 2026-10-07 要求删除并行工作树 `D:\Idea\item\flow-Desk-sliceC`，随后明确要求**不保留**其中内容。已执行：
+
+- **已删除**：工作树目录 `D:\Idea\item\flow-Desk-sliceC`、本地分支 `flow-desk/ticket-adjust-transfer`（基点 `5e0e83e`）。远程从未有过同名分支。
+- **未保留**：该树当时有片 C 的**未提交**基础件（5 个改动文件、5 个新文件：三个 Command、`TicketAssigneeOptionResult`、`TicketAssigneeRow`、`TicketController` 的 `transfer-candidates` 与三个动作端点、两个服务接口、`TicketQueryServiceImpl`、`TicketMapper` 条件更新）。曾以提交 + 标签临时保全，按用户指示已删除该标签，并用 `git gc --prune=now` 让对象不可恢复。
+- **后果**：片 C 无任何代码存量，重新开工时按 `docs/implementation-plan.md` 9.3 与 `docs/api-design.md` 6.3 的既有契约从零写起；片 B 已合并的 `main` 不受影响。
+
+## 并行会话分工（2026-10-07 用户要求落盘）——**已失效，仅作历史记录**
+
+> 本节描述的两工作树并行模式于 2026-10-07 结束：会话 1 的片 B 已合并 `main`，会话 2 的工作树及其内容已按用户要求删除（见上一节）。
 
 两个会话同时推进，靠**两个独立 Git 工作树**隔离；开工时把本段整体粘给片 C 会话即可。
 
-| 项 | 会话 1（本文件所在工作树） | 会话 2（片 C） |
+| 项 | 会话 1（本文件所在工作树，片 B） | 会话 2（片 C） |
 | --- | --- | --- |
 | 工作目录 | `D:\Idea\item\flow-Desk` | `D:\Idea\item\flow-Desk-sliceC` |
-| 分支 | `flow-desk/ticket-supplement-roundtrip` | `flow-desk/ticket-adjust-transfer` |
-| 基点 | `5f4026f`（片 A 合并后的 main）→ 提交 `5e0e83e` | **`5e0e83e`（片 B 的提交，不是 main）** |
+| 分支 | `flow-desk/ticket-supplement-roundtrip`（**已合并，工作树现已切到 `flow-desk/ticket-adjust-transfer-2`**） | `flow-desk/ticket-adjust-transfer`（**基点仍停在 `5e0e83e`，尚未 rebase**） |
+| 基点 | `5f4026f`（片 A 合并后的 main）→ 提交 `5e0e83e`、`e3ed3f1`、`73524a4` | 目的基点是 **`aa0417b`（片 B 合并后的 main）**；该树当前 HEAD 是 `5e0e83e`，需按下方汇合顺序 2 处理 |
 | 交付 | 片 B 收口五项：测试补齐、前端接通、E2E、真实栈验收脚本与证据、文档与状态同步 | 片 C「调整与转交」：`change-category`、`change-priority`、`transfer` + `GET /transfer-candidates` |
+
+**分支命名的一处变化（2026-10-07 片 B 交接时）**：本次交接要在片 B 合并后的 `main` 上开新分支，但 `flow-desk/ticket-adjust-transfer` 已被会话 2 的 `D:\Idea\item\flow-Desk-sliceC` 工作树占用（Git 不允许同一分支在第二棵树检出）。为不动那棵树的检出与工作区，本工作树新建的等价分支命名为 **`flow-desk/ticket-adjust-transfer-2`**（从 `aa0417b` 创建并已推送）。若会话 2 决定改在本工作树继续片 C，再把那棵树的工作迁过来；否则两处保持各自的分支名。
 
 **文件归属（严格，越界即返工）**
 
@@ -37,8 +82,8 @@
 **汇合点与汇合顺序（写死）**
 
 1. 汇合文件只有两个：`PROJECT_STATUS.md` 与 `docs/implementation-plan.md` 9.3。**会话 1 先落自己那段，会话 2 后补**。
-2. 合并顺序：片 B 的 PR 先合 `main` → 会话 2 `git fetch && git rebase main`（片 C 尚未推送，改历史零风险；已推送则改用 merge）→ 片 C 再提 PR。
-3. **片 C 的基点不是 main**，所以片 B 合并前不要提片 C 的 PR：否则 PR 会连带片 B 的 1582 行改动。CI 只在 `pull_request` 与 push 到 `main` 时触发，片 C 分支推送前不消耗 CI。
+2. 合并顺序：片 B 的 PR 先合 `main`（**已于 2026-10-07 完成：PR #15 → `aa0417b`**）→ 会话 2 `git fetch && git rebase main`（片 C 尚未推送，改历史零风险；已推送则改用 merge）→ 片 C 再提 PR。
+3. **片 C 的基点原本不是 main**，所以片 B 合并前不要提片 C 的 PR：否则 PR 会连带片 B 的 1582 行改动。**该前提已消除**——片 B 已合入 `main`（`aa0417b`），会话 2 rebase 到 `main` 后即可正常提 PR；CI 只在 `pull_request` 与 push 到 `main` 时触发，片 C 分支推送前不消耗 CI。
 
 ## 片 A 观察项裁决：`supplement` 兜底的空值口径不改（2026-10-07 用户确认）
 

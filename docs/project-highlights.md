@@ -7,7 +7,7 @@
 - 本文档不是开发阶段的默认必读文件。只有新增亮点、准备简历或面试复盘时才读取。
 - 设计完成不等于已经实现；每条亮点必须明确当前状态，实际编码和测试完成后才能表述为“已实现”。
 
-## 当前状态总览（2026-10-06 核对）
+## 当前状态总览（2026-10-06 核对；2026-10-07 追加 HL-011 行）
 
 各条目正文的“当前状态”是写入当时的事实，按上一条规则不逐条改写；下表是截至 2026-10-06 的真实状态与证据位置。
 
@@ -23,8 +23,11 @@
 | HL-008 | 确认期限由配置计算、由 CHECK 约束兜底 | **已实现，并有自动化证据** | `TicketServiceImplTest`（7d 与自定义 1h 两组配置的精确期限）；`TicketServiceIT`（真实库断言 `ck_ticket_status_deadline` / `ck_ticket_status_ended` / `ck_ticket_status_completion_method` / `ck_ticket_status_assignee` 四条约束在动作前后都成立） |
 | HL-009 | 「动作提示」与「动作接口」的一致性（`allowedActions`） | **已实现，并有回归守卫**；本条本身来自一次真实缺陷（见 `docs/acceptance/2026-10-06-stage3-git-handoff.json`） | `TicketQueryServiceImplTest` 的 `allowedActions` 逐格用例（含 `submit-resolution` 必须与 `add-processing-record` 同时出现、顺序固定）；真实栈端到端 `frontend/e2e/ticket-it-flow.spec.ts` |
 | HL-010 | 演示数据与生产环境的隔离边界 | **已实现，并有自动化证据** | `DemoSeedProfileTest`（`db/demo` 只由 `demo` 位置加载，基础配置与 `prod`/`test` 都不含）；`src/main/resources/application-demo.yml` |
+| HL-011 | 跨模块不变量：条件更新之外为何还要固定顺序的行锁 | **已实现，并有自动化与真实栈证据**；同时记录了一处**交叉路径死锁**的边界（见该条「已知边界」） | `TicketServiceIT`（互转并发不死锁、锁后资格复核、同版本「转交 vs 撤回」并发）；`TicketServiceImplTest` 的锁顺序与资格复核用例；真实栈 `docs/acceptance/2026-10-07-slice-c-adjust-transfer.json`（127/127） |
 
 **对外表述口径**：HL-001～HL-010 全部可以作为“已实现并验证”的成果写入简历或面试讲解；其中 HL-007～HL-010 是 2026-10-06 阶段 3 收口与阶段 4 补测试后新增的证据，表述时必须带上对应的测试类名，不得只说“设计过”。
+
+**HL-011 已升级为“已实现并验证”（2026-10-07）**：片 C 的并发与资格竞态用例、真实栈验收（127/127）均已完成，可以按 HL-001～HL-010 同一口径引用；引用时要连**「已知边界」一起讲**——固定顺序的行锁解决了 IAM 侧的 check-then-act 竞态，但没有解决与"工单侧动作"之间的交叉死锁，那需要另一条顺序约定（先锁工单行再锁用户行）。
 
 ## HL-001 创建工单的幂等防重设计
 
@@ -530,3 +533,79 @@ Spring 默认代理模式下，从 Controller 等外部对象调用 Spring Servi
 ### 简历或面试表达参考
 
 "演示账号数据放在独立 Flyway location，由 profile 决定是否加载，并用一条测试断言 prod/test 都不加载它；演示口令只以 Argon2id 摘要入库。"
+
+## HL-011 跨模块不变量：为什么「条件更新」之外还需要固定顺序的行锁（2026-10-07）
+
+### 当前状态
+
+**已实现，并有自动化与真实栈证据（2026-10-07）**：`TicketServiceIT` 覆盖互转并发不死锁、锁后资格复核（并发撤角色）与同版本「转交 vs 撤回」并发；`TicketServiceImplTest` 覆盖锁顺序与双方资格复核；真实栈脚本 `scripts/slice-c-adjust-transfer-acceptance.ps1` 在 8092 上 **127/127 断言通过、退出码 0**（证据 `docs/acceptance/2026-10-07-slice-c-adjust-transfer.json`）。**但下面的「已知边界」必须与结论一起讲**：固定顺序的行锁挡的是 IAM 侧的 check-then-act，挡不住与工单侧动作之间的交叉死锁。
+
+### 问题背景
+
+转交的写入口是一条带条件的 `UPDATE`（`TicketMapper.transfer`）：
+
+```sql
+UPDATE ticket
+SET assignee_id = #{newAssigneeId}, version = version + 1,
+    record_seq = record_seq + 1, updated_at = #{now}
+WHERE id = #{ticketId}
+  AND version = #{expectedVersion}
+  AND status IN ('PROCESSING', 'WAITING_FOR_REQUESTER')
+  AND assignee_id = #{actorId}
+  AND requester_id <> #{newAssigneeId}
+```
+
+它本身已经是“唯一胜者判定”，于是很容易产生一个疑问：既然最终写入是这条条件更新，为什么 `TicketServiceImpl.transfer` 还要按 `user_id` 升序锁住「当前负责人 + 新负责人」两行，并在锁后复核两人的资格？
+
+### 设计方案
+
+两个层面各自守一批数据、各自封一个竞态，不能互相替代。
+
+| 不变量 | 数据所在 | 由谁保证 |
+| --- | --- | --- |
+| 版本未被别人推进、状态可转交、操作人仍是当前负责人、新负责人不是提交人 | `ticket` 一张表 | 条件更新：单语句原子，影响行数不为 1 即 `409/TICKET_CONFLICT` |
+| 新负责人**启用中**且**仍持有 `IT_SUPPORT`** | `iam_user.status`、`iam_user_role` | 应用层复核（跨表进不了这条 `WHERE`） |
+| 操作人自己仍然合格 | 同上 | 锁后复核（`actorLocked`） |
+
+- **跨表资格无法进 `WHERE`**：能否成为负责人取决于 IAM 两张表，`ticket` 的条件更新表达不了；“先查后写”之间的空档必须用行锁堵住，否则就是 check-then-act 竞态。
+- **不加锁时的具体交错**：T1 判定 B 合格 → T2（管理端）停用 B 或撤销其 `IT_SUPPORT` 并提交 → T1 的条件更新提交。这次写入在 `transfer` 的 `WHERE` 里全部合法，结果却是工单负责人已经失效，违反 `docs/business-model.md`「停用账号不能领取工单，也不能成为转交目标」与 `docs/kickoff.md` 4.6「只能转交给状态正常、可以处理工单的 IT 支持人员」。
+- **`SELECT ... FOR UPDATE` 是当前读**：普通 `SELECT` 在 REPEATABLE READ 下是快照读，连“最新已提交值”都不保证读到；加锁读读到最新已提交版本并持有该行排他锁直到事务提交，才能把“复核”与“IAM 写入”排出确定先后。
+- **两侧锁的是同一批行，所以真的互斥**：IAM 的写路径本来就用 `selectByIdForUpdate(userId)` / `selectByUserIdForUpdate(userId)`（账号状态变更、用户角色授权与回收）。于是只剩两种顺序：IAM 先提交 → 复核读到新值返回 `null` → 400/403，转交不发生；本事务先提交 → IAM 的写入阻塞到本事务提交之后，“转交那一刻他确实合格”成立。**“复核通过 → 撤权提交 → 转交提交”这种交叉不可能出现。**
+- **锁两行而不是一行**：新负责人那行是上述判定必须锁的；操作人那行是纵深防御——停用/撤权会撤销 Redis 会话，请求通常在认证过滤器就被挡下，剩下的是“已过过滤器、IAM 变更随后提交”的在途窗口（`TicketReadPermissionPort.hasAuthority` 读的是会话快照里的权限码，不是数据库真值）。顺带把 `newAssignee` 摘要（含 `displayName`）作为这次加锁读的结果返回，省掉一次查询。
+- **升序取锁 = 防 AB-BA 死锁**：若两个事务各自“先锁自己、再锁对方”，`A 转给 B` 与 `B 转给 A` 并发就是死锁，InnoDB 只会回滚其中一个，用户看到的是本可成功的转交失败。按 `user_id` 升序是与“谁转给谁”无关的全局顺序；`min`/`max` 之后用三元表达式把“按锁顺序拿到的两个结果”重新贴回业务身份——**取锁顺序 ≠ 语义身份**。两行必然不同的前提是“转给自己”“转给提交人”在拿锁之前已被拒（字段级校验先于加锁）。
+- **条件更新不能删**：两把 `user` 行的锁挡不住工单侧并发（提交解决结果、员工撤销、超时或异常关闭都不写 IAM 行），“唯一胜者”只能继续由 `transfer` 的 `version/status/assignee_id` 判定。
+- **与 IAM 批量授权路径的锁顺序一致**：`IamUserRoleServiceImpl.grantUsers` 先把 `userIds` 去重排序再批量加锁，与本路径同为 user 行升序；本路径读角色用普通 `selectOne`（见 2026-09-30「移除全局角色行锁」条目），不锁公共角色行，因此不形成新的跨模块 AB-BA。
+
+一句话：**行锁守“跨模块资格”这条不变量，条件更新守“工单行”这条不变量；写 IAM 的人不碰 ticket 行，写 ticket 的人也不替 IAM 做判定。**
+
+### 为什么这样设计
+
+- 不变量住在哪张表，防线就放在哪一层：能进 `WHERE` 的（版本、状态、负责人）一律下沉到 SQL，进不去的（跨模块资格）才拿锁——锁的范围被压到最小，不同工单之间的转交互不影响。
+- 用“持有同一批行的锁”替代“多读一次最新值”：前者给出的是顺序保证，后者只给出一个可能立刻过期的观察。
+- 代价花在低频的转交动作上（两把行锁 + 三次加锁读），而不是高频路径；同一工单的并发仍由条件更新收敛，不靠锁整张表。
+
+### 后续实现与测试重点
+
+- 并发用例（`docs/implementation-plan.md` 9.3 片 C 已登记）：`A 转给 B` 与 `B 转给 A` 真并发时两边都不因死锁被回滚，最终负责人是其中之一，时间线只有一条 `TRANSFER`。
+- 资格竞态用例：转交提交与“停用新负责人 / 撤销其 `IT_SUPPORT`”并发时，不允许出现“负责人已失效”的提交结果，两种提交顺序都必须收敛到一致状态。
+- 语义耦合待确认：`IamTicketClaimantAdapter.lockEligibleClaimant` 里的 `IT_SUPPORT` 是硬编码角色码。当前 `V2__seed_rbac.sql` 只把 `TICKET_TRANSFER` 授予 `IT_SUPPORT`，与“不能转交给系统管理员”一致；若将来通过动态 RBAC 把该权限授予其他角色，会出现“权限检查放行、资格复核 403”的不一致，届时两处要一起改。
+- 退出路径待确认：若工单进行中管理端撤销了当前负责人的 `IT_SUPPORT`，该用户无法再把工单转出，只能依赖管理性交接（`TICKET_ADMIN_HANDOFF` 目前尚未实现）。
+
+### 已知边界：与「工单侧动作」并发时的交叉死锁（2026-10-07 实测发现）
+
+固定顺序的行锁挡住了 IAM 侧的 AB-BA，但**没有**挡住与工单侧动作之间的另一种环：
+
+| 事务 | 先拿 | 再要 |
+| --- | --- | --- |
+| T1 转交 | `iam_user`（原负责人、新负责人两行，升序 X 锁） | `ticket` 行（条件更新） |
+| T2 撤回补充请求（同一个人、同一张工单） | `ticket` 行（条件更新 X 锁） | 同一条 `iam_user` 行（插入 `ticket_record` 时 `actor_user_id` 外键取共享锁） |
+
+两条路径的加锁顺序正好相反（`user → ticket` 对 `ticket → user`），InnoDB 会检测成环并回滚其中一个。**实测**：`TicketServiceIT.concurrentTransferAndWithdrawOnSameTicketHaveExactlyOneWinner` 在全量集成测试中偶发失败，原因是其中一个事务被死锁回滚，抛出的是 `DataAccessException` 而不是 `409/TICKET_CONFLICT`。回滚本身是安全的（版本只 +1、只多一条记录，用例逐条核对了这两个不变量），但用户拿到的是 `500/INTERNAL_ERROR`，而不是可以立刻重试的冲突响应。
+
+**候选修法**（属业务代码改动，尚未实施）：让转交**先锁工单行、再按 `user_id` 升序锁两行用户**。其他动作都是先拿到工单行（条件 `UPDATE`，或记录插入时的外键），统一成 `ticket → user` 之后环就不存在了；而 IAM 侧的保证不受影响——用户行仍然在提交前被锁住并复核。代价是多一次工单行的加锁读。
+
+这条边界值得保留在讲解里：它说明"用锁解决跨模块竞态"必须**连同锁的获取顺序一起设计**，只把两行锁按 id 排序只解决了同一族事务之间的环。
+
+### 简历或面试表达参考
+
+“转交的最终写入是一条带版本、状态、原负责人条件的 `UPDATE`，但‘新负责人是否仍是启用中的 IT 支持人员’这条不变量住在 IAM 两张表里，进不了这条 `WHERE`。所以我按 `user_id` 升序锁住操作人与新负责人两行做资格复核：升序是为了让互转并发不产生 AB-BA 死锁，锁的又正是 IAM 写路径同样会锁的行，从而让‘复核’与‘撤销角色’有确定先后，杜绝‘复核通过后对方被停用’的窗口；工单侧并发仍由条件更新做唯一胜者判定。**同时我们也实测到这套锁与工单侧动作之间还存在一种交叉死锁——因为记录表的外键会让持锁顺序反过来，这正是把死锁当成设计问题而不是偶发故障来对待的地方。**”
