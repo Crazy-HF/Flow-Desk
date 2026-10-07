@@ -2,6 +2,8 @@ package com.flowdesk.ticket.application.service.impl;
 
 import com.flowdesk.common.exception.ApiException;
 import com.flowdesk.ticket.application.command.AddProcessingRecordCommand;
+import com.flowdesk.ticket.application.command.ChangeCategoryCommand;
+import com.flowdesk.ticket.application.command.ChangePriorityCommand;
 import com.flowdesk.ticket.application.command.ClaimTicketCommand;
 import com.flowdesk.ticket.application.command.ConfirmResolutionCommand;
 import com.flowdesk.ticket.application.command.CreateTicketCommand;
@@ -9,6 +11,7 @@ import com.flowdesk.ticket.application.command.ReportUnresolvedCommand;
 import com.flowdesk.ticket.application.command.RequestSupplementCommand;
 import com.flowdesk.ticket.application.command.SubmitResolutionCommand;
 import com.flowdesk.ticket.application.command.SupplementCommand;
+import com.flowdesk.ticket.application.command.TransferCommand;
 import com.flowdesk.ticket.application.command.WithdrawSupplementRequestCommand;
 import com.flowdesk.ticket.application.port.CategoryAvailabilityPort;
 import com.flowdesk.ticket.application.port.CurrentRequesterPort;
@@ -29,7 +32,11 @@ import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -57,6 +64,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -94,17 +102,26 @@ class TicketServiceImplTest {
     private static final long REQUESTER_ID = 42L;
     private static final long IT_USER_ID = 7L;
     private static final long OTHER_IT_USER_ID = 9L;
+    private static final long NEW_IT_USER_ID = 11L;
     private static final long TICKET_ID = 1001L;
     private static final long CATEGORY_ID = 3L;
+    private static final long NEW_CATEGORY_ID = 4L;
 
     private static final String TICKET_NO = "FD-20261006-001";
     private static final String IT_DISPLAY_NAME = "演示 IT 支持人员";
+    private static final String OTHER_IT_DISPLAY_NAME = "演示 IT 二号";
+    private static final String NEW_IT_DISPLAY_NAME = "演示 IT 三号";
     private static final String PENDING = "PENDING";
     private static final String PROCESSING = "PROCESSING";
     private static final String WAITING_FOR_REQUESTER = "WAITING_FOR_REQUESTER";
     private static final String WAITING_FOR_CONFIRMATION = "WAITING_FOR_CONFIRMATION";
     private static final String COMPLETED = "COMPLETED";
     private static final String HIGH = "HIGH";
+    private static final String LOW = "LOW";
+
+    /** 「待补充」工单的有效期限，用于断言调整与转交都不会让它失效。 */
+    private static final LocalDateTime SUPPLEMENT_DEADLINE =
+            LocalDateTime.of(2026, 10, 13, 8, 15, 30);
 
     private static final String SUBMISSION_KEY = "3f1c9f4e-2a6b-4b7c-8d9e-0a1b2c3d4e5f";
     private static final TicketProperties DEFAULT_PROPERTIES =
@@ -1854,6 +1871,995 @@ class TicketServiceImplTest {
         verifyNoInteractions(ticketRecordMapper);
     }
 
+    // ---------- changeCategory ----------
+
+    /**
+     * 调整分类的第一道门禁是 {@code TICKET_PROCESS}，且必须在读可见性之前——
+     * 否则无权限的调用者能借响应差异区分"工单是否存在"。
+     */
+    @Test
+    void changeCategoryRejectsActorWithoutProcessAuthority() {
+        when(currentRequesterPort.currentUserId()).thenReturn(IT_USER_ID);
+        when(ticketReadPermissionPort.hasAuthority("TICKET_PROCESS")).thenReturn(false);
+
+        assertApiException(
+                () -> service.changeCategory(TICKET_NO,
+                        new ChangeCategoryCommand(5L, NEW_CATEGORY_ID, "分类选错了")),
+                HttpStatus.FORBIDDEN, "TICKET_ACTION_FORBIDDEN");
+
+        verify(ticketMapper, never())
+                .selectVisibleDetail(any(), anyLong(), anyBoolean(), anyBoolean(), anyBoolean());
+        verify(ticketMapper, never())
+                .changeCategory(anyLong(), anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /**
+     * 编号不存在或调用者不可见时必须是 {@code 404/TICKET_NOT_FOUND}。
+     *
+     * <p>本用例是片 C 抓到的真实缺陷的回归守卫：{@code changeCategory} 一开始漏了
+     * {@code visible == null} 判断，同文件其余 10 处 {@code selectVisibleDetail} 都有。
+     * 缺这一步会让 {@code visible.getStatus()} 直接 NPE，HTTP 上表现为
+     * {@code 500/INTERNAL_ERROR}——与"不可见与不存在统一 404"的约定冲突。
+     * 判空顺序同样重要：它必须早于状态/负责人/版本判定，否则 404 会先变成 409。</p>
+     */
+    @Test
+    void changeCategoryReportsNotFoundWhenTicketIsNotVisible() {
+        stubProcessActor();
+
+        assertApiException(
+                () -> service.changeCategory(TICKET_NO,
+                        new ChangeCategoryCommand(5L, NEW_CATEGORY_ID, "分类选错了")),
+                HttpStatus.NOT_FOUND, "TICKET_NOT_FOUND");
+
+        verify(ticketMapper, never())
+                .changeCategory(anyLong(), anyLong(), anyLong(), anyLong(), any());
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    /** 只允许「处理中」与「待补充」：其他状态按冲突返回，并带上可见快照。 */
+    @Test
+    void changeCategoryReportsConflictWhenTicketIsNotAdjustable() {
+        stubProcessActor();
+        stubVisible(detailRow(PENDING, null, 5L));
+
+        ApiException exception = assertApiException(
+                () -> service.changeCategory(TICKET_NO,
+                        new ChangeCategoryCommand(5L, NEW_CATEGORY_ID, "分类选错了")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).as("冲突响应携带可见快照版本").isEqualTo(5L);
+        assertThat(exception.resourceStatus()).as("冲突响应携带可见快照状态").isEqualTo(PENDING);
+        verify(ticketMapper, never())
+                .changeCategory(anyLong(), anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /** 有处理权限但不是当前负责人：按冲突返回，不用 403 暴露"谁是负责人"。 */
+    @Test
+    void changeCategoryReportsConflictWhenActorIsNotTheCurrentAssignee() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, OTHER_IT_USER_ID, 5L));
+
+        ApiException exception = assertApiException(
+                () -> service.changeCategory(TICKET_NO,
+                        new ChangeCategoryCommand(5L, NEW_CATEGORY_ID, "分类选错了")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).isEqualTo(5L);
+        assertThat(exception.resourceStatus()).isEqualTo(PROCESSING);
+        verify(ticketMapper, never())
+                .changeCategory(anyLong(), anyLong(), anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void changeCategoryReportsConflictWhenTicketHasNoAssignee() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, null, 5L));
+
+        assertApiException(
+                () -> service.changeCategory(TICKET_NO,
+                        new ChangeCategoryCommand(5L, NEW_CATEGORY_ID, "分类选错了")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never())
+                .changeCategory(anyLong(), anyLong(), anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void changeCategoryReportsConflictWhenCommandVersionIsStale() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+
+        ApiException exception = assertApiException(
+                () -> service.changeCategory(TICKET_NO,
+                        new ChangeCategoryCommand(4L, NEW_CATEGORY_ID, "分类选错了")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).as("冲突响应携带可见快照版本").isEqualTo(5L);
+        assertThat(exception.resourceStatus()).isEqualTo(PROCESSING);
+        verify(ticketMapper, never())
+                .changeCategory(anyLong(), anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /** 校验顺序：状态/负责人/版本冲突先于原因长度与分类有效性。 */
+    @Test
+    void changeCategoryReportsConflictBeforeValidatingReasonAndCategory() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+
+        assertApiException(
+                () -> service.changeCategory(TICKET_NO,
+                        new ChangeCategoryCommand(4L, NEW_CATEGORY_ID, "   ")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verifyNoInteractions(categoryAvailabilityPort);
+        verify(ticketMapper, never())
+                .changeCategory(anyLong(), anyLong(), anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void changeCategoryRejectsBlankReasonWhenVersionMatches() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+
+        assertApiException(
+                () -> service.changeCategory(TICKET_NO,
+                        new ChangeCategoryCommand(5L, NEW_CATEGORY_ID, "   ")),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verifyNoInteractions(categoryAvailabilityPort);
+        verify(ticketMapper, never())
+                .changeCategory(anyLong(), anyLong(), anyLong(), anyLong(), any());
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    /** 非 HTTP 调用方给出 null 原因时与空白原因同一处理：400，不是 NPE。 */
+    @Test
+    void changeCategoryRejectsNullReasonWithoutThrowing() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+
+        assertApiException(
+                () -> service.changeCategory(TICKET_NO,
+                        new ChangeCategoryCommand(5L, NEW_CATEGORY_ID, null)),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verify(ticketMapper, never())
+                .changeCategory(anyLong(), anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /** 说明上限 1000：超一个字符就归入 400，不能落库成被截断的说明。 */
+    @Test
+    void changeCategoryRejectsReasonOverLimit() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+
+        assertApiException(
+                () -> service.changeCategory(TICKET_NO,
+                        new ChangeCategoryCommand(5L, NEW_CATEGORY_ID, "a".repeat(1001))),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verify(ticketMapper, never())
+                .changeCategory(anyLong(), anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /** 目标分类必须存在且启用：停用分类不能再被选为当前分类。 */
+    @Test
+    void changeCategoryRejectsDisabledCategory() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        when(categoryAvailabilityPort.isEnabled(NEW_CATEGORY_ID)).thenReturn(false);
+
+        assertApiException(
+                () -> service.changeCategory(TICKET_NO,
+                        new ChangeCategoryCommand(5L, NEW_CATEGORY_ID, "分类选错了")),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verify(ticketMapper, never())
+                .changeCategory(anyLong(), anyLong(), anyLong(), anyLong(), any());
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    /** 成功路径：条件更新的五个入参、时间线记录与返回摘要三处必须一致。 */
+    @Test
+    void changeCategoryReplacesCategoryAndKeepsStatusAndAssignee() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        when(categoryAvailabilityPort.isEnabled(NEW_CATEGORY_ID)).thenReturn(true);
+        when(ticketMapper.changeCategory(TICKET_ID, 5L, IT_USER_ID, NEW_CATEGORY_ID, NOW_UTC))
+                .thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 6, 6L));
+        when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
+
+        TicketActionResult result = service.changeCategory(TICKET_NO,
+                new ChangeCategoryCommand(5L, NEW_CATEGORY_ID, "  分类选错了  "));
+
+        verify(ticketMapper).changeCategory(TICKET_ID, 5L, IT_USER_ID, NEW_CATEGORY_ID, NOW_UTC);
+        verify(ticketMapper, never())
+                .changePriority(anyLong(), anyLong(), anyLong(), any(), any());
+
+        ArgumentCaptor<TicketRecord> records = ArgumentCaptor.forClass(TicketRecord.class);
+        verify(ticketRecordMapper).insert(records.capture());
+        TicketRecord record = records.getValue();
+        assertThat(record.getRecordType()).isEqualTo("CATEGORY_CHANGE");
+        assertThat(record.getSequenceNo()).as("序号取递增后的 recordSeq").isEqualTo(6);
+        assertThat(record.getActorType()).isEqualTo("USER");
+        assertThat(record.getActorUserId()).isEqualTo(IT_USER_ID);
+        assertThat(record.getReason()).as("说明去除首尾空白后落库").isEqualTo("分类选错了");
+        assertThat(record.getContent()).as("调整动作没有正文").isNull();
+        assertThat(record.getFromCategoryId()).isEqualTo(CATEGORY_ID);
+        assertThat(record.getToCategoryId()).isEqualTo(NEW_CATEGORY_ID);
+        assertThat(record.getFromPriority()).as("分类调整不写优先级快照").isNull();
+        assertThat(record.getToPriority()).isNull();
+        assertThat(record.getFromStatus()).as("状态没变，两侧写同一个状态")
+                .isEqualTo(PROCESSING);
+        assertThat(record.getToStatus()).isEqualTo(PROCESSING);
+        assertThat(record.getCreatedAt()).as("落库时间按 UTC 毫秒截断").isEqualTo(NOW_UTC);
+
+        assertThat(result.ticketNo()).isEqualTo(TICKET_NO);
+        assertThat(result.status()).as("状态不变").isEqualTo(PROCESSING);
+        assertThat(result.assignee()).as("负责人不变，摘要取可见快照")
+                .isEqualTo(new TicketUserSummaryResult(IT_USER_ID, IT_DISPLAY_NAME));
+        assertThat(result.actionDeadlineAt()).as("处理中本来就没有期限").isNull();
+        assertThat(result.version()).isEqualTo(6L);
+        assertThat(result.actionTime()).isEqualTo(NOW.atOffset(ZoneOffset.UTC));
+    }
+
+    /** 「待补充」也能调整分类：状态与期限都不动，期限原样回给调用方。 */
+    @Test
+    void changeCategoryKeepsSupplementDeadlineWhileWaitingForRequester() {
+        stubProcessActor();
+        TicketDetailRow row = detailRow(WAITING_FOR_REQUESTER, IT_USER_ID, 5L);
+        row.setActionDeadlineAt(SUPPLEMENT_DEADLINE);
+        stubVisible(row);
+        when(categoryAvailabilityPort.isEnabled(NEW_CATEGORY_ID)).thenReturn(true);
+        when(ticketMapper.changeCategory(TICKET_ID, 5L, IT_USER_ID, NEW_CATEGORY_ID, NOW_UTC))
+                .thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 6, 6L));
+        when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
+
+        TicketActionResult result = service.changeCategory(TICKET_NO,
+                new ChangeCategoryCommand(5L, NEW_CATEGORY_ID, "分类选错了"));
+
+        assertThat(result.status()).isEqualTo(WAITING_FOR_REQUESTER);
+        assertThat(result.actionDeadlineAt()).as("调整不碰期限，待补充的截止时间仍然有效")
+                .isEqualTo(SUPPLEMENT_DEADLINE.atOffset(ZoneOffset.UTC));
+    }
+
+    /**
+     * 调整成同一个分类也放行。
+     *
+     * <p>契约没有把"值没变"列为字段错误（`docs/api-design.md` 6.3 只要求目标分类启用），
+     * 服务端保持单一判定；前端负责在"值未变化"时禁用提交按钮，避免用户凭空多出一条调整记录。</p>
+     */
+    @Test
+    void changeCategoryAcceptsTheSameCategoryAsNoOpChange() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        when(categoryAvailabilityPort.isEnabled(CATEGORY_ID)).thenReturn(true);
+        when(ticketMapper.changeCategory(TICKET_ID, 5L, IT_USER_ID, CATEGORY_ID, NOW_UTC))
+                .thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 6, 6L));
+        when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
+
+        service.changeCategory(TICKET_NO,
+                new ChangeCategoryCommand(5L, CATEGORY_ID, "确认分类无误"));
+
+        ArgumentCaptor<TicketRecord> records = ArgumentCaptor.forClass(TicketRecord.class);
+        verify(ticketRecordMapper).insert(records.capture());
+        assertThat(records.getValue().getFromCategoryId())
+                .as("原分类与新分类相同，仍然留下一条可追溯记录")
+                .isEqualTo(CATEGORY_ID);
+        assertThat(records.getValue().getToCategoryId()).isEqualTo(CATEGORY_ID);
+    }
+
+    @Test
+    void changeCategoryReportsConflictWithReloadedSnapshotWhenConditionalUpdateLoses() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        when(categoryAvailabilityPort.isEnabled(NEW_CATEGORY_ID)).thenReturn(true);
+        when(ticketMapper.changeCategory(TICKET_ID, 5L, IT_USER_ID, NEW_CATEGORY_ID, NOW_UTC))
+                .thenReturn(0);
+        when(ticketMapper.selectClaimConflictSnapshotForUpdate(TICKET_ID))
+                .thenReturn(conflictSnapshot(WAITING_FOR_REQUESTER, 6L));
+
+        ApiException exception = assertApiException(
+                () -> service.changeCategory(TICKET_NO,
+                        new ChangeCategoryCommand(5L, NEW_CATEGORY_ID, "分类选错了")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).as("携带读回的最新版本").isEqualTo(6L);
+        assertThat(exception.resourceStatus()).as("携带读回的最新状态")
+                .isEqualTo(WAITING_FOR_REQUESTER);
+        verify(ticketMapper, never()).selectById(TICKET_ID);
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    @Test
+    void changeCategoryFailsWhenConflictSnapshotCannotBeRead() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        when(categoryAvailabilityPort.isEnabled(NEW_CATEGORY_ID)).thenReturn(true);
+        when(ticketMapper.changeCategory(TICKET_ID, 5L, IT_USER_ID, NEW_CATEGORY_ID, NOW_UTC))
+                .thenReturn(0);
+        when(ticketMapper.selectClaimConflictSnapshotForUpdate(TICKET_ID)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.changeCategory(TICKET_NO,
+                new ChangeCategoryCommand(5L, NEW_CATEGORY_ID, "分类选错了")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("调整分类冲突后无法读取工单快照");
+    }
+
+    @Test
+    void changeCategoryFailsWhenUpdatedTicketSnapshotIsMissing() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        when(categoryAvailabilityPort.isEnabled(NEW_CATEGORY_ID)).thenReturn(true);
+        when(ticketMapper.changeCategory(TICKET_ID, 5L, IT_USER_ID, NEW_CATEGORY_ID, NOW_UTC))
+                .thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.changeCategory(TICKET_NO,
+                new ChangeCategoryCommand(5L, NEW_CATEGORY_ID, "分类选错了")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("调整分类后无法读取工单快照");
+
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    // ---------- changePriority ----------
+
+    @Test
+    void changePriorityRejectsActorWithoutProcessAuthority() {
+        when(currentRequesterPort.currentUserId()).thenReturn(IT_USER_ID);
+        when(ticketReadPermissionPort.hasAuthority("TICKET_PROCESS")).thenReturn(false);
+
+        assertApiException(
+                () -> service.changePriority(TICKET_NO,
+                        new ChangePriorityCommand(5L, LOW, "影响面缩小")),
+                HttpStatus.FORBIDDEN, "TICKET_ACTION_FORBIDDEN");
+
+        verify(ticketMapper, never())
+                .selectVisibleDetail(any(), anyLong(), anyBoolean(), anyBoolean(), anyBoolean());
+        verify(ticketMapper, never())
+                .changePriority(anyLong(), anyLong(), anyLong(), any(), any());
+    }
+
+    @Test
+    void changePriorityReportsNotFoundWhenTicketIsNotVisible() {
+        stubProcessActor();
+
+        assertApiException(
+                () -> service.changePriority(TICKET_NO,
+                        new ChangePriorityCommand(5L, LOW, "影响面缩小")),
+                HttpStatus.NOT_FOUND, "TICKET_NOT_FOUND");
+
+        verify(ticketMapper, never())
+                .changePriority(anyLong(), anyLong(), anyLong(), any(), any());
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    @Test
+    void changePriorityReportsConflictWhenTicketIsNotAdjustable() {
+        stubProcessActor();
+        stubVisible(detailRow(WAITING_FOR_CONFIRMATION, IT_USER_ID, 5L));
+
+        ApiException exception = assertApiException(
+                () -> service.changePriority(TICKET_NO,
+                        new ChangePriorityCommand(5L, LOW, "影响面缩小")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).isEqualTo(5L);
+        assertThat(exception.resourceStatus()).isEqualTo(WAITING_FOR_CONFIRMATION);
+        verify(ticketMapper, never())
+                .changePriority(anyLong(), anyLong(), anyLong(), any(), any());
+    }
+
+    @Test
+    void changePriorityReportsConflictWhenActorIsNotTheCurrentAssignee() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, OTHER_IT_USER_ID, 5L));
+
+        assertApiException(
+                () -> service.changePriority(TICKET_NO,
+                        new ChangePriorityCommand(5L, LOW, "影响面缩小")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never())
+                .changePriority(anyLong(), anyLong(), anyLong(), any(), any());
+    }
+
+    @Test
+    void changePriorityReportsConflictWhenTicketHasNoAssignee() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, null, 5L));
+
+        assertApiException(
+                () -> service.changePriority(TICKET_NO,
+                        new ChangePriorityCommand(5L, LOW, "影响面缩小")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never())
+                .changePriority(anyLong(), anyLong(), anyLong(), any(), any());
+    }
+
+    @Test
+    void changePriorityReportsConflictWhenCommandVersionIsStale() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+
+        ApiException exception = assertApiException(
+                () -> service.changePriority(TICKET_NO,
+                        new ChangePriorityCommand(4L, LOW, "影响面缩小")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).isEqualTo(5L);
+        assertThat(exception.resourceStatus()).isEqualTo(PROCESSING);
+    }
+
+    /** 校验顺序：状态/负责人/版本冲突先于原因长度与优先级取值。 */
+    @Test
+    void changePriorityReportsConflictBeforeValidatingReasonAndPriority() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+
+        assertApiException(
+                () -> service.changePriority(TICKET_NO,
+                        new ChangePriorityCommand(4L, "URGENT", "   ")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never())
+                .changePriority(anyLong(), anyLong(), anyLong(), any(), any());
+    }
+
+    @Test
+    void changePriorityRejectsBlankReasonWhenVersionMatches() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+
+        assertApiException(
+                () -> service.changePriority(TICKET_NO,
+                        new ChangePriorityCommand(5L, LOW, "   ")),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verify(ticketMapper, never())
+                .changePriority(anyLong(), anyLong(), anyLong(), any(), any());
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    @Test
+    void changePriorityRejectsNullReasonWithoutThrowing() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+
+        assertApiException(
+                () -> service.changePriority(TICKET_NO,
+                        new ChangePriorityCommand(5L, LOW, null)),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verify(ticketMapper, never())
+                .changePriority(anyLong(), anyLong(), anyLong(), any(), any());
+    }
+
+    @Test
+    void changePriorityRejectsReasonOverLimit() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+
+        assertApiException(
+                () -> service.changePriority(TICKET_NO,
+                        new ChangePriorityCommand(5L, LOW, "a".repeat(1001))),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verify(ticketMapper, never())
+                .changePriority(anyLong(), anyLong(), anyLong(), any(), any());
+    }
+
+    /**
+     * 优先级取值以 {@code TicketPriority} 枚举为准。
+     *
+     * <p>HTTP 入口的 {@code @Pattern} 会挡住这些取值，但服务被脚本、集成测试或其它服务
+     * 直接调用时不走 Bean Validation，因此服务层必须自己兜底，而不是等数据库的
+     * {@code ck_ticket_priority} 抛异常变成 500。</p>
+     */
+    @ParameterizedTest(name = "priority [{0}] is rejected")
+    @NullSource
+    @ValueSource(strings = {"low", "Urgent", "URGENT", "", "   "})
+    void changePriorityRejectsPriorityOutsideEnum(String priority) {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+
+        assertApiException(
+                () -> service.changePriority(TICKET_NO,
+                        new ChangePriorityCommand(5L, priority, "影响面缩小")),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verify(ticketMapper, never())
+                .changePriority(anyLong(), anyLong(), anyLong(), any(), any());
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    /** 成功路径：原优先级 → 新优先级 + 说明，状态与负责人都不动。 */
+    @Test
+    void changePriorityReplacesPriorityAndKeepsStatusAndAssignee() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        when(ticketMapper.changePriority(TICKET_ID, 5L, IT_USER_ID, LOW, NOW_UTC)).thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 6, 6L));
+        when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
+
+        TicketActionResult result = service.changePriority(TICKET_NO,
+                new ChangePriorityCommand(5L, LOW, "  影响面缩小  "));
+
+        verify(ticketMapper).changePriority(TICKET_ID, 5L, IT_USER_ID, LOW, NOW_UTC);
+        verify(ticketMapper, never())
+                .changeCategory(anyLong(), anyLong(), anyLong(), anyLong(), any());
+
+        ArgumentCaptor<TicketRecord> records = ArgumentCaptor.forClass(TicketRecord.class);
+        verify(ticketRecordMapper).insert(records.capture());
+        TicketRecord record = records.getValue();
+        assertThat(record.getRecordType()).isEqualTo("PRIORITY_CHANGE");
+        assertThat(record.getSequenceNo()).isEqualTo(6);
+        assertThat(record.getActorUserId()).isEqualTo(IT_USER_ID);
+        assertThat(record.getReason()).isEqualTo("影响面缩小");
+        assertThat(record.getFromPriority()).isEqualTo(HIGH);
+        assertThat(record.getToPriority()).isEqualTo(LOW);
+        assertThat(record.getFromCategoryId()).as("优先级调整不写分类快照").isNull();
+        assertThat(record.getToCategoryId()).isNull();
+        assertThat(record.getFromStatus()).isEqualTo(PROCESSING);
+        assertThat(record.getToStatus()).isEqualTo(PROCESSING);
+        assertThat(record.getCreatedAt()).isEqualTo(NOW_UTC);
+
+        assertThat(result.status()).isEqualTo(PROCESSING);
+        assertThat(result.assignee())
+                .isEqualTo(new TicketUserSummaryResult(IT_USER_ID, IT_DISPLAY_NAME));
+        assertThat(result.actionDeadlineAt()).isNull();
+        assertThat(result.version()).isEqualTo(6L);
+    }
+
+    /** 「待补充」也能调整优先级：期限原样有效，不因为一次调整而失效。 */
+    @Test
+    void changePriorityKeepsSupplementDeadlineWhileWaitingForRequester() {
+        stubProcessActor();
+        TicketDetailRow row = detailRow(WAITING_FOR_REQUESTER, IT_USER_ID, 5L);
+        row.setActionDeadlineAt(SUPPLEMENT_DEADLINE);
+        stubVisible(row);
+        when(ticketMapper.changePriority(TICKET_ID, 5L, IT_USER_ID, LOW, NOW_UTC)).thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 6, 6L));
+        when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
+
+        TicketActionResult result = service.changePriority(TICKET_NO,
+                new ChangePriorityCommand(5L, LOW, "影响面缩小"));
+
+        assertThat(result.status()).isEqualTo(WAITING_FOR_REQUESTER);
+        assertThat(result.actionDeadlineAt())
+                .isEqualTo(SUPPLEMENT_DEADLINE.atOffset(ZoneOffset.UTC));
+    }
+
+    @Test
+    void changePriorityReportsConflictWithReloadedSnapshotWhenConditionalUpdateLoses() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        when(ticketMapper.changePriority(TICKET_ID, 5L, IT_USER_ID, LOW, NOW_UTC)).thenReturn(0);
+        when(ticketMapper.selectClaimConflictSnapshotForUpdate(TICKET_ID))
+                .thenReturn(conflictSnapshot(PROCESSING, 7L));
+
+        ApiException exception = assertApiException(
+                () -> service.changePriority(TICKET_NO,
+                        new ChangePriorityCommand(5L, LOW, "影响面缩小")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).as("携带读回的最新版本").isEqualTo(7L);
+        assertThat(exception.resourceStatus()).isEqualTo(PROCESSING);
+        verify(ticketMapper, never()).selectById(TICKET_ID);
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    @Test
+    void changePriorityFailsWhenConflictSnapshotCannotBeRead() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        when(ticketMapper.changePriority(TICKET_ID, 5L, IT_USER_ID, LOW, NOW_UTC)).thenReturn(0);
+        when(ticketMapper.selectClaimConflictSnapshotForUpdate(TICKET_ID)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.changePriority(TICKET_NO,
+                new ChangePriorityCommand(5L, LOW, "影响面缩小")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("调整优先级冲突后无法读取工单快照");
+    }
+
+    @Test
+    void changePriorityFailsWhenUpdatedTicketSnapshotIsMissing() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        when(ticketMapper.changePriority(TICKET_ID, 5L, IT_USER_ID, LOW, NOW_UTC)).thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.changePriority(TICKET_NO,
+                new ChangePriorityCommand(5L, LOW, "影响面缩小")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("调整优先级后无法读取工单快照");
+    }
+
+    // ---------- transfer ----------
+
+    /** 转交单独要求 {@code TICKET_TRANSFER}，且权限闸门先于可见性。 */
+    @Test
+    void transferRejectsActorWithoutTransferAuthority() {
+        when(currentRequesterPort.currentUserId()).thenReturn(IT_USER_ID);
+        when(ticketReadPermissionPort.hasAuthority("TICKET_TRANSFER")).thenReturn(false);
+
+        assertApiException(
+                () -> service.transfer(TICKET_NO, new TransferCommand(5L, NEW_IT_USER_ID, "换人跟进")),
+                HttpStatus.FORBIDDEN, "TICKET_ACTION_FORBIDDEN");
+
+        verify(ticketMapper, never())
+                .selectVisibleDetail(any(), anyLong(), anyBoolean(), anyBoolean(), anyBoolean());
+        verifyNoInteractions(ticketClaimPort);
+    }
+
+    @Test
+    void transferReportsNotFoundWhenTicketIsNotVisible() {
+        stubTransferActor();
+
+        assertApiException(
+                () -> service.transfer(TICKET_NO, new TransferCommand(5L, NEW_IT_USER_ID, "换人跟进")),
+                HttpStatus.NOT_FOUND, "TICKET_NOT_FOUND");
+
+        verify(ticketMapper, never())
+                .transfer(anyLong(), anyLong(), anyLong(), anyLong(), any());
+        verifyNoInteractions(ticketClaimPort);
+    }
+
+    @Test
+    void transferReportsConflictWhenTicketIsNotAdjustable() {
+        stubTransferActor();
+        stubVisible(detailRow(PENDING, null, 5L));
+
+        ApiException exception = assertApiException(
+                () -> service.transfer(TICKET_NO, new TransferCommand(5L, NEW_IT_USER_ID, "换人跟进")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).isEqualTo(5L);
+        assertThat(exception.resourceStatus()).isEqualTo(PENDING);
+        verifyNoInteractions(ticketClaimPort);
+    }
+
+    @Test
+    void transferReportsConflictWhenActorIsNotTheCurrentAssignee() {
+        stubTransferActor();
+        stubVisible(detailRow(PROCESSING, OTHER_IT_USER_ID, 5L));
+
+        assertApiException(
+                () -> service.transfer(TICKET_NO, new TransferCommand(5L, NEW_IT_USER_ID, "换人跟进")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verifyNoInteractions(ticketClaimPort);
+    }
+
+    @Test
+    void transferReportsConflictWhenTicketHasNoAssignee() {
+        stubTransferActor();
+        stubVisible(detailRow(PROCESSING, null, 5L));
+
+        assertApiException(
+                () -> service.transfer(TICKET_NO, new TransferCommand(5L, NEW_IT_USER_ID, "换人跟进")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verifyNoInteractions(ticketClaimPort);
+    }
+
+    @Test
+    void transferReportsConflictWhenCommandVersionIsStale() {
+        stubTransferActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+
+        ApiException exception = assertApiException(
+                () -> service.transfer(TICKET_NO, new TransferCommand(4L, NEW_IT_USER_ID, "换人跟进")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).isEqualTo(5L);
+        assertThat(exception.resourceStatus()).isEqualTo(PROCESSING);
+        verifyNoInteractions(ticketClaimPort);
+    }
+
+    @Test
+    void transferReportsConflictBeforeValidatingReasonAndTarget() {
+        stubTransferActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+
+        assertApiException(
+                () -> service.transfer(TICKET_NO, new TransferCommand(4L, IT_USER_ID, "   ")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verifyNoInteractions(ticketClaimPort);
+    }
+
+    @Test
+    void transferRejectsBlankReasonWhenVersionMatches() {
+        stubTransferActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+
+        assertApiException(
+                () -> service.transfer(TICKET_NO, new TransferCommand(5L, NEW_IT_USER_ID, "   ")),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verifyNoInteractions(ticketClaimPort);
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    @Test
+    void transferRejectsNullReasonWithoutThrowing() {
+        stubTransferActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+
+        assertApiException(
+                () -> service.transfer(TICKET_NO, new TransferCommand(5L, NEW_IT_USER_ID, null)),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verifyNoInteractions(ticketClaimPort);
+    }
+
+    @Test
+    void transferRejectsReasonOverLimit() {
+        stubTransferActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+
+        assertApiException(
+                () -> service.transfer(TICKET_NO,
+                        new TransferCommand(5L, NEW_IT_USER_ID, "a".repeat(1001))),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verifyNoInteractions(ticketClaimPort);
+    }
+
+    /** 字段级错误先于加锁：转给自己在业务上无意义，也不该占用两把行锁。 */
+    @Test
+    void transferRejectsTransferToSelfBeforeLocking() {
+        stubTransferActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+
+        assertApiException(
+                () -> service.transfer(TICKET_NO, new TransferCommand(5L, IT_USER_ID, "换人跟进")),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verifyNoInteractions(ticketClaimPort);
+        verify(ticketMapper, never())
+                .transfer(anyLong(), anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /** 转给提交人会被 {@code ck_ticket_assignee_not_requester} 拒绝，服务层先给出 400。 */
+    @Test
+    void transferRejectsTransferToRequesterBeforeLocking() {
+        stubTransferActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+
+        assertApiException(
+                () -> service.transfer(TICKET_NO, new TransferCommand(5L, REQUESTER_ID, "换人跟进")),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verifyNoInteractions(ticketClaimPort);
+        verify(ticketMapper, never())
+                .transfer(anyLong(), anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /** 锁后复核：在途的停用/撤角色会让 actor 侧判定失败，按 403 返回且不写库。 */
+    @Test
+    void transferRejectsWhenActorIsNoLongerEligibleAfterLocking() {
+        stubTransferActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        when(ticketClaimPort.lockEligibleClaimant(IT_USER_ID)).thenReturn(null);
+        when(ticketClaimPort.lockEligibleClaimant(NEW_IT_USER_ID))
+                .thenReturn(new TicketUserSummaryResult(NEW_IT_USER_ID, NEW_IT_DISPLAY_NAME));
+
+        assertApiException(
+                () -> service.transfer(TICKET_NO, new TransferCommand(5L, NEW_IT_USER_ID, "换人跟进")),
+                HttpStatus.FORBIDDEN, "TICKET_ACTION_FORBIDDEN");
+
+        verify(ticketMapper, never())
+                .transfer(anyLong(), anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /** 锁后复核：目标不是启用的 IT 支持人员时按字段错误返回，不能写进负责人列。 */
+    @Test
+    void transferRejectsIneligibleNewAssigneeAfterLocking() {
+        stubTransferActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        when(ticketClaimPort.lockEligibleClaimant(IT_USER_ID))
+                .thenReturn(new TicketUserSummaryResult(IT_USER_ID, IT_DISPLAY_NAME));
+        when(ticketClaimPort.lockEligibleClaimant(NEW_IT_USER_ID)).thenReturn(null);
+
+        assertApiException(
+                () -> service.transfer(TICKET_NO, new TransferCommand(5L, NEW_IT_USER_ID, "换人跟进")),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verify(ticketMapper, never())
+                .transfer(anyLong(), anyLong(), anyLong(), anyLong(), any());
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    /**
+     * 固定锁顺序：无论"谁转给谁"，都按 {@code user_id} 升序取两把行锁。
+     *
+     * <p>若两个事务各自"先锁自己、再锁对方"，{@code A→B} 与 {@code B→A} 并发就是 AB-BA 死锁，
+     * InnoDB 会回滚其中一个，用户看到的是本可成功的转交失败。本用例把负责人设成 id 更大的
+     * 那一个（9），证明取锁顺序与业务身份无关。</p>
+     */
+    @Test
+    void transferLocksBothUserRowsInAscendingIdOrder() {
+        when(currentRequesterPort.currentUserId()).thenReturn(OTHER_IT_USER_ID);
+        when(ticketReadPermissionPort.hasAuthority("TICKET_TRANSFER")).thenReturn(true);
+        stubVisible(detailRow(PROCESSING, OTHER_IT_USER_ID, 5L));
+        when(ticketClaimPort.lockEligibleClaimant(IT_USER_ID))
+                .thenReturn(new TicketUserSummaryResult(IT_USER_ID, IT_DISPLAY_NAME));
+        when(ticketClaimPort.lockEligibleClaimant(OTHER_IT_USER_ID))
+                .thenReturn(new TicketUserSummaryResult(OTHER_IT_USER_ID, OTHER_IT_DISPLAY_NAME));
+        when(ticketMapper.transfer(TICKET_ID, 5L, OTHER_IT_USER_ID, IT_USER_ID, NOW_UTC))
+                .thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 6, 6L));
+        when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
+
+        TicketActionResult result = service.transfer(TICKET_NO,
+                new TransferCommand(5L, IT_USER_ID, "转回原负责人"));
+
+        InOrder lockingOrder = inOrder(ticketClaimPort);
+        lockingOrder.verify(ticketClaimPort).lockEligibleClaimant(IT_USER_ID);
+        lockingOrder.verify(ticketClaimPort).lockEligibleClaimant(OTHER_IT_USER_ID);
+
+        assertThat(result.assignee()).as("取锁顺序不等于语义身份：摘要里是新负责人")
+                .isEqualTo(new TicketUserSummaryResult(IT_USER_ID, IT_DISPLAY_NAME));
+        assertThat(result.version()).isEqualTo(6L);
+    }
+
+    /** 成功路径：负责人原子替换、参与关系落库、时间线记录原负责人 → 新负责人。 */
+    @Test
+    void transferReplacesAssigneeAndRecordsParticipation() {
+        stubTransferActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        when(ticketClaimPort.lockEligibleClaimant(IT_USER_ID))
+                .thenReturn(new TicketUserSummaryResult(IT_USER_ID, IT_DISPLAY_NAME));
+        when(ticketClaimPort.lockEligibleClaimant(NEW_IT_USER_ID))
+                .thenReturn(new TicketUserSummaryResult(NEW_IT_USER_ID, NEW_IT_DISPLAY_NAME));
+        when(ticketMapper.transfer(TICKET_ID, 5L, IT_USER_ID, NEW_IT_USER_ID, NOW_UTC))
+                .thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 6, 6L));
+        when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
+
+        TicketActionResult result = service.transfer(TICKET_NO,
+                new TransferCommand(5L, NEW_IT_USER_ID, "  换人跟进  "));
+
+        verify(ticketMapper).transfer(TICKET_ID, 5L, IT_USER_ID, NEW_IT_USER_ID, NOW_UTC);
+        verify(ticketParticipantMapper).recordAssignment(TICKET_ID, NEW_IT_USER_ID, NOW_UTC);
+
+        ArgumentCaptor<TicketRecord> records = ArgumentCaptor.forClass(TicketRecord.class);
+        verify(ticketRecordMapper).insert(records.capture());
+        TicketRecord record = records.getValue();
+        assertThat(record.getRecordType()).isEqualTo("TRANSFER");
+        assertThat(record.getSequenceNo()).isEqualTo(6);
+        assertThat(record.getActorUserId()).as("执行者是原负责人").isEqualTo(IT_USER_ID);
+        assertThat(record.getReason()).as("说明去除首尾空白后落库").isEqualTo("换人跟进");
+        assertThat(record.getContent()).as("转交动作没有正文").isNull();
+        assertThat(record.getFromAssigneeId()).isEqualTo(IT_USER_ID);
+        assertThat(record.getToAssigneeId()).isEqualTo(NEW_IT_USER_ID);
+        assertThat(record.getFromStatus()).as("状态没变，两侧写同一个状态")
+                .isEqualTo(PROCESSING);
+        assertThat(record.getToStatus()).isEqualTo(PROCESSING);
+        assertThat(record.getCreatedAt()).isEqualTo(NOW_UTC);
+
+        assertThat(result.ticketNo()).isEqualTo(TICKET_NO);
+        assertThat(result.status()).as("转交不改变状态").isEqualTo(PROCESSING);
+        assertThat(result.assignee()).as("摘要里已经是新负责人")
+                .isEqualTo(new TicketUserSummaryResult(NEW_IT_USER_ID, NEW_IT_DISPLAY_NAME));
+        assertThat(result.actionDeadlineAt()).isNull();
+        assertThat(result.version()).isEqualTo(6L);
+        assertThat(result.actionTime()).isEqualTo(NOW.atOffset(ZoneOffset.UTC));
+    }
+
+    /** 「待补充」也能转交：期限跟着工单走，新负责人接手时它仍然有效。 */
+    @Test
+    void transferKeepsSupplementDeadlineWhileWaitingForRequester() {
+        stubTransferActor();
+        TicketDetailRow row = detailRow(WAITING_FOR_REQUESTER, IT_USER_ID, 5L);
+        row.setActionDeadlineAt(SUPPLEMENT_DEADLINE);
+        stubVisible(row);
+        when(ticketClaimPort.lockEligibleClaimant(IT_USER_ID))
+                .thenReturn(new TicketUserSummaryResult(IT_USER_ID, IT_DISPLAY_NAME));
+        when(ticketClaimPort.lockEligibleClaimant(NEW_IT_USER_ID))
+                .thenReturn(new TicketUserSummaryResult(NEW_IT_USER_ID, NEW_IT_DISPLAY_NAME));
+        when(ticketMapper.transfer(TICKET_ID, 5L, IT_USER_ID, NEW_IT_USER_ID, NOW_UTC))
+                .thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 6, 6L));
+        when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
+
+        TicketActionResult result = service.transfer(TICKET_NO,
+                new TransferCommand(5L, NEW_IT_USER_ID, "换人跟进"));
+
+        assertThat(result.status()).isEqualTo(WAITING_FOR_REQUESTER);
+        assertThat(result.actionDeadlineAt())
+                .isEqualTo(SUPPLEMENT_DEADLINE.atOffset(ZoneOffset.UTC));
+    }
+
+    @Test
+    void transferReportsConflictWithReloadedSnapshotWhenConditionalUpdateLoses() {
+        stubTransferActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        when(ticketClaimPort.lockEligibleClaimant(IT_USER_ID))
+                .thenReturn(new TicketUserSummaryResult(IT_USER_ID, IT_DISPLAY_NAME));
+        when(ticketClaimPort.lockEligibleClaimant(NEW_IT_USER_ID))
+                .thenReturn(new TicketUserSummaryResult(NEW_IT_USER_ID, NEW_IT_DISPLAY_NAME));
+        when(ticketMapper.transfer(TICKET_ID, 5L, IT_USER_ID, NEW_IT_USER_ID, NOW_UTC))
+                .thenReturn(0);
+        when(ticketMapper.selectClaimConflictSnapshotForUpdate(TICKET_ID))
+                .thenReturn(conflictSnapshot(PROCESSING, 6L));
+
+        ApiException exception = assertApiException(
+                () -> service.transfer(TICKET_NO, new TransferCommand(5L, NEW_IT_USER_ID, "换人跟进")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).as("携带读回的最新版本").isEqualTo(6L);
+        assertThat(exception.resourceStatus()).isEqualTo(PROCESSING);
+        verify(ticketMapper, never()).selectById(TICKET_ID);
+        verifyNoInteractions(ticketRecordMapper);
+        verify(ticketParticipantMapper, never())
+                .recordAssignment(anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void transferFailsWhenConflictSnapshotCannotBeRead() {
+        stubTransferActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        when(ticketClaimPort.lockEligibleClaimant(IT_USER_ID))
+                .thenReturn(new TicketUserSummaryResult(IT_USER_ID, IT_DISPLAY_NAME));
+        when(ticketClaimPort.lockEligibleClaimant(NEW_IT_USER_ID))
+                .thenReturn(new TicketUserSummaryResult(NEW_IT_USER_ID, NEW_IT_DISPLAY_NAME));
+        when(ticketMapper.transfer(TICKET_ID, 5L, IT_USER_ID, NEW_IT_USER_ID, NOW_UTC))
+                .thenReturn(0);
+        when(ticketMapper.selectClaimConflictSnapshotForUpdate(TICKET_ID)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.transfer(TICKET_NO,
+                new TransferCommand(5L, NEW_IT_USER_ID, "换人跟进")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("转交冲突后无法读取工单快照");
+    }
+
+    @Test
+    void transferFailsWhenUpdatedTicketSnapshotIsMissing() {
+        stubTransferActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        when(ticketClaimPort.lockEligibleClaimant(IT_USER_ID))
+                .thenReturn(new TicketUserSummaryResult(IT_USER_ID, IT_DISPLAY_NAME));
+        when(ticketClaimPort.lockEligibleClaimant(NEW_IT_USER_ID))
+                .thenReturn(new TicketUserSummaryResult(NEW_IT_USER_ID, NEW_IT_DISPLAY_NAME));
+        when(ticketMapper.transfer(TICKET_ID, 5L, IT_USER_ID, NEW_IT_USER_ID, NOW_UTC))
+                .thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.transfer(TICKET_NO,
+                new TransferCommand(5L, NEW_IT_USER_ID, "换人跟进")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("转交后无法读取工单快照");
+
+        verify(ticketParticipantMapper, never())
+                .recordAssignment(anyLong(), anyLong(), any());
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    /** 片 C 的三个动作同样必须由声明式事务包住条件更新、参与关系与时间线写入。 */
+    @Test
+    void adjustAndTransferMethodsDeclareTransactionBoundaries() throws NoSuchMethodException {
+        assertThat(TicketServiceImpl.class
+                .getMethod("changeCategory", String.class, ChangeCategoryCommand.class)
+                .isAnnotationPresent(Transactional.class))
+                .as("changeCategory 由声明式事务包住条件更新与时间线写入").isTrue();
+        assertThat(TicketServiceImpl.class
+                .getMethod("changePriority", String.class, ChangePriorityCommand.class)
+                .isAnnotationPresent(Transactional.class))
+                .as("changePriority 由声明式事务包住条件更新与时间线写入").isTrue();
+        assertThat(TicketServiceImpl.class
+                .getMethod("transfer", String.class, TransferCommand.class)
+                .isAnnotationPresent(Transactional.class))
+                .as("transfer 由声明式事务包住两把行锁、条件更新与时间线写入").isTrue();
+    }
+
     // ---------- TicketProperties ----------
 
     @Test
@@ -2043,6 +3049,12 @@ class TicketServiceImplTest {
     private void stubProcessActor() {
         when(currentRequesterPort.currentUserId()).thenReturn(IT_USER_ID);
         when(ticketReadPermissionPort.hasAuthority("TICKET_PROCESS")).thenReturn(true);
+    }
+
+    /** 转交路径的公共前置：有转交权限、本人是当前负责人。 */
+    private void stubTransferActor() {
+        when(currentRequesterPort.currentUserId()).thenReturn(IT_USER_ID);
+        when(ticketReadPermissionPort.hasAuthority("TICKET_TRANSFER")).thenReturn(true);
     }
 
     private void stubSubmittableTicket(long version, LocalDateTime deadline) {

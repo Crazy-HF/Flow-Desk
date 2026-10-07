@@ -569,12 +569,13 @@ class TicketQueryServiceIT {
         String completedNo = insertTicket(requesterId, categoryId,
                 "已完成动作", COMPLETED, assigneeId, MEDIUM, BASE_TIME, BASE_TIME);
 
-        // 处理中 + 本人负责人：追加处理记录、提交解决结果，以及请求员工补充（片 B）
+        // 处理中 + 本人负责人：追加处理记录、提交解决结果、请求员工补充（片 B），
+        // 以及调整分类、调整优先级、转交（片 C）
         authenticateAs(assigneeId);
         assertThat(ticketQueryService.detail(processingNo).allowedActions())
-                .as("阶段 3 回归 + 片 B：负责人必须同时拿到三个处理类动作")
+                .as("阶段 3 回归 + 片 B + 片 C：负责人拿到六个动作")
                 .containsExactlyInAnyOrder("add-processing-record", "submit-resolution",
-                        "request-supplement");
+                        "request-supplement", "change-category", "change-priority", "transfer");
         assertThat(ticketQueryService.detail(completedNo).allowedActions())
                 .as("终态没有可执行动作")
                 .isEmpty();
@@ -582,8 +583,9 @@ class TicketQueryServiceIT {
                 .as("负责人不是提交人，不能确认")
                 .isEmpty();
         assertThat(ticketQueryService.detail(supplementNo).allowedActions())
-                .as("待补充期间负责人只能撤回补充请求，不能再提交解决结果")
-                .containsExactly("withdraw-supplement-request");
+                .as("待补充期间负责人不能提交解决结果，但可以撤回、调整与转交")
+                .containsExactly("withdraw-supplement-request",
+                        "change-category", "change-priority", "transfer");
 
         // 待确认 + 提交人：确认与「问题仍未解决」两个动作的前置条件完全相同，
         // 顺序由装配顺序决定（片 A 起从一格变成两格，旧断言只写了 confirm-resolution）

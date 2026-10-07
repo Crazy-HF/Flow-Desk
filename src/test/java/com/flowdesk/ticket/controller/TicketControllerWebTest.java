@@ -6,6 +6,8 @@ import com.flowdesk.common.exception.ApiException;
 import com.flowdesk.common.web.PageResult;
 import com.flowdesk.support.MockedPersistenceConfiguration;
 import com.flowdesk.ticket.application.command.AddProcessingRecordCommand;
+import com.flowdesk.ticket.application.command.ChangeCategoryCommand;
+import com.flowdesk.ticket.application.command.ChangePriorityCommand;
 import com.flowdesk.ticket.application.command.ClaimTicketCommand;
 import com.flowdesk.ticket.application.command.ConfirmResolutionCommand;
 import com.flowdesk.ticket.application.command.CreateTicketCommand;
@@ -13,10 +15,12 @@ import com.flowdesk.ticket.application.command.ReportUnresolvedCommand;
 import com.flowdesk.ticket.application.command.RequestSupplementCommand;
 import com.flowdesk.ticket.application.command.SubmitResolutionCommand;
 import com.flowdesk.ticket.application.command.SupplementCommand;
+import com.flowdesk.ticket.application.command.TransferCommand;
 import com.flowdesk.ticket.application.command.WithdrawSupplementRequestCommand;
 import com.flowdesk.ticket.application.query.TicketQuery;
 import com.flowdesk.ticket.application.query.TicketRecordQuery;
 import com.flowdesk.ticket.application.result.TicketActionResult;
+import com.flowdesk.ticket.application.result.TicketAssigneeOptionResult;
 import com.flowdesk.ticket.application.result.TicketCategorySummaryResult;
 import com.flowdesk.ticket.application.result.TicketCreatedResult;
 import com.flowdesk.ticket.application.result.TicketDetailResult;
@@ -103,6 +107,12 @@ class TicketControllerWebTest {
     private static final String WITHDRAW_SUPPLEMENT_REQUEST = "withdraw-supplement-request";
     private static final String REPORT_UNRESOLVED = "report-unresolved";
     private static final String REQUEST_SUPPLEMENT = "request-supplement";
+    /** 片 C：调整与转交三个动作 + 候选人查询。 */
+    private static final String CHANGE_CATEGORY = "change-category";
+    private static final String CHANGE_PRIORITY = "change-priority";
+    private static final String TRANSFER = "transfer";
+    private static final String TRANSFER_CANDIDATES = TICKETS + "/" + TICKET_NO + "/transfer-candidates";
+    private static final long NEW_ASSIGNEE_ID = 11L;
     private static final String SUBMISSION_KEY = "3f1c2b7e-1d4a-4f2b-9c6e-8a7d5b0c1e2f";
     private static final long CATEGORY_ID = 7L;
     private static final long REQUESTER_ID = 3L;
@@ -1214,6 +1224,304 @@ class TicketControllerWebTest {
                 .andExpect(jsonPath("$.code").value("TICKET_ACTION_FORBIDDEN"));
 
         verify(ticketService).supplement(eq(TICKET_NO), any());
+    }
+
+    // ---------- 片 C：调整与转交 ----------
+
+    /**
+     * 三个动作与候选人接口都是 JSON/GET 端点，与其他端点同一口径：
+     * 无令牌一律被认证闸门挡下，权限与身份判定由服务层给出稳定错误码。
+     */
+    @Test
+    void adjustAndTransferEndpointsRequireAuthentication() throws Exception {
+        mockMvc.perform(actionRequest(CHANGE_CATEGORY, """
+                        {"version": 3, "categoryId": 7, "reason": "分类选错了"}
+                        """))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_REQUIRED"));
+
+        mockMvc.perform(actionRequest(CHANGE_PRIORITY, """
+                        {"version": 3, "priority": "LOW", "reason": "影响面缩小"}
+                        """))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_REQUIRED"));
+
+        mockMvc.perform(actionRequest(TRANSFER, """
+                        {"version": 3, "newAssigneeId": 11, "reason": "换人跟进"}
+                        """))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_REQUIRED"));
+
+        mockMvc.perform(get(TRANSFER_CANDIDATES))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_REQUIRED"));
+
+        verifyNoInteractions(ticketService, ticketQueryService);
+    }
+
+    /** 转交与调整走两条不同的权限码：{@code TICKET_PROCESS} 不覆盖 {@code TICKET_TRANSFER}。 */
+    @Test
+    void transferIsForbiddenWithoutTransferAuthority() throws Exception {
+        when(ticketService.transfer(eq(TICKET_NO), any()))
+                .thenThrow(new ApiException(HttpStatus.FORBIDDEN, "TICKET_ACTION_FORBIDDEN",
+                        "无转交工单权限"));
+
+        mockMvc.perform(actionRequest(TRANSFER, """
+                        {"version": 3, "newAssigneeId": 11, "reason": "换人跟进"}
+                        """).with(ticketUser("TICKET_PROCESS")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("TICKET_ACTION_FORBIDDEN"));
+
+        verify(ticketService).transfer(eq(TICKET_NO), any());
+    }
+
+    /** 版本、分类与说明三类字段校验：都没到服务层就被 Bean Validation 拦下。 */
+    @ParameterizedTest(name = "change-category rejects {0}")
+    @MethodSource("invalidChangeCategoryBodies")
+    void changeCategoryRejectsInvalidBody(String caseName, String requestBody, String field)
+            throws Exception {
+        mockMvc.perform(actionRequest(CHANGE_CATEGORY, requestBody)
+                        .with(ticketUser("TICKET_PROCESS")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.data.fieldErrors[*].field", hasItem(field)));
+
+        verifyNoInteractions(ticketService);
+    }
+
+    static Stream<Arguments> invalidChangeCategoryBodies() {
+        String tooLongReason = "x".repeat(1001);
+        return Stream.of(
+                Arguments.of("a missing version", """
+                        {"categoryId": 7, "reason": "分类选错了"}
+                        """, "version"),
+                Arguments.of("a negative version", """
+                        {"version": -1, "categoryId": 7, "reason": "分类选错了"}
+                        """, "version"),
+                Arguments.of("a missing category", """
+                        {"version": 3, "reason": "分类选错了"}
+                        """, "categoryId"),
+                Arguments.of("a non positive category", """
+                        {"version": 3, "categoryId": 0, "reason": "分类选错了"}
+                        """, "categoryId"),
+                Arguments.of("a blank reason", """
+                        {"version": 3, "categoryId": 7, "reason": "   "}
+                        """, "reason"),
+                Arguments.of("a reason over 1000 characters", """
+                        {"version": 3, "categoryId": 7, "reason": "%s"}
+                        """.formatted(tooLongReason), "reason")
+        );
+    }
+
+    @Test
+    void changeCategoryReturnsTicketActionEnvelope() throws Exception {
+        when(ticketService.changeCategory(eq(TICKET_NO), any()))
+                .thenReturn(processingAction());
+
+        assertReturnActionEnvelope(mockMvc.perform(actionRequest(CHANGE_CATEGORY, """
+                        {"version": 4, "categoryId": 7, "reason": "  分类选错了  "}
+                        """).with(ticketUser("TICKET_PROCESS"))));
+
+        ArgumentCaptor<ChangeCategoryCommand> captor =
+                ArgumentCaptor.forClass(ChangeCategoryCommand.class);
+        verify(ticketService).changeCategory(eq(TICKET_NO), captor.capture());
+        assertThat(captor.getValue().version()).isEqualTo(4L);
+        assertThat(captor.getValue().categoryId()).isEqualTo(CATEGORY_ID);
+        assertThat(captor.getValue().reason()).as("说明在命令构造器中去除了首尾空白")
+                .isEqualTo("分类选错了");
+    }
+
+    /** 接口契约要求"不存在或不可见"统一 404，且响应里带 {@code traceId} 便于定位。 */
+    @Test
+    void changeCategoryReportsNotFoundWhenTicketIsInvisible() throws Exception {
+        when(ticketService.changeCategory(eq(TICKET_NO), any()))
+                .thenThrow(new ApiException(HttpStatus.NOT_FOUND, "TICKET_NOT_FOUND", "工单不存在"));
+
+        mockMvc.perform(actionRequest(CHANGE_CATEGORY, """
+                        {"version": 4, "categoryId": 7, "reason": "分类选错了"}
+                        """).with(ticketUser("TICKET_PROCESS")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("TICKET_NOT_FOUND"))
+                .andExpect(jsonPath("$.data.traceId").exists());
+    }
+
+    @Test
+    void changeCategoryConflictCarriesCurrentSnapshot() throws Exception {
+        when(ticketService.changeCategory(eq(TICKET_NO), any()))
+                .thenThrow(new ApiException(HttpStatus.CONFLICT, "TICKET_CONFLICT",
+                        "工单状态或负责人已变化", 5L, "WAITING_FOR_REQUESTER"));
+
+        mockMvc.perform(actionRequest(CHANGE_CATEGORY, """
+                        {"version": 4, "categoryId": 7, "reason": "分类选错了"}
+                        """).with(ticketUser("TICKET_PROCESS")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("TICKET_CONFLICT"))
+                .andExpect(jsonPath("$.data.version").value(5))
+                .andExpect(jsonPath("$.data.status").value("WAITING_FOR_REQUESTER"));
+    }
+
+    @ParameterizedTest(name = "change-priority rejects {0}")
+    @MethodSource("invalidChangePriorityBodies")
+    void changePriorityRejectsInvalidBody(String caseName, String requestBody, String field)
+            throws Exception {
+        mockMvc.perform(actionRequest(CHANGE_PRIORITY, requestBody)
+                        .with(ticketUser("TICKET_PROCESS")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.data.fieldErrors[*].field", hasItem(field)));
+
+        verifyNoInteractions(ticketService);
+    }
+
+    static Stream<Arguments> invalidChangePriorityBodies() {
+        return Stream.of(
+                Arguments.of("a missing version", """
+                        {"priority": "LOW", "reason": "影响面缩小"}
+                        """, "version"),
+                Arguments.of("a missing priority", """
+                        {"version": 3, "reason": "影响面缩小"}
+                        """, "priority"),
+                Arguments.of("a lowercase priority", """
+                        {"version": 3, "priority": "low", "reason": "影响面缩小"}
+                        """, "priority"),
+                Arguments.of("an unknown priority", """
+                        {"version": 3, "priority": "URGENT", "reason": "影响面缩小"}
+                        """, "priority"),
+                Arguments.of("a blank reason", """
+                        {"version": 3, "priority": "LOW", "reason": "   "}
+                        """, "reason")
+        );
+    }
+
+    @Test
+    void changePriorityReturnsTicketActionEnvelope() throws Exception {
+        when(ticketService.changePriority(eq(TICKET_NO), any()))
+                .thenReturn(processingAction());
+
+        assertReturnActionEnvelope(mockMvc.perform(actionRequest(CHANGE_PRIORITY, """
+                        {"version": 4, "priority": "LOW", "reason": "  影响面缩小  "}
+                        """).with(ticketUser("TICKET_PROCESS"))));
+
+        ArgumentCaptor<ChangePriorityCommand> captor =
+                ArgumentCaptor.forClass(ChangePriorityCommand.class);
+        verify(ticketService).changePriority(eq(TICKET_NO), captor.capture());
+        assertThat(captor.getValue().priority()).isEqualTo("LOW");
+        assertThat(captor.getValue().reason()).isEqualTo("影响面缩小");
+    }
+
+    @ParameterizedTest(name = "transfer rejects {0}")
+    @MethodSource("invalidTransferBodies")
+    void transferRejectsInvalidBody(String caseName, String requestBody, String field)
+            throws Exception {
+        mockMvc.perform(actionRequest(TRANSFER, requestBody)
+                        .with(ticketUser("TICKET_TRANSFER")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.data.fieldErrors[*].field", hasItem(field)));
+
+        verifyNoInteractions(ticketService);
+    }
+
+    static Stream<Arguments> invalidTransferBodies() {
+        String tooLongReason = "x".repeat(1001);
+        return Stream.of(
+                Arguments.of("a missing version", """
+                        {"newAssigneeId": 11, "reason": "换人跟进"}
+                        """, "version"),
+                Arguments.of("a missing new assignee", """
+                        {"version": 3, "reason": "换人跟进"}
+                        """, "newAssigneeId"),
+                Arguments.of("a non positive new assignee", """
+                        {"version": 3, "newAssigneeId": 0, "reason": "换人跟进"}
+                        """, "newAssigneeId"),
+                Arguments.of("a blank reason", """
+                        {"version": 3, "newAssigneeId": 11, "reason": "  "}
+                        """, "reason"),
+                Arguments.of("a reason over 1000 characters", """
+                        {"version": 3, "newAssigneeId": 11, "reason": "%s"}
+                        """.formatted(tooLongReason), "reason")
+        );
+    }
+
+    @Test
+    void transferReturnsTicketActionEnvelopeWithNewAssignee() throws Exception {
+        when(ticketService.transfer(eq(TICKET_NO), any())).thenReturn(new TicketActionResult(
+                TICKET_NO,
+                "PROCESSING",
+                new TicketUserSummaryResult(NEW_ASSIGNEE_ID, "演示 IT 三号"),
+                null,
+                5L,
+                CREATED_AT));
+
+        mockMvc.perform(actionRequest(TRANSFER, """
+                        {"version": 4, "newAssigneeId": 11, "reason": "  换人跟进  "}
+                        """).with(ticketUser("TICKET_TRANSFER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.status").value("PROCESSING"))
+                .andExpect(jsonPath("$.data.assignee.id").value(NEW_ASSIGNEE_ID))
+                .andExpect(jsonPath("$.data.assignee.displayName").value("演示 IT 三号"))
+                .andExpect(jsonPath("$.data.actionDeadlineAt").doesNotExist())
+                .andExpect(jsonPath("$.data.version").value(5));
+
+        ArgumentCaptor<TransferCommand> captor = ArgumentCaptor.forClass(TransferCommand.class);
+        verify(ticketService).transfer(eq(TICKET_NO), captor.capture());
+        assertThat(captor.getValue().newAssigneeId()).isEqualTo(NEW_ASSIGNEE_ID);
+        assertThat(captor.getValue().reason()).isEqualTo("换人跟进");
+    }
+
+    /** 候选人接口只回两个字段，且不使用分页信封。 */
+    @Test
+    void transferCandidatesReturnsOptionList() throws Exception {
+        when(ticketQueryService.transferCandidates(TICKET_NO)).thenReturn(List.of(
+                new TicketAssigneeOptionResult(NEW_ASSIGNEE_ID, "演示 IT 三号")));
+
+        mockMvc.perform(get(TRANSFER_CANDIDATES).with(ticketUser("TICKET_TRANSFER")))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data[0].id").value(NEW_ASSIGNEE_ID))
+                .andExpect(jsonPath("$.data[0].displayName").value("演示 IT 三号"))
+                .andExpect(jsonPath("$.data[0].username").doesNotExist());
+
+        verify(ticketQueryService).transferCandidates(TICKET_NO);
+    }
+
+    /** 没有候选人时是空数组：前端据此渲染空态，而不是把它当成错误。 */
+    @Test
+    void transferCandidatesReturnsEmptyArrayWhenNobodyIsEligible() throws Exception {
+        when(ticketQueryService.transferCandidates(TICKET_NO)).thenReturn(List.of());
+
+        mockMvc.perform(get(TRANSFER_CANDIDATES).with(ticketUser("TICKET_TRANSFER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data").isArray())
+                .andExpect(jsonPath("$.data").isEmpty());
+    }
+
+    /** 状态或负责人不符时按冲突返回，并把当前快照交给前端刷新。 */
+    @Test
+    void transferCandidatesConflictCarriesCurrentSnapshot() throws Exception {
+        when(ticketQueryService.transferCandidates(TICKET_NO))
+                .thenThrow(new ApiException(HttpStatus.CONFLICT, "TICKET_CONFLICT",
+                        "工单状态或负责人已变化", 6L, "PENDING"));
+
+        mockMvc.perform(get(TRANSFER_CANDIDATES).with(ticketUser("TICKET_TRANSFER")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("TICKET_CONFLICT"))
+                .andExpect(jsonPath("$.data.version").value(6))
+                .andExpect(jsonPath("$.data.status").value("PENDING"));
+    }
+
+    @Test
+    void transferCandidatesReportsNotFoundWhenTicketIsInvisible() throws Exception {
+        when(ticketQueryService.transferCandidates(TICKET_NO))
+                .thenThrow(new ApiException(HttpStatus.NOT_FOUND, "TICKET_NOT_FOUND", "工单不存在"));
+
+        mockMvc.perform(get(TRANSFER_CANDIDATES).with(ticketUser("TICKET_TRANSFER")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("TICKET_NOT_FOUND"))
+                .andExpect(jsonPath("$.data.traceId").exists());
     }
 
     // ---------- 辅助 ----------

@@ -5,6 +5,8 @@ import com.flowdesk.auth.infrastructure.AuthSessionRepository;
 import com.flowdesk.common.exception.ApiException;
 import com.flowdesk.common.web.PageResult;
 import com.flowdesk.ticket.application.command.AddProcessingRecordCommand;
+import com.flowdesk.ticket.application.command.ChangeCategoryCommand;
+import com.flowdesk.ticket.application.command.ChangePriorityCommand;
 import com.flowdesk.ticket.application.command.ClaimTicketCommand;
 import com.flowdesk.ticket.application.command.ConfirmResolutionCommand;
 import com.flowdesk.ticket.application.command.CreateTicketCommand;
@@ -12,9 +14,11 @@ import com.flowdesk.ticket.application.command.ReportUnresolvedCommand;
 import com.flowdesk.ticket.application.command.RequestSupplementCommand;
 import com.flowdesk.ticket.application.command.SubmitResolutionCommand;
 import com.flowdesk.ticket.application.command.SupplementCommand;
+import com.flowdesk.ticket.application.command.TransferCommand;
 import com.flowdesk.ticket.application.command.WithdrawSupplementRequestCommand;
 import com.flowdesk.ticket.application.query.TicketRecordQuery;
 import com.flowdesk.ticket.application.result.TicketActionResult;
+import com.flowdesk.ticket.application.result.TicketAssigneeOptionResult;
 import com.flowdesk.ticket.application.result.TicketCreatedResult;
 import com.flowdesk.ticket.application.result.TicketRecordResult;
 import com.flowdesk.ticket.application.service.TicketQueryService;
@@ -1328,6 +1332,314 @@ class TicketServiceIT {
                 "TICKET_NOT_FOUND");
     }
 
+    // ---------- 片 C：调整与转交 ----------
+
+    /**
+     * 真实链路上的调整分类：建单 → 领取 → 调整。
+     *
+     * <p>库里分类被替换、状态与负责人不变、{@code version} 与 {@code record_seq} 各 +1，
+     * 时间线多一条 {@code CATEGORY_CHANGE}（原分类 → 新分类 + 说明）——"调整"是留痕动作，
+     * 不是把旧值抹掉。</p>
+     */
+    @Test
+    void changeCategoryReplacesCategoryAndKeepsStatusAndAssignee() {
+        long targetCategoryId = insertCategory("目标分类");
+        authenticateAs(employeeId, EMPLOYEE);
+        TicketCreatedResult created = createTicket(UUID.randomUUID().toString(), "调整分类");
+        long ticketId = ticketIdOf(created.ticketNo());
+
+        authenticateAs(itUserId, IT_SUPPORT);
+        TicketActionResult claimed = ticketService.claim(
+                created.ticketNo(), new ClaimTicketCommand(created.version()));
+        long versionBefore = claimed.version();
+
+        TicketActionResult changed = ticketService.changeCategory(
+                created.ticketNo(),
+                new ChangeCategoryCommand(versionBefore, targetCategoryId, "  分类选错了  "));
+
+        assertThat(changed.status()).as("调整分类不改变状态").isEqualTo(PROCESSING);
+        assertThat(changed.version()).isEqualTo(versionBefore + 1L);
+        assertThat(changed.assignee().id()).as("负责人不变").isEqualTo(itUserId);
+        assertThat(changed.actionDeadlineAt()).as("处理中本来就没有期限").isNull();
+
+        assertThat(categoryIdOf(ticketId)).as("库里分类已替换").isEqualTo(targetCategoryId);
+        assertThat(statusOf(ticketId)).isEqualTo(PROCESSING);
+        assertThat(assigneeOf(ticketId)).isEqualTo(itUserId);
+        assertThat(versionOf(ticketId)).isEqualTo(versionBefore + 1);
+        assertThat(recordSeqOf(ticketId)).isEqualTo(3);
+
+        assertThat(lastRecordTypeOf(ticketId)).isEqualTo("CATEGORY_CHANGE");
+        assertThat(recordReason(ticketId, "CATEGORY_CHANGE"))
+                .as("说明去除首尾空白后落库").isEqualTo("分类选错了");
+
+        Map<String, Object> record = lastRecordOf(ticketId);
+        assertThat(((Number) record.get("from_category_id")).longValue()).isEqualTo(categoryId);
+        assertThat(((Number) record.get("to_category_id")).longValue()).isEqualTo(targetCategoryId);
+        assertThat(record.get("from_status")).isEqualTo(PROCESSING);
+        assertThat(record.get("to_status")).as("状态没变，两侧写同一个状态")
+                .isEqualTo(PROCESSING);
+        assertThat(record.get("from_priority")).as("分类调整不写优先级快照").isNull();
+    }
+
+    /** 目标分类必须启用：停用分类在服务层就被拒，且不留任何痕迹。 */
+    @Test
+    void changeCategoryRejectsDisabledCategoryWithoutTouchingTheRow() {
+        long disabledCategoryId = insertCategory("停用分类");
+        jdbc.update("UPDATE ticket_category SET status = 'DISABLED' WHERE id = ?",
+                disabledCategoryId);
+        long ticketId = insertProcessingTicket(employeeId, itUserId);
+        String ticketNo = ticketNoOf(ticketId);
+        long versionBefore = versionOf(ticketId);
+
+        authenticateAs(itUserId, IT_SUPPORT);
+        assertApiError(() -> ticketService.changeCategory(ticketNo,
+                        new ChangeCategoryCommand(versionBefore, disabledCategoryId, "换分类")),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        assertThat(categoryIdOf(ticketId)).isEqualTo(categoryId);
+        assertThat(versionOf(ticketId)).isEqualTo(versionBefore);
+        assertThat(countRecords(ticketId, "CATEGORY_CHANGE")).isZero();
+    }
+
+    /**
+     * 「待补充」上调整优先级：期限原样保留。
+     *
+     * <p>期限是"员工还有多久要补充"的承诺，调整分类或优先级都不该让它重新计时，
+     * 也不该让 {@code ck_ticket_status_deadline} 被绕过。</p>
+     */
+    @Test
+    void changePriorityOnWaitingForRequesterKeepsSupplementDeadline() {
+        long ticketId = insertWaitingForRequesterTicket(employeeId, itUserId);
+        String ticketNo = ticketNoOf(ticketId);
+        long versionBefore = versionOf(ticketId);
+        LocalDateTime deadlineBefore = actionDeadlineOf(ticketId);
+
+        authenticateAs(itUserId, IT_SUPPORT);
+        TicketActionResult changed = ticketService.changePriority(
+                ticketNo, new ChangePriorityCommand(versionBefore, "HIGH", "影响面扩大"));
+
+        assertThat(changed.status()).isEqualTo(WAITING_FOR_REQUESTER);
+        assertThat(changed.actionDeadlineAt().toLocalDateTime())
+                .as("响应里的期限与调整前一致").isEqualTo(deadlineBefore);
+
+        assertThat(priorityOf(ticketId)).isEqualTo("HIGH");
+        assertThat(statusOf(ticketId)).isEqualTo(WAITING_FOR_REQUESTER);
+        assertThat(actionDeadlineOf(ticketId))
+                .as("ck_ticket_status_deadline：待补充仍然必须有同一个期限")
+                .isEqualTo(deadlineBefore);
+        assertThat(versionOf(ticketId)).isEqualTo(versionBefore + 1);
+
+        assertThat(lastRecordTypeOf(ticketId)).isEqualTo("PRIORITY_CHANGE");
+        Map<String, Object> record = lastRecordOf(ticketId);
+        assertThat(record.get("from_priority")).isEqualTo("MEDIUM");
+        assertThat(record.get("to_priority")).isEqualTo("HIGH");
+        assertThat(record.get("from_category_id")).as("优先级调整不写分类快照").isNull();
+    }
+
+    /**
+     * 转交的真库事实：负责人原子替换、状态与期限不变、新负责人被写入参与关系，
+     * 因此他能按 {@code TICKET_VIEW_PARTICIPATED} 立刻看到并继续处理这张工单。
+     */
+    @Test
+    void transferReplacesAssigneeAndGrantsVisibilityToTheNewAssignee() {
+        long ticketId = insertWaitingForRequesterTicket(employeeId, itUserId);
+        String ticketNo = ticketNoOf(ticketId);
+        long versionBefore = versionOf(ticketId);
+        LocalDateTime deadlineBefore = actionDeadlineOf(ticketId);
+
+        authenticateAs(itUserId, IT_SUPPORT);
+        TicketActionResult transferred = ticketService.transfer(ticketNo,
+                new TransferCommand(versionBefore, otherItId, "  换人跟进  "));
+
+        assertThat(transferred.status()).isEqualTo(WAITING_FOR_REQUESTER);
+        assertThat(transferred.assignee().id()).as("摘要里已经是新负责人")
+                .isEqualTo(otherItId);
+        assertThat(transferred.version()).isEqualTo(versionBefore + 1L);
+        assertThat(transferred.actionDeadlineAt().toLocalDateTime()).isEqualTo(deadlineBefore);
+
+        assertThat(assigneeOf(ticketId)).isEqualTo(otherItId);
+        assertThat(statusOf(ticketId)).isEqualTo(WAITING_FOR_REQUESTER);
+        assertThat(actionDeadlineOf(ticketId)).isEqualTo(deadlineBefore);
+        assertThat(lastRecordTypeOf(ticketId)).isEqualTo("TRANSFER");
+        assertThat(recordReason(ticketId, "TRANSFER")).isEqualTo("换人跟进");
+
+        Map<String, Object> record = lastRecordOf(ticketId);
+        assertThat(((Number) record.get("from_assignee_id")).longValue()).isEqualTo(itUserId);
+        assertThat(((Number) record.get("to_assignee_id")).longValue()).isEqualTo(otherItId);
+
+        assertThat(participantsOf(ticketId))
+                .as("新负责人的参与关系是可见性的来源，必须落库")
+                .contains(otherItId);
+
+        authenticateAs(otherItId, IT_SUPPORT);
+        assertThat(ticketQueryService.detail(ticketNo).allowedActions())
+                .as("接手后可以立刻撤回补充请求")
+                .contains("withdraw-supplement-request");
+    }
+
+    /** 转交给提交人：服务层给出 400，不依赖数据库的 {@code ck_ticket_assignee_not_requester} 兜底。 */
+    @Test
+    void transferToRequesterIsRejectedWithoutTouchingTheRow() {
+        long ticketId = insertProcessingTicket(employeeId, itUserId);
+        String ticketNo = ticketNoOf(ticketId);
+        long versionBefore = versionOf(ticketId);
+
+        authenticateAs(itUserId, IT_SUPPORT);
+        assertApiError(() -> ticketService.transfer(ticketNo,
+                        new TransferCommand(versionBefore, employeeId, "转给提交人")),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        assertThat(assigneeOf(ticketId)).isEqualTo(itUserId);
+        assertThat(versionOf(ticketId)).isEqualTo(versionBefore);
+        assertThat(countRecords(ticketId, "TRANSFER")).isZero();
+    }
+
+    /**
+     * 锁后复核的真实场景：目标用户的 {@code IT_SUPPORT} 角色已被撤销。
+     *
+     * <p>跨表资格进不了 {@code ticket} 的条件更新，只能在锁住用户行之后复核；
+     * 复核失败必须回滚到"什么都没发生"，而不是把失效账号写成负责人。</p>
+     */
+    @Test
+    void transferRejectsNewAssigneeWhoseItRoleWasRevoked() {
+        long ticketId = insertWaitingForRequesterTicket(employeeId, itUserId);
+        String ticketNo = ticketNoOf(ticketId);
+        long versionBefore = versionOf(ticketId);
+
+        long revokedItId = insertUser("revoked-it", IT_SUPPORT);
+        jdbc.update("""
+                DELETE user_role
+                FROM iam_user_role user_role
+                JOIN iam_role role ON role.id = user_role.role_id
+                WHERE user_role.user_id = ? AND role.code = ?
+                """, revokedItId, IT_SUPPORT);
+
+        authenticateAs(itUserId, IT_SUPPORT);
+        assertApiError(() -> ticketService.transfer(ticketNo,
+                        new TransferCommand(versionBefore, revokedItId, "转给已撤权的人")),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        assertThat(assigneeOf(ticketId)).as("失败的转交不能留下任何痕迹").isEqualTo(itUserId);
+        assertThat(versionOf(ticketId)).isEqualTo(versionBefore);
+        assertThat(countRecords(ticketId, "TRANSFER")).isZero();
+    }
+
+    /**
+     * 互转并发不死锁：两张工单同时反向转交，两个事务都要锁住同一对用户行。
+     *
+     * <p>若锁顺序取决于"谁转给谁"，这就是 AB-BA 死锁：InnoDB 会回滚其中一个，用户看到的是
+     * 本可成功的转交失败。实现按 {@code user_id} 升序取锁，两个事务以同一顺序申请同一批行，
+     * 只会排队不会成环——因此本用例断言<b>两边都成功</b>，而不是"至少一个失败"。</p>
+     */
+    @Test
+    void concurrentTransfersInOppositeDirectionsDoNotDeadlock() throws Exception {
+        long ticketOfIt = insertProcessingTicket(employeeId, itUserId);
+        long ticketOfOther = insertProcessingTicket(employeeId, otherItId);
+        String ticketNoOfIt = ticketNoOf(ticketOfIt);
+        String ticketNoOfOther = ticketNoOf(ticketOfOther);
+        long versionOfIt = versionOf(ticketOfIt);
+        long versionOfOther = versionOf(ticketOfOther);
+
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        List<Object> results = runConcurrently(List.<Callable<Object>>of(
+                () -> transferAfterBarrier(barrier, ticketNoOfIt, versionOfIt, itUserId, otherItId),
+                () -> transferAfterBarrier(barrier, ticketNoOfOther, versionOfOther,
+                        otherItId, itUserId)));
+
+        assertThat(results)
+                .as("升序取锁下两个方向相反的转交都必须成功，结果里不应出现死锁异常")
+                .allMatch(TicketActionResult.class::isInstance);
+        assertThat(assigneeOf(ticketOfIt)).isEqualTo(otherItId);
+        assertThat(assigneeOf(ticketOfOther)).isEqualTo(itUserId);
+    }
+
+    /** 同一张工单上「转交」与「撤回补充请求」并发：版本条件更新决定唯一赢家。 */
+    @Test
+    void concurrentTransferAndWithdrawOnSameTicketHaveExactlyOneWinner() throws Exception {
+        long ticketId = insertWaitingForRequesterTicket(employeeId, itUserId);
+        String ticketNo = ticketNoOf(ticketId);
+        long versionBefore = versionOf(ticketId);
+
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        List<Object> results = runConcurrently(List.<Callable<Object>>of(
+                () -> transferAfterBarrier(barrier, ticketNo, versionBefore, itUserId, otherItId),
+                () -> withdrawAfterBarrier(barrier, ticketNo, versionBefore, "信息已足够")));
+
+        List<TicketActionResult> winners = results.stream()
+                .filter(TicketActionResult.class::isInstance)
+                .map(TicketActionResult.class::cast)
+                .toList();
+        assertThat(winners).as("同版本并发只能有一个动作成功").hasSize(1);
+
+        /**
+         * 败者有两条可能的路：正常路径是条件更新影响 0 行、读回快照后抛 {@code 409/TICKET_CONFLICT}；
+         * 另一条是 InnoDB 判定死锁后回滚其中一个事务。
+         *
+         * <p>死锁来自**两条路径的加锁顺序相反**：转交按 {@code user_id} 升序先锁住「原负责人 +
+         * 新负责人」两行 {@code iam_user}，再去改工单行；而撤回在持有工单行锁的同时，会因为
+         * {@code ticket_record.actor_user_id} 的外键去申请同一条 {@code iam_user} 行的共享锁。
+         * 于是「user → ticket」与「ticket → user」首尾相接成环。片 A 的
+         * {@code withdrawSupplementRequest} 并发用例不会撞上它，因为两个撤回都由工单行起手，
+         * 顺序一致；只有"转交 + 同一个人对同一张工单的另一个动作"才会出现这种交叉。</p>
+         *
+         * <p>回滚是安全结果（版本只 +1、只多一条记录，下面的断言逐条核对），但用户拿到的是
+         * {@code 500/INTERNAL_ERROR} 而不是可重试的 {@code 409}。是否把转交改成"先锁工单行、
+         * 再锁两行用户"属于业务代码的决策，记在 {@code PROJECT_STATUS.md} 的已知问题里，
+         * 这里只如实记录真实类型，不把它粉饰成 409。</p>
+         */
+        Object loser = results.stream()
+                .filter(result -> !(result instanceof TicketActionResult))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("并发结果里必须有一个败者：" + results));
+        if (loser instanceof ApiException conflict) {
+            assertThat(conflict.status()).isEqualTo(HttpStatus.CONFLICT);
+            assertThat(conflict.code()).isEqualTo("TICKET_CONFLICT");
+            assertThat(conflict.resourceVersion()).as("冲突响应携带库里最新版本")
+                    .isEqualTo(versionOf(ticketId));
+        } else {
+            assertThat(loser)
+                    .as("非 409 的败者只能是 InnoDB 回滚的死锁，实际为 %s", loser)
+                    .isInstanceOf(DataAccessException.class);
+            assertThat(((Exception) loser).getMessage()).containsIgnoringCase("deadlock");
+        }
+
+        assertThat(versionOf(ticketId)).as("终态版本只 +1").isEqualTo(versionBefore + 1);
+        assertThat(countRecords(ticketId, "TRANSFER")
+                + countRecords(ticketId, "SUPPLEMENT_REQUEST_WITHDRAWN"))
+                .as("两个动作只有一个落库").isEqualTo(1);
+        assertThat(recordSeqOf(ticketId)).isEqualTo(4);
+    }
+
+    /** 候选人查询在真库上的排除口径：提交人与当前负责人都不在列表里。 */
+    @Test
+    void transferCandidatesExcludeRequesterAndCurrentAssignee() {
+        long ticketId = insertProcessingTicket(employeeId, itUserId);
+        String ticketNo = ticketNoOf(ticketId);
+
+        authenticateAs(itUserId, IT_SUPPORT);
+        List<TicketAssigneeOptionResult> candidates =
+                ticketQueryService.transferCandidates(ticketNo);
+
+        assertThat(candidates).extracting(TicketAssigneeOptionResult::id)
+                .as("候选人必须排除提交人与当前负责人，并包含其他启用的 IT 人员")
+                .doesNotContain(employeeId, itUserId)
+                .contains(otherItId);
+        assertThat(candidates).allSatisfy(candidate ->
+                assertThat(candidate.displayName()).as("展示名不能为空").isNotBlank());
+    }
+
+    /** 与工单无关、也不是负责人的 IT 用户：不可见统一 404，不泄露工单是否存在。 */
+    @Test
+    void transferCandidatesAreNotFoundForUnrelatedItUser() {
+        long ticketId = insertProcessingTicket(employeeId, itUserId);
+        String ticketNo = ticketNoOf(ticketId);
+        long outsiderId = insertUser("outsider-it", IT_SUPPORT);
+
+        authenticateAs(outsiderId, IT_SUPPORT);
+        assertApiError(() -> ticketQueryService.transferCandidates(ticketNo),
+                HttpStatus.NOT_FOUND, "TICKET_NOT_FOUND");
+    }
+
     // ---------- 并发动作辅助 ----------
 
     private Object claimAfterBarrier(CyclicBarrier barrier, long actorId, String ticketNo)
@@ -1382,6 +1694,15 @@ class TicketServiceIT {
         authenticateAs(employeeId, EMPLOYEE);
         return ticketService.reportUnresolved(
                 ticketNo, new ReportUnresolvedCommand(version, reason));
+    }
+
+    private Object transferAfterBarrier(
+            CyclicBarrier barrier, String ticketNo, long version,
+            long actorId, long newAssigneeId) throws Exception {
+        barrier.await(30, TimeUnit.SECONDS);
+        authenticateAs(actorId, IT_SUPPORT);
+        return ticketService.transfer(ticketNo,
+                new TransferCommand(version, newAssigneeId, "并发转交"));
     }
 
     // ---------- 身份与断言辅助 ----------
@@ -1615,6 +1936,33 @@ class TicketServiceIT {
     private Long assigneeOf(long ticketId) {
         return jdbc.queryForObject(
                 "SELECT assignee_id FROM ticket WHERE id = ?", Long.class, ticketId);
+    }
+
+    private long categoryIdOf(long ticketId) {
+        Long categoryId = jdbc.queryForObject(
+                "SELECT category_id FROM ticket WHERE id = ?", Long.class, ticketId);
+        return categoryId == null ? -1L : categoryId;
+    }
+
+    private String priorityOf(long ticketId) {
+        return jdbc.queryForObject(
+                "SELECT priority FROM ticket WHERE id = ?", String.class, ticketId);
+    }
+
+    /** 时间线最后一条记录的完整行：用于断言 from/to 快照列，而不只是记录类型。 */
+    private Map<String, Object> lastRecordOf(long ticketId) {
+        return jdbc.queryForMap("""
+                SELECT * FROM ticket_record
+                WHERE ticket_id = ?
+                ORDER BY sequence_no DESC
+                LIMIT 1
+                """, ticketId);
+    }
+
+    private List<Long> participantsOf(long ticketId) {
+        return jdbc.queryForList(
+                "SELECT user_id FROM ticket_participant WHERE ticket_id = ? ORDER BY user_id",
+                Long.class, ticketId);
     }
 
     private long versionOf(long ticketId) {
