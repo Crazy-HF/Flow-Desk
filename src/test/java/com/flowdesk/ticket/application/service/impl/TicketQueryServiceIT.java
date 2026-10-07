@@ -578,10 +578,12 @@ class TicketQueryServiceIT {
                 .as("负责人不是提交人，不能确认")
                 .isEmpty();
 
-        // 待确认 + 提交人：只允许确认
+        // 待确认 + 提交人：确认与「问题仍未解决」两个动作的前置条件完全相同，
+        // 顺序由装配顺序决定（片 A 起从一格变成两格，旧断言只写了 confirm-resolution）
         authenticateAs(requesterId);
         assertThat(ticketQueryService.detail(waitingNo).allowedActions())
-                .containsExactly("confirm-resolution");
+                .as("待确认时提交人同时拿到确认与反馈未解决，顺序固定")
+                .containsExactly("confirm-resolution", "report-unresolved");
         assertThat(ticketQueryService.detail(processingNo).allowedActions())
                 .as("提交人没有处理权限，看不到处理动作")
                 .isEmpty();
