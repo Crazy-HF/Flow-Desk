@@ -381,6 +381,30 @@ MVP 最终完成定义：
 4. 前端 `pnpm typecheck` / `pnpm lint`（含 stylelint 闸门）/ `pnpm build` 退出码为 0；`/admin/categories` 在 1440 与 375 两个宽度下无整页横向溢出，六态齐全。
 5. 临时分类与工单数据清理干净（演示库回到角色 3 / 权限 14 / 分类数不变）。
 
+### 9.3 完整工单状态机（完整版 backlog 第 1 项；2026-10-06 用户确认切片）
+
+**来源与现状**：9 个动作的契约（`docs/api-design.md` 6.3/6.4）与业务规则（`docs/kickoff.md` 4.5～4.12）早已确认，数据库与权限码也已预置——`V1` 的 7 状态、15 种记录类型与 8 条 CHECK 约束齐备，`V2` 已给 `IT_SUPPORT` 授予 `TICKET_TRANSFER`/`TICKET_CLOSE`、给 `EMPLOYEE` 授予 `TICKET_REQUESTER_ACTION`，因此**本项不需要新增迁移、不需要新增权限码**。阶段 3 已实现 4 个动作（`claim`、`add-processing-record`、`submit-resolution`、`confirm-resolution`），本项补完剩余 9 个。
+
+**用户 2026-10-06 的四项裁决**：
+
+1. **分 4 片**，每片独立验收并交接（见下表）；分支从最新 `main` 单建，片 A 为 `flow-desk/ticket-return-actions`。
+2. **附件正文先行**：`supplement` 仍是 `multipart/form-data`（`ticket` part 携带 JSON），但**只接受正文**；携带文件 part 返回 `400/VALIDATION_FAILED`，不静默忽略。附件上传/下载、文件与数据库提交顺序、失败补偿与孤儿对账留 backlog 第 2 项。
+3. **`close` 的 `DUPLICATE` 目标口径**：目标存在、属于同一提交人、非自身，且当前状态**不是 `CANCELED`/`CLOSED`**（`COMPLETED` 与仍在流转的工单都可作为重复目标）。
+4. **超时自动任务本阶段不做**：`request-supplement` 仍写 7×24 小时期限（新增 `flowdesk.ticket.supplement-window`，默认 `7d`，与 `confirmation-window` 同口径）并在界面展示，但**到期不自动改变状态**；待确认自动完成与待补充自动关闭按 backlog 第 3 项单独设计（需先定扫描与幂等策略）。界面文案必须写明"到期不会自动处理"。
+
+**统一实现口径**（沿用阶段 3 已验收的模式）：门禁顺序 = 认证 → 权限 403 → IT 资格 403 → 可见性 404 → 状态/负责人/版本 409 → 字段 400 → 条件更新（影响行数 ≠ 1 → 409 带当前快照）；状态迁移与不可变时间线同事务，`record_seq` 与 `version` 同源递增；`allowedActions` 与动作接口共用判定，动作名与路径末段逐字一致。
+
+| 片 | 动作 | 交付要点 | 验收 |
+| --- | --- | --- | --- |
+| **A 退回处理中** | `report-unresolved`（员工）、`withdraw-supplement-request`（IT） | 两个"从等待态回到 `PROCESSING` 并清空期限"的条件更新；`UNSATISFIED_FEEDBACK` / `SUPPLEMENT_REQUEST_WITHDRAWN` 记录；`allowedActions` 两格 | 单元 + Web + 集成（含并发）+ 真实栈脚本 + 前端动作区与 E2E |
+| **B 补充往返** | `request-supplement`（IT）、`supplement`（员工） | 新增 `supplement-window` 配置；进入/离开 `WAITING_FOR_REQUESTER` 的期限写入与清空；员工侧"需要补充什么 + 截止时间"展示 | 同上（含期限的精确断言） |
+| **C 调整与转交** | `change-category`、`change-priority`、`transfer` + `GET /fd/v1/tickets/{ticketNo}/transfer-candidates` | 目标分类必须启用；转交的固定锁顺序（按 `user_id` 升序锁两名用户行）与 `ticket_participant` 历史；候选人排除提交人与当前负责人 | 同上（含互转并发不死锁的集成用例） |
+| **D 结束路径** | `close`（三种原因 + `DUPLICATE` 关联）、`cancel`（员工） | `ticket_relation` 落库与目标口径校验；取消覆盖四种非终态；三条终态（已完成/已取消/已关闭）必须可区分 | 同上（含终态可区分性断言） |
+
+**片 A 交付记录（2026-10-06，分支 `flow-desk/ticket-return-actions`）**：`report-unresolved` 与 `withdraw-supplement-request` 已实现并通过真实栈验收——后端全量 `clean verify` → surefire **722**（基线 666）+ failsafe **127**（基线 119），`Failures 0 / Errors 0`；真实栈脚本 `scripts/slice-a-return-actions-acceptance.ps1` 在**并行后端 8092**（用户自己的 8081 未被触碰）上 **78/78 断言通过、退出码 0**，证据 `docs/acceptance/2026-10-06-slice-a-return-actions.json`；前端全量 E2E **18 项**、单测 **149 项**、`typecheck`/`lint`/`build` 退出码 0。期间 E2E 抓到一处真实缺陷：详情页动作派发的 `else` 兜底会把未接分支的新动作发成 `submit-resolution`，已改为 `Record<TicketActionName, ...>` 穷尽式映射（漏接即编译失败）。`WAITING_FOR_REQUESTER` 目前只能由脚本 SQL 置位（片 B 的 `request-supplement` 落地后即可通过接口进入）。
+
+**明确不在本项范围**：附件（backlog 2）、超时自动任务（backlog 3）、管理性交接（backlog 4，`IamUserServiceImpl` 两处 `//TODO 工单模块未实现`）、数据概览（backlog 5）。
+
 ## 10. 全局完成与范围控制
 
 任一任务只有同时满足以下条件才可完成：

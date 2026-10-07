@@ -8,6 +8,8 @@ import com.flowdesk.ticket.application.command.ClaimTicketCommand;
 import com.flowdesk.ticket.application.command.AddProcessingRecordCommand;
 import com.flowdesk.ticket.application.command.SubmitResolutionCommand;
 import com.flowdesk.ticket.application.command.ConfirmResolutionCommand;
+import com.flowdesk.ticket.application.command.WithdrawSupplementRequestCommand;
+import com.flowdesk.ticket.application.command.ReportUnresolvedCommand;
 import com.flowdesk.ticket.application.result.*;
 import com.flowdesk.ticket.application.service.TicketQueryService;
 import com.flowdesk.ticket.application.command.CreateTicketCommand;
@@ -101,5 +103,21 @@ public class TicketController {
             @PathVariable String ticketNo,
             @Valid @RequestBody ConfirmResolutionCommand command) {
         return R.success(ticketService.confirmResolution(ticketNo, command));
+    }
+
+    /** 当前负责人撤回补充请求；回到处理中并让补充期限失效。 */
+    @PostMapping("/{ticketNo}/actions/withdraw-supplement-request")
+    public R<TicketActionResult> withdrawSupplementRequest(
+            @PathVariable String ticketNo,
+            @Valid @RequestBody WithdrawSupplementRequestCommand command) {
+        return R.success(ticketService.withdrawSupplementRequest(ticketNo, command));
+    }
+
+    /** 提交人反馈问题未解决；回到处理中并让确认期限失效。 */
+    @PostMapping("/{ticketNo}/actions/report-unresolved")
+    public R<TicketActionResult> reportUnresolved(
+            @PathVariable String ticketNo,
+            @Valid @RequestBody ReportUnresolvedCommand command) {
+        return R.success(ticketService.reportUnresolved(ticketNo, command));
     }
 }

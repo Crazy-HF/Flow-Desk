@@ -1,11 +1,7 @@
 package com.flowdesk.ticket.application.service.impl;
 
 import com.flowdesk.common.exception.ApiException;
-import com.flowdesk.ticket.application.command.AddProcessingRecordCommand;
-import com.flowdesk.ticket.application.command.ClaimTicketCommand;
-import com.flowdesk.ticket.application.command.ConfirmResolutionCommand;
-import com.flowdesk.ticket.application.command.CreateTicketCommand;
-import com.flowdesk.ticket.application.command.SubmitResolutionCommand;
+import com.flowdesk.ticket.application.command.*;
 import com.flowdesk.ticket.application.port.CategoryAvailabilityPort;
 import com.flowdesk.ticket.application.port.CurrentRequesterPort;
 import com.flowdesk.ticket.application.port.TicketClaimantPort;
@@ -62,6 +58,12 @@ public class TicketServiceImpl implements TicketService {
 
     /** 处理正文去除首尾空白后的长度上限，与请求校验保持一致。 */
     private static final int MAX_CONTENT_LENGTH = 10000;
+
+    /** 待补充：只有当前负责人可以撤回补充请求。 */
+    private static final String WAITING_FOR_REQUESTER = "WAITING_FOR_REQUESTER";
+
+    /** 原因类动作（撤回、未解决、转交、调整、取消、关闭）的长度上限，与 @Size 一致。 */
+    private static final int MAX_REASON_LENGTH = 1000;
 
     private static final ZoneId BUSINESS_ZONE =
             ZoneId.of("Asia/Shanghai");
@@ -597,6 +599,216 @@ public class TicketServiceImpl implements TicketService {
         return new TicketActionResult(
                 updated.getTicketNo(),
                 "COMPLETED",
+                assignee,
+                null,
+                updated.getVersion(),
+                instant.atOffset(ZoneOffset.UTC));
+    }
+
+    /** 当前负责人撤回补充请求：回到「处理中」，原补充期限失效。 */
+    @Override
+    @Transactional
+    public TicketActionResult withdrawSupplementRequest(String ticketNo, WithdrawSupplementRequestCommand command) {
+        //1.身份与提交人动作权限
+        long actorId = currentRequesterPort.currentUserId();
+
+        if (!ticketReadPermissionPort.hasAuthority(TICKET_PROCESS)) {
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN,
+                    "TICKET_ACTION_FORBIDDEN",
+                    "无处理工单权限");
+        }
+
+        // 2. 可见性：无权查看与编号不存在统一 404，不向调用方确认工单是否存在
+        TicketDetailRow visible = ticketMapper.selectVisibleDetail(
+                ticketNo,
+                actorId,
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_OWN"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_QUEUE"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_PARTICIPATED"));
+
+        if (visible == null) {
+            throw new ApiException(
+                    HttpStatus.NOT_FOUND,
+                    "TICKET_NOT_FOUND",
+                    "工单不存在");
+        }
+
+        // 3. 只有「待补充」的当前负责人可以撤回
+        if (!WAITING_FOR_REQUESTER.equals(visible.getStatus())
+                || visible.getAssigneeId() == null
+                || visible.getAssigneeId() != actorId) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        // 4. 版本必须与客户端读到的一致
+        if (!Objects.equals(command.version(), visible.getVersion())) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        // 5. 原因长度与校验注解一致；能过 Controller 后这里只兜底
+        //    null 必须在 equals/isEmpty 之前判掉：非 HTTP 调用方（别的服务、脚本、测试）不走 Bean Validation
+        String reason = command.reason();
+        if (reason == null || reason.isEmpty() || reason.length() > MAX_REASON_LENGTH) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_FAILED",
+                    "撤回原因长度必须在 1 到 1000 之间");
+        }
+
+        Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
+        LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+
+        // 6. 条件更新是唯一胜者判定：状态、负责人与版本都在 WHERE 里
+        int updatedRows = ticketMapper.withdrawSupplementRequest(
+                visible.getId(),
+                command.version(),
+                actorId,
+                now);
+
+        if (updatedRows != 1) {
+            Ticket current = ticketMapper.selectClaimConflictSnapshotForUpdate(visible.getId());
+            if (current == null) {
+                throw new IllegalStateException("撤回补充请求冲突后无法读取工单快照");
+            }
+            throw conflict(current.getVersion(), current.getStatus());
+        }
+
+        Ticket updated = ticketMapper.selectById(visible.getId());
+        if (updated == null
+                || updated.getRecordSeq() == null
+                || updated.getVersion() == null) {
+            throw new IllegalStateException("撤回补充请求后无法读取工单快照");
+        }
+
+        // 7. 不可变时间线：撤回原因 + 状态迁移；期限由条件更新一并清空
+        TicketRecord record = new TicketRecord();
+        record.setTicketId(updated.getId());
+        record.setSequenceNo(updated.getRecordSeq());
+        record.setRecordType("SUPPLEMENT_REQUEST_WITHDRAWN");
+        record.setActorType("USER");
+        record.setActorUserId(actorId);
+        record.setReason(reason);
+        record.setFromStatus(WAITING_FOR_REQUESTER);
+        record.setToStatus(PROCESSING);
+        record.setCreatedAt(now);
+
+        if (ticketRecordMapper.insert(record) != 1) {
+            throw new IllegalStateException("撤回补充请求记录插入失败");
+        }
+
+        // 8. 负责人没变，摘要直接取本事务读到的可见快照
+        TicketUserSummaryResult assignee = new TicketUserSummaryResult(
+                visible.getAssigneeId(),
+                visible.getAssigneeDisplayName());
+
+        return new TicketActionResult(
+                updated.getTicketNo(),
+                PROCESSING,
+                assignee,
+                null,
+                updated.getVersion(),
+                instant.atOffset(ZoneOffset.UTC));
+    }
+
+
+    /** 提交人反馈问题未解决：回到「处理中」，原确认期限失效，负责人保留。 */
+    @Override
+    @Transactional
+    public TicketActionResult reportUnresolved(
+            String ticketNo, ReportUnresolvedCommand command) {
+        // 1. 身份与提交人动作权限
+        long actorId = currentRequesterPort.currentUserId();
+        if (!ticketReadPermissionPort.hasAuthority(TICKET_REQUESTER_ACTION)) {
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN,
+                    "TICKET_ACTION_FORBIDDEN",
+                    "无提交人操作权限");
+        }
+
+        TicketDetailRow visible = ticketMapper.selectVisibleDetail(
+                ticketNo,
+                actorId,
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_OWN"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_QUEUE"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_PARTICIPATED"));
+
+        if (visible == null) {
+            throw new ApiException(
+                    HttpStatus.NOT_FOUND,
+                    "TICKET_NOT_FOUND",
+                    "工单不存在");
+        }
+
+        // 2. 只有提交人能在「待确认」上反馈未解决；负责人能看到工单但不是提交人，按冲突返回
+        if (!WAITING_FOR_CONFIRMATION.equals(visible.getStatus())
+                || visible.getRequesterId() == null
+                || visible.getRequesterId() != actorId) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        if (!Objects.equals(command.version(), visible.getVersion())) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        String reason = command.reason();
+        if (reason == null || reason.isEmpty() || reason.length() > MAX_REASON_LENGTH) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_FAILED",
+                    "未解决原因长度必须在 1 到 1000 之间");
+        }
+
+        Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
+        LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+
+        // 3. 条件更新：同时清空确认期限；assignee_id 不动（退回不等于换人）
+        int updatedRows = ticketMapper.reportUnresolved(
+                visible.getId(),
+                command.version(),
+                actorId,
+                now);
+
+        if (updatedRows != 1) {
+            Ticket current = ticketMapper.selectClaimConflictSnapshotForUpdate(visible.getId());
+            if (current == null) {
+                throw new IllegalStateException("反馈未解决冲突后无法读取工单快照");
+            }
+            throw conflict(current.getVersion(), current.getStatus());
+        }
+
+        Ticket updated = ticketMapper.selectById(visible.getId());
+        if (updated == null
+                || updated.getRecordSeq() == null
+                || updated.getVersion() == null) {
+            throw new IllegalStateException("反馈未解决后无法读取工单快照");
+        }
+
+        // 4. 未解决反馈是一次业务事件，不是"驳回"状态：状态回到处理中，解决结果留在时间线上
+        TicketRecord record = new TicketRecord();
+        record.setTicketId(updated.getId());
+        record.setSequenceNo(updated.getRecordSeq());
+        record.setRecordType("UNSATISFIED_FEEDBACK");
+        record.setActorType("USER");
+        record.setActorUserId(actorId);
+        record.setReason(reason);
+        record.setFromStatus(WAITING_FOR_CONFIRMATION);
+        record.setToStatus(PROCESSING);
+        record.setCreatedAt(now);
+
+        if (ticketRecordMapper.insert(record) != 1) {
+            throw new IllegalStateException("未解决反馈记录插入失败");
+        }
+
+        TicketUserSummaryResult assignee = visible.getAssigneeId() == null
+                ? null
+                : new TicketUserSummaryResult(
+                visible.getAssigneeId(),
+                visible.getAssigneeDisplayName());
+
+        return new TicketActionResult(
+                updated.getTicketNo(),
+                PROCESSING,
                 assignee,
                 null,
                 updated.getVersion(),

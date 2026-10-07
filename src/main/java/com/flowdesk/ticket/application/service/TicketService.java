@@ -5,6 +5,8 @@ import com.flowdesk.ticket.application.command.ClaimTicketCommand;
 import com.flowdesk.ticket.application.command.AddProcessingRecordCommand;
 import com.flowdesk.ticket.application.command.SubmitResolutionCommand;
 import com.flowdesk.ticket.application.command.ConfirmResolutionCommand;
+import com.flowdesk.ticket.application.command.WithdrawSupplementRequestCommand;
+import com.flowdesk.ticket.application.command.ReportUnresolvedCommand;
 import com.flowdesk.ticket.application.result.TicketActionResult;
 import com.flowdesk.ticket.application.result.TicketCreatedResult;
 
@@ -25,4 +27,12 @@ public interface TicketService {
 
     /** 确认处理结果。 */
     TicketActionResult confirmResolution(String ticketNo, ConfirmResolutionCommand command);
+
+    /** 当前负责人撤回补充请求；回到处理中并让原补充期限失效。 */
+    TicketActionResult withdrawSupplementRequest(
+            String ticketNo, WithdrawSupplementRequestCommand command);
+
+    /** 提交人反馈问题未解决；回到处理中并让原确认期限失效，负责人保留。 */
+    TicketActionResult reportUnresolved(
+            String ticketNo, ReportUnresolvedCommand command);
 }

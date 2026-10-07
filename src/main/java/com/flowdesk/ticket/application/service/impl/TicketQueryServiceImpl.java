@@ -50,6 +50,8 @@ public class TicketQueryServiceImpl implements TicketQueryService {
     private static final String STATUS_PROCESSING = "PROCESSING";
     /** 待确认：只有提交人可以确认问题已解决。 */
     private static final String STATUS_WAITING_FOR_CONFIRMATION = "WAITING_FOR_CONFIRMATION";
+    /** 待补充：只有提交人可以补充信息。 */
+    private static final String STATUS_WAITING_FOR_REQUESTER = "WAITING_FOR_REQUESTER";
 
     private final TicketMapper ticketMapper;
     private final CurrentRequesterPort currentRequesterPort;
@@ -307,6 +309,17 @@ public class TicketQueryServiceImpl implements TicketQueryService {
                 && row.getRequesterId() == currentUserId
                 && ticketReadPermissionPort.hasAuthority(TICKET_REQUESTER_ACTION);
 
+        // 「待补充」时当前负责人可以撤回补充请求；"本人是负责人"与处理动作共用同一条判定
+        boolean canWithdrawSupplementRequest =
+                STATUS_WAITING_FOR_REQUESTER.equals(row.getStatus())
+                        && row.getAssigneeId() != null
+                        && row.getAssigneeId() == currentUserId
+                        && ticketReadPermissionPort.hasAuthority(TICKET_PROCESS);
+
+        // 提交人在「待确认」上只有两个互斥选择：确认已解决 / 反馈未解决，
+        // 前置条件完全相同，直接复用 canConfirm，不复制表达式（阶段 3 的 submit-resolution 就是这样漏的）
+        boolean canReportUnresolved = canConfirm;
+
         // 一个动作一个条件，动作名与接口路径末段逐字一致。
         List<String> allowedActions = new ArrayList<>();
 
@@ -324,6 +337,14 @@ public class TicketQueryServiceImpl implements TicketQueryService {
 
         if (canConfirm) {
             allowedActions.add("confirm-resolution");
+        }
+
+        if (canWithdrawSupplementRequest) {
+            allowedActions.add("withdraw-supplement-request");
+        }
+
+        if (canReportUnresolved) {
+            allowedActions.add("report-unresolved");
         }
 
         return new TicketDetailResult(
