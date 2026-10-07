@@ -4,9 +4,11 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.flowdesk.ticket.application.query.TicketQuery;
 import com.flowdesk.ticket.domain.Ticket;
+import com.flowdesk.ticket.infrastructure.persistence.TicketAssigneeRow;
 import com.flowdesk.ticket.infrastructure.persistence.TicketListRow;
 import com.flowdesk.ticket.infrastructure.persistence.TicketDetailRow;
 import java.time.LocalDateTime;
+import java.util.List;
 
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
@@ -340,4 +342,79 @@ public interface TicketMapper extends BaseMapper<Ticket> {
             @Param("actorId") long actorId,
             @Param("now") LocalDateTime now);
 
+    /**
+     * 查询转交候选人
+     */
+    @Select("""
+            SELECT u.id AS id, u.display_name AS displayName
+            FROM iam_user u
+            JOIN iam_user_role ur ON ur.user_id = u.id
+            JOIN iam_role r ON r.id = ur.role_id
+            WHERE r.code = 'IT_SUPPORT'
+              AND u.status = 'ENABLED'
+              AND u.id <> #{requesterId}
+              AND u.id <> #{currentAssigneeId}
+            ORDER BY u.id
+            """)
+    List<TicketAssigneeRow> selectTransferCandidates(
+            @Param("requesterId") long requesterId,
+            @Param("currentAssigneeId") long currentAssigneeId);
+
+    /**当前负责人调整工单分类*/
+    @Update("""
+    UPDATE ticket
+    SET category_id = #{categoryId},
+        version = version + 1,
+        record_seq = record_seq + 1,
+        updated_at = #{now}
+    WHERE id = #{ticketId}
+      AND version = #{expectedVersion}
+      AND status IN ('PROCESSING', 'WAITING_FOR_REQUESTER')
+      AND assignee_id = #{actorId}
+    """)
+    int changeCategory(
+            @Param("ticketId") long ticketId,
+            @Param("expectedVersion") long expectedVersion,
+            @Param("actorId") long actorId,
+            @Param("categoryId") long categoryId,
+            @Param("now") LocalDateTime now);
+
+    /** 当前负责人调整工单优先级：与 {@link #changeCategory} 形状相同，只有被替换的列不同。 */
+    @Update("""
+    UPDATE ticket
+    SET priority = #{priority},
+        version = version + 1,
+        record_seq = record_seq + 1,
+        updated_at = #{now}
+    WHERE id = #{ticketId}
+      AND version = #{expectedVersion}
+      AND status IN ('PROCESSING', 'WAITING_FOR_REQUESTER')
+      AND assignee_id = #{actorId}
+    """)
+    int changePriority(
+            @Param("ticketId") long ticketId,
+            @Param("expectedVersion") long expectedVersion,
+            @Param("actorId") long actorId,
+            @Param("priority") String priority,
+            @Param("now") LocalDateTime now);
+
+    /**当前负责人把工单直接转交给另一名 IT 用户：原子替换负责人，状态与期限不变。*/
+    @Update("""
+    UPDATE ticket
+    SET assignee_id = #{newAssigneeId},
+        version = version + 1,
+        record_seq = record_seq + 1,
+        updated_at = #{now}
+    WHERE id = #{ticketId}
+      AND version = #{expectedVersion}
+      AND status IN ('PROCESSING', 'WAITING_FOR_REQUESTER')
+      AND assignee_id = #{actorId}
+      AND requester_id <> #{newAssigneeId}
+    """)
+    int transfer(
+            @Param("ticketId") long ticketId,
+            @Param("expectedVersion") long expectedVersion,
+            @Param("actorId") long actorId,
+            @Param("newAssigneeId") long newAssigneeId,
+            @Param("now") LocalDateTime now);
 }

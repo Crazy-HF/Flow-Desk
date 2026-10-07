@@ -12,6 +12,7 @@ import com.flowdesk.ticket.application.result.TicketCreatedResult;
 import com.flowdesk.ticket.application.result.TicketUserSummaryResult;
 import com.flowdesk.ticket.application.service.TicketService;
 import com.flowdesk.ticket.domain.Ticket;
+import com.flowdesk.ticket.domain.TicketPriority;
 import com.flowdesk.ticket.domain.TicketRecord;
 import com.flowdesk.ticket.infrastructure.persistence.TicketDetailRow;
 import com.flowdesk.ticket.mapper.TicketMapper;
@@ -26,12 +27,7 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.time.Clock;
-import java.time.LocalDateTime;
-import java.time.LocalDate;
-import java.time.Instant;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
+import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.Locale;
@@ -55,6 +51,9 @@ public class TicketServiceImpl implements TicketService {
     private static final String WAITING_FOR_CONFIRMATION = "WAITING_FOR_CONFIRMATION";
     /** 提交人动作权限：补充、确认、未解决反馈与撤销。 */
     private static final String TICKET_REQUESTER_ACTION = "TICKET_REQUESTER_ACTION";
+
+    /** 转交权限由动态 RBAC 授予；与处理权限分开，可以单独授予一个角色。 */
+    private static final String TICKET_TRANSFER = "TICKET_TRANSFER";
 
     /** 处理正文去除首尾空白后的长度上限，与请求校验保持一致。 */
     private static final int MAX_CONTENT_LENGTH = 10000;
@@ -1035,6 +1034,394 @@ public class TicketServiceImpl implements TicketService {
                 instant.atOffset(ZoneOffset.UTC));
     }
 
+    /** 当前负责人调整分类：状态、负责人与期限都不变，只替换分类并留下调整记录。 */
+    @Override
+    @Transactional
+    public TicketActionResult changeCategory(String ticketNo, ChangeCategoryCommand command) {
+        //1.身份、处理权限
+        long actorId = currentRequesterPort.currentUserId();
+
+        if (!ticketReadPermissionPort.hasAuthority(TICKET_PROCESS)) {
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN,
+                    "TICKET_ACTION_FORBIDDEN",
+                    "无处理权限");
+        }
+
+        //2.可见性：无权查看与编号不存在统一 404
+        TicketDetailRow visible = ticketMapper.selectVisibleDetail(
+                ticketNo,
+                actorId,
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_OWN"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_QUEUE"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_PARTICIPATED"));
+
+        // 读不到就是不可见或不存在：先按 404 收口，不能把 null 带到下面的 getStatus()
+        if (visible == null) {
+            throw new ApiException(
+                    HttpStatus.NOT_FOUND,
+                    "TICKET_NOT_FOUND",
+                    "工单不存在");
+        }
+
+        // 3. 「处理中」与「待补充」的当前负责人可以调整分类；状态或身份不符都按冲突返回
+        if (!isAdjustableStatus(visible.getStatus())
+                || visible.getAssigneeId() == null
+                || visible.getAssigneeId() != actorId) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        // 4. 版本必须与客户端读到的一致；409 先于字段 400，避免客户端拿旧版本反复试字段
+        if (!Objects.equals(command.version(), visible.getVersion())) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        // 5. 原因必填；null 必须在 isEmpty 之前判掉（非 HTTP 调用方不走 Bean Validation）
+        String reason = command.reason();
+        if (reason == null || reason.isEmpty() || reason.length() > MAX_REASON_LENGTH) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_FAILED",
+                    "调整原因长度必须在 1 到 1000 之间");
+        }
+
+        // 6. 目标分类必须存在且启用；停用分类不能再被选为当前分类
+        if (!categoryAvailabilityPort.isEnabled(command.categoryId())) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_FAILED",
+                    "请选择启用的分类");
+        }
+
+        Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
+        LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+
+        // 7. 条件更新是唯一胜者判定：版本、状态与负责人都写在 WHERE 里
+        int updatedRows = ticketMapper.changeCategory(
+                visible.getId(),
+                command.version(),
+                actorId,
+                command.categoryId(),
+                now);
+
+        //更新分类失败时，锁定读当前工单快照，并抛出异常
+        if (updatedRows != 1) {
+            Ticket current = ticketMapper.selectClaimConflictSnapshotForUpdate(visible.getId());
+            if (current == null) {
+                throw new IllegalStateException("调整分类冲突后无法读取工单快照");
+            }
+            throw conflict(current.getVersion(), current.getStatus());
+        }
+
+        //更新成功后，根据Id读取当前工单最新数据
+        Ticket updated = ticketMapper.selectById(visible.getId());
+        if (updated == null
+                || updated.getRecordSeq() == null
+                || updated.getVersion() == null) {
+            throw new IllegalStateException("调整分类后无法读取工单快照");
+        }
+
+        // 8. 写入工单转变记录
+        TicketRecord record = new TicketRecord();
+        record.setTicketId(updated.getId());
+        record.setSequenceNo(updated.getRecordSeq());
+        record.setRecordType("CATEGORY_CHANGE");
+        record.setActorType("USER");
+        record.setActorUserId(actorId);
+        record.setReason(reason);
+        record.setFromCategoryId(visible.getCategoryId());
+        record.setToCategoryId(command.categoryId());
+        record.setFromStatus(visible.getStatus());
+        record.setToStatus(visible.getStatus());
+        record.setCreatedAt(now);
+
+        if (ticketRecordMapper.insert(record) != 1) {
+            throw new IllegalStateException("分类调整记录插入失败");
+        }
+
+        // 9. 状态与负责人没变，摘要取本事务读到的可见快照；「待补充」时期限仍然有效，原样返回
+        TicketUserSummaryResult assignee = new TicketUserSummaryResult(
+                visible.getAssigneeId(),
+                visible.getAssigneeDisplayName());
+
+        return new TicketActionResult(
+                updated.getTicketNo(),
+                visible.getStatus(),
+                assignee,
+                toOffsetDateTime(visible.getActionDeadlineAt()),
+                updated.getVersion(),
+                instant.atOffset(ZoneOffset.UTC));
+    }
+
+    /** 当前负责人调整优先级：与调整分类同一条门禁，只替换优先级。 */
+    @Override
+    @Transactional
+    public TicketActionResult changePriority(String ticketNo, ChangePriorityCommand command) {
+        // 1. 身份与处理权限：优先级调整与处理记录同属 TICKET_PROCESS
+        long actorId = currentRequesterPort.currentUserId();
+        if (!ticketReadPermissionPort.hasAuthority(TICKET_PROCESS)) {
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN,
+                    "TICKET_ACTION_FORBIDDEN",
+                    "无处理工单权限");
+        }
+
+        // 2. 可见性：无权查看与编号不存在统一 404
+        TicketDetailRow visible = ticketMapper.selectVisibleDetail(
+                ticketNo,
+                actorId,
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_OWN"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_QUEUE"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_PARTICIPATED"));
+
+        if (visible == null) {
+            throw new ApiException(
+                    HttpStatus.NOT_FOUND,
+                    "TICKET_NOT_FOUND",
+                    "工单不存在");
+        }
+
+        // 3. 「处理中」与「待补充」的当前负责人可以调整优先级
+        if (!isAdjustableStatus(visible.getStatus())
+                || visible.getAssigneeId() == null
+                || visible.getAssigneeId() != actorId) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        // 4. 版本必须与客户端读到的一致
+        if (!Objects.equals(command.version(), visible.getVersion())) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        // 5. 原因必填
+        String reason = command.reason();
+        if (reason == null || reason.isEmpty() || reason.length() > MAX_REASON_LENGTH) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_FAILED",
+                    "调整原因长度必须在 1 到 1000 之间");
+        }
+
+        // 6. 优先级取值以枚举为准；非 HTTP 调用方不走 @Pattern，这里兜底（null 也算非法）
+        if (!isValidPriority(command.priority())) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_FAILED",
+                    "优先级必须是LOW、MEDIUM或HIGH");
+        }
+
+        Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
+        LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+
+        // 7. 条件更新是唯一胜者判定
+        int updatedRows = ticketMapper.changePriority(
+                visible.getId(),
+                command.version(),
+                actorId,
+                command.priority(),
+                now);
+
+        if (updatedRows != 1) {
+            Ticket current = ticketMapper.selectClaimConflictSnapshotForUpdate(visible.getId());
+            if (current == null) {
+                throw new IllegalStateException("调整优先级冲突后无法读取工单快照");
+            }
+            throw conflict(current.getVersion(), current.getStatus());
+        }
+
+        Ticket updated = ticketMapper.selectById(visible.getId());
+        if (updated == null
+                || updated.getRecordSeq() == null
+                || updated.getVersion() == null) {
+            throw new IllegalStateException("调整优先级后无法读取工单快照");
+        }
+
+        // 8. 不可变时间线：原优先级 → 新优先级 + 原因；状态没变，两侧写同一个状态
+        TicketRecord record = new TicketRecord();
+        record.setTicketId(updated.getId());
+        record.setSequenceNo(updated.getRecordSeq());
+        record.setRecordType("PRIORITY_CHANGE");
+        record.setActorType("USER");
+        record.setActorUserId(actorId);
+        record.setReason(reason);
+        record.setFromPriority(visible.getPriority());
+        record.setToPriority(command.priority());
+        record.setFromStatus(visible.getStatus());
+        record.setToStatus(visible.getStatus());
+        record.setCreatedAt(now);
+
+        if (ticketRecordMapper.insert(record) != 1) {
+            throw new IllegalStateException("优先级调整记录插入失败");
+        }
+
+        // 9. 状态与负责人没变，摘要取本事务读到的可见快照
+        TicketUserSummaryResult assignee = new TicketUserSummaryResult(
+                visible.getAssigneeId(),
+                visible.getAssigneeDisplayName());
+
+        return new TicketActionResult(
+                updated.getTicketNo(),
+                visible.getStatus(),
+                assignee,
+                toOffsetDateTime(visible.getActionDeadlineAt()),
+                updated.getVersion(),
+                instant.atOffset(ZoneOffset.UTC));
+    }
+
+    /** 当前负责人转交工单：与调整分类同一条门禁，只替换负责人。 */
+    @Override
+    @Transactional
+    public TicketActionResult transfer(String ticketNo, TransferCommand command) {
+        // 1. 身份与转交权限：转交单独要求 TICKET_TRANSFER，与处理权限分开（docs/api-design.md 9）
+        long actorId = currentRequesterPort.currentUserId();
+        if (!ticketReadPermissionPort.hasAuthority(TICKET_TRANSFER)) {
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN,
+                    "TICKET_ACTION_FORBIDDEN",
+                    "无转交工单权限");
+        }
+
+        // 2. 可见性：无权查看与编号不存在统一 404
+        TicketDetailRow visible = ticketMapper.selectVisibleDetail(
+                ticketNo,
+                actorId,
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_OWN"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_QUEUE"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_PARTICIPATED"));
+
+        if (visible == null) {
+            throw new ApiException(
+                    HttpStatus.NOT_FOUND,
+                    "TICKET_NOT_FOUND",
+                    "工单不存在");
+        }
+
+        // 3. 「处理中」与「待补充」的当前负责人可以转交
+        if (!isAdjustableStatus(visible.getStatus())
+                || visible.getAssigneeId() == null
+                || visible.getAssigneeId() != actorId) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        // 4. 版本必须与客户端读到的一致
+        if (!Objects.equals(command.version(), visible.getVersion())) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        // 5. 原因必填
+        String reason = command.reason();
+        if (reason == null || reason.isEmpty() || reason.length() > MAX_REASON_LENGTH) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_FAILED",
+                    "转交原因长度必须在 1 到 1000 之间");
+        }
+
+        // 6. 字段级错误先于加锁与条件更新：转给自己、转给提交人都是无效请求。
+        Long newAssigneeId = command.newAssigneeId();
+        if (newAssigneeId == null || newAssigneeId == actorId) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_FAILED",
+                    "不能转交给当前负责人自己");
+        }
+
+        if (Objects.equals(newAssigneeId, visible.getRequesterId())) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_FAILED",
+                    "不能转交给工单提交人");
+        }
+
+        // 7. 固定锁顺序：无论谁转给谁，一律按 user_id 升序锁「当前负责人 + 新负责人」两行。
+        //    互转并发（A 转给 B、B 转给 A）时两边以同一顺序取锁，不会形成 AB-BA 死锁
+        long firstUserId = Math.min(actorId, newAssigneeId);
+        long secondUserId = Math.max(actorId, newAssigneeId);
+
+        TicketUserSummaryResult firstLocked = ticketClaimPort.lockEligibleClaimant(firstUserId);
+        TicketUserSummaryResult secondLocked = ticketClaimPort.lockEligibleClaimant(secondUserId);
+
+        TicketUserSummaryResult actorLocked =
+                actorId == firstUserId ? firstLocked : secondLocked;
+        TicketUserSummaryResult newAssignee =
+                newAssigneeId == firstUserId ? firstLocked : secondLocked;
+
+        // 8. 锁住之后再复核双方资格，并发的角色或账号变更由这次复核收敛
+        if (actorLocked == null) {
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN,
+                    "TICKET_ACTION_FORBIDDEN",
+                    "当前用户不能转交工单");
+        }
+
+        if (newAssignee == null) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_FAILED",
+                    "新负责人必须是启用的 IT 支持人员");
+        }
+
+        Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
+        LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+
+        // 9. 条件更新是唯一胜者判定：版本、状态、原负责人与"新负责人不是提交人"都在 WHERE 里；
+        //    status 与 action_deadline_at 都不写，转交不产生中间态
+        int updatedRows = ticketMapper.transfer(
+                visible.getId(),
+                command.version(),
+                actorId,
+                newAssigneeId,
+                now);
+
+        if (updatedRows != 1) {
+            Ticket current = ticketMapper.selectClaimConflictSnapshotForUpdate(visible.getId());
+            if (current == null) {
+                throw new IllegalStateException("转交冲突后无法读取工单快照");
+            }
+            throw conflict(current.getVersion(), current.getStatus());
+        }
+
+        Ticket updated = ticketMapper.selectById(visible.getId());
+        if (updated == null
+                || updated.getRecordSeq() == null
+                || updated.getVersion() == null) {
+            throw new IllegalStateException("转交后无法读取工单快照");
+        }
+
+        // 10. 记录新负责人的参与关系：与领取一致，转交后他才能看到这张工单
+        ticketParticipantMapper.recordAssignment(
+                updated.getId(),
+                newAssigneeId,
+                now);
+
+        // 11. 不可变时间线：原负责人 → 新负责人 + 原因；状态没变，两侧写同一个状态
+        TicketRecord record = new TicketRecord();
+        record.setTicketId(updated.getId());
+        record.setSequenceNo(updated.getRecordSeq());
+        record.setRecordType("TRANSFER");
+        record.setActorType("USER");
+        record.setActorUserId(actorId);
+        record.setReason(reason);
+        record.setFromAssigneeId(visible.getAssigneeId());
+        record.setToAssigneeId(newAssigneeId);
+        record.setFromStatus(visible.getStatus());
+        record.setToStatus(visible.getStatus());
+        record.setCreatedAt(now);
+
+        if (ticketRecordMapper.insert(record) != 1) {
+            throw new IllegalStateException("转交记录插入失败");
+        }
+
+        // 12. 摘要里的负责人是新负责人；「待补充」时转交，期限原样有效，一并返回
+        return new TicketActionResult(
+                updated.getTicketNo(),
+                visible.getStatus(),
+                newAssignee,
+                toOffsetDateTime(visible.getActionDeadlineAt()),
+                updated.getVersion(),
+                instant.atOffset(ZoneOffset.UTC));
+    }
+
 
     /** 创建工单 */
     private TicketCreatedResult createTicket(CreateTicketCommand command, Long requesterId, String submissionKey) {
@@ -1123,5 +1510,30 @@ public class TicketServiceImpl implements TicketService {
                 "工单状态或版本已变化，请刷新后重试",
                 version,
                 status);
+    }
+
+    /** 「处理中」与「待补充」：当前负责人可调整分类、优先级并转交的两个状态。 */
+    private boolean isAdjustableStatus(String status) {
+        return PROCESSING.equals(status) || WAITING_FOR_REQUESTER.equals(status);
+    }
+
+    /** 优先级取值以 {@link TicketPriority} 为准，避免再抄一份正则；null 视为非法。 */
+    private boolean isValidPriority(String priority) {
+        if (priority == null) {
+            return false;
+        }
+
+        for (TicketPriority candidate : TicketPriority.values()) {
+            if (candidate.name().equals(priority)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** 快照里的期限按 UTC 输出；只有待补充与待确认有值，其他状态为 null。 */
+    private OffsetDateTime toOffsetDateTime(LocalDateTime value) {
+        return value == null ? null : value.atOffset(ZoneOffset.UTC);
     }
 }

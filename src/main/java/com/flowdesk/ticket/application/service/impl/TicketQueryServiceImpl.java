@@ -30,6 +30,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 public class TicketQueryServiceImpl implements TicketQueryService {
@@ -52,6 +53,8 @@ public class TicketQueryServiceImpl implements TicketQueryService {
     private static final String STATUS_WAITING_FOR_CONFIRMATION = "WAITING_FOR_CONFIRMATION";
     /** 待补充：只有提交人可以补充信息。 */
     private static final String STATUS_WAITING_FOR_REQUESTER = "WAITING_FOR_REQUESTER";
+    /** 转交工单权限：转交动作与候选人接口共用；与处理权限分开，可以单独授予一个角色。 */
+    private static final String TICKET_TRANSFER = "TICKET_TRANSFER";
 
     private final TicketMapper ticketMapper;
     private final CurrentRequesterPort currentRequesterPort;
@@ -192,6 +195,59 @@ public class TicketQueryServiceImpl implements TicketQueryService {
     }
 
     /**
+     * 查询工单转交候选人。
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<TicketAssigneeOptionResult> transferCandidates(String ticketNo) {
+        //1.获取当前用户、权限
+        long currentUserId = currentRequesterPort.currentUserId();
+
+        if (!ticketReadPermissionPort.hasAuthority(TICKET_TRANSFER)) {
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN,
+                    "TICKET_ACTION_FORBIDDEN",
+                    "无转交工单权限");
+        }
+
+        // 2. 与详情共用同一条可见性 SQL：无权查看与编号不存在统一 404
+        TicketDetailRow visible = ticketMapper.selectVisibleDetail(
+                ticketNo,
+                currentUserId,
+                ticketReadPermissionPort.hasAuthority(TICKET_VIEW_OWN),
+                ticketReadPermissionPort.hasAuthority(TICKET_VIEW_QUEUE),
+                ticketReadPermissionPort.hasAuthority(TICKET_VIEW_PARTICIPATED));
+
+        if (visible == null) {
+            throw new ApiException(
+                    HttpStatus.NOT_FOUND,
+                    "TICKET_NOT_FOUND",
+                    "工单不存在");
+        }
+
+        //3.只有「处理中」「待补充」的当前负责人能取候选人；状态或负责人不符按冲突返回。
+        //可查看但不是负责人（例如历史参与者）与"动作接口的身份闸门"口径一致，都是 409。
+        if (!(STATUS_PROCESSING.equals(visible.getStatus())
+                || STATUS_WAITING_FOR_REQUESTER.equals(visible.getStatus()))
+                || visible.getAssigneeId() == null
+                || visible.getAssigneeId() != currentUserId) {
+            throw new ApiException(
+                    HttpStatus.CONFLICT,
+                    "TICKET_CONFLICT",
+                    "工单状态或负责人已变化，请刷新后重试",
+                    visible.getVersion(),
+                    visible.getStatus());
+        }
+
+        //4.通过sql筛选出 <> （不等于） currentUserId，当前工单的负责人Id的行，
+        return ticketMapper.selectTransferCandidates(visible.getRequesterId(), currentUserId).stream()
+                .map(row -> new TicketAssigneeOptionResult(
+                        row.getId(),
+                        row.getDisplayName()))
+                .collect(Collectors.toList());
+    }
+
+    /**
      * 转义 LIKE 特殊字符；SQL 使用 ! 作为转义符。
      */
     private String toKeywordPattern(String keyword) {
@@ -298,7 +354,7 @@ public class TicketQueryServiceImpl implements TicketQueryService {
          *
          * <p>{@code submit-resolution} 曾经缺失：`POST /actions/submit-resolution` 早已实现并通过
          * 真实栈验收（`docs/acceptance/2026-10-06-stage3-claim-process-resolution-confirm.json`），
-         * 但详情不返回这个动作名——界面按 `allowedActions` 渲染按钮，于是负责人能写处理记录
+         * 但详情不返回这个动作名——界面按 {@code allowedActions} 渲染按钮，于是负责人能写处理记录
          * 却交不出解决结果。阶段 3 端到端主链实测到的正是这一步。</p>
          *
          * <p>片 B 的 {@code request-supplement} 属于同一族：它在「处理中」可用，「待补充」时
@@ -328,6 +384,25 @@ public class TicketQueryServiceImpl implements TicketQueryService {
         boolean canSupplement = STATUS_WAITING_FOR_REQUESTER.equals(row.getStatus())
                 && row.getRequesterId() == currentUserId
                 && ticketReadPermissionPort.hasAuthority(TICKET_REQUESTER_ACTION);
+
+        /**
+         * 「处理中」与「待补充」上，当前负责人的动作前置条件相同：状态属于这两个之一，且本人是负责人。
+         */
+        boolean isAssigneeOnAdjustableStatus =
+                (STATUS_PROCESSING.equals(row.getStatus())
+                        || STATUS_WAITING_FOR_REQUESTER.equals(row.getStatus()))
+                        && row.getAssigneeId() != null
+                        && row.getAssigneeId() == currentUserId;
+
+        boolean canChangeCategory = isAssigneeOnAdjustableStatus
+                && ticketReadPermissionPort.hasAuthority(TICKET_PROCESS);
+
+        // 优先级调整与分类调整的状态、身份与权限完全相同，复用同一条判定而不是抄第二遍
+        boolean canChangePriority = canChangeCategory;
+
+        // 转交单独要求 TICKET_TRANSFER；候选人接口与这个动作共用同一条权限判定
+        boolean canTransfer = isAssigneeOnAdjustableStatus
+                && ticketReadPermissionPort.hasAuthority(TICKET_TRANSFER);
 
         // 一个动作一个条件，动作名与接口路径末段逐字一致。
         List<String> allowedActions = new ArrayList<>();
@@ -364,6 +439,17 @@ public class TicketQueryServiceImpl implements TicketQueryService {
             allowedActions.add("supplement");
         }
 
+        if (canChangeCategory) {
+            allowedActions.add("change-category");
+        }
+
+        if (canChangePriority) {
+            allowedActions.add("change-priority");
+        }
+
+        if (canTransfer) {
+            allowedActions.add("transfer");
+        }
         return new TicketDetailResult(
                 row.getTicketNo(),
                 row.getTitle(),
