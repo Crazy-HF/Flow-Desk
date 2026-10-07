@@ -229,9 +229,11 @@ export type TicketActionName =
   | 'claim'
   | 'add-processing-record'
   | 'submit-resolution'
+  | 'request-supplement'
   | 'confirm-resolution'
   | 'withdraw-supplement-request'
   | 'report-unresolved'
+  | 'supplement'
 
 export interface TicketActionMeta {
   /** 按钮文字。 */
@@ -292,6 +294,18 @@ export const TICKET_ACTIONS: Record<TicketActionName, TicketActionMeta> = {
     },
     destructive: true,
   },
+  'request-supplement': {
+    label: '请求补充信息',
+    description:
+      '提交后工单转为「待员工补充」，由提交人在补充期限内回复；在员工回复或你撤回之前不能提交解决结果。',
+    permission: 'TICKET_PROCESS',
+    content: {
+      label: '需要补充的内容',
+      placeholder: '请写清还需要员工提供什么，例如报错截图、设备编号、复现步骤',
+      maxLength: ACTION_CONTENT_MAX_LENGTH,
+    },
+    destructive: false,
+  },
   'confirm-resolution': {
     label: '确认已解决',
     description: '确认后工单进入终态「已完成」，不能再追加处理记录；如果问题仍然存在，请先不要确认。',
@@ -318,6 +332,22 @@ export const TICKET_ACTIONS: Record<TicketActionName, TicketActionMeta> = {
       label: '未解决原因',
       placeholder: '请输入还有哪些问题没解决，便于 IT 继续排查',
       maxLength: ACTION_REASON_MAX_LENGTH,
+    },
+    destructive: false,
+  },
+  /**
+   * 放在最后：它是提交人侧唯一需要写正文的动作，其余提交人动作（确认、反馈未解决）都靠一句话说清；
+   * 同一张工单上它与其它动作不会同时出现，位置差异不会被用户看到。
+   */
+  supplement: {
+    label: '提交补充信息',
+    description:
+      '提交后工单回到「处理中」，原负责人继续处理；原来的补充期限立即失效，不需要再等它到期。',
+    permission: 'TICKET_REQUESTER_ACTION',
+    content: {
+      label: '补充内容',
+      placeholder: '请按 IT 的请求补充信息，例如完整的报错文字、设备编号或复现步骤',
+      maxLength: ACTION_CONTENT_MAX_LENGTH,
     },
     destructive: false,
   },

@@ -49,10 +49,14 @@ describe('工单展示映射', () => {
         ['claim', 'TICKET_CLAIM'],
         ['add-processing-record', 'TICKET_PROCESS'],
         ['submit-resolution', 'TICKET_PROCESS'],
+        // 完整状态机片 B：请求补充（当前负责人）
+        ['request-supplement', 'TICKET_PROCESS'],
         ['confirm-resolution', 'TICKET_REQUESTER_ACTION'],
         // 完整状态机片 A：撤回补充请求（当前负责人）与反馈未解决（提交人）
         ['withdraw-supplement-request', 'TICKET_PROCESS'],
         ['report-unresolved', 'TICKET_REQUESTER_ACTION'],
+        // 完整状态机片 B：补充信息（提交人）
+        ['supplement', 'TICKET_REQUESTER_ACTION'],
       ])
     })
 
@@ -61,9 +65,26 @@ describe('工单展示映射', () => {
       expect(TICKET_ACTIONS['confirm-resolution'].content).toBeUndefined()
       expect(TICKET_ACTIONS['add-processing-record'].content?.maxLength).toBe(10000)
       expect(TICKET_ACTIONS['submit-resolution'].content?.maxLength).toBe(10000)
+      // 正文类动作的上限是 10000，与 RequestSupplementCommand / SupplementCommand 对齐
+      expect(TICKET_ACTIONS['request-supplement'].content?.maxLength).toBe(10000)
+      expect(TICKET_ACTIONS.supplement.content?.maxLength).toBe(10000)
       // 原因类动作的上限是 1000，与 WithdrawSupplementRequestCommand / ReportUnresolvedCommand 对齐
       expect(TICKET_ACTIONS['withdraw-supplement-request'].content?.maxLength).toBe(1000)
       expect(TICKET_ACTIONS['report-unresolved'].content?.maxLength).toBe(1000)
+    })
+
+    /**
+     * 服务端在「待补充」上只返回其中一个动作：负责人拿 `withdraw-supplement-request`，
+     * 提交人拿 `supplement`。这条断言钉住"两者不会同时被渲染成两个按钮"的界面结果，
+     * 因为那个状态下一步只能有一件事可做。
+     */
+    it('待补充状态下两个动作互斥：同一份 allowedActions 不会同时渲染提交补充与撤回', () => {
+      const allowAll = () => true
+
+      expect(permittedActions(['withdraw-supplement-request'], allowAll)).toEqual([
+        'withdraw-supplement-request',
+      ])
+      expect(permittedActions(['supplement'], allowAll)).toEqual(['supplement'])
     })
 
     it('permittedActions 取 allowedActions 与权限的交集，顺序由登记表决定', () => {

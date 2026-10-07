@@ -1,0 +1,1077 @@
+{
+    "_note":  "本文件由 scripts/slice-b-supplement-roundtrip-acceptance.ps1 写出（无 BOM 的 UTF-8）。只记录状态码、业务码、traceId、断言结论与 SQL；不含口令、密钥与 accessToken，也不含机器绝对路径。",
+    "stage":  "完整工单状态机 片 B：补充往返（request-supplement + supplement）真实栈验收",
+    "slice":  "B",
+    "date":  "2026-10-07",
+    "result":  "PASS",
+    "script":  {
+                   "path":  "scripts/slice-b-supplement-roundtrip-acceptance.ps1",
+                   "lines":  1381,
+                   "invocation":  "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\slice-b-supplement-roundtrip-acceptance.ps1",
+                   "powershellVersion":  "5.1.22000.2538",
+                   "exitCode":  0,
+                   "startedAt":  "2026-10-07T10:16:01",
+                   "finishedAt":  "2026-10-07T10:16:09",
+                   "durationSeconds":  7.3,
+                   "baseUrl":  "http://127.0.0.1:8081",
+                   "baseUrlSource":  "param -BaseUrl / 环境变量 FLOWDESK_BASE_URL / 缺省 http://127.0.0.1:8081（PowerShell 5.1 没有 ??，用 param 默认值 + 兜底实现）"
+               },
+    "target":  {
+                   "baseUrl":  "http://127.0.0.1:8081",
+                   "dbContainer":  "flowdesk-mysql-1",
+                   "database":  "flowdesk",
+                   "originHeader":  "http://127.0.0.1:5173",
+                   "accounts":  [
+                                    "employee",
+                                    "it",
+                                    "admin"
+                                ],
+                   "credentialsPrinted":  false,
+                   "credentialsInEvidence":  false
+               },
+    "preflight":  {
+                      "baseUrl":  "http://127.0.0.1:8081",
+                      "requestSupplementStatus":  404,
+                      "requestSupplementCode":  "TICKET_NOT_FOUND",
+                      "requestSupplementTraceId":  "1328286a-c503-47a9-9ff4-ca9b2fe83efb",
+                      "supplementStatus":  404,
+                      "supplementCode":  "TICKET_NOT_FOUND",
+                      "supplementTraceId":  "26bfc2d6-ab84-4dc6-b447-abbc11b8d908",
+                      "mappingConfirmed":  true
+                  },
+    "supplementWindow":  {
+                             "actionTime":  "2026-10-07T02:16:05.261Z",
+                             "actionDeadlineAt":  "2026-10-14T02:16:05.261Z",
+                             "windowSeconds":  604800,
+                             "expectedWindowSeconds":  604800,
+                             "configKey":  "flowdesk.ticket.supplement-window（application.yml 默认 7d）"
+                         },
+    "tickets":  {
+                    "A":  {
+                              "purpose":  "正常往返 + 期限重新计算 + 终态",
+                              "ticketNo":  "FD-20261007-007"
+                          },
+                    "B":  {
+                              "purpose":  "权限 / 字段 / 版本冲突 / 文件 part 拒绝",
+                              "ticketNo":  "FD-20261007-008"
+                          }
+                },
+    "keyActions":  [
+                       {
+                           "order":  1,
+                           "actor":  "it",
+                           "action":  "claim",
+                           "method":  "POST",
+                           "path":  "/fd/v1/tickets/FD-20261007-007/actions/claim",
+                           "ticketNo":  "FD-20261007-007",
+                           "httpStatus":  200,
+                           "traceId":  "7daba6bb-dbf9-4b1a-bd1b-1bcf169a1a2b",
+                           "statusAfter":  "PROCESSING",
+                           "versionAfter":  1
+                       },
+                       {
+                           "order":  2,
+                           "actor":  "it",
+                           "action":  "request-supplement",
+                           "method":  "POST",
+                           "path":  "/fd/v1/tickets/FD-20261007-007/actions/request-supplement",
+                           "ticketNo":  "FD-20261007-007",
+                           "httpStatus":  200,
+                           "traceId":  "7d717bcc-7ee5-4bdf-905c-2de0a9db1e55",
+                           "statusAfter":  "WAITING_FOR_REQUESTER",
+                           "versionAfter":  2
+                       },
+                       {
+                           "order":  3,
+                           "actor":  "employee",
+                           "action":  "supplement",
+                           "method":  "POST",
+                           "path":  "/fd/v1/tickets/FD-20261007-007/actions/supplement",
+                           "ticketNo":  "FD-20261007-007",
+                           "httpStatus":  200,
+                           "traceId":  "cc06480c-e7a4-4049-892c-13ac19ffc905",
+                           "statusAfter":  "PROCESSING",
+                           "versionAfter":  3
+                       },
+                       {
+                           "order":  4,
+                           "actor":  "it",
+                           "action":  "submit-resolution",
+                           "method":  "POST",
+                           "path":  "/fd/v1/tickets/FD-20261007-007/actions/submit-resolution",
+                           "ticketNo":  "FD-20261007-007",
+                           "httpStatus":  200,
+                           "traceId":  "182d5b89-2cbe-4d61-bcf4-53ecd0e52c69",
+                           "statusAfter":  "WAITING_FOR_CONFIRMATION",
+                           "versionAfter":  7
+                       },
+                       {
+                           "order":  5,
+                           "actor":  "employee",
+                           "action":  "confirm-resolution",
+                           "method":  "POST",
+                           "path":  "/fd/v1/tickets/FD-20261007-007/actions/confirm-resolution",
+                           "ticketNo":  "FD-20261007-007",
+                           "httpStatus":  200,
+                           "traceId":  "0b616cee-a353-4261-aac7-8931c416b9cb",
+                           "statusAfter":  "COMPLETED",
+                           "versionAfter":  8
+                       }
+                   ],
+    "databaseChecks":  [
+
+                       ],
+    "assertions":  [
+                       {
+                           "name":  "precondition.dotEnvLoaded",
+                           "expected":  ".env 中 FLOWDESK_DB_NAME 与 FLOWDESK_MYSQL_ROOT_PASSWORD 可读",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "dbContainer=flowdesk-mysql-1 dbNameAvailable=True rootPasswordAvailable=True（值不打印）"
+                       },
+                       {
+                           "name":  "baseline.demoDatabaseReadBeforeRun",
+                           "expected":  "运行前可读取演示库计数",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "运行前：用户 3 / 角色 3 / 权限 14 / 分类 5 / 工单 1 / 记录 5 / 参与者 1；工单号=[FD-20261006-026]"
+                       },
+                       {
+                           "name":  "baseline.existingTicketPresent",
+                           "expected":  "运行前存在既有工单 FD-20261006-026",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "工单号=[FD-20261006-026]；本脚本只新增再删除自己的行，绝不修改它"
+                       },
+                       {
+                           "name":  "login.employee.200",
+                           "expected":  "200",
+                           "httpStatus":  200,
+                           "traceId":  "c4cba9f1-6f88-40a0-95a8-5c83b96c85e6",
+                           "passed":  true,
+                           "detail":  "status=200"
+                       },
+                       {
+                           "name":  "login.it.200",
+                           "expected":  "200",
+                           "httpStatus":  200,
+                           "traceId":  "fe685673-64cc-486c-ad1a-1cfe7110f0cf",
+                           "passed":  true,
+                           "detail":  "status=200"
+                       },
+                       {
+                           "name":  "login.admin.200",
+                           "expected":  "200",
+                           "httpStatus":  200,
+                           "traceId":  "7fbeaf98-e230-425c-be08-4d780a92adf8",
+                           "passed":  true,
+                           "detail":  "status=200"
+                       },
+                       {
+                           "name":  "login.tokensIssued",
+                           "expected":  "三条 accessToken 均已取得",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "令牌不落盘、不打印、不写进证据"
+                       },
+                       {
+                           "name":  "perm.employee.hasRequesterAction",
+                           "expected":  "employee 具备 TICKET_REQUESTER_ACTION（supplement 的权限前提）",
+                           "httpStatus":  200,
+                           "traceId":  "073ba9b4-4a6e-4c79-85b0-7c3943c0f0a7",
+                           "passed":  true,
+                           "detail":  "roles=EMPLOYEE ticketPerms=TICKET_CREATE|TICKET_REQUESTER_ACTION|TICKET_VIEW_OWN"
+                       },
+                       {
+                           "name":  "perm.employee.lacksProcess",
+                           "expected":  "employee 不具备 TICKET_PROCESS（request-supplement 403 的前提）",
+                           "httpStatus":  200,
+                           "traceId":  "073ba9b4-4a6e-4c79-85b0-7c3943c0f0a7",
+                           "passed":  true,
+                           "detail":  "hasTICKET_PROCESS=False"
+                       },
+                       {
+                           "name":  "perm.it.hasProcess",
+                           "expected":  "it 具备 TICKET_PROCESS（request-supplement 的权限前提）",
+                           "httpStatus":  200,
+                           "traceId":  "14d410fc-88af-4612-94f3-74c2ebda54b8",
+                           "passed":  true,
+                           "detail":  "roles=IT_SUPPORT hasTICKET_PROCESS=True"
+                       },
+                       {
+                           "name":  "perm.it.lacksRequesterAction",
+                           "expected":  "it 不具备 TICKET_REQUESTER_ACTION（supplement 403 的前提）",
+                           "httpStatus":  200,
+                           "traceId":  "14d410fc-88af-4612-94f3-74c2ebda54b8",
+                           "passed":  true,
+                           "detail":  "hasTICKET_REQUESTER_ACTION=False"
+                       },
+                       {
+                           "name":  "preflight.requestSupplement.endpointMapped",
+                           "expected":  "404 + TICKET_NOT_FOUND（编号不存在，端点存在）",
+                           "httpStatus":  404,
+                           "traceId":  "1328286a-c503-47a9-9ff4-ca9b2fe83efb",
+                           "passed":  true,
+                           "detail":  "status=404 code=TICKET_NOT_FOUND；若为 405/RESOURCE_NOT_FOUND 说明目标后端还没有该端点"
+                       },
+                       {
+                           "name":  "preflight.supplement.endpointMapped",
+                           "expected":  "404 + TICKET_NOT_FOUND（编号不存在，端点存在）",
+                           "httpStatus":  404,
+                           "traceId":  "26bfc2d6-ab84-4dc6-b447-abbc11b8d908",
+                           "passed":  true,
+                           "detail":  "status=404 code=TICKET_NOT_FOUND；415 说明 multipart 的 ticket 部件缺少 application/json"
+                       },
+                       {
+                           "name":  "a1.anonymous.requestSupplement.401",
+                           "expected":  "401（无令牌一律先被认证闸门拦下）",
+                           "httpStatus":  401,
+                           "traceId":  "f4331b47-4457-4a7e-ab3c-7b06e14573cc",
+                           "passed":  true,
+                           "detail":  "status=401 code=AUTH_REQUIRED"
+                       },
+                       {
+                           "name":  "a1.anonymous.supplement.401",
+                           "expected":  "401（无令牌一律先被认证闸门拦下）",
+                           "httpStatus":  401,
+                           "traceId":  "d0a415f5-b363-4ef2-b6f7-e07a74b671df",
+                           "passed":  true,
+                           "detail":  "status=401 code=AUTH_REQUIRED"
+                       },
+                       {
+                           "name":  "categories.options.nonEmpty",
+                           "expected":  "200 且至少一个启用分类",
+                           "httpStatus":  200,
+                           "traceId":  "5cec1ebb-8aa3-4003-885f-10a688ea2321",
+                           "passed":  true,
+                           "detail":  "status=200 count=4"
+                       },
+                       {
+                           "name":  "setup.ticketA.create.201",
+                           "expected":  "201",
+                           "httpStatus":  201,
+                           "traceId":  "e3fa3a7d-add2-420d-91a9-39c5371a13fa",
+                           "passed":  true,
+                           "detail":  "ticketNo=FD-20261007-007 version=0"
+                       },
+                       {
+                           "name":  "setup.ticketA.claim.200",
+                           "expected":  "200",
+                           "httpStatus":  200,
+                           "traceId":  "7daba6bb-dbf9-4b1a-bd1b-1bcf169a1a2b",
+                           "passed":  true,
+                           "detail":  "status=PROCESSING version=1"
+                       },
+                       {
+                           "name":  "setup.ticketB.create.201",
+                           "expected":  "201",
+                           "httpStatus":  201,
+                           "traceId":  "4bb167b6-0442-4d15-9bd5-8354954a4b5d",
+                           "passed":  true,
+                           "detail":  "ticketNo=FD-20261007-008 version=0"
+                       },
+                       {
+                           "name":  "setup.ticketB.claim.200",
+                           "expected":  "200",
+                           "httpStatus":  200,
+                           "traceId":  "1b80df88-bd66-40cb-8098-315bd92c8f34",
+                           "passed":  true,
+                           "detail":  "status=PROCESSING version=1"
+                       },
+                       {
+                           "name":  "a2.employee.requestSupplement.403",
+                           "expected":  "403 + TICKET_ACTION_FORBIDDEN（权限闸门先于可见性与状态）",
+                           "httpStatus":  403,
+                           "traceId":  "d0ba4ee6-d622-465c-b852-1441b666550d",
+                           "passed":  true,
+                           "detail":  "status=403 code=TICKET_ACTION_FORBIDDEN"
+                       },
+                       {
+                           "name":  "a3.it.supplement.403",
+                           "expected":  "403 + TICKET_ACTION_FORBIDDEN（权限闸门先于可见性与状态）",
+                           "httpStatus":  403,
+                           "traceId":  "fd36fbd5-1190-4afc-a6b6-7915f6df00aa",
+                           "passed":  true,
+                           "detail":  "status=403 code=TICKET_ACTION_FORBIDDEN"
+                       },
+                       {
+                           "name":  "a4.setup.adminParticipantAdded",
+                           "expected":  "为 admin 补一条历史参与关系，使它能看见工单 B（只为触发身份闸门）",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "exitCode=0 stderr=[]；该行随工单 B 一起被清理 SQL 删除"
+                       },
+                       {
+                           "name":  "a4.admin.supplement.409",
+                           "expected":  "409 + TICKET_CONFLICT（可见但不是提交人；权限闸门放行后才轮到身份闸门）",
+                           "httpStatus":  409,
+                           "traceId":  "4aca01e0-4d28-4ffe-8a08-1720a3fd3f99",
+                           "passed":  true,
+                           "detail":  "status=409 code=TICKET_CONFLICT"
+                       },
+                       {
+                           "name":  "a5.unknown.requestSupplement.404",
+                           "expected":  "404 + TICKET_NOT_FOUND",
+                           "httpStatus":  404,
+                           "traceId":  "2759fff8-e54c-4bbf-a01d-1bee0d97829c",
+                           "passed":  true,
+                           "detail":  "status=404 code=TICKET_NOT_FOUND"
+                       },
+                       {
+                           "name":  "a5.unknown.supplement.404",
+                           "expected":  "404 + TICKET_NOT_FOUND",
+                           "httpStatus":  404,
+                           "traceId":  "99394ef1-e77c-4ee7-ab0b-1ff95149ce80",
+                           "passed":  true,
+                           "detail":  "status=404 code=TICKET_NOT_FOUND"
+                       },
+                       {
+                           "name":  "a6.blank.requestSupplement.400",
+                           "expected":  "400 + VALIDATION_FAILED（@NotBlank 在服务层之前拦下纯空白）",
+                           "httpStatus":  400,
+                           "traceId":  "97529c92-d86f-4a8f-ae9d-eb5b87f79d26",
+                           "passed":  true,
+                           "detail":  "status=400 code=VALIDATION_FAILED"
+                       },
+                       {
+                           "name":  "a6.overLength.requestSupplement.400",
+                           "expected":  "400 + VALIDATION_FAILED（10001 字符超过 @Size(max=10000)）",
+                           "httpStatus":  400,
+                           "traceId":  "7daa8167-4912-4d5b-88c7-5e251b571b0e",
+                           "passed":  true,
+                           "detail":  "status=400 code=VALIDATION_FAILED contentLength=10001"
+                       },
+                       {
+                           "name":  "a6.overLength.supplement.400",
+                           "expected":  "400 + VALIDATION_FAILED（multipart 的 ticket 部件同样受 @Size 约束）",
+                           "httpStatus":  400,
+                           "traceId":  "85a7cf87-7705-4583-9cca-2fc664200700",
+                           "passed":  true,
+                           "detail":  "status=400 code=VALIDATION_FAILED contentLength=10001"
+                       },
+                       {
+                           "name":  "a7.filePart.supplement.400",
+                           "expected":  "400 + VALIDATION_FAILED（文件 part 显式拒绝，不静默忽略）",
+                           "httpStatus":  400,
+                           "traceId":  "a38643f0-b39c-4238-90ed-61e2474e3012",
+                           "passed":  true,
+                           "detail":  "status=400 code=VALIDATION_FAILED message=@{traceId=a38643f0-b39c-4238-90ed-61e2474e3012}"
+                       },
+                       {
+                           "name":  "a7.emptyFilePart.supplement.400",
+                           "expected":  "400（0 字节文件同样是文件 part，不能因为它是空的就放行）",
+                           "httpStatus":  400,
+                           "traceId":  "17db0a1e-1085-4fa2-8ab2-2b64135c5da4",
+                           "passed":  true,
+                           "detail":  "status=400 code=VALIDATION_FAILED"
+                       },
+                       {
+                           "name":  "a7.afterRejects.ticketUnchanged",
+                           "expected":  "状态仍为 PROCESSING、version 仍为 1、期限为 NULL",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "row=[PROCESSING\tNULL\tNULL\t2\tNULL\t1\t2\t1]"
+                       },
+                       {
+                           "name":  "a8.staleVersion.requestSupplement.409",
+                           "expected":  "409 + TICKET_CONFLICT，data 带当前 version/status 快照",
+                           "httpStatus":  409,
+                           "traceId":  "0722d5df-fafb-4f86-b255-cebfef4db457",
+                           "passed":  true,
+                           "detail":  "status=409 code=TICKET_CONFLICT snapshotVersion=1 snapshotStatus=PROCESSING"
+                       },
+                       {
+                           "name":  "a9.requestSupplement.200",
+                           "expected":  "200，status=WAITING_FOR_REQUESTER，version+1",
+                           "httpStatus":  200,
+                           "traceId":  "7d717bcc-7ee5-4bdf-905c-2de0a9db1e55",
+                           "passed":  true,
+                           "detail":  "status=200 businessStatus=WAITING_FOR_REQUESTER version=2 assignee=IT 支持人员 deadline=2026-10-14T02:16:05.261Z"
+                       },
+                       {
+                           "name":  "a9.deadlineEqualsSevenDays",
+                           "expected":  "期限 = 动作时刻 + 604800 秒（7×24h）",
+                           "httpStatus":  200,
+                           "traceId":  "7d717bcc-7ee5-4bdf-905c-2de0a9db1e55",
+                           "passed":  true,
+                           "detail":  "actionTime=2026-10-07T02:16:05.261Z deadline=2026-10-14T02:16:05.261Z 实测差=604800 秒"
+                       },
+                       {
+                           "name":  "a9.deadlinePersistedMatchesResponse",
+                           "expected":  "库里的 action_deadline_at 与响应一致（比较到秒）",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "row=[WAITING_FOR_REQUESTER\t2026-10-14 02:16:05.261000\tNULL\t2\tNULL\t2\t3\t1]；库里秒级=[2026-10-14 02:16:05.261000]；响应秒级=[2026-10-14T02:16:05.261Z]"
+                       },
+                       {
+                           "name":  "a10.submitResolutionWhileWaiting.409",
+                           "expected":  "409 + TICKET_CONFLICT（待补充期间不能提交解决结果，先撤回或等员工补充）",
+                           "httpStatus":  409,
+                           "traceId":  "e3ef79ef-bde4-4a9c-b2a5-d5c258176a7a",
+                           "passed":  true,
+                           "detail":  "status=409 code=TICKET_CONFLICT"
+                       },
+                       {
+                           "name":  "a10.addProcessingRecordWhileWaiting.409",
+                           "expected":  "409 + TICKET_CONFLICT（该动作只允许处理中）",
+                           "httpStatus":  409,
+                           "traceId":  "47cbcab2-976b-4759-8bf2-6e696fbe1b59",
+                           "passed":  true,
+                           "detail":  "status=409 code=TICKET_CONFLICT"
+                       },
+                       {
+                           "name":  "a10.repeatRequestSupplement.409",
+                           "expected":  "409 + TICKET_CONFLICT（要再次请求必须先撤回，docs/kickoff.md 4.11）",
+                           "httpStatus":  409,
+                           "traceId":  "288c866e-1cb5-4939-8b08-0e6a43b68c5e",
+                           "passed":  true,
+                           "detail":  "status=409 code=TICKET_CONFLICT"
+                       },
+                       {
+                           "name":  "a11.allowedActions.itWaiting",
+                           "expected":  "恰好 [withdraw-supplement-request]（负责人待补充时只能撤回）",
+                           "httpStatus":  200,
+                           "traceId":  "d6e4c55f-4088-41af-9a9d-89600cdce099",
+                           "passed":  true,
+                           "detail":  "allowedActions=withdraw-supplement-request"
+                       },
+                       {
+                           "name":  "a11.allowedActions.employeeWaiting",
+                           "expected":  "恰好 [supplement]（提交人待补充时只能补充）",
+                           "httpStatus":  200,
+                           "traceId":  "247d8edf-638c-4f5e-9798-d2756ca31a62",
+                           "passed":  true,
+                           "detail":  "allowedActions=supplement"
+                       },
+                       {
+                           "name":  "a11.deadlineVisibleToBothParties",
+                           "expected":  "两种视角的详情都返回同一个 actionDeadlineAt（界面据此展示截止时间）",
+                           "httpStatus":  200,
+                           "traceId":  "247d8edf-638c-4f5e-9798-d2756ca31a62",
+                           "passed":  true,
+                           "detail":  "it=2026-10-14T02:16:05.261Z employee=2026-10-14T02:16:05.261Z"
+                       },
+                       {
+                           "name":  "a12.supplement.200",
+                           "expected":  "200，status=PROCESSING，version+1",
+                           "httpStatus":  200,
+                           "traceId":  "cc06480c-e7a4-4049-892c-13ac19ffc905",
+                           "passed":  true,
+                           "detail":  "status=200 businessStatus=PROCESSING version=3 assignee=IT 支持人员"
+                       },
+                       {
+                           "name":  "a12.expiredDeadlineAbsentFromResponse",
+                           "expected":  "actionDeadlineAt 字段整体不出现（non_null 序列化 + 期限已失效）",
+                           "httpStatus":  200,
+                           "traceId":  "cc06480c-e7a4-4049-892c-13ac19ffc905",
+                           "passed":  true,
+                           "detail":  "body 里是否出现 actionDeadlineAt：False"
+                       },
+                       {
+                           "name":  "a12.db.returnedToProcessingWithNullDeadline",
+                           "expected":  "PROCESSING + 期限 NULL + 未结束 + 负责人仍是 it + version 与响应一致",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "row=[PROCESSING\tNULL\tNULL\t2\tNULL\t3\t4\t1]"
+                       },
+                       {
+                           "name":  "a13.timeline.recordTypesAndOrder",
+                           "expected":  "记录类型恰为 CREATE → CLAIM → SUPPLEMENT_REQUEST → REQUESTER_SUPPLEMENT",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "实测=CREATE,CLAIM,SUPPLEMENT_REQUEST,REQUESTER_SUPPLEMENT"
+                       },
+                       {
+                           "name":  "a13.timeline.sequencesAreContinuous",
+                           "expected":  "序号恰为 1,2,3,4（无跳号）",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "实测=1,2,3,4"
+                       },
+                       {
+                           "name":  "a13.supplementRequestRecord.frozenDeadline",
+                           "expected":  "SUPPLEMENT_REQUEST 冻结当时的期限，并记录 PROCESSING → WAITING_FOR_REQUESTER，操作人是负责人",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "record deadline=2026-10-14 02:16:05 响应期限=2026-10-14T02:16:05.261Z from=PROCESSING to=WAITING_FOR_REQUESTER actorId=2"
+                       },
+                       {
+                           "name":  "a13.supplementRecord.contentAndStatus",
+                           "expected":  "REQUESTER_SUPPLEMENT 不写期限，正文去除首尾空白后落库，操作人是提交人",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "record deadline=NULL content=[型号是 L3153，报错信息为\"打印机未响应\"] from=WAITING_FOR_REQUESTER to=PROCESSING actorId=1"
+                       },
+                       {
+                           "name":  "a14.addProcessingRecordAfterSupplement.200",
+                           "expected":  "200（往返是闭环，补充后工单可以继续正常推进）",
+                           "httpStatus":  200,
+                           "traceId":  "457b9cec-acab-4dd0-a395-39969bd02c0f",
+                           "passed":  true,
+                           "detail":  "status=200 businessStatus=PROCESSING"
+                       },
+                       {
+                           "name":  "a14.secondRequestSupplement.200",
+                           "expected":  "200（撤回或员工补充之后可以再次请求补充）",
+                           "httpStatus":  200,
+                           "traceId":  "ef155bc7-3018-4ff5-95da-26084f21e6ff",
+                           "passed":  true,
+                           "detail":  "status=200 businessStatus=WAITING_FOR_REQUESTER"
+                       },
+                       {
+                           "name":  "a14.secondDeadlineRecalculated",
+                           "expected":  "第二次期限从第二次请求时刻重新计算，且晚于第一次",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "第一次 deadline=2026-10-14T02:16:05.261Z；第二次 actionTime=2026-10-07T02:16:06.29Z deadline=2026-10-14T02:16:06.29Z"
+                       },
+                       {
+                           "name":  "a15.withdrawAfterSecondRequest.200",
+                           "expected":  "200（片 A 的撤回在片 B 之后仍然工作，回到处理中）",
+                           "httpStatus":  200,
+                           "traceId":  "5f4f17d5-04f9-408c-b374-0de0ca13b783",
+                           "passed":  true,
+                           "detail":  "status=200 businessStatus=PROCESSING"
+                       },
+                       {
+                           "name":  "a16.submitResolution.200",
+                           "expected":  "200 且进入 WAITING_FOR_CONFIRMATION（补充往返不破坏既有主链）",
+                           "httpStatus":  200,
+                           "traceId":  "182d5b89-2cbe-4d61-bcf4-53ecd0e52c69",
+                           "passed":  true,
+                           "detail":  "status=200 businessStatus=WAITING_FOR_CONFIRMATION"
+                       },
+                       {
+                           "name":  "a16.confirmResolution.200",
+                           "expected":  "200 且进入终态 COMPLETED",
+                           "httpStatus":  200,
+                           "traceId":  "0b616cee-a353-4261-aac7-8931c416b9cb",
+                           "passed":  true,
+                           "detail":  "status=200 businessStatus=COMPLETED"
+                       },
+                       {
+                           "name":  "a16.db.terminalSnapshotConsistent",
+                           "expected":  "COMPLETED + 期限 NULL + ended_at SET + completion_method=REQUESTER_CONFIRMED + 保留负责人",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "row=[COMPLETED\tNULL\tSET\t2\tREQUESTER_CONFIRMED\t8\t9\t1]"
+                       },
+                       {
+                           "name":  "a17.terminal.supplement.409",
+                           "expected":  "409 + TICKET_CONFLICT（终态不可再补充）",
+                           "httpStatus":  409,
+                           "traceId":  "e4fafd1a-abf1-442a-aaf2-43ac7049ed18",
+                           "passed":  true,
+                           "detail":  "status=409 code=TICKET_CONFLICT"
+                       },
+                       {
+                           "name":  "a17.terminal.requestSupplement.409",
+                           "expected":  "409 + TICKET_CONFLICT（终态不可再请求补充）",
+                           "httpStatus":  409,
+                           "traceId":  "d5eb5b3d-f332-4f6b-82f3-67d814fe29cf",
+                           "passed":  true,
+                           "detail":  "status=409 code=TICKET_CONFLICT"
+                       },
+                       {
+                           "name":  "a18.checkConstraint.rejectsDeadlineOnNonWaitingState",
+                           "expected":  "MySQL 拒绝：ck_ticket_status_deadline（终态不得带期限）",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "exitCode=1 stderr=[ERROR 3819 (HY000) at line 1: Check constraint \u0027ck_ticket_status_deadline\u0027 is violated.]"
+                       },
+                       {
+                           "name":  "a22.cleanup.deletesSucceeded",
+                           "expected":  "清理 SQL 退出码 0",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "exitCode=0 stderr=[]"
+                       },
+                       {
+                           "name":  "a22.cleanup.noOwnRowsLeft",
+                           "expected":  "自建工单已全部删除",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "row=[0]"
+                       },
+                       {
+                           "name":  "a23.baseline.countsRestored",
+                           "expected":  "演示库七项计数与运行前完全一致",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "运行前 工单=1/记录=5/参与者=1/用户=3/角色=3/权限=14/分类=5；运行后 工单=1/记录=5/参与者=1/用户=3/角色=3/权限=14/分类=5"
+                       },
+                       {
+                           "name":  "a23.baseline.ticketRowsUntouched",
+                           "expected":  "既有工单号集合与运行前完全一致（含 FD-20261006-026）",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "运行前=[FD-20261006-026]；运行后=[FD-20261006-026]"
+                       },
+                       {
+                           "name":  "a23.baseline.ticketFingerprintUntouched",
+                           "expected":  "既有工单的 status/version/record_seq/负责人/期限/结束时间逐行一致",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "运行前指纹长度=87；运行后指纹长度=87；是否相同=True"
+                       },
+                       {
+                           "name":  "a23.baseline.recordFingerprintUntouched",
+                           "expected":  "既有记录的 id/序号/类型/时间逐条一致（不可变时间线没有被改动）",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "运行前指纹长度=269；运行后指纹长度=269；是否相同=True"
+                       },
+                       {
+                           "name":  "a23.baseline.participantFingerprintUntouched",
+                           "expected":  "既有参与关系逐条一致",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "运行前=[92|2|2026-10-06 03:43:33.053000]；运行后=[92|2|2026-10-06 03:43:33.053000]"
+                       },
+                       {
+                           "name":  "a23.dailySequenceRecordedOnly",
+                           "expected":  "ticket_daily_sequence 只记录不回退（接口建单必然递增，编号不复用）",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "运行前=[2026-10-06=60 ;; 2026-10-07=6]；运行后=[2026-10-06=60 ;; 2026-10-07=8]"
+                       }
+                   ],
+    "httpLog":  [
+                    {
+                        "actor":  "employee",
+                        "note":  "login",
+                        "method":  "Post",
+                        "path":  "/fd/v1/auth/login",
+                        "status":  200,
+                        "traceId":  "c4cba9f1-6f88-40a0-95a8-5c83b96c85e6"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "login",
+                        "method":  "Post",
+                        "path":  "/fd/v1/auth/login",
+                        "status":  200,
+                        "traceId":  "fe685673-64cc-486c-ad1a-1cfe7110f0cf"
+                    },
+                    {
+                        "actor":  "admin",
+                        "note":  "login",
+                        "method":  "Post",
+                        "path":  "/fd/v1/auth/login",
+                        "status":  200,
+                        "traceId":  "7fbeaf98-e230-425c-be08-4d780a92adf8"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "me",
+                        "method":  "Get",
+                        "path":  "/fd/v1/auth/me",
+                        "status":  200,
+                        "traceId":  "073ba9b4-4a6e-4c79-85b0-7c3943c0f0a7"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "me",
+                        "method":  "Get",
+                        "path":  "/fd/v1/auth/me",
+                        "status":  200,
+                        "traceId":  "14d410fc-88af-4612-94f3-74c2ebda54b8"
+                    },
+                    {
+                        "actor":  "admin",
+                        "note":  "me",
+                        "method":  "Get",
+                        "path":  "/fd/v1/auth/me",
+                        "status":  200,
+                        "traceId":  "ec0da674-3885-49e2-ba23-6b412769059f"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "preflight.request-supplement",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-19990101-001/actions/request-supplement",
+                        "status":  404,
+                        "traceId":  "1328286a-c503-47a9-9ff4-ca9b2fe83efb"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "preflight.supplement",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets/FD-19990101-001/actions/supplement",
+                        "status":  404,
+                        "traceId":  "26bfc2d6-ab84-4dc6-b447-abbc11b8d908"
+                    },
+                    {
+                        "actor":  "anonymous",
+                        "note":  "a1.anonymous.request-supplement",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-19990101-001/actions/request-supplement",
+                        "status":  401,
+                        "traceId":  "f4331b47-4457-4a7e-ab3c-7b06e14573cc"
+                    },
+                    {
+                        "actor":  "anonymous",
+                        "note":  "a1.anonymous.supplement",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets/FD-19990101-001/actions/supplement",
+                        "status":  401,
+                        "traceId":  "d0a415f5-b363-4ef2-b6f7-e07a74b671df"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "categories.options",
+                        "method":  "Get",
+                        "path":  "/fd/v1/categories/options",
+                        "status":  200,
+                        "traceId":  "5cec1ebb-8aa3-4003-885f-10a688ea2321"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "setup.create-ticket(A)",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets",
+                        "status":  201,
+                        "traceId":  "e3fa3a7d-add2-420d-91a9-39c5371a13fa"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "setup.claim(A)",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261007-007/actions/claim",
+                        "status":  200,
+                        "traceId":  "7daba6bb-dbf9-4b1a-bd1b-1bcf169a1a2b"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "setup.create-ticket(B)",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets",
+                        "status":  201,
+                        "traceId":  "4bb167b6-0442-4d15-9bd5-8354954a4b5d"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "setup.claim(B)",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261007-008/actions/claim",
+                        "status":  200,
+                        "traceId":  "1b80df88-bd66-40cb-8098-315bd92c8f34"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "a2.employee.requestSupplement",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261007-008/actions/request-supplement",
+                        "status":  403,
+                        "traceId":  "d0ba4ee6-d622-465c-b852-1441b666550d"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "a3.it.supplement",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets/FD-20261007-008/actions/supplement",
+                        "status":  403,
+                        "traceId":  "fd36fbd5-1190-4afc-a6b6-7915f6df00aa"
+                    },
+                    {
+                        "actor":  "admin",
+                        "note":  "a4.admin.supplement",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets/FD-20261007-008/actions/supplement",
+                        "status":  409,
+                        "traceId":  "4aca01e0-4d28-4ffe-8a08-1720a3fd3f99"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "a5.unknown.requestSupplement",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-19990101-001/actions/request-supplement",
+                        "status":  404,
+                        "traceId":  "2759fff8-e54c-4bbf-a01d-1bee0d97829c"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "a5.unknown.supplement",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets/FD-19990101-001/actions/supplement",
+                        "status":  404,
+                        "traceId":  "99394ef1-e77c-4ee7-ab0b-1ff95149ce80"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "a6.blank.requestSupplement",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261007-008/actions/request-supplement",
+                        "status":  400,
+                        "traceId":  "97529c92-d86f-4a8f-ae9d-eb5b87f79d26"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "a6.long.requestSupplement",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261007-008/actions/request-supplement",
+                        "status":  400,
+                        "traceId":  "7daa8167-4912-4d5b-88c7-5e251b571b0e"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "a6.long.supplement",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets/FD-20261007-008/actions/supplement",
+                        "status":  400,
+                        "traceId":  "85a7cf87-7705-4583-9cca-2fc664200700"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "a7.filePart.supplement",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets/FD-20261007-008/actions/supplement",
+                        "status":  400,
+                        "traceId":  "a38643f0-b39c-4238-90ed-61e2474e3012"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "a7.emptyFilePart.supplement",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets/FD-20261007-008/actions/supplement",
+                        "status":  400,
+                        "traceId":  "17db0a1e-1085-4fa2-8ab2-2b64135c5da4"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "a8.stale.requestSupplement",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261007-008/actions/request-supplement",
+                        "status":  409,
+                        "traceId":  "0722d5df-fafb-4f86-b255-cebfef4db457"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "a9.requestSupplement(A)",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261007-007/actions/request-supplement",
+                        "status":  200,
+                        "traceId":  "7d717bcc-7ee5-4bdf-905c-2de0a9db1e55"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "a10.resolveWhileWaiting",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261007-007/actions/submit-resolution",
+                        "status":  409,
+                        "traceId":  "e3ef79ef-bde4-4a9c-b2a5-d5c258176a7a"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "a10.processWhileWaiting",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261007-007/actions/add-processing-record",
+                        "status":  409,
+                        "traceId":  "47cbcab2-976b-4759-8bf2-6e696fbe1b59"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "a10.repeatRequestSupplement",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261007-007/actions/request-supplement",
+                        "status":  409,
+                        "traceId":  "288c866e-1cb5-4939-8b08-0e6a43b68c5e"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "a11.detail.itWaiting",
+                        "method":  "Get",
+                        "path":  "/fd/v1/tickets/FD-20261007-007",
+                        "status":  200,
+                        "traceId":  "d6e4c55f-4088-41af-9a9d-89600cdce099"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "a11.detail.employeeWaiting",
+                        "method":  "Get",
+                        "path":  "/fd/v1/tickets/FD-20261007-007",
+                        "status":  200,
+                        "traceId":  "247d8edf-638c-4f5e-9798-d2756ca31a62"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "a12.supplement(A)",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets/FD-20261007-007/actions/supplement",
+                        "status":  200,
+                        "traceId":  "cc06480c-e7a4-4049-892c-13ac19ffc905"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "a14.processAfterSupplement",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261007-007/actions/add-processing-record",
+                        "status":  200,
+                        "traceId":  "457b9cec-acab-4dd0-a395-39969bd02c0f"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "a14.requestSupplementAgain",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261007-007/actions/request-supplement",
+                        "status":  200,
+                        "traceId":  "ef155bc7-3018-4ff5-95da-26084f21e6ff"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "a15.withdraw(A)",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261007-007/actions/withdraw-supplement-request",
+                        "status":  200,
+                        "traceId":  "5f4f17d5-04f9-408c-b374-0de0ca13b783"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "a16.submitResolution(A)",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261007-007/actions/submit-resolution",
+                        "status":  200,
+                        "traceId":  "182d5b89-2cbe-4d61-bcf4-53ecd0e52c69"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "a16.confirmResolution(A)",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261007-007/actions/confirm-resolution",
+                        "status":  200,
+                        "traceId":  "0b616cee-a353-4261-aac7-8931c416b9cb"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "a17.terminal.supplement",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets/FD-20261007-007/actions/supplement",
+                        "status":  409,
+                        "traceId":  "e4fafd1a-abf1-442a-aaf2-43ac7049ed18"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "a17.terminal.requestSupplement",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261007-007/actions/request-supplement",
+                        "status":  409,
+                        "traceId":  "d5eb5b3d-f332-4f6b-82f3-67d814fe29cf"
+                    }
+                ],
+    "sqlExecuted":  [
+                        "SELECT (SELECT COUNT(*) FROM iam_user), (SELECT COUNT(*) FROM iam_role), (SELECT COUNT(*) FROM iam_permission), (SELECT COUNT(*) FROM ticket_category), (SELECT COUNT(*) FROM ticket), (SELECT COUNT(*) FROM ticket_record), (SELECT COUNT(*) FROM ticket_participant);",
+                        "SELECT IFNULL(GROUP_CONCAT(ticket_no ORDER BY id SEPARATOR \u0027,\u0027),\u0027-\u0027) FROM ticket;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(ticket_no,\u0027|\u0027,status,\u0027|\u0027,version,\u0027|\u0027,record_seq,\u0027|\u0027,IFNULL(assignee_id,-1),\u0027|\u0027,IFNULL(DATE_FORMAT(action_deadline_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027),\u0027NULL\u0027),\u0027|\u0027,IF(ended_at IS NULL,\u0027NULL\u0027,\u0027SET\u0027),\u0027|\u0027,IFNULL(completion_method,\u0027NULL\u0027),\u0027|\u0027,DATE_FORMAT(updated_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027)) ORDER BY id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM ticket;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(id,\u0027|\u0027,ticket_id,\u0027|\u0027,sequence_no,\u0027|\u0027,record_type,\u0027|\u0027,actor_type,\u0027|\u0027,IFNULL(actor_user_id,-1),\u0027|\u0027,DATE_FORMAT(created_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027)) ORDER BY id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM ticket_record;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(ticket_id,\u0027|\u0027,user_id,\u0027|\u0027,DATE_FORMAT(first_assigned_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027)) ORDER BY ticket_id,user_id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM ticket_participant;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(business_date,\u0027=\u0027,current_value) ORDER BY business_date SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM ticket_daily_sequence;",
+                        "INSERT INTO ticket_participant (ticket_id, user_id, `first_assigned_at`, `last_assigned_at`) SELECT id, 3, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3) FROM ticket WHERE ticket_no = \u0027FD-20261007-008\u0027;",
+                        "SELECT status, IFNULL(DATE_FORMAT(action_deadline_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027),\u0027NULL\u0027), IF(ended_at IS NULL,\u0027NULL\u0027,\u0027SET\u0027), IFNULL(assignee_id,-1), IFNULL(completion_method,\u0027NULL\u0027), version, record_seq, requester_id FROM ticket WHERE ticket_no = \u0027FD-20261007-008\u0027;",
+                        "SELECT status, IFNULL(DATE_FORMAT(action_deadline_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027),\u0027NULL\u0027), IF(ended_at IS NULL,\u0027NULL\u0027,\u0027SET\u0027), IFNULL(assignee_id,-1), IFNULL(completion_method,\u0027NULL\u0027), version, record_seq, requester_id FROM ticket WHERE ticket_no = \u0027FD-20261007-007\u0027;",
+                        "SELECT status, IFNULL(DATE_FORMAT(action_deadline_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027),\u0027NULL\u0027), IF(ended_at IS NULL,\u0027NULL\u0027,\u0027SET\u0027), IFNULL(assignee_id,-1), IFNULL(completion_method,\u0027NULL\u0027), version, record_seq, requester_id FROM ticket WHERE ticket_no = \u0027FD-20261007-007\u0027;",
+                        "SELECT sequence_no, record_type, actor_type, IFNULL(actor_user_id,-1), IFNULL(LEFT(content,40),\u0027-\u0027), IFNULL(CHAR_LENGTH(content),-1), IFNULL(LEFT(reason,40),\u0027-\u0027), IFNULL(CHAR_LENGTH(reason),-1), IFNULL(from_status,\u0027-\u0027), IFNULL(to_status,\u0027-\u0027), IFNULL(DATE_FORMAT(deadline_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027),\u0027NULL\u0027) FROM ticket_record WHERE ticket_id = (SELECT id FROM ticket WHERE ticket_no = \u0027FD-20261007-007\u0027) ORDER BY sequence_no;",
+                        "SELECT status, IFNULL(DATE_FORMAT(action_deadline_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027),\u0027NULL\u0027), IF(ended_at IS NULL,\u0027NULL\u0027,\u0027SET\u0027), IFNULL(assignee_id,-1), IFNULL(completion_method,\u0027NULL\u0027), version, record_seq, requester_id FROM ticket WHERE ticket_no = \u0027FD-20261007-007\u0027;",
+                        "UPDATE ticket SET action_deadline_at = DATE_ADD(UTC_TIMESTAMP(3), INTERVAL 7 DAY) WHERE ticket_no = \u0027FD-20261007-007\u0027;",
+                        "DELETE FROM ticket_record WHERE ticket_id IN (SELECT id FROM ticket WHERE ticket_no IN (\u0027FD-20261007-007\u0027,\u0027FD-20261007-008\u0027));\nDELETE FROM ticket_participant WHERE ticket_id IN (SELECT id FROM ticket WHERE ticket_no IN (\u0027FD-20261007-007\u0027,\u0027FD-20261007-008\u0027));\nDELETE FROM ticket WHERE ticket_no IN (\u0027FD-20261007-007\u0027,\u0027FD-20261007-008\u0027);",
+                        "SELECT COUNT(*) FROM ticket WHERE ticket_no IN (\u0027FD-20261007-007\u0027,\u0027FD-20261007-008\u0027);",
+                        "SELECT (SELECT COUNT(*) FROM iam_user), (SELECT COUNT(*) FROM iam_role), (SELECT COUNT(*) FROM iam_permission), (SELECT COUNT(*) FROM ticket_category), (SELECT COUNT(*) FROM ticket), (SELECT COUNT(*) FROM ticket_record), (SELECT COUNT(*) FROM ticket_participant);",
+                        "SELECT IFNULL(GROUP_CONCAT(ticket_no ORDER BY id SEPARATOR \u0027,\u0027),\u0027-\u0027) FROM ticket;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(ticket_no,\u0027|\u0027,status,\u0027|\u0027,version,\u0027|\u0027,record_seq,\u0027|\u0027,IFNULL(assignee_id,-1),\u0027|\u0027,IFNULL(DATE_FORMAT(action_deadline_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027),\u0027NULL\u0027),\u0027|\u0027,IF(ended_at IS NULL,\u0027NULL\u0027,\u0027SET\u0027),\u0027|\u0027,IFNULL(completion_method,\u0027NULL\u0027),\u0027|\u0027,DATE_FORMAT(updated_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027)) ORDER BY id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM ticket;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(id,\u0027|\u0027,ticket_id,\u0027|\u0027,sequence_no,\u0027|\u0027,record_type,\u0027|\u0027,actor_type,\u0027|\u0027,IFNULL(actor_user_id,-1),\u0027|\u0027,DATE_FORMAT(created_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027)) ORDER BY id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM ticket_record;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(ticket_id,\u0027|\u0027,user_id,\u0027|\u0027,DATE_FORMAT(first_assigned_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027)) ORDER BY ticket_id,user_id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM ticket_participant;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(business_date,\u0027=\u0027,current_value) ORDER BY business_date SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM ticket_daily_sequence;"
+                    ],
+    "cleanup":  {
+                    "startedAt":  "2026-10-07T10:16:06",
+                    "ticketNos":  [
+                                      "FD-20261007-007",
+                                      "FD-20261007-008"
+                                  ],
+                    "sql":  [
+                                "DELETE FROM ticket_record WHERE ticket_id IN (SELECT id FROM ticket WHERE ticket_no IN (\u0027FD-20261007-007\u0027,\u0027FD-20261007-008\u0027));",
+                                "DELETE FROM ticket_participant WHERE ticket_id IN (SELECT id FROM ticket WHERE ticket_no IN (\u0027FD-20261007-007\u0027,\u0027FD-20261007-008\u0027));",
+                                "DELETE FROM ticket WHERE ticket_no IN (\u0027FD-20261007-007\u0027,\u0027FD-20261007-008\u0027);"
+                            ],
+                    "note":  "只删除本次运行创建的工单及其记录与参与关系；片 B 的两个动作不产生附件与工单关联，因此无需删除 ticket_attachment / ticket_relation。",
+                    "exitCode":  0,
+                    "stderr":  "",
+                    "demoDatabaseBefore":  {
+                                               "at":  "2026-10-07T10:16:03",
+                                               "users":  3,
+                                               "roles":  3,
+                                               "permissions":  14,
+                                               "categories":  5,
+                                               "tickets":  1,
+                                               "records":  5,
+                                               "participants":  1,
+                                               "ticketNos":  "FD-20261006-026",
+                                               "ticketRows":  "FD-20261006-026|COMPLETED|4|5|2|NULL|SET|REQUESTER_CONFIRMED|2026-10-06 03:43:38.114000",
+                                               "recordRows":  "135|92|1|CREATE|USER|1|2026-10-06 03:43:29.069000 ;; 136|92|2|CLAIM|USER|2|2026-10-06 03:43:33.053000 ;; 137|92|3|PROCESS|USER|2|2026-10-06 03:43:33.638000 ;; 138|92|4|RESOLUTION|USER|2|2026-10-06 03:43:34.837000 ;; 139|92|5|COMPLETION|USER|1|2026-10-06 03:43:38.114000",
+                                               "participantRows":  "92|2|2026-10-06 03:43:33.053000",
+                                               "dailySequence":  "2026-10-06=60 ;; 2026-10-07=6",
+                                               "readOk":  true
+                                           },
+                    "demoDatabaseAfter":  {
+                                              "at":  "2026-10-07T10:16:09",
+                                              "users":  3,
+                                              "roles":  3,
+                                              "permissions":  14,
+                                              "categories":  5,
+                                              "tickets":  1,
+                                              "records":  5,
+                                              "participants":  1,
+                                              "ticketNos":  "FD-20261006-026",
+                                              "ticketRows":  "FD-20261006-026|COMPLETED|4|5|2|NULL|SET|REQUESTER_CONFIRMED|2026-10-06 03:43:38.114000",
+                                              "recordRows":  "135|92|1|CREATE|USER|1|2026-10-06 03:43:29.069000 ;; 136|92|2|CLAIM|USER|2|2026-10-06 03:43:33.053000 ;; 137|92|3|PROCESS|USER|2|2026-10-06 03:43:33.638000 ;; 138|92|4|RESOLUTION|USER|2|2026-10-06 03:43:34.837000 ;; 139|92|5|COMPLETION|USER|1|2026-10-06 03:43:38.114000",
+                                              "participantRows":  "92|2|2026-10-06 03:43:33.053000",
+                                              "dailySequence":  "2026-10-06=60 ;; 2026-10-07=8",
+                                              "readOk":  true
+                                          },
+                    "dailySequenceBefore":  "2026-10-06=60 ;; 2026-10-07=6",
+                    "dailySequenceAfter":  "2026-10-06=60 ;; 2026-10-07=8",
+                    "dockerCommandsUsed":  [
+                                               "docker exec -i -e MYSQL_PWD \u003cmysql 容器\u003e mysql -uroot -N -B --default-character-set=utf8mb4 \u003c库名\u003e（SQL 走 stdin）"
+                                           ],
+                    "composeDownExecuted":  false,
+                    "containersOrVolumesModified":  false,
+                    "backendProcessTouched":  false,
+                    "targetBaseUrl":  "http://127.0.0.1:8081",
+                    "finishedAt":  "2026-10-07T10:16:09"
+                },
+    "observed":  [
+                     "admin.roles=EMPLOYEE|IT_SUPPORT|SYSTEM_ADMIN",
+                     "admin.hasTICKET_PROCESS=True hasTICKET_REQUESTER_ACTION=True",
+                     "a4 造可见性：为 admin(3) 插入 ticket_participant(ticket=FD-20261007-008)，随清理 SQL 按 ticket_id 删除"
+                 ],
+    "totals":  {
+                   "total":  67,
+                   "passed":  67,
+                   "failed":  0
+               },
+    "notes":  [
+                  "admin 在本机演示库里同时持有 EMPLOYEE + IT_SUPPORT + SYSTEM_ADMIN（已知漂移，授权数据未被改动），脚本只记录它的实际结果，不做绝对值断言。"
+              ]
+}

@@ -19,6 +19,7 @@ public record RequestSupplementCommand(
         @PositiveOrZero(message = "版本不能为负数")
         Long version,
 
+        @NotBlank(message = "需要补充的内容不能为空")
         @Size(max = 10000, message = "需要补充的内容最多10000个字符")
         String content) {
 

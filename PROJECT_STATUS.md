@@ -1,14 +1,54 @@
 # FlowDesk 项目状态
 
-## 当前结论：片 A 已合并 main，片 B 基础件与业务实现已写入、测试等内容等待用户统一发起（2026-10-07）
+## 当前结论：片 B 收口执行中（分支已推送、基点 `5e0e83e`），片 C 在独立工作树并行开工（2026-10-07）
 
-- **片 A 已交接完成（2026-10-07）**：三条提交 `d3b0849`（两个动作实现）、`46230ee`（单元/Web/集成用例）、`7e9c0c7`（前端登记与派发、验收脚本与证据）经 **[PR #14](https://github.com/Crazy-HF/Flow-Desk/pull/14) 以 merge commit 合并 `main`**（合并提交 **`5f4026f`**，基线 `1f85c93`；三个 job `backend-verify`/`frontend-verify`/`core-e2e` 全绿）。本地 `main` 已仅快进同步，随后从最新 `main` 创建 **`flow-desk/ticket-supplement-roundtrip`** 承载片 B。片 A 的完整交付细节见本文件下方「片 A 交付记录」段。
-- **片 B（补充往返）当前进度——停在等待点**：分支 `flow-desk/ticket-supplement-roundtrip`（从 `5f4026f` 创建，**未提交、未推送**）。已写入：
-  - **基础件**：`RequestSupplementCommand`、`SupplementCommand`（均为 `version` + `content`，上限 10000）、`TicketService` 两个方法签名、`TicketMapper.requestSupplement` / `TicketMapper.supplement` 两条条件更新（状态与期限在**同一条 UPDATE** 内原子写入，避开 `ck_ticket_status_deadline` 的中间态）、`TicketController` 两个端点（`supplement` 为 `multipart/form-data`，**文件 part 显式 400 而非静默忽略**）、`TicketQueryServiceImpl.allowedActions` 两格（`request-supplement` 与 `canProcess` 同族相邻、`supplement` 独立判定为「待补充 + 本人是提交人」，顺序 `... submit-resolution, request-supplement, confirm-resolution, ... report-unresolved, supplement`）、`TicketProperties.supplementWindow`（默认 7d、下限 1m）与 `application.yml` 的 `flowdesk.ticket.supplement-window`。
+- **片 A 已交接完成（2026-10-07）**：三条提交 `d3b0849`（两个动作实现）、`46230ee`（单元/Web/集成用例）、`7e9c0c7`（前端登记与派发、验收脚本与证据）经 **[PR #14](https://github.com/Crazy-HF/Flow-Desk/pull/14) 以 merge commit 合并 `main`**（合并提交 **`5f4026f`**，基线 `1f85c93`；三个 job `backend-verify`/`frontend-verify`/`core-e2e` 全绿）。片 A 的完整交付细节见本文件下方「片 A 交付记录」段。
+- **片 B（补充往返）已完成编码并推送**：分支 **`flow-desk/ticket-supplement-roundtrip`**（从 `5f4026f` 创建，提交 **`5e0e83e`**，15 文件 +1582/−36，已推送 `origin` 并设为跟踪分支）。已写入：
+  - **基础件**：`RequestSupplementCommand`、`SupplementCommand`（均为 `version` + `content`，上限 10000）、`TicketService` 两个方法签名、`TicketMapper.requestSupplement` / `TicketMapper.supplement` 两条条件更新（状态与期限在**同一条 UPDATE** 内原子写入，避开 `ck_ticket_status_deadline` 的中间态）、`TicketController` 两个端点（`supplement` 为 `multipart/form-data`，**文件 part 显式 400 而非静默忽略**）、`TicketQueryServiceImpl.allowedActions` 两格（`request-supplement` 与 `canProcess` 同族相邻、`supplement` 独立判定为「待补充 + 本人是提交人」）、`TicketProperties.supplementWindow`（默认 7d、下限 1m）与 `application.yml` 的 `flowdesk.ticket.supplement-window`。
   - **业务实现**：`TicketServiceImpl.requestSupplement` / `supplement`（门禁顺序与既有动作逐字对齐；`supplement` **刻意不判定期限是否已过**——本版本没有超时自动关闭，期限只用于展示，拦住过期提交比不做更糟；理由写在方法注释里）。
-  - **测试（越界产物，见下条）**：`TicketServiceImplTest`（111 项，含 `requestSupplement` 12 项与 `TicketProperties` 两个用例）、新增 `TicketSupplementServiceImplTest`（18 项）、`TicketQueryServiceImplTest`（50 项）、`TicketControllerWebTest`（94 项，含 6 项 multipart 文件部分用例）。四个类在本机为绿（`surefire:test` 定向执行），**尚未跑全量 `clean verify`、未跑前端任何检查**。
-  - **用户指示（2026-10-07，已写入 `AGENTS.md`「Codex 的职责」的测试时机条目）**：当前完成的先放着、**不抽回**；**测试等内容在用户完成代码编写后由用户统一进行**；Agent 只做用户明确点名的那一层（「mapper 也由我写入」只授权 Mapper），基础件写入后停下等待，等待期间的编译/测试标红属预期。
-  - **未开始**：前端动作登记与派发（`TICKET_ACTIONS` 两格、`api/tickets.ts` 两个函数、详情页期限标签与「到期不会自动处理」文案）、E2E、真实栈验收脚本（含**替换**片 A 脚本与 `TicketServiceIT` 里的 SQL 造数）、文档同步（`api-design.md` 6.3/6.4、`implementation-plan.md` 9.3 片 B 交付记录）、片 C 与片 D。
+  - **测试**：`TicketServiceImplTest`（含 `requestSupplement` 与 `TicketProperties` 用例）、新增 `TicketSupplementServiceImplTest`、`TicketQueryServiceImplTest`、`TicketControllerWebTest`（含 6 项 multipart 文件部分用例）；四项均随 `5e0e83e` 入库。
+  - **收口待办（本轮执行）**：`TicketServiceIT` 去除片 A 遗留的 SQL 临时造数并新增片 B 集成用例、后端全量 `clean verify`、前端动作登记与派发、前端单测、E2E、真实栈验收脚本与证据、文档同步（`api-design.md` 6.3/6.4、`implementation-plan.md` 9.3）。
+- **用户裁决（2026-10-07，本轮）**：片 A 观察项「`supplement` 兜底用 `content.isEmpty()` 放行纯空白」**不改**。理由与边界见下方「片 A 观察项裁决」段。
+
+## 并行会话分工（2026-10-07 用户要求落盘）
+
+两个会话同时推进，靠**两个独立 Git 工作树**隔离；开工时把本段整体粘给片 C 会话即可。
+
+| 项 | 会话 1（本文件所在工作树） | 会话 2（片 C） |
+| --- | --- | --- |
+| 工作目录 | `D:\Idea\item\flow-Desk` | `D:\Idea\item\flow-Desk-sliceC` |
+| 分支 | `flow-desk/ticket-supplement-roundtrip` | `flow-desk/ticket-adjust-transfer` |
+| 基点 | `5f4026f`（片 A 合并后的 main）→ 提交 `5e0e83e` | **`5e0e83e`（片 B 的提交，不是 main）** |
+| 交付 | 片 B 收口五项：测试补齐、前端接通、E2E、真实栈验收脚本与证据、文档与状态同步 | 片 C「调整与转交」：`change-category`、`change-priority`、`transfer` + `GET /transfer-candidates` |
+
+**文件归属（严格，越界即返工）**
+
+- 会话 1 可写：`frontend/**`、`scripts/**`、`docs/**`、`README.md`、`AGENTS.md`、`PROJECT_STATUS.md`、`src/test/**`（片 B 用例）。
+- 会话 1 只读：`TicketServiceImpl`、`TicketMapper`、`TicketController`、`TicketService`、`TicketQueryServiceImpl`（片 B 的后端已完成，收口期间不改生产代码；确需改动必须先报证据等授权）。
+- 会话 2 可写：`src/main/java/com/flowdesk/ticket/**` 的片 C 生产代码（Command、服务接口、Mapper 条件更新、Controller 端点、`allowedActions` 三格、`transfer-candidates` 查询与 Result 类型）。`TicketServiceImpl` 的片 C 业务方法**由用户编写**，Agent 先出文字与流程图说明再给完整代码，不直接写入。
+- 会话 2 禁止：`frontend/**`、`scripts/**`、`docs/**`、`PROJECT_STATUS.md`、`AGENTS.md`、`README.md`，以及改片 B 的 `request-supplement`/`supplement` 代码。
+
+**两棵树都必须遵守**
+
+- 不 `checkout` / `switch` / 建删分支（各自分支固定在工作树里）；不碰对方目录；不跨工作树引用绝对路径。
+- 共用同一套 MySQL/Redis 容器与**同一个演示库**：验收与测试串行执行，各自只删自己创建的行；另一棵树用 8081 时，本机起并行后端用 **8092**（脚本支持 `-BaseUrl` / `FLOWDESK_BASE_URL`）。
+- 新工作树没有 `target/` 与 `frontend/node_modules/`（gitignore），后端起服务前先跑一次 `.\mvnw.cmd -B -DskipTests compile`；`.env` 已手工复制就位。
+
+**汇合点与汇合顺序（写死）**
+
+1. 汇合文件只有两个：`PROJECT_STATUS.md` 与 `docs/implementation-plan.md` 9.3。**会话 1 先落自己那段，会话 2 后补**。
+2. 合并顺序：片 B 的 PR 先合 `main` → 会话 2 `git fetch && git rebase main`（片 C 尚未推送，改历史零风险；已推送则改用 merge）→ 片 C 再提 PR。
+3. **片 C 的基点不是 main**，所以片 B 合并前不要提片 C 的 PR：否则 PR 会连带片 B 的 1582 行改动。CI 只在 `pull_request` 与 push 到 `main` 时触发，片 C 分支推送前不消耗 CI。
+
+## 片 A 观察项裁决：`supplement` 兜底的空值口径不改（2026-10-07 用户确认）
+
+- **现象**：`TicketServiceImpl.supplement` 的兜底判定是 `content == null || content.isEmpty() || content.length() > MAX_CONTENT_LENGTH`，即非 HTTP 调用方传纯空白（如 `"   "`）**会通过**并被写成一条空白补充记录。
+- **为什么不改**：① 两个 HTTP 入口都有 Bean Validation——`SupplementCommand` 与 `RequestSupplementCommand` 的 `content` 都是 `@NotBlank`，纯空白在进服务层之前就被 `400/VALIDATION_FAILED` 拦住，差异只在非 HTTP 调用方（脚本、集成测试、将来的服务内部调用）；② 现有四处兜底（`addProcessingRecord`、`submitResolution`、`requestSupplement`、`supplement`）写法完全一致，单独改一处会变成"四种动作两种口径"，反而更难解释；③ 若将来真要收紧，应是四处一起改成 `isBlank()` 并补对应断言，属独立主题，不塞进片 B。
+- **状态**：**已裁决为"不改"**，不列为缺陷、不列为遗留项；本节保留为决策记录，避免后续会话重新讨论。
+
+---
+
+> 以下为历史记录（自「附件存储口径」起）。历史段落按项目惯例不追改，其中的"当前进度""下一步"等表述只对当时成立。
 
 ## 附件存储口径（回答 2026-10-07 用户提问：是否要先补 OSS）
 

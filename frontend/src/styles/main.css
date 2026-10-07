@@ -1982,6 +1982,15 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+/* 期限下面那句"到期不会自动处理"：单独一行、比日期小一号。
+   它是对期限的限定，不是另一条属性，所以不能占一个 dt/dd 对，也不能和日期同色同大小。 */
+.ticket-facts__hint {
+  display: block;
+  margin-top: var(--fd-space-1);
+  color: var(--fd-color-text-subtle);
+  font-size: var(--fd-font-size-sm);
+}
+
 @media (max-width: 52rem) {
   /* 详情在窄屏改为上下排列：属性栏跟到正文后面，而不是挤在右侧变成一条窄缝。 */
   /* 日期范围的固有宽度不能撑开筛选网格的自动轨道。 */

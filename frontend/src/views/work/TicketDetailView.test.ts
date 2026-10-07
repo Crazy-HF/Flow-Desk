@@ -12,7 +12,9 @@ import {
   confirmResolution,
   getTicket,
   listTicketRecords,
+  requestSupplementTicket,
   submitResolution,
+  supplementTicket,
 } from '@/api/tickets'
 import type { TicketDetail, TicketRecord } from '@/api/tickets'
 import { useAuthStore } from '@/stores/auth'
@@ -26,6 +28,8 @@ vi.mock('@/api/tickets', () => ({
   addProcessingRecord: vi.fn(),
   submitResolution: vi.fn(),
   confirmResolution: vi.fn(),
+  requestSupplementTicket: vi.fn(),
+  supplementTicket: vi.fn(),
 }))
 
 /** 确认框替身：真实挂载弹窗，用例按"打开 → 填内容 → 点确认"的真人顺序驱动。 */
@@ -449,6 +453,141 @@ describe('TicketDetailView', () => {
     expect(confirmResolution).toHaveBeenCalledWith('FD-20260929-001', { version: 9 })
     expect(wrapper.get('.ticket-meta').text()).toContain('已完成')
     expect(actionLabels(wrapper)).toEqual([])
+  })
+
+  // ---------- 片 B：补充往返 ----------
+
+  it('提交人补充信息：命中补充接口，成功后回到处理中并刷新时间线', async () => {
+    useAuthStore().user = requester
+    vi.mocked(getTicket)
+      .mockResolvedValueOnce({
+        ...detail,
+        status: 'WAITING_FOR_REQUESTER',
+        assignee: { id: 2, displayName: '演示 IT 支持人员' },
+        actionDeadlineAt: '2026-10-13T02:00:00Z',
+        version: 5,
+        allowedActions: ['supplement'],
+      })
+      .mockResolvedValue({
+        ...detail,
+        status: 'PROCESSING',
+        assignee: { id: 2, displayName: '演示 IT 支持人员' },
+        actionDeadlineAt: undefined,
+        version: 6,
+        allowedActions: [],
+      })
+    vi.mocked(supplementTicket).mockResolvedValue({
+      ticketNo: detail.ticketNo,
+      status: 'PROCESSING',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      actionDeadlineAt: undefined,
+      version: 6,
+      actionTime: '2026-09-29T07:00:00Z',
+    })
+
+    const { wrapper } = await mountPage()
+    // 提交人在待补充上只能做一件事：补充信息（不能提交解决结果，那是负责人的动作）
+    expect(actionLabels(wrapper)).toEqual(['提交补充信息'])
+
+    await openActionBox(wrapper, '提交补充信息')
+    await typeIntoActionBox('  型号是 L3153，报错信息已附在描述里  ')
+    await acceptActionBox()
+
+    expect(supplementTicket).toHaveBeenCalledWith('FD-20260929-001', {
+      version: 5,
+      content: '型号是 L3153，报错信息已附在描述里',
+    })
+    expect(wrapper.get('.ticket-meta').text()).toContain('处理中')
+    // 补充完成后提交人不再有任何动作
+    expect(actionLabels(wrapper)).toEqual([])
+  })
+
+  it('待补充时属性栏写"补充截止时间"，并说明到期不会自动处理', async () => {
+    useAuthStore().user = requester
+    vi.mocked(getTicket).mockResolvedValue({
+      ...detail,
+      status: 'WAITING_FOR_REQUESTER',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      actionDeadlineAt: '2026-10-13T02:00:00Z',
+      version: 5,
+      allowedActions: ['supplement'],
+    })
+
+    const { wrapper } = await mountPage()
+
+    const facts = wrapper.get('.ticket-facts')
+    expect(facts.text()).toContain('补充截止时间')
+    // 本版本没有超时自动任务：不写这一句，界面就在暗示"到点系统会处理"
+    expect(facts.text()).toContain('到期不会自动关闭工单')
+    expect(wrapper.get('.ticket-facts__hint').text()).toContain('仍需提交人手动补充')
+  })
+
+  /**
+   * 负责人视角同样要有这句提示。
+   *
+   * <p>这里刻意用「负责人」而不是「有 supplement 动作的人」来判断：负责人在待补充时唯一的动作是
+   * 撤回，如果用可做动作判断，恰好是最需要看到"到点不会自动处理"的那个人看不到这句话。</p>
+   */
+  it('待补充时负责人看到的期限叫"补充期限"，同样说明到期不会自动处理', async () => {
+    useAuthStore().user = support
+    vi.mocked(getTicket).mockResolvedValue({
+      ...detail,
+      status: 'WAITING_FOR_REQUESTER',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      actionDeadlineAt: '2026-10-13T02:00:00Z',
+      version: 5,
+      allowedActions: ['withdraw-supplement-request'],
+    })
+
+    const { wrapper } = await mountPage()
+
+    const facts = wrapper.get('.ticket-facts')
+    expect(facts.text()).toContain('补充期限')
+    expect(facts.text()).toContain('到期不会自动处理')
+    expect(wrapper.get('.ticket-facts__hint').text()).toContain('工单会一直停在待员工补充')
+  })
+
+  it('请求补充信息：带需要补充的内容与版本号提交', async () => {
+    useAuthStore().user = support
+    vi.mocked(getTicket)
+      .mockResolvedValueOnce({
+        ...detail,
+        status: 'PROCESSING',
+        assignee: { id: 2, displayName: '演示 IT 支持人员' },
+        version: 4,
+        allowedActions: ['request-supplement'],
+      })
+      .mockResolvedValue({
+        ...detail,
+        status: 'WAITING_FOR_REQUESTER',
+        assignee: { id: 2, displayName: '演示 IT 支持人员' },
+        actionDeadlineAt: '2026-10-13T02:00:00Z',
+        version: 5,
+        allowedActions: ['withdraw-supplement-request'],
+      })
+    vi.mocked(requestSupplementTicket).mockResolvedValue({
+      ticketNo: detail.ticketNo,
+      status: 'WAITING_FOR_REQUESTER',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      actionDeadlineAt: '2026-10-13T02:00:00Z',
+      version: 5,
+      actionTime: '2026-09-29T07:00:00Z',
+    })
+
+    const { wrapper } = await mountPage()
+    await openActionBox(wrapper, '请求补充信息')
+    await typeIntoActionBox('请补充打印机型号与完整报错信息')
+    await acceptActionBox()
+
+    expect(requestSupplementTicket).toHaveBeenCalledWith('FD-20260929-001', {
+      version: 4,
+      content: '请补充打印机型号与完整报错信息',
+    })
+    expect(wrapper.get('.ticket-meta').text()).toContain('待员工补充')
+    // 待补充期间负责人不能再提交解决结果，只能撤回补充请求
+    expect(actionLabels(wrapper)).toEqual(['撤回补充请求'])
+    // 负责人视角看的是"等员工回到什么时候"，标签与提交人视角不同
+    expect(wrapper.get('.ticket-facts').text()).toContain('补充期限')
   })
 
   it('版本过期时给出冲突说明并重新对齐版本，而不是停在旧快照上', async () => {
