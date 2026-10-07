@@ -140,12 +140,13 @@ PENDING（待受理） → PROCESSING（处理中） → WAITING_FOR_CONFIRMATIO
 
 ## 已知限制
 
-- **完整版未实现**（不计入 MVP）：其余 6 个 IT 动作（调整分类/优先级、转交、请求补充、撤回补充请求、关闭）、3 个员工动作（补充、未解决反馈、撤销）、待确认超时自动完成与待补充超时关闭、附件上传下载与关联工单、数据概览图表、管理性交接。界面只摆已实现的动作，不出现"按不动的按钮"。
+- **完整版未实现**（不计入 MVP）：完整工单状态机还剩 `close`（关闭）与 `cancel`（员工撤销）两个动作，以及待确认超时自动完成、待补充超时关闭；此外附件上传下载与关联工单、数据概览图表、管理性交接也未实现。界面只摆已实现的动作，不出现"按不动的按钮"。（调整分类、调整优先级、转交已在 2026-10-07 的片 C 实现，不再是未实现项。）
 - **单节点设计**：未做多实例下的分布式协调；会话与刷新索引集中在一个 Redis 实例上。
 - **前端打包**：Element Plus 目前全量引入（构建产物约 1.2 MB / gzip 约 379 KB），未做按需引入；构建会打印大 chunk 提示，不影响退出码。
 - **测试策略**：不做覆盖率门禁（`jacoco` 只出报告），以行为断言为准；集成测试依赖 Docker。
 - **已知问题**：
   1. 本机演示库中 `admin` 账号同时持有三个角色（种子只授予 `SYSTEM_ADMIN`），属长期存在的既有漂移，未改动。
+  2. **转交与「工单侧动作」并发时的交叉死锁**（2026-10-07 实测）：转交按 `user → ticket` 顺序加锁，而同一负责人对同一张工单的另一个动作会先拿工单行、再因 `ticket_record.actor_user_id` 外键去申请同一条 `iam_user` 行的共享锁，两条路径加锁顺序相反。InnoDB 会回滚其中一个：数据一致（版本只 +1、只多一条记录），但调用方拿到 `500/INTERNAL_ERROR` 而不是可重试的 `409/TICKET_CONFLICT`。候选修法是让转交先锁工单行再锁用户行，属业务代码改动，**尚未实施**；机制与取舍见 `docs/project-highlights.md` HL-011 的「已知边界」与 `PROJECT_STATUS.md` 的已知问题段。
 - **已修缺陷（2026-10-06 收口分支 `flow-desk/mvp-hardening`，均有测试覆盖）**：
   1. `TicketServiceImpl` 的三处 null 安全不对称：`version` 为 null 现与"版本过期"同一处理（`409/TICKET_CONFLICT`），缺失或非 UUID 的 `submissionKey` 现为 `400/VALIDATION_FAILED`，`content` 为 null 现为 `400/VALIDATION_FAILED`；此前都可能表现为 `500`。HTTP 入口的 Bean Validation 会先挡住，只有非 HTTP 调用方会遇到。
   2. `TicketQuery` 与 `TicketRecordQuery` 的排序方向改用 `PageQuery` 的同一判定（忽略大小写、空值按升序、空 `orderBy` 视为未请求排序）；`desc`、非法方向与显式 `orderBy` 仍被拒绝。

@@ -1,0 +1,59 @@
+{
+  "ticketNo": "FD-20261007-031",
+  "title": "E2E 片C调整转交 529276",
+  "transferTarget": "E2E_transfer_target_529276",
+  "steps": [
+    {
+      "step": "setup.transfer-target",
+      "status": 201,
+      "detail": "E2E_transfer_target_529276（E2E 转交目标 529276）由管理接口创建，仅用于本次转交"
+    },
+    {
+      "step": "create",
+      "status": 201,
+      "traceId": "2937cf98-3a8e-4bf8-9698-aade56fb5cd1",
+      "detail": "FD-20261007-031 由员工通过界面创建"
+    },
+    {
+      "step": "claim",
+      "status": 200,
+      "traceId": "a129c92c-ddb0-4ff1-90f8-88bf96c6a727",
+      "detail": "IT 领取成功"
+    },
+    {
+      "step": "change-category",
+      "status": 200,
+      "traceId": "63e70b6c-e828-43d6-8951-7959d5590009",
+      "detail": "分类改为「软件安装」，状态与负责人不变"
+    },
+    {
+      "step": "change-priority",
+      "status": 200,
+      "traceId": "e9e2473d-f9c6-43e1-a2bc-4722c7c27c46",
+      "detail": "优先级改为「低」，状态与负责人不变"
+    },
+    {
+      "step": "transfer",
+      "status": 200,
+      "traceId": "968ea3a6-0053-42a3-9b4d-adad0324b8d4",
+      "detail": "负责人替换为 E2E 转交目标 529276"
+    },
+    {
+      "step": "submit-resolution",
+      "status": 200,
+      "traceId": "0cd91995-7b2f-4ca1-ab9a-df821ee64caa",
+      "detail": "接手人提交解决结果"
+    },
+    {
+      "step": "confirm-resolution",
+      "status": 200,
+      "traceId": "579be627-769b-44a7-b480-d93aeaddf45b",
+      "detail": "员工确认，工单进入已完成"
+    },
+    {
+      "step": "cleanup.disable-transfer-target",
+      "status": 200,
+      "detail": "E2E_transfer_target_529276 已停用（演示库里会留下一行已停用账号，删行 SQL 见本文件头）"
+    }
+  ]
+}
