@@ -1,8 +1,9 @@
 # FlowDesk 项目状态
 
-## 当前结论：片 C 已实现、测试与真实栈验收全绿（127/127），**未提交、未交接**（2026-10-07）
+## 当前结论：片 C 已交接完成（[PR #16](https://github.com/Crazy-HF/Flow-Desk/pull/16) → 合并提交 `9f07a0f`），片 D 待开工（2026-10-07）
 
-- **工作树现状**：只剩 `D:\Idea\item\flow-Desk`，分支 `flow-desk/ticket-adjust-transfer`（远端 `origin/flow-desk/ticket-adjust-transfer-2`，基点为片 B 合并后的 `main` `aa0417b`）。片 C 的全部改动都在这个工作树里、**尚未提交**：12 个主代码文件、6 个测试文件、前端登记与派发、验收脚本、证据文件与文档。并行工作树 `D:\Idea\item\flow-Desk-sliceC` 已按用户要求删除且未保留（见「工作树删除记录」段）——**片 C 的代码是重新写的，不是那棵树里的存量**。
+- **交接结果**：四条提交 `db2eb4b`（实现）、`8e64d32`（测试）、`956cc5b`（前端与 E2E）、`5ce64f7`（验收与文档）经 **PR #16** 以 merge commit 合并 `main`（合并提交 **`9f07a0f`**，基线 `aa0417b`）；CI 首轮即全绿（运行 **[37603743588](https://github.com/Crazy-HF/Flow-Desk/actions/runs/37603743588)**：`backend-verify` 3m3s、`frontend-verify` 53s、`core-e2e` 3m2s）——**干净库上的 E2E 也通过**，说明片 C 新增的端到端用例（用管理接口临时创建第二名 IT 作为转交目标）不依赖本机演示库漂移。本地 `main` 已仅快进同步到 `9f07a0f`，随后从最新 `main` 创建 **`flow-desk/ticket-close-cancel`** 承载 **片 D 结束路径**（`close` + `cancel`）；本节即在该分支上补写。
+- **工作树现状**：唯一工作树 `D:\Idea\item\flow-Desk`，当前分支 `flow-desk/ticket-close-cancel`（从 `9f07a0f` 创建）。片 C 的改动已全部合并，工作树除本节的状态同步外无其它改动。并行工作树 `D:\Idea\item\flow-Desk-sliceC` 早前已按用户要求删除且未保留（见「工作树删除记录」段）——**片 C 的代码是重新写的，不是那棵树里的存量**。
 
 - **片 A 已交接完成（2026-10-07）**：三条提交 `d3b0849`（两个动作实现）、`46230ee`（单元/Web/集成用例）、`7e9c0c7`（前端登记与派发、验收脚本与证据）经 **[PR #14](https://github.com/Crazy-HF/Flow-Desk/pull/14) 以 merge commit 合并 `main`**（合并提交 **`5f4026f`**，基线 `1f85c93`；三个 job `backend-verify`/`frontend-verify`/`core-e2e` 全绿）。片 A 的完整交付细节见本文件下方「片 A 交付记录」段。
 - **片 B（补充往返）已交接完成（2026-10-07）**：分支 **`flow-desk/ticket-supplement-roundtrip`**（从 `5f4026f` 创建）的两条提交 `5e0e83e`（后端实现与用例）与 `e3ed3f1`（收口：前端接通、E2E、真实栈验收脚本与证据、文档同步），加一条 CI 修正 `73524a4`，经 **[PR #15](https://github.com/Crazy-HF/Flow-Desk/pull/15) 以 merge commit 合并 `main`**（合并提交 **`aa0417b`**，基线 `5f4026f`）。CI 首轮 `core-e2e` 失败于 `ticket-it-flow.spec.ts` 仍断言旧标签「当前期限」，修正为按状态与角色给标签与提示后，运行 `37564858602` 三个 job 全绿。本地 `main` 已仅快进同步，随后从 `aa0417b` 创建 **`flow-desk/ticket-adjust-transfer-2`** 承载片 C。片 B 的交付内容：
@@ -20,7 +21,7 @@
   - **E2E（实跑）**：`pnpm test:e2e` **20 项全部通过（2.8 分钟）**，含新增的 `frontend/e2e/ticket-adjust-transfer.spec.ts`（27.7s：员工建单 → IT 领取 → 调整分类 → 调整优先级 → 转交给接口临时创建的第二名 IT → 接手人登录并提交解决结果 → 员工确认完成）。**注意后端基址**：8092 上跑的是新构建；用户自己启动的 8081（进程 32868，启动于 10:09）是**旧构建**，鉴权后请求片 C 端点返回 `404 RESOURCE_NOT_FOUND`，因此本轮 E2E 用 `FLOWDESK_API_TARGET=http://127.0.0.1:8092` 把预览代理指向新后端（未重启/未触碰 8081）。截图存 `.ui-craft/reviews/2026-10-07-slice-c-adjust-transfer/`（4 张，1440 与 375），**已由 Agent 实际查看**：六个动作按登记表顺序、语义色正确、转交后「负责人」显示新负责人、窄屏无溢出、无默认蓝残留。
   - **收尾清理（已执行）**：E2E 覆写的 `.ui-craft/reviews/**` 已 `git checkout` 还原（新增的两个片 B/片 C 评审目录仍是未跟踪产物）；演示库回到**运行前基线**——删除了本轮 E2E 创建的 5 张 `E2E %` 工单及其记录/参与关系、以及本轮创建的两个账号（`E2E_transfer_target_*`、新的 `E2E_ticket_isolation_*`），当前为 工单 0 / 记录 0 / 参与者 0 / 用户 6（3 个历史 `E2E_ticket_isolation_*` 未删，见「遗留」段）。
   - **一处显示口径（已知，非缺陷）**：时间线上 `CATEGORY_CHANGE` 只显示原因，不显示「原分类 → 新分类」——记录行里只有分类 id，没有名称；当前分类在「工单信息」里可见，本次不扩大范围去补名称查询。
-  - **未做**：Git 提交、推送、PR、合并（等用户授权本轮交接）。
+  - **交接已完成（2026-10-07）**：四条提交 `db2eb4b` / `8e64d32` / `956cc5b` / `5ce64f7` 经 [PR #16](https://github.com/Crazy-HF/Flow-Desk/pull/16) 以 merge commit 合并 `main`（合并提交 `9f07a0f`），CI 运行 `37603743588` 三个 job 首轮全绿。
 - **片 D（结束路径）未开工**：`close`（三种原因 + `DUPLICATE` 关联）与 `cancel`。
 - **演示库现状（2026-10-07 直查）**：工单 0 / 记录 0 / 参与者 0 / 分类 5 / 角色 4 / 权限 14 / 用户 **6**；其中 3 个是历史 E2E 用例留下的 `E2E_ticket_isolation_*` 账号（不是本轮产生，本轮脚本与用例都没有删除它们），`ticket_daily_sequence` 为 `2026-10-06=60 ;; 2026-10-07=26`（递增属预期，不回退）。
 
