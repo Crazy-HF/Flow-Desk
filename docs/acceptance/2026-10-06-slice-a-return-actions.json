@@ -1,0 +1,1217 @@
+{
+    "_note":  "本文件由 scripts/slice-a-return-actions-acceptance.ps1 写出（无 BOM 的 UTF-8）。只记录状态码、业务码、traceId、断言结论与 SQL；不含口令、密钥与 accessToken，也不含机器绝对路径。",
+    "stage":  "完整工单状态机 片 A：退回处理中（report-unresolved + withdraw-supplement-request）真实栈验收",
+    "slice":  "A",
+    "date":  "2026-10-06",
+    "result":  "PASS",
+    "script":  {
+                   "path":  "scripts/slice-a-return-actions-acceptance.ps1",
+                   "lines":  1403,
+                   "invocation":  "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\slice-a-return-actions-acceptance.ps1",
+                   "powershellVersion":  "5.1.22000.2538",
+                   "exitCode":  0,
+                   "startedAt":  "2026-10-06T17:42:28",
+                   "finishedAt":  "2026-10-06T17:42:38",
+                   "durationSeconds":  9.7,
+                   "baseUrl":  "http://127.0.0.1:8092",
+                   "baseUrlSource":  "param -BaseUrl / 环境变量 FLOWDESK_BASE_URL / 缺省 http://127.0.0.1:8081（PowerShell 5.1 没有 ??，用 param 默认值 + 兜底实现）"
+               },
+    "target":  {
+                   "baseUrl":  "http://127.0.0.1:8092",
+                   "dbContainer":  "flowdesk-mysql-1",
+                   "database":  "flowdesk",
+                   "originHeader":  "http://127.0.0.1:5173",
+                   "originHeaderNote":  "auth 只在 refresh / logout 校验 Origin；登录与业务动作带该头是为了与前端同源请求一致",
+                   "accounts":  [
+                                    "employee",
+                                    "it",
+                                    "admin"
+                                ],
+                   "credentialsPrinted":  false,
+                   "credentialsInEvidence":  false
+               },
+    "preflight":  {
+                      "baseUrl":  "http://127.0.0.1:8092",
+                      "reportUnresolvedStatus":  404,
+                      "reportUnresolvedCode":  "TICKET_NOT_FOUND",
+                      "reportUnresolvedTraceId":  "a120d604-18be-4f00-9101-f08a054ce17f",
+                      "withdrawSupplementRequestStatus":  404,
+                      "withdrawSupplementRequestCode":  "TICKET_NOT_FOUND",
+                      "withdrawSupplementRequestTraceId":  "efe94dbc-bfc2-4326-96b6-168e985ef6b2",
+                      "mappingConfirmed":  true
+                  },
+    "tickets":  {
+                    "main":  "FD-20261006-051",
+                    "processingProbe":  "FD-20261006-050",
+                    "withdraw":  "FD-20261006-052",
+                    "createdByThisRun":  [
+                                             "FD-20261006-051",
+                                             "FD-20261006-050",
+                                             "FD-20261006-052"
+                                         ],
+                    "existingUntouched":  "FD-20261006-026"
+                },
+    "keyActions":  [
+                       {
+                           "order":  1,
+                           "actor":  "it",
+                           "action":  "claim",
+                           "method":  "POST",
+                           "path":  "/fd/v1/tickets/FD-20261006-051/actions/claim",
+                           "ticketNo":  "FD-20261006-051",
+                           "httpStatus":  200,
+                           "traceId":  "0d009be4-fd1e-47a5-8f75-b19d01111086",
+                           "statusAfter":  "PROCESSING",
+                           "versionAfter":  1
+                       },
+                       {
+                           "order":  2,
+                           "actor":  "it",
+                           "action":  "submit-resolution",
+                           "method":  "POST",
+                           "path":  "/fd/v1/tickets/FD-20261006-051/actions/submit-resolution",
+                           "ticketNo":  "FD-20261006-051",
+                           "httpStatus":  200,
+                           "traceId":  "cc5233dc-d51f-4218-a4aa-f82a384da99a",
+                           "statusAfter":  "WAITING_FOR_CONFIRMATION",
+                           "versionAfter":  2
+                       },
+                       {
+                           "order":  3,
+                           "actor":  "employee",
+                           "action":  "report-unresolved",
+                           "method":  "POST",
+                           "path":  "/fd/v1/tickets/FD-20261006-051/actions/report-unresolved",
+                           "ticketNo":  "FD-20261006-051",
+                           "httpStatus":  200,
+                           "traceId":  "4a7ccb34-ddc2-4186-9bc7-c426137f824c",
+                           "statusAfter":  "PROCESSING",
+                           "versionAfter":  5
+                       },
+                       {
+                           "order":  4,
+                           "actor":  "it",
+                           "action":  "withdraw-supplement-request",
+                           "method":  "POST",
+                           "path":  "/fd/v1/tickets/FD-20261006-052/actions/withdraw-supplement-request",
+                           "ticketNo":  "FD-20261006-052",
+                           "httpStatus":  200,
+                           "traceId":  "a9d6ba58-ecd3-417b-87e3-c0392cfa616b",
+                           "statusAfter":  "PROCESSING",
+                           "versionAfter":  3
+                       },
+                       {
+                           "order":  5,
+                           "actor":  "employee",
+                           "action":  "confirm-resolution",
+                           "method":  "POST",
+                           "path":  "/fd/v1/tickets/FD-20261006-052/actions/confirm-resolution",
+                           "ticketNo":  "FD-20261006-052",
+                           "httpStatus":  200,
+                           "traceId":  "82130cee-f64c-409f-887b-78399a75eb0d",
+                           "statusAfter":  "COMPLETED",
+                           "versionAfter":  5
+                       }
+                   ],
+    "temporarySqlSeeding":  {
+                                "reason":  "withdraw-supplement-request 只能作用在 WAITING_FOR_REQUESTER，而进入该状态的唯一接口 request-supplement 属于片 B，当前代码尚无；因此本脚本对**自己刚创建、并由 it 领取**的这一张工单直接改库置位。",
+                                "temporaryUntilSliceB":  true,
+                                "replaceWithEndpoint":  "POST /fd/v1/tickets/{ticketNo}/actions/request-supplement（片 B 落地后必须替换为调用接口，否则验证的是造数而不是真实入口）",
+                                "ticketNo":  "FD-20261006-052",
+                                "updateSql":  "UPDATE ticket SET status = \u0027WAITING_FOR_REQUESTER\u0027, action_deadline_at = DATE_ADD(UTC_TIMESTAMP(3), INTERVAL 7 DAY), version = version + 1, record_seq = record_seq + 1, updated_at = UTC_TIMESTAMP(3) WHERE ticket_no = \u0027FD-20261006-052\u0027;",
+                                "insertRecordSql":  "INSERT INTO ticket_record (ticket_id, sequence_no, record_type, actor_type, actor_user_id, content, from_status, to_status, deadline_at, created_at) SELECT id, record_seq, \u0027SUPPLEMENT_REQUEST\u0027, \u0027USER\u0027, assignee_id, \u0027脚本置位\u0027, \u0027PROCESSING\u0027, \u0027WAITING_FOR_REQUESTER\u0027, action_deadline_at, UTC_TIMESTAMP(3) FROM ticket WHERE ticket_no = \u0027FD-20261006-052\u0027;",
+                                "executedSql":  "START TRANSACTION;\nUPDATE ticket SET status = \u0027WAITING_FOR_REQUESTER\u0027, action_deadline_at = DATE_ADD(UTC_TIMESTAMP(3), INTERVAL 7 DAY), version = version + 1, record_seq = record_seq + 1, updated_at = UTC_TIMESTAMP(3) WHERE ticket_no = \u0027FD-20261006-052\u0027;\nINSERT INTO ticket_record (ticket_id, sequence_no, record_type, actor_type, actor_user_id, content, from_status, to_status, deadline_at, created_at) SELECT id, record_seq, \u0027SUPPLEMENT_REQUEST\u0027, \u0027USER\u0027, assignee_id, \u0027脚本置位\u0027, \u0027PROCESSING\u0027, \u0027WAITING_FOR_REQUESTER\u0027, action_deadline_at, UTC_TIMESTAMP(3) FROM ticket WHERE ticket_no = \u0027FD-20261006-052\u0027;\nCOMMIT;",
+                                "wrappedInTransaction":  true,
+                                "sqlExitCode":  0,
+                                "sqlStderr":  "",
+                                "ticketRowAfterSeed":  "WAITING_FOR_REQUESTER\t2026-10-13 09:42:34.382000\tNULL\t2\tNULL\t2\t3\t1",
+                                "deadlineRule":  "action_deadline_at = DATE_ADD(UTC_TIMESTAMP(3), INTERVAL 7 DAY)，满足 ck_ticket_status_deadline（待补充必须有有效期限）",
+                                "touchedRows":  "仅 ticket.ticket_no=\u0027FD-20261006-052\u0027 这一行，以及它新增的一条 ticket_record；运行前就存在的行一行未动"
+                            },
+    "databaseChecks":  [
+                           {
+                               "name":  "a11.db.reportUnresolved.snapshot",
+                               "sql":  "SELECT status, IFNULL(DATE_FORMAT(action_deadline_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027),\u0027NULL\u0027), IF(ended_at IS NULL,\u0027NULL\u0027,\u0027SET\u0027), IFNULL(assignee_id,-1), IFNULL(completion_method,\u0027NULL\u0027), version FROM ticket WHERE ticket_no = \u0027FD-20261006-051\u0027;",
+                               "raw":  "PROCESSING\tNULL\tNULL\t2\tNULL\t5",
+                               "expected":  "status=PROCESSING、action_deadline_at IS NULL、ended_at IS NULL、assignee_id=it、completion_method IS NULL",
+                               "passed":  true
+                           },
+                           {
+                               "name":  "a15.db.seededToWaitingForRequester",
+                               "sql":  "SELECT status, IFNULL(DATE_FORMAT(action_deadline_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027),\u0027NULL\u0027), IF(ended_at IS NULL,\u0027NULL\u0027,\u0027SET\u0027), IFNULL(assignee_id,-1), IFNULL(completion_method,\u0027NULL\u0027), version, record_seq FROM ticket WHERE ticket_no = \u0027FD-20261006-052\u0027;",
+                               "raw":  "WAITING_FOR_REQUESTER\t2026-10-13 09:42:34.382000\tNULL\t2\tNULL\t2\t3",
+                               "expected":  "status=WAITING_FOR_REQUESTER、action_deadline_at 非空、version/record_seq 各 +1、负责人不变",
+                               "passed":  true
+                           },
+                           {
+                               "name":  "a19.db.withdraw.snapshot",
+                               "sql":  "SELECT status, IFNULL(DATE_FORMAT(action_deadline_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027),\u0027NULL\u0027), IF(ended_at IS NULL,\u0027NULL\u0027,\u0027SET\u0027), IFNULL(assignee_id,-1), IFNULL(completion_method,\u0027NULL\u0027), version FROM ticket WHERE ticket_no = \u0027FD-20261006-052\u0027;",
+                               "raw":  "PROCESSING\tNULL\tNULL\t2\tNULL\t3",
+                               "expected":  "status=PROCESSING、action_deadline_at IS NULL、ended_at IS NULL、assignee_id=it、completion_method IS NULL、version=置位后 +1",
+                               "passed":  true
+                           }
+                       ],
+    "assertions":  [
+                       {
+                           "name":  "precondition.dotEnvLoaded",
+                           "expected":  ".env 中 FLOWDESK_DB_NAME 与 FLOWDESK_MYSQL_ROOT_PASSWORD 可读",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "dbContainer=flowdesk-mysql-1 dbNameAvailable=True rootPasswordAvailable=True（值不打印）"
+                       },
+                       {
+                           "name":  "baseline.demoDatabaseReadBeforeRun",
+                           "expected":  "运行前可读取演示库计数",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "运行前：用户 3 / 角色 3 / 权限 14 / 分类 5 / 工单 1 / 记录 5 / 参与者 1；工单号=[FD-20261006-026]"
+                       },
+                       {
+                           "name":  "baseline.existingTicketPresent",
+                           "expected":  "运行前存在既有工单 FD-20261006-026",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "工单号=[FD-20261006-026]；本脚本只新增再删除自己的行，绝不修改它"
+                       },
+                       {
+                           "name":  "login.employee.200",
+                           "expected":  "200",
+                           "httpStatus":  200,
+                           "traceId":  "5bd2b6f7-b6dd-4540-8edd-88467c7cd027",
+                           "passed":  true,
+                           "detail":  "status=200"
+                       },
+                       {
+                           "name":  "login.it.200",
+                           "expected":  "200",
+                           "httpStatus":  200,
+                           "traceId":  "a92e9dde-c1cc-4736-b059-f64192b90128",
+                           "passed":  true,
+                           "detail":  "status=200"
+                       },
+                       {
+                           "name":  "login.admin.200",
+                           "expected":  "200",
+                           "httpStatus":  200,
+                           "traceId":  "449bbf13-0316-4096-9a37-0fdf967790f5",
+                           "passed":  true,
+                           "detail":  "status=200"
+                       },
+                       {
+                           "name":  "login.tokensIssued",
+                           "expected":  "三条 accessToken 均已取得",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "令牌不落盘、不打印、不写进证据"
+                       },
+                       {
+                           "name":  "perm.employee.hasRequesterAction",
+                           "expected":  "employee 具备 TICKET_REQUESTER_ACTION",
+                           "httpStatus":  200,
+                           "traceId":  "83c74d84-761a-40e4-8894-92c81ff243b5",
+                           "passed":  true,
+                           "detail":  "roles=EMPLOYEE ticketPerms=TICKET_CREATE|TICKET_REQUESTER_ACTION|TICKET_VIEW_OWN"
+                       },
+                       {
+                           "name":  "perm.employee.lacksProcess",
+                           "expected":  "employee 不具备 TICKET_PROCESS（断言 2 的前提）",
+                           "httpStatus":  200,
+                           "traceId":  "83c74d84-761a-40e4-8894-92c81ff243b5",
+                           "passed":  true,
+                           "detail":  "hasTICKET_PROCESS=False"
+                       },
+                       {
+                           "name":  "perm.it.hasProcess",
+                           "expected":  "it 具备 TICKET_PROCESS",
+                           "httpStatus":  200,
+                           "traceId":  "d0ac6d02-93c3-4b73-830e-941122d7d5fd",
+                           "passed":  true,
+                           "detail":  "roles=IT_SUPPORT hasTICKET_PROCESS=True"
+                       },
+                       {
+                           "name":  "perm.it.lacksRequesterAction",
+                           "expected":  "it 不具备 TICKET_REQUESTER_ACTION（断言 3 的前提）",
+                           "httpStatus":  200,
+                           "traceId":  "d0ac6d02-93c3-4b73-830e-941122d7d5fd",
+                           "passed":  true,
+                           "detail":  "hasTICKET_REQUESTER_ACTION=False"
+                       },
+                       {
+                           "name":  "preflight.reportUnresolved.endpointMapped",
+                           "expected":  "404 + TICKET_NOT_FOUND（编号不存在，端点存在）",
+                           "httpStatus":  404,
+                           "traceId":  "a120d604-18be-4f00-9101-f08a054ce17f",
+                           "passed":  true,
+                           "detail":  "status=404 code=TICKET_NOT_FOUND；若为 405/RESOURCE_NOT_FOUND 说明目标后端还没有该端点"
+                       },
+                       {
+                           "name":  "preflight.withdrawSupplementRequest.endpointMapped",
+                           "expected":  "404 + TICKET_NOT_FOUND（编号不存在，端点存在）",
+                           "httpStatus":  404,
+                           "traceId":  "efe94dbc-bfc2-4326-96b6-168e985ef6b2",
+                           "passed":  true,
+                           "detail":  "status=404 code=TICKET_NOT_FOUND"
+                       },
+                       {
+                           "name":  "a1.anonymous.reportUnresolved.401",
+                           "expected":  "401（无令牌一律先被认证闸门拦下）",
+                           "httpStatus":  401,
+                           "traceId":  "e09a6dd6-71d9-4c7c-9f39-da84363b2bcc",
+                           "passed":  true,
+                           "detail":  "status=401 code=AUTH_REQUIRED"
+                       },
+                       {
+                           "name":  "a1.anonymous.withdrawSupplementRequest.401",
+                           "expected":  "401（无令牌一律先被认证闸门拦下）",
+                           "httpStatus":  401,
+                           "traceId":  "ac06aa64-22bd-4fcb-a616-747796d89e33",
+                           "passed":  true,
+                           "detail":  "status=401 code=AUTH_REQUIRED"
+                       },
+                       {
+                           "name":  "categories.options.nonEmpty",
+                           "expected":  "200 且至少一个启用分类",
+                           "httpStatus":  200,
+                           "traceId":  "78f7119b-aa16-4be8-9482-44a2bd6b7339",
+                           "passed":  true,
+                           "detail":  "status=200 count=4"
+                       },
+                       {
+                           "name":  "setup.ticketB.create.201",
+                           "expected":  "201",
+                           "httpStatus":  201,
+                           "traceId":  "99920f2f-f54c-45bd-a2a0-7bf4091a48b0",
+                           "passed":  true,
+                           "detail":  "ticketNo=FD-20261006-050 version=0"
+                       },
+                       {
+                           "name":  "setup.ticketB.claim.200",
+                           "expected":  "200",
+                           "httpStatus":  200,
+                           "traceId":  "7963181d-55b9-4e8d-aa6e-9ebbef0cece2",
+                           "passed":  true,
+                           "detail":  "ticketNo=FD-20261006-050 status=PROCESSING version=1"
+                       },
+                       {
+                           "name":  "a2.employee.withdrawSupplementRequest.403",
+                           "expected":  "403 + TICKET_ACTION_FORBIDDEN（employee 缺 TICKET_PROCESS；权限闸门先于可见性与状态）",
+                           "httpStatus":  403,
+                           "traceId":  "5e308096-b01f-4638-8b80-799eaf23c912",
+                           "passed":  true,
+                           "detail":  "status=403 code=TICKET_ACTION_FORBIDDEN ticket=FD-20261006-050（employee 是该单提交人、可见；若状态闸门在前会是 409）"
+                       },
+                       {
+                           "name":  "a3.it.reportUnresolved.403",
+                           "expected":  "403 + TICKET_ACTION_FORBIDDEN（it 缺 TICKET_REQUESTER_ACTION；权限闸门先于身份闸门）",
+                           "httpStatus":  403,
+                           "traceId":  "a46ff280-f173-4513-bb9e-3919f1fce2e9",
+                           "passed":  true,
+                           "detail":  "status=403 code=TICKET_ACTION_FORBIDDEN ticket=FD-20261006-050（it 是负责人、可见；若身份闸门在前会是 409）"
+                       },
+                       {
+                           "name":  "a4.ticketA.create.201",
+                           "expected":  "201",
+                           "httpStatus":  201,
+                           "traceId":  "8bc4d0fc-1c46-450d-8b29-871f99d7936c",
+                           "passed":  true,
+                           "detail":  "ticketNo=FD-20261006-051 version=0"
+                       },
+                       {
+                           "name":  "a4.ticketA.claim.200",
+                           "expected":  "200",
+                           "httpStatus":  200,
+                           "traceId":  "0d009be4-fd1e-47a5-8f75-b19d01111086",
+                           "passed":  true,
+                           "detail":  "status=200 status=PROCESSING version=1"
+                       },
+                       {
+                           "name":  "a4.ticketA.submitResolution.200",
+                           "expected":  "200",
+                           "httpStatus":  200,
+                           "traceId":  "cc5233dc-d51f-4218-a4aa-f82a384da99a",
+                           "passed":  true,
+                           "detail":  "status=200 status=WAITING_FOR_CONFIRMATION version=2"
+                       },
+                       {
+                           "name":  "a4.ticketA.status.WAITING_FOR_CONFIRMATION",
+                           "expected":  "WAITING_FOR_CONFIRMATION",
+                           "httpStatus":  200,
+                           "traceId":  "cc5233dc-d51f-4218-a4aa-f82a384da99a",
+                           "passed":  true,
+                           "detail":  "status=WAITING_FOR_CONFIRMATION"
+                       },
+                       {
+                           "name":  "a4.ticketA.deadline.present",
+                           "expected":  "待确认必须有确认期限",
+                           "httpStatus":  200,
+                           "traceId":  "cc5233dc-d51f-4218-a4aa-f82a384da99a",
+                           "passed":  true,
+                           "detail":  "actionDeadlineAt=2026-10-13T09:42:32.37Z"
+                       },
+                       {
+                           "name":  "a5.requester.allowedActions.exact",
+                           "expected":  "恰好 [confirm-resolution, report-unresolved]",
+                           "httpStatus":  200,
+                           "traceId":  "15f2c039-6d2b-412c-b1a6-3f8d478ec601",
+                           "passed":  true,
+                           "detail":  "allowedActions=confirm-resolution,report-unresolved status=WAITING_FOR_CONFIRMATION"
+                       },
+                       {
+                           "name":  "a6.unknownTicketNo.404",
+                           "expected":  "404 + TICKET_NOT_FOUND（FD-19990101-001）",
+                           "httpStatus":  404,
+                           "traceId":  "c069d35f-9514-404b-bc90-c229665c3714",
+                           "passed":  true,
+                           "detail":  "status=404 code=TICKET_NOT_FOUND"
+                       },
+                       {
+                           "name":  "a7.stateMismatch.409",
+                           "expected":  "409 + TICKET_CONFLICT",
+                           "httpStatus":  409,
+                           "traceId":  "08352108-c6b3-40a5-bdfb-5bd82d6e4252",
+                           "passed":  true,
+                           "detail":  "status=409 code=TICKET_CONFLICT ticket=FD-20261006-050"
+                       },
+                       {
+                           "name":  "a7.conflictSnapshot.isCurrent",
+                           "expected":  "data.version/data.status = 库中当前快照",
+                           "httpStatus":  409,
+                           "traceId":  "08352108-c6b3-40a5-bdfb-5bd82d6e4252",
+                           "passed":  true,
+                           "detail":  "data.version=1 data.status=PROCESSING；库中 version=1 status=PROCESSING"
+                       },
+                       {
+                           "name":  "a8.staleVersion.409",
+                           "expected":  "409 + TICKET_CONFLICT",
+                           "httpStatus":  409,
+                           "traceId":  "c53544e4-e55c-40b4-a405-e196287be416",
+                           "passed":  true,
+                           "detail":  "status=409 code=TICKET_CONFLICT 发送version=11"
+                       },
+                       {
+                           "name":  "a8.conflictSnapshot.versionEqualsDbLatest",
+                           "expected":  "data.version = 库中最新 version（且状态未变）",
+                           "httpStatus":  409,
+                           "traceId":  "c53544e4-e55c-40b4-a405-e196287be416",
+                           "passed":  true,
+                           "detail":  "data.version=2 data.status=WAITING_FOR_CONFIRMATION；库中 version=2 status=WAITING_FOR_CONFIRMATION（过期请求前 version=2）"
+                       },
+                       {
+                           "name":  "a9.blankReason.400",
+                           "expected":  "400 + VALIDATION_FAILED（原因 strip 后为空）",
+                           "httpStatus":  400,
+                           "traceId":  "f88f2b8a-20ab-4858-91df-9f1c13f31915",
+                           "passed":  true,
+                           "detail":  "status=400 code=VALIDATION_FAILED"
+                       },
+                       {
+                           "name":  "a9.reason1000.200",
+                           "expected":  "200（原因长度上限 1000）",
+                           "httpStatus":  200,
+                           "traceId":  "82dc73f0-2294-4083-b7d6-a7016990ed9e",
+                           "passed":  true,
+                           "detail":  "status=200 原因长度=1000 status=PROCESSING version=3"
+                       },
+                       {
+                           "name":  "a9.resubmitRevision.200",
+                           "expected":  "200",
+                           "httpStatus":  200,
+                           "traceId":  "e8d85d3c-659e-4679-8aea-41121f6e32f8",
+                           "passed":  true,
+                           "detail":  "status=200 status=WAITING_FOR_CONFIRMATION version=4"
+                       },
+                       {
+                           "name":  "a9.reason1001.400",
+                           "expected":  "400 + VALIDATION_FAILED（超过 1000 个字符）",
+                           "httpStatus":  400,
+                           "traceId":  "f495b160-ab17-4742-9089-77e9461d779d",
+                           "passed":  true,
+                           "detail":  "status=400 code=VALIDATION_FAILED 原因长度=1001"
+                       },
+                       {
+                           "name":  "a10.reportUnresolved.200",
+                           "expected":  "200",
+                           "httpStatus":  200,
+                           "traceId":  "4a7ccb34-ddc2-4186-9bc7-c426137f824c",
+                           "passed":  true,
+                           "detail":  "status=200 code=OK"
+                       },
+                       {
+                           "name":  "a10.status.PROCESSING",
+                           "expected":  "PROCESSING",
+                           "httpStatus":  200,
+                           "traceId":  "4a7ccb34-ddc2-4186-9bc7-c426137f824c",
+                           "passed":  true,
+                           "detail":  "status=PROCESSING"
+                       },
+                       {
+                           "name":  "a10.deadlineField.absent",
+                           "expected":  "响应里不出现 actionDeadlineAt（non_null 序列化）",
+                           "httpStatus":  200,
+                           "traceId":  "4a7ccb34-ddc2-4186-9bc7-c426137f824c",
+                           "passed":  true,
+                           "detail":  "报文含 actionDeadlineAt=False；解析值=[]"
+                       },
+                       {
+                           "name":  "a10.version.plusOne",
+                           "expected":  "version = 提交解决结果后 +1（5）",
+                           "httpStatus":  200,
+                           "traceId":  "4a7ccb34-ddc2-4186-9bc7-c426137f824c",
+                           "passed":  true,
+                           "detail":  "expected=5 actual=5"
+                       },
+                       {
+                           "name":  "a11.db.reportUnresolved.snapshot",
+                           "expected":  "status=PROCESSING、action_deadline_at IS NULL、ended_at IS NULL、assignee_id=it、completion_method IS NULL",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "row=[PROCESSING\tNULL\tNULL\t2\tNULL\t5]"
+                       },
+                       {
+                           "name":  "a11.db.assigneeStillIt",
+                           "expected":  "assignee_id 仍是 it（2）",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "assignee_id=2；退回不等于换人"
+                       },
+                       {
+                           "name":  "a11.db.versionMatchesResponse",
+                           "expected":  "库中 version 与响应 version 一致",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "db.version=5 response.version=5 record_seq=6"
+                       },
+                       {
+                           "name":  "a12.timeline.200",
+                           "expected":  "200",
+                           "httpStatus":  200,
+                           "traceId":  "cc9bac56-d293-401f-9484-16100d76268b",
+                           "passed":  true,
+                           "detail":  "status=200 count=6"
+                       },
+                       {
+                           "name":  "a12.timeline.lastIsUNSATISFIED_FEEDBACK",
+                           "expected":  "最后一条记录类型 = UNSATISFIED_FEEDBACK",
+                           "httpStatus":  200,
+                           "traceId":  "cc9bac56-d293-401f-9484-16100d76268b",
+                           "passed":  true,
+                           "detail":  "recordType=UNSATISFIED_FEEDBACK sequenceNo=6 types=CREATE,CLAIM,RESOLUTION,UNSATISFIED_FEEDBACK,RESOLUTION,UNSATISFIED_FEEDBACK"
+                       },
+                       {
+                           "name":  "a12.timeline.reasonMatches",
+                           "expected":  "context.reason 与提交内容一致",
+                           "httpStatus":  200,
+                           "traceId":  "cc9bac56-d293-401f-9484-16100d76268b",
+                           "passed":  true,
+                           "detail":  "context.reason=[按照提示重启后仍然报同样的错，问题没有解决。]"
+                       },
+                       {
+                           "name":  "a12.timeline.transitionCorrect",
+                           "expected":  "fromStatus=WAITING_FOR_CONFIRMATION → toStatus=PROCESSING",
+                           "httpStatus":  200,
+                           "traceId":  "cc9bac56-d293-401f-9484-16100d76268b",
+                           "passed":  true,
+                           "detail":  "from=WAITING_FOR_CONFIRMATION to=PROCESSING actorId=1"
+                       },
+                       {
+                           "name":  "a13.addProcessingRecord.200",
+                           "expected":  "200（往返之后工单仍可继续处理）",
+                           "httpStatus":  200,
+                           "traceId":  "63c153bd-aa9d-421b-9bd4-802a7da9c66c",
+                           "passed":  true,
+                           "detail":  "status=200 status=PROCESSING version=6"
+                       },
+                       {
+                           "name":  "a14.assignee.allowedActions.exact",
+                           "expected":  "恰好 [add-processing-record, submit-resolution]（片 C/D 之前只有这两个）",
+                           "httpStatus":  200,
+                           "traceId":  "f50be1d9-446b-4ac6-813d-0653adbc106c",
+                           "passed":  true,
+                           "detail":  "allowedActions=add-processing-record,submit-resolution status=PROCESSING"
+                       },
+                       {
+                           "name":  "a15.ticketC.create.201",
+                           "expected":  "201",
+                           "httpStatus":  201,
+                           "traceId":  "ebfd88d3-a913-4460-94ad-9a50c90a9e66",
+                           "passed":  true,
+                           "detail":  "ticketNo=FD-20261006-052 version=0"
+                       },
+                       {
+                           "name":  "a15.ticketC.claim.200",
+                           "expected":  "200",
+                           "httpStatus":  200,
+                           "traceId":  "20eebfb0-30f8-436b-8994-fcaca1020a69",
+                           "passed":  true,
+                           "detail":  "status=200 status=PROCESSING version=1"
+                       },
+                       {
+                           "name":  "a15.sqlSeed.executed",
+                           "expected":  "同一事务内的两条临时造数 SQL 执行成功（exit=0）",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "exitCode=0 stderr=[]；这是**片 B 之前的临时手段**，片 B 落地后应改走 request-supplement 接口"
+                       },
+                       {
+                           "name":  "a15.db.seededToWaitingForRequester",
+                           "expected":  "status=WAITING_FOR_REQUESTER、action_deadline_at 非空、version/record_seq 各 +1、负责人不变",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "row=[WAITING_FOR_REQUESTER\t2026-10-13 09:42:34.382000\tNULL\t2\tNULL\t2\t3]"
+                       },
+                       {
+                           "name":  "a15.db.seedRecordAppended",
+                           "expected":  "补一条 SUPPLEMENT_REQUEST（sequence_no=新的 record_seq、actor_type=USER、actor_user_id=负责人、from_status=PROCESSING、to_status=WAITING_FOR_REQUESTER）",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "sequenceNo=3 actorType=USER actorId=2 from=PROCESSING to=WAITING_FOR_REQUESTER contentLen=4"
+                       },
+                       {
+                           "name":  "a15.db.seedContentReadBack",
+                           "expected":  "content 读回 \u0027脚本置位\u0027（同时证明 SQL 里的中文没有被编码破坏）",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "content=[脚本置位]（长度 4）"
+                       },
+                       {
+                           "name":  "a15.assignee.allowedActions.exact",
+                           "expected":  "恰好 [withdraw-supplement-request]",
+                           "httpStatus":  200,
+                           "traceId":  "7179ed13-2e5c-47e1-aa16-74f1cef1ebf5",
+                           "passed":  true,
+                           "detail":  "allowedActions=withdraw-supplement-request status=WAITING_FOR_REQUESTER version=2"
+                       },
+                       {
+                           "name":  "a15.detail.deadlineVisible",
+                           "expected":  "待补充详情必须带期限",
+                           "httpStatus":  200,
+                           "traceId":  "7179ed13-2e5c-47e1-aa16-74f1cef1ebf5",
+                           "passed":  true,
+                           "detail":  "actionDeadlineAt=2026-10-13T09:42:34.382Z"
+                       },
+                       {
+                           "name":  "a16.admin.nonAssignee.stateUnchanged",
+                           "expected":  "工单仍是 WAITING_FOR_REQUESTER 且 version 未变（非负责人无法推进）",
+                           "httpStatus":  404,
+                           "traceId":  "b7988c67-ed85-4d84-abca-c72d0acda308",
+                           "passed":  true,
+                           "detail":  "admin 实际 status=404 code=TICKET_NOT_FOUND；库中 status=WAITING_FOR_REQUESTER version=2"
+                       },
+                       {
+                           "name":  "a17.staleVersion.409",
+                           "expected":  "409 + TICKET_CONFLICT",
+                           "httpStatus":  409,
+                           "traceId":  "e43146cd-6f32-438d-8348-4e11bdaaaf60",
+                           "passed":  true,
+                           "detail":  "status=409 code=TICKET_CONFLICT 发送version=11；data.version=2 库中version=2"
+                       },
+                       {
+                           "name":  "a17.conflictSnapshot.versionEqualsDbLatest",
+                           "expected":  "data.version = 库中最新 version（且状态未变）",
+                           "httpStatus":  409,
+                           "traceId":  "e43146cd-6f32-438d-8348-4e11bdaaaf60",
+                           "passed":  true,
+                           "detail":  "data.version=2 data.status=WAITING_FOR_REQUESTER；库中 version=2 status=WAITING_FOR_REQUESTER"
+                       },
+                       {
+                           "name":  "a17.blankReason.400",
+                           "expected":  "400 + VALIDATION_FAILED（原因 strip 后为空）",
+                           "httpStatus":  400,
+                           "traceId":  "a8b36761-68c7-4a29-8665-29f55e4f8338",
+                           "passed":  true,
+                           "detail":  "status=400 code=VALIDATION_FAILED"
+                       },
+                       {
+                           "name":  "a18.withdrawSupplementRequest.200",
+                           "expected":  "200",
+                           "httpStatus":  200,
+                           "traceId":  "a9d6ba58-ecd3-417b-87e3-c0392cfa616b",
+                           "passed":  true,
+                           "detail":  "status=200 code=OK"
+                       },
+                       {
+                           "name":  "a18.status.PROCESSING",
+                           "expected":  "PROCESSING",
+                           "httpStatus":  200,
+                           "traceId":  "a9d6ba58-ecd3-417b-87e3-c0392cfa616b",
+                           "passed":  true,
+                           "detail":  "status=PROCESSING"
+                       },
+                       {
+                           "name":  "a18.deadlineField.absent",
+                           "expected":  "响应里不出现 actionDeadlineAt",
+                           "httpStatus":  200,
+                           "traceId":  "a9d6ba58-ecd3-417b-87e3-c0392cfa616b",
+                           "passed":  true,
+                           "detail":  "报文含 actionDeadlineAt=False；解析值=[]"
+                       },
+                       {
+                           "name":  "a19.db.withdraw.snapshot",
+                           "expected":  "status=PROCESSING、action_deadline_at IS NULL、ended_at IS NULL、assignee_id=it、completion_method IS NULL、version=置位后 +1",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "row=[PROCESSING\tNULL\tNULL\t2\tNULL\t3]"
+                       },
+                       {
+                           "name":  "a19.db.versionPlusOneAndAssigneeUnchanged",
+                           "expected":  "version 置位后 +1（3），负责人仍是 it",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "db.version=3 响应version=3 assignee_id=2 record_seq=4"
+                       },
+                       {
+                           "name":  "a20.timeline.lastIsSUPPLEMENT_REQUEST_WITHDRAWN",
+                           "expected":  "最后一条记录类型 = SUPPLEMENT_REQUEST_WITHDRAWN",
+                           "httpStatus":  200,
+                           "traceId":  "e1110b71-8f3f-446c-96b3-795537ff7b39",
+                           "passed":  true,
+                           "detail":  "recordType=SUPPLEMENT_REQUEST_WITHDRAWN sequenceNo=4 types=CREATE,CLAIM,SUPPLEMENT_REQUEST,SUPPLEMENT_REQUEST_WITHDRAWN"
+                       },
+                       {
+                           "name":  "a20.timeline.reasonMatches",
+                           "expected":  "context.reason 与提交内容一致",
+                           "httpStatus":  200,
+                           "traceId":  "e1110b71-8f3f-446c-96b3-795537ff7b39",
+                           "passed":  true,
+                           "detail":  "context.reason=[补充信息已经拿到，撤回补充请求，继续处理。]"
+                       },
+                       {
+                           "name":  "a20.timeline.transitionCorrect",
+                           "expected":  "fromStatus=WAITING_FOR_REQUESTER → toStatus=PROCESSING",
+                           "httpStatus":  200,
+                           "traceId":  "e1110b71-8f3f-446c-96b3-795537ff7b39",
+                           "passed":  true,
+                           "detail":  "from=WAITING_FOR_REQUESTER to=PROCESSING"
+                       },
+                       {
+                           "name":  "a21.submitResolution.200",
+                           "expected":  "200",
+                           "httpStatus":  200,
+                           "traceId":  "058897d8-d57e-4ef8-bb49-819b25e2e42b",
+                           "passed":  true,
+                           "detail":  "status=200 status=WAITING_FOR_CONFIRMATION version=4"
+                       },
+                       {
+                           "name":  "a21.confirmResolution.200",
+                           "expected":  "200",
+                           "httpStatus":  200,
+                           "traceId":  "82130cee-f64c-409f-887b-78399a75eb0d",
+                           "passed":  true,
+                           "detail":  "status=200 status=COMPLETED version=5"
+                       },
+                       {
+                           "name":  "a21.terminal.withdrawSupplementRequest.409",
+                           "expected":  "409 + TICKET_CONFLICT（COMPLETED 上不可撤回）",
+                           "httpStatus":  409,
+                           "traceId":  "f142a33e-70a0-44ae-aad4-a00aaf45b342",
+                           "passed":  true,
+                           "detail":  "status=409 code=TICKET_CONFLICT data.status=COMPLETED"
+                       },
+                       {
+                           "name":  "a21.terminal.reportUnresolved.409",
+                           "expected":  "409 + TICKET_CONFLICT（COMPLETED 上不可反馈未解决）",
+                           "httpStatus":  409,
+                           "traceId":  "b911eacf-0c24-48f4-a14f-7fde8aded17b",
+                           "passed":  true,
+                           "detail":  "status=409 code=TICKET_CONFLICT data.status=COMPLETED"
+                       },
+                       {
+                           "name":  "keyActions.fiveWithTraceId",
+                           "expected":  "五个关键动作各有一条 X-Trace-Id",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "steps=[it.claim=200 , it.submit-resolution=200 , employee.report-unresolved=200 , it.withdraw-supplement-request=200 , employee.confirm-resolution=200]"
+                       },
+                       {
+                           "name":  "a22.cleanup.deletesSucceeded",
+                           "expected":  "三条清理 SQL 执行成功（exit=0）",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "exitCode=0 stderr=[]"
+                       },
+                       {
+                           "name":  "a22.cleanup.noOwnRowsLeft",
+                           "expected":  "本次创建的工单 / 记录 / 参与关系均已删除（各 0 行）",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "row=[0\t0\t0]（列顺序：工单 / 记录 / 参与者）"
+                       },
+                       {
+                           "name":  "a22.demoDatabaseCountsUnchanged",
+                           "expected":  "清理后演示库计数与既有行指纹与运行前完全相同",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "运行前 用户=3/角色=3/权限=14/分类=5/工单=1/记录=5/参与者=1/工单号=[FD-20261006-026]；运行后 用户=3/角色=3/权限=14/分类=5/工单=1/记录=5/参与者=1/工单号=[FD-20261006-026]"
+                       },
+                       {
+                           "name":  "a23.existingTicketUntouched",
+                           "expected":  "FD-20261006-026 与其它既有行一行未改",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "既有工单仍在：COMPLETED\tNULL\tSET\t2\tREQUESTER_CONFIRMED\t4\t5\t1"
+                       },
+                       {
+                           "name":  "a23.noContainerOrBackendSideEffects",
+                           "expected":  "未执行 docker compose down、未删容器/卷、未停后端进程",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true,
+                           "detail":  "自证项：composeDownExecuted=false containersOrVolumesModified=false backendProcessTouched=false；HTTP 只发往 http://127.0.0.1:8092；SQL 只有 docker exec -i ... mysql 一种形式"
+                       }
+                   ],
+    "httpLog":  [
+                    {
+                        "actor":  "employee",
+                        "note":  "login",
+                        "method":  "Post",
+                        "path":  "/fd/v1/auth/login",
+                        "status":  200,
+                        "traceId":  "5bd2b6f7-b6dd-4540-8edd-88467c7cd027"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "login",
+                        "method":  "Post",
+                        "path":  "/fd/v1/auth/login",
+                        "status":  200,
+                        "traceId":  "a92e9dde-c1cc-4736-b059-f64192b90128"
+                    },
+                    {
+                        "actor":  "admin",
+                        "note":  "login",
+                        "method":  "Post",
+                        "path":  "/fd/v1/auth/login",
+                        "status":  200,
+                        "traceId":  "449bbf13-0316-4096-9a37-0fdf967790f5"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "me",
+                        "method":  "Get",
+                        "path":  "/fd/v1/auth/me",
+                        "status":  200,
+                        "traceId":  "83c74d84-761a-40e4-8894-92c81ff243b5"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "me",
+                        "method":  "Get",
+                        "path":  "/fd/v1/auth/me",
+                        "status":  200,
+                        "traceId":  "d0ac6d02-93c3-4b73-830e-941122d7d5fd"
+                    },
+                    {
+                        "actor":  "admin",
+                        "note":  "me",
+                        "method":  "Get",
+                        "path":  "/fd/v1/auth/me",
+                        "status":  200,
+                        "traceId":  "23d75159-14af-4531-9e1f-e8cdbf7c03bb"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "preflight.report-unresolved",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-19990101-001/actions/report-unresolved",
+                        "status":  404,
+                        "traceId":  "a120d604-18be-4f00-9101-f08a054ce17f"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "preflight.withdraw-supplement-request",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-19990101-001/actions/withdraw-supplement-request",
+                        "status":  404,
+                        "traceId":  "efe94dbc-bfc2-4326-96b6-168e985ef6b2"
+                    },
+                    {
+                        "actor":  "anonymous",
+                        "note":  "a1.anonymous",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-19990101-001/actions/report-unresolved",
+                        "status":  401,
+                        "traceId":  "e09a6dd6-71d9-4c7c-9f39-da84363b2bcc"
+                    },
+                    {
+                        "actor":  "anonymous",
+                        "note":  "a1.anonymous",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-19990101-001/actions/withdraw-supplement-request",
+                        "status":  401,
+                        "traceId":  "ac06aa64-22bd-4fcb-a616-747796d89e33"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "categories.options",
+                        "method":  "Get",
+                        "path":  "/fd/v1/categories/options",
+                        "status":  200,
+                        "traceId":  "78f7119b-aa16-4be8-9482-44a2bd6b7339"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "setup.create-ticket(B)",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets",
+                        "status":  201,
+                        "traceId":  "99920f2f-f54c-45bd-a2a0-7bf4091a48b0"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "setup.claim(B)",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261006-050/actions/claim",
+                        "status":  200,
+                        "traceId":  "7963181d-55b9-4e8d-aa6e-9ebbef0cece2"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "a2.employee.withdraw",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261006-050/actions/withdraw-supplement-request",
+                        "status":  403,
+                        "traceId":  "5e308096-b01f-4638-8b80-799eaf23c912"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "a3.it.reportUnresolved",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261006-050/actions/report-unresolved",
+                        "status":  403,
+                        "traceId":  "a46ff280-f173-4513-bb9e-3919f1fce2e9"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "setup.create-ticket(A)",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets",
+                        "status":  201,
+                        "traceId":  "8bc4d0fc-1c46-450d-8b29-871f99d7936c"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "a4.claim(A)",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261006-051/actions/claim",
+                        "status":  200,
+                        "traceId":  "0d009be4-fd1e-47a5-8f75-b19d01111086"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "a4.submit-resolution(A)",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261006-051/actions/submit-resolution",
+                        "status":  200,
+                        "traceId":  "cc5233dc-d51f-4218-a4aa-f82a384da99a"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "a5.detail(A,requester)",
+                        "method":  "Get",
+                        "path":  "/fd/v1/tickets/FD-20261006-051",
+                        "status":  200,
+                        "traceId":  "15f2c039-6d2b-412c-b1a6-3f8d478ec601"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "a6.unknown.reportUnresolved",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-19990101-001/actions/report-unresolved",
+                        "status":  404,
+                        "traceId":  "c069d35f-9514-404b-bc90-c229665c3714"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "a7.stateMismatch(B)",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261006-050/actions/report-unresolved",
+                        "status":  409,
+                        "traceId":  "08352108-c6b3-40a5-bdfb-5bd82d6e4252"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "a8.staleVersion(A)",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261006-051/actions/report-unresolved",
+                        "status":  409,
+                        "traceId":  "c53544e4-e55c-40b4-a405-e196287be416"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "a9.blankReason(A)",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261006-051/actions/report-unresolved",
+                        "status":  400,
+                        "traceId":  "f88f2b8a-20ab-4858-91df-9f1c13f31915"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "a9.reason1000(A)",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261006-051/actions/report-unresolved",
+                        "status":  200,
+                        "traceId":  "82dc73f0-2294-4083-b7d6-a7016990ed9e"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "a9.resubmit-resolution(A)",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261006-051/actions/submit-resolution",
+                        "status":  200,
+                        "traceId":  "e8d85d3c-659e-4679-8aea-41121f6e32f8"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "a9.reason1001(A)",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261006-051/actions/report-unresolved",
+                        "status":  400,
+                        "traceId":  "f495b160-ab17-4742-9089-77e9461d779d"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "a10.report-unresolved(A)",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261006-051/actions/report-unresolved",
+                        "status":  200,
+                        "traceId":  "4a7ccb34-ddc2-4186-9bc7-c426137f824c"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "a12.records(A)",
+                        "method":  "Get",
+                        "path":  "/fd/v1/tickets/FD-20261006-051/records?page=1\u0026size=50",
+                        "status":  200,
+                        "traceId":  "cc9bac56-d293-401f-9484-16100d76268b"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "a13.add-processing-record(A)",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261006-051/actions/add-processing-record",
+                        "status":  200,
+                        "traceId":  "63c153bd-aa9d-421b-9bd4-802a7da9c66c"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "a14.detail(A,assignee)",
+                        "method":  "Get",
+                        "path":  "/fd/v1/tickets/FD-20261006-051",
+                        "status":  200,
+                        "traceId":  "f50be1d9-446b-4ac6-813d-0653adbc106c"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "setup.create-ticket(C)",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets",
+                        "status":  201,
+                        "traceId":  "ebfd88d3-a913-4460-94ad-9a50c90a9e66"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "setup.claim(C)",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261006-052/actions/claim",
+                        "status":  200,
+                        "traceId":  "20eebfb0-30f8-436b-8994-fcaca1020a69"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "a15.detail(C,assignee)",
+                        "method":  "Get",
+                        "path":  "/fd/v1/tickets/FD-20261006-052",
+                        "status":  200,
+                        "traceId":  "7179ed13-2e5c-47e1-aa16-74f1cef1ebf5"
+                    },
+                    {
+                        "actor":  "admin",
+                        "note":  "a16.admin.withdraw(C)",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261006-052/actions/withdraw-supplement-request",
+                        "status":  404,
+                        "traceId":  "b7988c67-ed85-4d84-abca-c72d0acda308"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "a17.staleVersion(C)",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261006-052/actions/withdraw-supplement-request",
+                        "status":  409,
+                        "traceId":  "e43146cd-6f32-438d-8348-4e11bdaaaf60"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "a17.blankReason(C)",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261006-052/actions/withdraw-supplement-request",
+                        "status":  400,
+                        "traceId":  "a8b36761-68c7-4a29-8665-29f55e4f8338"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "a18.withdraw(C)",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261006-052/actions/withdraw-supplement-request",
+                        "status":  200,
+                        "traceId":  "a9d6ba58-ecd3-417b-87e3-c0392cfa616b"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "a20.records(C)",
+                        "method":  "Get",
+                        "path":  "/fd/v1/tickets/FD-20261006-052/records?page=1\u0026size=50",
+                        "status":  200,
+                        "traceId":  "e1110b71-8f3f-446c-96b3-795537ff7b39"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "a21.submit-resolution(C)",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261006-052/actions/submit-resolution",
+                        "status":  200,
+                        "traceId":  "058897d8-d57e-4ef8-bb49-819b25e2e42b"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "a21.confirm-resolution(C)",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261006-052/actions/confirm-resolution",
+                        "status":  200,
+                        "traceId":  "82130cee-f64c-409f-887b-78399a75eb0d"
+                    },
+                    {
+                        "actor":  "it",
+                        "note":  "a21.terminal.withdraw(C)",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261006-052/actions/withdraw-supplement-request",
+                        "status":  409,
+                        "traceId":  "f142a33e-70a0-44ae-aad4-a00aaf45b342"
+                    },
+                    {
+                        "actor":  "employee",
+                        "note":  "a21.terminal.report-unresolved(C)",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261006-052/actions/report-unresolved",
+                        "status":  409,
+                        "traceId":  "b911eacf-0c24-48f4-a14f-7fde8aded17b"
+                    }
+                ],
+    "sqlExecuted":  [
+                        "SELECT (SELECT COUNT(*) FROM iam_user), (SELECT COUNT(*) FROM iam_role), (SELECT COUNT(*) FROM iam_permission), (SELECT COUNT(*) FROM ticket_category), (SELECT COUNT(*) FROM ticket), (SELECT COUNT(*) FROM ticket_record), (SELECT COUNT(*) FROM ticket_participant);",
+                        "SELECT IFNULL(GROUP_CONCAT(ticket_no ORDER BY id SEPARATOR \u0027,\u0027),\u0027-\u0027) FROM ticket;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(ticket_no,\u0027|\u0027,status,\u0027|\u0027,version,\u0027|\u0027,record_seq,\u0027|\u0027,IFNULL(assignee_id,-1),\u0027|\u0027,IFNULL(DATE_FORMAT(action_deadline_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027),\u0027NULL\u0027),\u0027|\u0027,IF(ended_at IS NULL,\u0027NULL\u0027,\u0027SET\u0027),\u0027|\u0027,IFNULL(completion_method,\u0027NULL\u0027),\u0027|\u0027,DATE_FORMAT(updated_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027)) ORDER BY id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM ticket;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(id,\u0027|\u0027,ticket_id,\u0027|\u0027,sequence_no,\u0027|\u0027,record_type,\u0027|\u0027,actor_type,\u0027|\u0027,IFNULL(actor_user_id,-1),\u0027|\u0027,DATE_FORMAT(created_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027)) ORDER BY id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM ticket_record;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(ticket_id,\u0027|\u0027,user_id,\u0027|\u0027,DATE_FORMAT(first_assigned_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027)) ORDER BY ticket_id,user_id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM ticket_participant;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(business_date,\u0027=\u0027,current_value) ORDER BY business_date SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM ticket_daily_sequence;",
+                        "SELECT status, IFNULL(DATE_FORMAT(action_deadline_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027),\u0027NULL\u0027), IF(ended_at IS NULL,\u0027NULL\u0027,\u0027SET\u0027), IFNULL(assignee_id,-1), IFNULL(completion_method,\u0027NULL\u0027), version, record_seq, requester_id FROM ticket WHERE ticket_no = \u0027FD-20261006-050\u0027;",
+                        "SELECT status, IFNULL(DATE_FORMAT(action_deadline_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027),\u0027NULL\u0027), IF(ended_at IS NULL,\u0027NULL\u0027,\u0027SET\u0027), IFNULL(assignee_id,-1), IFNULL(completion_method,\u0027NULL\u0027), version, record_seq, requester_id FROM ticket WHERE ticket_no = \u0027FD-20261006-051\u0027;",
+                        "SELECT status, IFNULL(DATE_FORMAT(action_deadline_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027),\u0027NULL\u0027), IF(ended_at IS NULL,\u0027NULL\u0027,\u0027SET\u0027), IFNULL(assignee_id,-1), IFNULL(completion_method,\u0027NULL\u0027), version, record_seq, requester_id FROM ticket WHERE ticket_no = \u0027FD-20261006-051\u0027;",
+                        "SELECT status, IFNULL(DATE_FORMAT(action_deadline_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027),\u0027NULL\u0027), IF(ended_at IS NULL,\u0027NULL\u0027,\u0027SET\u0027), IFNULL(assignee_id,-1), IFNULL(completion_method,\u0027NULL\u0027), version, record_seq, requester_id FROM ticket WHERE ticket_no = \u0027FD-20261006-051\u0027;",
+                        "SELECT status, IFNULL(DATE_FORMAT(action_deadline_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027),\u0027NULL\u0027), IF(ended_at IS NULL,\u0027NULL\u0027,\u0027SET\u0027), IFNULL(assignee_id,-1), IFNULL(completion_method,\u0027NULL\u0027), version FROM ticket WHERE ticket_no = \u0027FD-20261006-051\u0027;",
+                        "START TRANSACTION;\nUPDATE ticket SET status = \u0027WAITING_FOR_REQUESTER\u0027, action_deadline_at = DATE_ADD(UTC_TIMESTAMP(3), INTERVAL 7 DAY), version = version + 1, record_seq = record_seq + 1, updated_at = UTC_TIMESTAMP(3) WHERE ticket_no = \u0027FD-20261006-052\u0027;\nINSERT INTO ticket_record (ticket_id, sequence_no, record_type, actor_type, actor_user_id, content, from_status, to_status, deadline_at, created_at) SELECT id, record_seq, \u0027SUPPLEMENT_REQUEST\u0027, \u0027USER\u0027, assignee_id, \u0027脚本置位\u0027, \u0027PROCESSING\u0027, \u0027WAITING_FOR_REQUESTER\u0027, action_deadline_at, UTC_TIMESTAMP(3) FROM ticket WHERE ticket_no = \u0027FD-20261006-052\u0027;\nCOMMIT;",
+                        "SELECT status, IFNULL(DATE_FORMAT(action_deadline_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027),\u0027NULL\u0027), IF(ended_at IS NULL,\u0027NULL\u0027,\u0027SET\u0027), IFNULL(assignee_id,-1), IFNULL(completion_method,\u0027NULL\u0027), version, record_seq, requester_id FROM ticket WHERE ticket_no = \u0027FD-20261006-052\u0027;",
+                        "SELECT sequence_no, record_type, actor_type, IFNULL(actor_user_id,-1), IFNULL(LEFT(content,40),\u0027-\u0027), IFNULL(CHAR_LENGTH(content),-1), IFNULL(LEFT(reason,40),\u0027-\u0027), IFNULL(CHAR_LENGTH(reason),-1), IFNULL(from_status,\u0027-\u0027), IFNULL(to_status,\u0027-\u0027) FROM ticket_record WHERE ticket_id = (SELECT id FROM ticket WHERE ticket_no = \u0027FD-20261006-052\u0027) ORDER BY sequence_no;",
+                        "SELECT status, IFNULL(DATE_FORMAT(action_deadline_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027),\u0027NULL\u0027), IF(ended_at IS NULL,\u0027NULL\u0027,\u0027SET\u0027), IFNULL(assignee_id,-1), IFNULL(completion_method,\u0027NULL\u0027), version, record_seq FROM ticket WHERE ticket_no = \u0027FD-20261006-052\u0027;",
+                        "SELECT status, IFNULL(DATE_FORMAT(action_deadline_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027),\u0027NULL\u0027), IF(ended_at IS NULL,\u0027NULL\u0027,\u0027SET\u0027), IFNULL(assignee_id,-1), IFNULL(completion_method,\u0027NULL\u0027), version, record_seq, requester_id FROM ticket WHERE ticket_no = \u0027FD-20261006-052\u0027;",
+                        "SELECT status, IFNULL(DATE_FORMAT(action_deadline_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027),\u0027NULL\u0027), IF(ended_at IS NULL,\u0027NULL\u0027,\u0027SET\u0027), IFNULL(assignee_id,-1), IFNULL(completion_method,\u0027NULL\u0027), version, record_seq, requester_id FROM ticket WHERE ticket_no = \u0027FD-20261006-052\u0027;",
+                        "SELECT status, IFNULL(DATE_FORMAT(action_deadline_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027),\u0027NULL\u0027), IF(ended_at IS NULL,\u0027NULL\u0027,\u0027SET\u0027), IFNULL(assignee_id,-1), IFNULL(completion_method,\u0027NULL\u0027), version, record_seq, requester_id FROM ticket WHERE ticket_no = \u0027FD-20261006-052\u0027;",
+                        "SELECT status, IFNULL(DATE_FORMAT(action_deadline_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027),\u0027NULL\u0027), IF(ended_at IS NULL,\u0027NULL\u0027,\u0027SET\u0027), IFNULL(assignee_id,-1), IFNULL(completion_method,\u0027NULL\u0027), version FROM ticket WHERE ticket_no = \u0027FD-20261006-052\u0027;",
+                        "DELETE FROM ticket_record WHERE ticket_id IN (SELECT id FROM ticket WHERE ticket_no IN (\u0027FD-20261006-051\u0027,\u0027FD-20261006-050\u0027,\u0027FD-20261006-052\u0027));\nDELETE FROM ticket_participant WHERE ticket_id IN (SELECT id FROM ticket WHERE ticket_no IN (\u0027FD-20261006-051\u0027,\u0027FD-20261006-050\u0027,\u0027FD-20261006-052\u0027));\nDELETE FROM ticket WHERE ticket_no IN (\u0027FD-20261006-051\u0027,\u0027FD-20261006-050\u0027,\u0027FD-20261006-052\u0027);",
+                        "SELECT (SELECT COUNT(*) FROM ticket WHERE ticket_no IN (\u0027FD-20261006-051\u0027,\u0027FD-20261006-050\u0027,\u0027FD-20261006-052\u0027)), (SELECT COUNT(*) FROM ticket_record WHERE ticket_id IN (SELECT id FROM ticket WHERE ticket_no IN (\u0027FD-20261006-051\u0027,\u0027FD-20261006-050\u0027,\u0027FD-20261006-052\u0027))), (SELECT COUNT(*) FROM ticket_participant WHERE ticket_id IN (SELECT id FROM ticket WHERE ticket_no IN (\u0027FD-20261006-051\u0027,\u0027FD-20261006-050\u0027,\u0027FD-20261006-052\u0027)));",
+                        "SELECT (SELECT COUNT(*) FROM iam_user), (SELECT COUNT(*) FROM iam_role), (SELECT COUNT(*) FROM iam_permission), (SELECT COUNT(*) FROM ticket_category), (SELECT COUNT(*) FROM ticket), (SELECT COUNT(*) FROM ticket_record), (SELECT COUNT(*) FROM ticket_participant);",
+                        "SELECT IFNULL(GROUP_CONCAT(ticket_no ORDER BY id SEPARATOR \u0027,\u0027),\u0027-\u0027) FROM ticket;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(ticket_no,\u0027|\u0027,status,\u0027|\u0027,version,\u0027|\u0027,record_seq,\u0027|\u0027,IFNULL(assignee_id,-1),\u0027|\u0027,IFNULL(DATE_FORMAT(action_deadline_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027),\u0027NULL\u0027),\u0027|\u0027,IF(ended_at IS NULL,\u0027NULL\u0027,\u0027SET\u0027),\u0027|\u0027,IFNULL(completion_method,\u0027NULL\u0027),\u0027|\u0027,DATE_FORMAT(updated_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027)) ORDER BY id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM ticket;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(id,\u0027|\u0027,ticket_id,\u0027|\u0027,sequence_no,\u0027|\u0027,record_type,\u0027|\u0027,actor_type,\u0027|\u0027,IFNULL(actor_user_id,-1),\u0027|\u0027,DATE_FORMAT(created_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027)) ORDER BY id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM ticket_record;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(ticket_id,\u0027|\u0027,user_id,\u0027|\u0027,DATE_FORMAT(first_assigned_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027)) ORDER BY ticket_id,user_id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM ticket_participant;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(business_date,\u0027=\u0027,current_value) ORDER BY business_date SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM ticket_daily_sequence;",
+                        "SELECT status, IFNULL(DATE_FORMAT(action_deadline_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027),\u0027NULL\u0027), IF(ended_at IS NULL,\u0027NULL\u0027,\u0027SET\u0027), IFNULL(assignee_id,-1), IFNULL(completion_method,\u0027NULL\u0027), version, record_seq, requester_id FROM ticket WHERE ticket_no = \u0027FD-20261006-026\u0027;"
+                    ],
+    "cleanup":  {
+                    "startedAt":  "2026-10-06T17:42:36",
+                    "sql":  [
+                                "DELETE FROM ticket_record WHERE ticket_id IN (SELECT id FROM ticket WHERE ticket_no IN (\u0027FD-20261006-051\u0027,\u0027FD-20261006-050\u0027,\u0027FD-20261006-052\u0027));",
+                                "DELETE FROM ticket_participant WHERE ticket_id IN (SELECT id FROM ticket WHERE ticket_no IN (\u0027FD-20261006-051\u0027,\u0027FD-20261006-050\u0027,\u0027FD-20261006-052\u0027));",
+                                "DELETE FROM ticket WHERE ticket_no IN (\u0027FD-20261006-051\u0027,\u0027FD-20261006-050\u0027,\u0027FD-20261006-052\u0027);"
+                            ],
+                    "note":  "只删除本次运行创建的工单及其记录与参与关系；片 A 的两个动作不产生附件与关联关系，因此无需删除 ticket_attachment / ticket_relation。",
+                    "exitCode":  0,
+                    "stderr":  "",
+                    "demoDatabaseBefore":  {
+                                               "at":  "2026-10-06T17:42:30",
+                                               "users":  3,
+                                               "roles":  3,
+                                               "permissions":  14,
+                                               "categories":  5,
+                                               "tickets":  1,
+                                               "records":  5,
+                                               "participants":  1,
+                                               "ticketNos":  "FD-20261006-026",
+                                               "ticketRows":  "FD-20261006-026|COMPLETED|4|5|2|NULL|SET|REQUESTER_CONFIRMED|2026-10-06 03:43:38.114000",
+                                               "recordRows":  "135|92|1|CREATE|USER|1|2026-10-06 03:43:29.069000 ;; 136|92|2|CLAIM|USER|2|2026-10-06 03:43:33.053000 ;; 137|92|3|PROCESS|USER|2|2026-10-06 03:43:33.638000 ;; 138|92|4|RESOLUTION|USER|2|2026-10-06 03:43:34.837000 ;; 139|92|5|COMPLETION|USER|1|2026-10-06 03:43:38.114000",
+                                               "participantRows":  "92|2|2026-10-06 03:43:33.053000",
+                                               "dailySequence":  "2026-10-06=49",
+                                               "readOk":  true
+                                           },
+                    "demoDatabaseAfter":  {
+                                              "at":  "2026-10-06T17:42:38",
+                                              "users":  3,
+                                              "roles":  3,
+                                              "permissions":  14,
+                                              "categories":  5,
+                                              "tickets":  1,
+                                              "records":  5,
+                                              "participants":  1,
+                                              "ticketNos":  "FD-20261006-026",
+                                              "ticketRows":  "FD-20261006-026|COMPLETED|4|5|2|NULL|SET|REQUESTER_CONFIRMED|2026-10-06 03:43:38.114000",
+                                              "recordRows":  "135|92|1|CREATE|USER|1|2026-10-06 03:43:29.069000 ;; 136|92|2|CLAIM|USER|2|2026-10-06 03:43:33.053000 ;; 137|92|3|PROCESS|USER|2|2026-10-06 03:43:33.638000 ;; 138|92|4|RESOLUTION|USER|2|2026-10-06 03:43:34.837000 ;; 139|92|5|COMPLETION|USER|1|2026-10-06 03:43:38.114000",
+                                              "participantRows":  "92|2|2026-10-06 03:43:33.053000",
+                                              "dailySequence":  "2026-10-06=52",
+                                              "readOk":  true
+                                          },
+                    "dailySequenceBefore":  "2026-10-06=49",
+                    "dailySequenceAfter":  "2026-10-06=52",
+                    "dockerCommandsUsed":  [
+                                               "docker exec -i -e MYSQL_PWD \u003cmysql 容器\u003e mysql -uroot -N -B --default-character-set=utf8mb4 \u003c库名\u003e（SQL 走 stdin）"
+                                           ],
+                    "composeDownExecuted":  false,
+                    "containersOrVolumesModified":  false,
+                    "backendProcessTouched":  false,
+                    "targetBaseUrl":  "http://127.0.0.1:8092",
+                    "finishedAt":  "2026-10-06T17:42:38"
+                },
+    "observed":  [
+                     "admin.roles=EMPLOYEE|IT_SUPPORT|SYSTEM_ADMIN",
+                     "admin.hasTICKET_PROCESS=True hasTICKET_REQUESTER_ACTION=True",
+                     "a12.ticketA.timeline=CREATE,CLAIM,RESOLUTION,UNSATISFIED_FEEDBACK,RESOLUTION,UNSATISFIED_FEEDBACK",
+                     "a16.admin.withdrawSupplementRequest.status=404 code=TICKET_NOT_FOUND（admin 在演示库同时持有 IT_SUPPORT，属已知漂移；不做绝对值断言）",
+                     "a20.ticketC.timeline=CREATE,CLAIM,SUPPLEMENT_REQUEST,SUPPLEMENT_REQUEST_WITHDRAWN"
+                 ],
+    "totals":  {
+                   "total":  78,
+                   "passed":  78,
+                   "failed":  0
+               },
+    "notes":  [
+                  "admin 在本机演示库里同时持有 EMPLOYEE + IT_SUPPORT + SYSTEM_ADMIN（已知漂移），脚本只记录它的实际结果，不做绝对值断言。",
+                  "ticket_daily_sequence 属既有行但会随建单递增（编号不复用）：运行前 [2026-10-06=49] → 运行后 [2026-10-06=52]。按「不触碰运行前就存在的行」的约定不回退，下一张工单号会继续往后取。"
+              ]
+}

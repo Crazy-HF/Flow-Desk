@@ -265,6 +265,8 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 - `add-processing-record`：`POST /fd/v1/tickets/{ticketNo}/actions/add-processing-record`、`AddProcessingRecordCommand`、`TicketServiceImpl.addProcessingRecord`、`TicketMapper.advanceAssigneeAction`（状态与负责人不变，只递增 `version` 与 `record_seq` 并追加不可变 `PROCESS` 记录）。
 - `submit-resolution`：`POST /fd/v1/tickets/{ticketNo}/actions/submit-resolution`、`SubmitResolutionCommand`、`TicketServiceImpl.submitResolution`、`TicketMapper.submitResolution`（进入 `WAITING_FOR_CONFIRMATION`，期限按 `flowdesk.ticket.confirmation-window`（默认 `7d`）由服务端计算，追加 `RESOLUTION` 记录）。
 - `confirm-resolution`（6.4）：`POST /fd/v1/tickets/{ticketNo}/actions/confirm-resolution`、`ConfirmResolutionCommand`、`TicketServiceImpl.confirmResolution`、`TicketMapper.confirmResolution`（进入终态 `COMPLETED`，期限清空、`completion_method='REQUESTER_CONFIRMED'`、写入 `ended_at`，保留负责人，追加 `COMPLETION` 记录）。
+- `withdraw-supplement-request`（**2026-10-06 完成，完整状态机片 A**）：`POST /fd/v1/tickets/{ticketNo}/actions/withdraw-supplement-request`、`WithdrawSupplementRequestCommand`（`version` + `reason` 1～1000）、`TicketServiceImpl.withdrawSupplementRequest`、`TicketMapper.withdrawSupplementRequest`（从 `WAITING_FOR_REQUESTER` 回到 `PROCESSING`、清空期限、负责人不变，追加 `SUPPLEMENT_REQUEST_WITHDRAWN` 记录）。
+- `report-unresolved`（**2026-10-06 完成，完整状态机片 A**）：`POST /fd/v1/tickets/{ticketNo}/actions/report-unresolved`、`ReportUnresolvedCommand`（`version` + `reason` 1～1000）、`TicketServiceImpl.reportUnresolved`、`TicketMapper.reportUnresolved`（从 `WAITING_FOR_CONFIRMATION` 回到 `PROCESSING`、清空期限、**负责人保留**，追加 `UNSATISFIED_FEEDBACK` 记录；之前的解决结果作为历史保留）。
 
 其余 6 个动作仍未实现，**本表契约均未修改**。动作结果统一为 `TicketActionResult`（`ticketNo`、最新 `status`、负责人摘要、当前期限、最新 `version`、动作时间）。详情 `allowedActions` 现按条件返回 `claim`、`add-processing-record`、`submit-resolution`、`confirm-resolution`；逐条 `traceId` 的验收证据见 `docs/acceptance/2026-10-06-stage3-claim-process-resolution-confirm.json`（**77/77 通过**），汇总见 `docs/acceptance/2026-10-06-stage3-step3-summary.json`；阶段进度见 `docs/implementation-plan.md` 7.1。
 
@@ -273,6 +275,8 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 处理正文、补充请求、员工补充正文和解决结论去除首尾空白后最长 10000 个字符；要求必填时长度至少为 1。转交、调整、撤回、未解决、取消和关闭说明最长 1000 个字符，并在对应动作中要求非空。
 
 关闭原因为 `DUPLICATE` 时，`duplicateTicketNo` 必填，目标必须是同一提交人的另一张有效工单；其他关闭原因禁止传该字段。
+
+**口径补全（2026-10-06，用户确认）**：这里的"有效工单"指——目标存在、属于**同一提交人**、不是自身，且当前状态**不是 `CANCELED` 或 `CLOSED`**。`COMPLETED` 与仍在流转的工单都可以作为重复目标：重复关系只说明"同一问题已有另一张单"，不要求目标仍在处理中。校验不通过按 `400/VALIDATION_FAILED` 处理（目标不可见时不得回显目标是否存在，沿用同一提交人这一约束）。
 
 ### 6.4 员工动作
 
@@ -284,6 +288,8 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 | `cancel` | 四种非终态 | `version`、`reason` | 进入 `CANCELED` |
 
 这些动作都要求当前用户是工单提交人。`supplement` 使用 `multipart/form-data`，正文和附件至少存在一项；其他动作使用 JSON。
+
+**范围裁决（2026-10-06，用户确认）**：附件上传/下载、文件与数据库提交顺序、失败补偿与孤儿对账属完整版 backlog 第 2 项，尚未设计落地。因此 `supplement` **先按"正文版"实现**：请求形状不变（`multipart/form-data`，`ticket` part 携带 JSON），但只接受正文；请求里出现文件 part 时返回 `400/VALIDATION_FAILED` 并说明本版本不支持附件，**不静默忽略**。附件落地后本条随之失效。
 
 ### 6.5 非公开系统动作
 

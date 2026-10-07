@@ -230,6 +230,8 @@ export type TicketActionName =
   | 'add-processing-record'
   | 'submit-resolution'
   | 'confirm-resolution'
+  | 'withdraw-supplement-request'
+  | 'report-unresolved'
 
 export interface TicketActionMeta {
   /** 按钮文字。 */
@@ -252,6 +254,13 @@ export interface TicketActionMeta {
  * `@Size(max = 10000)` 对齐；前端先拦一次，避免用 400 告诉用户"写太长了"。
  */
 const ACTION_CONTENT_MAX_LENGTH = 10000
+
+/**
+ * 原因类动作的长度上限，与 `WithdrawSupplementRequestCommand` / `ReportUnresolvedCommand`
+ * 的 `@Size(max = 1000)` 对齐（`docs/api-design.md` 6.3/6.4：转交、调整、撤回、未解决、
+ * 取消与关闭说明最长 1000）。
+ */
+const ACTION_REASON_MAX_LENGTH = 1000
 
 export const TICKET_ACTIONS: Record<TicketActionName, TicketActionMeta> = {
   claim: {
@@ -288,6 +297,29 @@ export const TICKET_ACTIONS: Record<TicketActionName, TicketActionMeta> = {
     description: '确认后工单进入终态「已完成」，不能再追加处理记录；如果问题仍然存在，请先不要确认。',
     permission: 'TICKET_REQUESTER_ACTION',
     destructive: true,
+  },
+  'withdraw-supplement-request': {
+    label: '撤回补充请求',
+    description: '撤回后工单回到「处理中」，原来的补充期限立即失效；需要员工补充时要重新发起请求。',
+    permission: 'TICKET_PROCESS',
+    content: {
+      label: '撤回原因',
+      placeholder: '请输入为什么不再需要这次补充',
+      maxLength: ACTION_REASON_MAX_LENGTH,
+    },
+    destructive: false,
+  },
+  'report-unresolved': {
+    label: '问题仍未解决',
+    description:
+      '填写后工单退回「处理中」，由原负责人继续处理；之前的解决结果会作为历史保留，不会被覆盖。',
+    permission: 'TICKET_REQUESTER_ACTION',
+    content: {
+      label: '未解决原因',
+      placeholder: '请输入还有哪些问题没解决，便于 IT 继续排查',
+      maxLength: ACTION_REASON_MAX_LENGTH,
+    },
+    destructive: false,
   },
 }
 

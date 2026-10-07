@@ -60,6 +60,12 @@ import static org.mockito.Mockito.when;
  * 修复过的缺陷的回归守卫：{@code PROCESSING} 状态下当前负责人必须同时拿到
  * {@code add-processing-record} 与 {@code submit-resolution}，且顺序固定——前端按
  * {@code allowedActions} 渲染按钮，两项缺一就等于负责人交不出解决结果。</p>
+ *
+ * <p>片 A 新增两格：{@code WAITING_FOR_REQUESTER} + 本人是负责人 + {@code TICKET_PROCESS}
+ * → {@code withdraw-supplement-request}；{@code WAITING_FOR_CONFIRMATION} + 本人是提交人 +
+ * {@code TICKET_REQUESTER_ACTION} → {@code confirm-resolution} 与 {@code report-unresolved}
+ * 同时出现（装配顺序以前者在前）。后一格的期望值由原来的单动作改为两个动作——
+ * {@code canReportUnresolved} 直接复用 {@code canConfirm}，旧断言编码的是片 A 之前的实现。</p>
  */
 @ExtendWith(MockitoExtension.class)
 // 多个用例共享"当前用户 + 权限 + 可见性行"替身，未使用的桩不应判定为失败。
@@ -77,6 +83,7 @@ class TicketQueryServiceImplTest {
     private static final String IT_DISPLAY_NAME = "演示 IT 支持人员";
     private static final String PENDING = "PENDING";
     private static final String PROCESSING = "PROCESSING";
+    private static final String WAITING_FOR_REQUESTER = "WAITING_FOR_REQUESTER";
     private static final String WAITING_FOR_CONFIRMATION = "WAITING_FOR_CONFIRMATION";
     private static final String COMPLETED = "COMPLETED";
     private static final String HIGH = "HIGH";
@@ -372,15 +379,24 @@ class TicketQueryServiceImplTest {
         assertActions(service.detail(TICKET_NO));
     }
 
+    /**
+     * 片 A 契约：{@code WAITING_FOR_CONFIRMATION} 的提交人同时拿到确认与反馈未解决两格。
+     *
+     * <p>两者前置条件完全相同（待确认 + 本人是提交人 + {@code TICKET_REQUESTER_ACTION}），
+     * 装配顺序固定为 {@code confirm-resolution} 在前；{@code report-unresolved} 是片 A 新增的判定，
+     * 因此本用例的期望值从单个动作改为一对——旧断言编码的是片 A 之前的实现。</p>
+     */
     @Test
-    void detailAllowsConfirmResolutionForRequester() {
+    void detailAllowsConfirmAndReportUnresolvedForRequesterInFixedOrder() {
         stubCurrentUser(REQUESTER_ID);
         grant("TICKET_REQUESTER_ACTION");
         stubVisible(detailRow(WAITING_FOR_CONFIRMATION, IT_USER_ID, 4L));
 
         TicketDetailResult result = service.detail(TICKET_NO);
 
-        assertActions(result, "confirm-resolution");
+        assertThat(result.allowedActions())
+                .as("提交人在待确认上有两个互斥选择，顺序固定且两个都必须在")
+                .containsExactly("confirm-resolution", "report-unresolved");
     }
 
     /** 待确认状态下 IT 侧只暴露已实现的动作，负责人自己不是提交人，不应拿到确认按钮。 */
@@ -399,6 +415,76 @@ class TicketQueryServiceImplTest {
         stubVisible(detailRow(WAITING_FOR_CONFIRMATION, IT_USER_ID, 4L));
 
         assertActions(service.detail(TICKET_NO));
+    }
+
+    /** 同状态但当前用户是负责人而不是提交人：即使同时持有提交人权限，两格都不出现。 */
+    @Test
+    void detailHidesConfirmAndReportUnresolvedForAssigneeOfWaitingForConfirmation() {
+        stubCurrentUser(IT_USER_ID);
+        grant("TICKET_REQUESTER_ACTION", "TICKET_PROCESS");
+        stubVisible(detailRow(WAITING_FOR_CONFIRMATION, IT_USER_ID, 4L));
+
+        assertActions(service.detail(TICKET_NO));
+    }
+
+    // ---------- allowedActions：片 A 新增两格 ----------
+
+    /** 「待补充」+ 本人是负责人 + {@code TICKET_PROCESS}：恰好一格撤回动作。 */
+    @Test
+    void detailAllowsWithdrawSupplementRequestForCurrentAssigneeOfWaitingForRequester() {
+        stubCurrentUser(IT_USER_ID);
+        grant("TICKET_PROCESS");
+        stubVisible(detailRow(WAITING_FOR_REQUESTER, IT_USER_ID, 5L));
+
+        TicketDetailResult result = service.detail(TICKET_NO);
+
+        assertThat(result.allowedActions())
+                .as("待补充时负责人只应该拿到撤回这一格")
+                .containsExactly("withdraw-supplement-request");
+    }
+
+    @Test
+    void detailHidesWithdrawSupplementRequestWithoutProcessAuthority() {
+        stubCurrentUser(IT_USER_ID);
+        stubVisible(detailRow(WAITING_FOR_REQUESTER, IT_USER_ID, 5L));
+
+        assertActions(service.detail(TICKET_NO));
+    }
+
+    @Test
+    void detailHidesWithdrawSupplementRequestForNonAssignee() {
+        stubCurrentUser(OTHER_IT_USER_ID);
+        grant("TICKET_PROCESS");
+        stubVisible(detailRow(WAITING_FOR_REQUESTER, IT_USER_ID, 5L));
+
+        assertActions(service.detail(TICKET_NO));
+    }
+
+    @Test
+    void detailHidesWithdrawSupplementRequestWhenTicketHasNoAssignee() {
+        stubCurrentUser(IT_USER_ID);
+        grant("TICKET_PROCESS");
+        stubVisible(detailRow(WAITING_FOR_REQUESTER, null, 5L));
+
+        assertActions(service.detail(TICKET_NO));
+    }
+
+    /**
+     * 两格新动作只属于各自的等待态：{@code PROCESSING} 上即使持有全部相关权限，
+     * 也不该多出 {@code withdraw-supplement-request} 或 {@code report-unresolved}。
+     */
+    @Test
+    void detailDoesNotOfferReturnActionsOutsideTheirWaitingStates() {
+        stubCurrentUser(IT_USER_ID);
+        grant("TICKET_VIEW_QUEUE", "TICKET_CLAIM", "TICKET_PROCESS",
+                "TICKET_REQUESTER_ACTION");
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+
+        TicketDetailResult result = service.detail(TICKET_NO);
+
+        assertThat(result.allowedActions())
+                .as("处理中只暴露处理与提交解决结果两个动作")
+                .containsExactly("add-processing-record", "submit-resolution");
     }
 
     /** 终态不再暴露任何动作：本人是提交人且持有全部权限、且具备领取资格也不能例外。 */

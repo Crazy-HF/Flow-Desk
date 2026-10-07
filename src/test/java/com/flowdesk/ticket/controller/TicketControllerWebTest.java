@@ -9,7 +9,9 @@ import com.flowdesk.ticket.application.command.AddProcessingRecordCommand;
 import com.flowdesk.ticket.application.command.ClaimTicketCommand;
 import com.flowdesk.ticket.application.command.ConfirmResolutionCommand;
 import com.flowdesk.ticket.application.command.CreateTicketCommand;
+import com.flowdesk.ticket.application.command.ReportUnresolvedCommand;
 import com.flowdesk.ticket.application.command.SubmitResolutionCommand;
+import com.flowdesk.ticket.application.command.WithdrawSupplementRequestCommand;
 import com.flowdesk.ticket.application.query.TicketQuery;
 import com.flowdesk.ticket.application.query.TicketRecordQuery;
 import com.flowdesk.ticket.application.result.TicketActionResult;
@@ -94,6 +96,9 @@ class TicketControllerWebTest {
 
     private static final String TICKETS = "/fd/v1/tickets";
     private static final String TICKET_NO = "FD-20261006-0001";
+    /** 片 A：两个"从等待态退回处理中"的动作，动作名与接口路径末段逐字一致。 */
+    private static final String WITHDRAW_SUPPLEMENT_REQUEST = "withdraw-supplement-request";
+    private static final String REPORT_UNRESOLVED = "report-unresolved";
     private static final String SUBMISSION_KEY = "3f1c2b7e-1d4a-4f2b-9c6e-8a7d5b0c1e2f";
     private static final long CATEGORY_ID = 7L;
     private static final long REQUESTER_ID = 3L;
@@ -794,7 +799,229 @@ class TicketControllerWebTest {
                 .andExpect(jsonPath("$.data").doesNotExist());
     }
 
+    // ---------- 片 A：两个退回处理中的动作 ----------
+
+    /**
+     * 两个新端点与其他动作端点同一口径：都不带方法级 {@code @PreAuthorize}，
+     * 权限落在服务层，"能做与不能做"由 {@code 403/TICKET_ACTION_FORBIDDEN} 表达；
+     * 无令牌则在过滤器链就被拦下，不进入服务。
+     */
+    @ParameterizedTest(name = "{0} without authentication returns 401")
+    @MethodSource("returnActionCases")
+    void returnActionsRequireAuthentication(String action, String requestBody) throws Exception {
+        mockMvc.perform(actionRequest(action, requestBody))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_REQUIRED"));
+
+        verifyNoInteractions(ticketService, ticketQueryService);
+    }
+
+    /** 员工侧权限调撤回：服务层拒，错误码必须是动作级 {@code TICKET_ACTION_FORBIDDEN}。 */
+    @Test
+    void withdrawSupplementRequestIsForbiddenForEmployeeAuthorities() throws Exception {
+        stubReturnActionFailure(WITHDRAW_SUPPLEMENT_REQUEST,
+                new ApiException(HttpStatus.FORBIDDEN, "TICKET_ACTION_FORBIDDEN",
+                        "无处理工单权限"));
+
+        mockMvc.perform(actionRequest(WITHDRAW_SUPPLEMENT_REQUEST, """
+                        {"version": 5, "reason": "提交人已补齐信息"}
+                        """).with(ticketUser("TICKET_CREATE", "TICKET_VIEW_OWN",
+                        "TICKET_REQUESTER_ACTION")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("TICKET_ACTION_FORBIDDEN"));
+
+        verify(ticketService).withdrawSupplementRequest(eq(TICKET_NO), any());
+    }
+
+    /** IT 与管理员侧权限调反馈未解决：同样由服务层返回 403，而不是接口不存在。 */
+    @Test
+    void reportUnresolvedIsForbiddenForItAndAdminAuthorities() throws Exception {
+        stubReturnActionFailure(REPORT_UNRESOLVED,
+                new ApiException(HttpStatus.FORBIDDEN, "TICKET_ACTION_FORBIDDEN",
+                        "无提交人操作权限"));
+
+        String body = """
+                {"version": 4, "reason": "问题又出现了"}
+                """;
+        mockMvc.perform(actionRequest(REPORT_UNRESOLVED, body)
+                        .with(ticketUser("TICKET_PROCESS", "TICKET_VIEW_PARTICIPATED")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("TICKET_ACTION_FORBIDDEN"));
+
+        mockMvc.perform(actionRequest(REPORT_UNRESOLVED, body)
+                        .with(ticketUser("TICKET_ADMIN_HANDOFF", "USER_MANAGE", "CATEGORY_MANAGE")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("TICKET_ACTION_FORBIDDEN"));
+
+        verify(ticketService, times(2)).reportUnresolved(eq(TICKET_NO), any());
+    }
+
+    /** 版本、原因两类字段校验：都没到服务层就被 Bean Validation 拦下。 */
+    @ParameterizedTest(name = "{0} rejects {1}")
+    @MethodSource("invalidReturnActionBodies")
+    void returnActionsRejectInvalidBody(
+            String action, String caseName, String requestBody, String expectedField)
+            throws Exception {
+        mockMvc.perform(actionRequest(action, requestBody).with(ticketUser("TICKET_PROCESS")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.data.fieldErrors[*].field", hasItem(expectedField)));
+
+        verifyNoInteractions(ticketService);
+    }
+
+    static Stream<Arguments> invalidReturnActionBodies() {
+        String reasonOverLimit = "x".repeat(1001);
+        return Stream.of(
+                Arguments.of(WITHDRAW_SUPPLEMENT_REQUEST, "a missing version", """
+                        {"reason": "提交人已补齐信息"}
+                        """, "version"),
+                Arguments.of(REPORT_UNRESOLVED, "a missing version", """
+                        {"reason": "问题又出现了"}
+                        """, "version"),
+                Arguments.of(WITHDRAW_SUPPLEMENT_REQUEST, "a negative version", """
+                        {"version": -1, "reason": "提交人已补齐信息"}
+                        """, "version"),
+                Arguments.of(REPORT_UNRESOLVED, "a negative version", """
+                        {"version": -1, "reason": "问题又出现了"}
+                        """, "version"),
+                Arguments.of(WITHDRAW_SUPPLEMENT_REQUEST, "a blank reason", """
+                        {"version": 5, "reason": "   "}
+                        """, "reason"),
+                Arguments.of(REPORT_UNRESOLVED, "a blank reason", """
+                        {"version": 4, "reason": ""}
+                        """, "reason"),
+                Arguments.of(REPORT_UNRESOLVED, "a missing reason", """
+                        {"version": 4}
+                        """, "reason"),
+                Arguments.of(WITHDRAW_SUPPLEMENT_REQUEST,
+                        "a reason over 1000 characters", """
+                        {"version": 5, "reason": "%s"}
+                        """.formatted(reasonOverLimit), "reason")
+        );
+    }
+
+    /** 乐观锁失败：{@code data} 必须带当前快照，前端据此刷新而不是盲目重放。 */
+    @ParameterizedTest(name = "{0} conflict carries the current snapshot")
+    @MethodSource("returnActionCases")
+    void returnActionConflictCarriesCurrentSnapshot(String action, String requestBody)
+            throws Exception {
+        stubReturnActionFailure(action,
+                new ApiException(HttpStatus.CONFLICT, "TICKET_CONFLICT",
+                        "工单状态或版本已变化，请刷新后重试", 6L, "PROCESSING"));
+
+        mockMvc.perform(actionRequest(action, requestBody)
+                        .with(ticketUser("TICKET_PROCESS", "TICKET_REQUESTER_ACTION")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("TICKET_CONFLICT"))
+                .andExpect(jsonPath("$.data.traceId").exists())
+                .andExpect(jsonPath("$.data.version").value(6))
+                .andExpect(jsonPath("$.data.status").value("PROCESSING"))
+                .andExpect(jsonPath("$.data.fieldErrors").doesNotExist());
+    }
+
+    /** 无权查看与编号不存在统一 {@code 404/TICKET_NOT_FOUND}。 */
+    @ParameterizedTest(name = "{0} reports not found when the ticket is invisible")
+    @MethodSource("returnActionCases")
+    void returnActionReportsNotFoundWhenTicketIsInvisible(String action, String requestBody)
+            throws Exception {
+        stubReturnActionFailure(action,
+                new ApiException(HttpStatus.NOT_FOUND, "TICKET_NOT_FOUND", "工单不存在"));
+
+        mockMvc.perform(actionRequest(action, requestBody)
+                        .with(ticketUser("TICKET_PROCESS", "TICKET_REQUESTER_ACTION")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("TICKET_NOT_FOUND"))
+                .andExpect(jsonPath("$.data.traceId").exists());
+    }
+
+    @Test
+    void withdrawSupplementRequestReturnsTicketActionEnvelope() throws Exception {
+        when(ticketService.withdrawSupplementRequest(eq(TICKET_NO), any()))
+                .thenReturn(processingAction());
+
+        assertReturnActionEnvelope(mockMvc.perform(
+                actionRequest(WITHDRAW_SUPPLEMENT_REQUEST, """
+                                {"version": 5, "reason": "  提交人已补齐信息  "}
+                                """).with(ticketUser("TICKET_PROCESS"))));
+
+        ArgumentCaptor<WithdrawSupplementRequestCommand> captor =
+                ArgumentCaptor.forClass(WithdrawSupplementRequestCommand.class);
+        verify(ticketService).withdrawSupplementRequest(eq(TICKET_NO), captor.capture());
+        assertThat(captor.getValue().version()).isEqualTo(5L);
+        assertThat(captor.getValue().reason()).as("原因在命令构造器中去除了首尾空白")
+                .isEqualTo("提交人已补齐信息");
+    }
+
+    @Test
+    void reportUnresolvedReturnsTicketActionEnvelope() throws Exception {
+        when(ticketService.reportUnresolved(eq(TICKET_NO), any()))
+                .thenReturn(processingAction());
+
+        assertReturnActionEnvelope(mockMvc.perform(
+                actionRequest(REPORT_UNRESOLVED, """
+                                {"version": 4, "reason": "  问题又出现了  "}
+                                """).with(ticketUser("TICKET_REQUESTER_ACTION"))));
+
+        ArgumentCaptor<ReportUnresolvedCommand> captor =
+                ArgumentCaptor.forClass(ReportUnresolvedCommand.class);
+        verify(ticketService).reportUnresolved(eq(TICKET_NO), captor.capture());
+        assertThat(captor.getValue().version()).isEqualTo(4L);
+        assertThat(captor.getValue().reason()).isEqualTo("问题又出现了");
+    }
+
     // ---------- 辅助 ----------
+
+    /** 片 A 两个动作的入参：动作名 + 各自动作的合法请求体。 */
+    static Stream<Arguments> returnActionCases() {
+        return Stream.of(
+                Arguments.of(WITHDRAW_SUPPLEMENT_REQUEST, """
+                        {"version": 5, "reason": "提交人已补齐信息"}
+                        """),
+                Arguments.of(REPORT_UNRESOLVED, """
+                        {"version": 4, "reason": "问题又出现了"}
+                        """));
+    }
+
+    /**
+     * 片 A 的成功信封：回到 {@code PROCESSING}，期限为 {@code null}
+     * ——全局 {@code non_null} 序列化策略下字段整体不出现。
+     */
+    private void assertReturnActionEnvelope(ResultActions result) throws Exception {
+        result.andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.ticketNo").value(TICKET_NO))
+                .andExpect(jsonPath("$.data.status").value("PROCESSING"))
+                .andExpect(jsonPath("$.data.assignee.id").value(ASSIGNEE_ID))
+                .andExpect(jsonPath("$.data.assignee.displayName").value("演示 IT 支持人员"))
+                .andExpect(jsonPath("$.data.actionDeadlineAt").doesNotExist())
+                .andExpect(jsonPath("$.data.version").value(4))
+                .andExpect(jsonPath("$.data.actionTime").value("2026-10-06T08:00:00Z"));
+    }
+
+    private static TicketActionResult processingAction() {
+        return new TicketActionResult(
+                TICKET_NO,
+                "PROCESSING",
+                new TicketUserSummaryResult(ASSIGNEE_ID, "演示 IT 支持人员"),
+                null,
+                4L,
+                CREATED_AT);
+    }
+
+    /** 片 A 两个动作的入口不同，参数化用例按动作名分派替身。 */
+    private void stubReturnActionFailure(String action, RuntimeException failure) {
+        switch (action) {
+            case WITHDRAW_SUPPLEMENT_REQUEST -> when(
+                    ticketService.withdrawSupplementRequest(eq(TICKET_NO), any()))
+                    .thenThrow(failure);
+            case REPORT_UNRESOLVED -> when(
+                    ticketService.reportUnresolved(eq(TICKET_NO), any()))
+                    .thenThrow(failure);
+            default -> throw new IllegalArgumentException("未知动作：" + action);
+        }
+    }
 
     private void assertActionEnvelope(ResultActions result) throws Exception {
         result.andExpect(status().isOk())

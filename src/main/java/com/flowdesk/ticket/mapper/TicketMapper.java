@@ -237,4 +237,55 @@ public interface TicketMapper extends BaseMapper<Ticket> {
             @Param("actorId") long actorId,
             @Param("now") LocalDateTime now);
 
+    /**
+     * 当前负责人撤回补充请求：回到处理中，并让原补充期限失效。
+     *
+     * <p>与 {@link #reportUnresolved} 形状相同、只有状态与身份列不同。刻意写成两条独立的 SQL，
+     * 而不是把状态与身份列参数化：条件更新里的"预期状态 + 预期负责人"是判定的一部分，
+     * 参数化会让"谁能推进哪一步"从 SQL 里消失。</p>
+     *
+     * <p><strong>分工</strong>：本条由 Agent 写入；用户 2026-10-06 决定**后续动作的 Mapper 由用户编写**。</p>
+     */
+    @Update("""
+    UPDATE ticket
+    SET status = 'PROCESSING',
+        action_deadline_at = NULL,
+        version = version + 1,
+        record_seq = record_seq + 1,
+        updated_at = #{now}
+    WHERE id = #{ticketId}
+      AND version = #{expectedVersion}
+      AND status = 'WAITING_FOR_REQUESTER'
+      AND assignee_id = #{actorId}
+    """)
+    int withdrawSupplementRequest(
+            @Param("ticketId") long ticketId,
+            @Param("expectedVersion") long expectedVersion,
+            @Param("actorId") long actorId,
+            @Param("now") LocalDateTime now);
+
+    /**
+     * 提交人反馈问题未解决：回到处理中，并让原确认期限失效；负责人保留。
+     *
+     * <p>只改状态、期限、版本与记录序号——`assignee_id` 不动，因为退回不等于换人
+     * （`docs/kickoff.md` 4.5：原负责人继续排查）。</p>
+     */
+    @Update("""
+    UPDATE ticket
+    SET status = 'PROCESSING',
+        action_deadline_at = NULL,
+        version = version + 1,
+        record_seq = record_seq + 1,
+        updated_at = #{now}
+    WHERE id = #{ticketId}
+      AND version = #{expectedVersion}
+      AND status = 'WAITING_FOR_CONFIRMATION'
+      AND requester_id = #{actorId}
+    """)
+    int reportUnresolved(
+            @Param("ticketId") long ticketId,
+            @Param("expectedVersion") long expectedVersion,
+            @Param("actorId") long actorId,
+            @Param("now") LocalDateTime now);
+
 }

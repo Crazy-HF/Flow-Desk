@@ -5,7 +5,9 @@ import com.flowdesk.ticket.application.command.AddProcessingRecordCommand;
 import com.flowdesk.ticket.application.command.ClaimTicketCommand;
 import com.flowdesk.ticket.application.command.ConfirmResolutionCommand;
 import com.flowdesk.ticket.application.command.CreateTicketCommand;
+import com.flowdesk.ticket.application.command.ReportUnresolvedCommand;
 import com.flowdesk.ticket.application.command.SubmitResolutionCommand;
+import com.flowdesk.ticket.application.command.WithdrawSupplementRequestCommand;
 import com.flowdesk.ticket.application.port.CategoryAvailabilityPort;
 import com.flowdesk.ticket.application.port.CurrentRequesterPort;
 import com.flowdesk.ticket.application.port.TicketClaimantPort;
@@ -68,6 +70,12 @@ import static org.mockito.Mockito.when;
  * 这里用替身固定"先校验领取资格再读可见性""冲突判定先于 400 内容校验""权限闸门先于
  * 提交人身份闸门"等顺序约束，并用 {@link Clock} 固定业务日（Asia/Shanghai）与
  * 落库时间（UTC）之间的时区差异。</p>
+ *
+ * <p>片 A 的两个"从等待态退回处理中"的动作（{@code withdrawSupplementRequest} 与
+ * {@code reportUnresolved}）形状同源：都在条件更新的 {@code WHERE} 里同时判定状态、身份与版本，
+ * 由 SQL 一并清空 {@code action_deadline_at}。因此这里对两者使用对称的用例集
+ * （权限 → 可见性 → 状态/负责人或提交人 → 版本 → 原因长度 → 条件更新落败读回快照），
+ * 差别只在身份列：撤回要求"本人是当前负责人"，反馈要求"本人是提交人，且权限闸门先于身份闸门"。</p>
  */
 @ExtendWith(MockitoExtension.class)
 // 多个用例共享"可见性行 + 事务管理器"替身，未使用的桩不应判定为失败。
@@ -91,6 +99,7 @@ class TicketServiceImplTest {
     private static final String IT_DISPLAY_NAME = "演示 IT 支持人员";
     private static final String PENDING = "PENDING";
     private static final String PROCESSING = "PROCESSING";
+    private static final String WAITING_FOR_REQUESTER = "WAITING_FOR_REQUESTER";
     private static final String WAITING_FOR_CONFIRMATION = "WAITING_FOR_CONFIRMATION";
     private static final String COMPLETED = "COMPLETED";
     private static final String HIGH = "HIGH";
@@ -1037,6 +1046,548 @@ class TicketServiceImplTest {
         assertThat(result.assignee()).as("没有负责人时摘要为 null 而不是空对象").isNull();
     }
 
+    // ---------- withdrawSupplementRequest ----------
+
+    /** 权限闸门先于可见性：没有处理权限时不能借响应区分"工单是否存在"。 */
+    @Test
+    void withdrawSupplementRequestRejectsActorWithoutProcessAuthority() {
+        when(currentRequesterPort.currentUserId()).thenReturn(IT_USER_ID);
+        when(ticketReadPermissionPort.hasAuthority("TICKET_PROCESS")).thenReturn(false);
+
+        assertApiException(
+                () -> service.withdrawSupplementRequest(TICKET_NO,
+                        new WithdrawSupplementRequestCommand(5L, "信息已补齐")),
+                HttpStatus.FORBIDDEN, "TICKET_ACTION_FORBIDDEN");
+
+        verify(ticketMapper, never())
+                .selectVisibleDetail(any(), anyLong(), anyBoolean(), anyBoolean(), anyBoolean());
+        verify(ticketMapper, never())
+                .withdrawSupplementRequest(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void withdrawSupplementRequestReportsNotFoundWhenTicketIsNotVisible() {
+        stubProcessActor();
+
+        assertApiException(
+                () -> service.withdrawSupplementRequest(TICKET_NO,
+                        new WithdrawSupplementRequestCommand(5L, "信息已补齐")),
+                HttpStatus.NOT_FOUND, "TICKET_NOT_FOUND");
+
+        verify(ticketMapper, never())
+                .withdrawSupplementRequest(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void withdrawSupplementRequestReportsConflictWhenTicketIsNotWaitingForRequester() {
+        stubProcessActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+
+        ApiException exception = assertApiException(
+                () -> service.withdrawSupplementRequest(TICKET_NO,
+                        new WithdrawSupplementRequestCommand(5L, "信息已补齐")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).as("冲突响应携带可见快照版本").isEqualTo(5L);
+        assertThat(exception.resourceStatus()).as("冲突响应携带可见快照状态")
+                .isEqualTo(PROCESSING);
+        verify(ticketMapper, never())
+                .withdrawSupplementRequest(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /** 有处理权限但不是当前负责人：按冲突返回，不用 403 暴露"谁是负责人"。 */
+    @Test
+    void withdrawSupplementRequestReportsConflictWhenActorIsNotTheCurrentAssignee() {
+        stubProcessActor();
+        stubVisible(detailRow(WAITING_FOR_REQUESTER, OTHER_IT_USER_ID, 5L));
+
+        ApiException exception = assertApiException(
+                () -> service.withdrawSupplementRequest(TICKET_NO,
+                        new WithdrawSupplementRequestCommand(5L, "信息已补齐")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).isEqualTo(5L);
+        assertThat(exception.resourceStatus()).isEqualTo(WAITING_FOR_REQUESTER);
+        verify(ticketMapper, never())
+                .withdrawSupplementRequest(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void withdrawSupplementRequestReportsConflictWhenTicketHasNoAssignee() {
+        stubProcessActor();
+        stubVisible(detailRow(WAITING_FOR_REQUESTER, null, 5L));
+
+        assertApiException(
+                () -> service.withdrawSupplementRequest(TICKET_NO,
+                        new WithdrawSupplementRequestCommand(5L, "信息已补齐")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never())
+                .withdrawSupplementRequest(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void withdrawSupplementRequestReportsConflictWhenCommandVersionIsStale() {
+        stubProcessActor();
+        stubVisible(detailRow(WAITING_FOR_REQUESTER, IT_USER_ID, 5L));
+
+        ApiException exception = assertApiException(
+                () -> service.withdrawSupplementRequest(TICKET_NO,
+                        new WithdrawSupplementRequestCommand(4L, "信息已补齐")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).as("冲突响应携带可见快照版本").isEqualTo(5L);
+        assertThat(exception.resourceStatus()).isEqualTo(WAITING_FOR_REQUESTER);
+        verify(ticketMapper, never())
+                .withdrawSupplementRequest(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /** 校验顺序：状态/负责人/版本冲突先于原因长度，空白原因 + 过期版本必须得到 409。 */
+    @Test
+    void withdrawSupplementRequestReportsConflictBeforeValidatingBlankReason() {
+        stubProcessActor();
+        stubVisible(detailRow(WAITING_FOR_REQUESTER, IT_USER_ID, 5L));
+
+        assertApiException(
+                () -> service.withdrawSupplementRequest(TICKET_NO,
+                        new WithdrawSupplementRequestCommand(4L, "   ")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never())
+                .withdrawSupplementRequest(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void withdrawSupplementRequestRejectsBlankReasonWhenVersionMatches() {
+        stubProcessActor();
+        stubVisible(detailRow(WAITING_FOR_REQUESTER, IT_USER_ID, 5L));
+
+        assertApiException(
+                () -> service.withdrawSupplementRequest(TICKET_NO,
+                        new WithdrawSupplementRequestCommand(5L, "   ")),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verify(ticketMapper, never())
+                .withdrawSupplementRequest(anyLong(), anyLong(), anyLong(), any());
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    /**
+     * 非 HTTP 调用方给出 null 原因时与空白原因同一处理：400，不是 NPE。
+     *
+     * <p>Bean Validation 只在 Controller 那一层生效；服务被别的服务、脚本或测试直接调用时
+     * `reason` 可以是 null。缺了 null 判断会先炸在 `isEmpty()` 上，表现成 500——
+     * 与内容类动作（`content == null || content.isEmpty()`）的写法保持一致。</p>
+     */
+    @Test
+    void withdrawSupplementRequestRejectsNullReasonWithoutThrowing() {
+        stubProcessActor();
+        stubVisible(detailRow(WAITING_FOR_REQUESTER, IT_USER_ID, 5L));
+
+        assertApiException(
+                () -> service.withdrawSupplementRequest(TICKET_NO,
+                        new WithdrawSupplementRequestCommand(5L, null)),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verify(ticketMapper, never())
+                .withdrawSupplementRequest(anyLong(), anyLong(), anyLong(), any());
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    /** 原因上限 1000：超一个字符就归入 400，不能落库成被截断的说明。 */
+    @Test
+    void withdrawSupplementRequestRejectsReasonOverLimit() {
+        stubProcessActor();
+        stubVisible(detailRow(WAITING_FOR_REQUESTER, IT_USER_ID, 5L));
+
+        assertApiException(
+                () -> service.withdrawSupplementRequest(TICKET_NO,
+                        new WithdrawSupplementRequestCommand(5L, "a".repeat(1001))),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verify(ticketMapper, never())
+                .withdrawSupplementRequest(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /** 边界：去除首尾空白后恰好 1000 个字符仍然合法。 */
+    @Test
+    void withdrawSupplementRequestAcceptsReasonAtExactLimit() {
+        stubSuccessfulWithdraw();
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 7, 6L));
+        when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
+
+        service.withdrawSupplementRequest(TICKET_NO,
+                new WithdrawSupplementRequestCommand(5L, "  " + "a".repeat(1000) + "  "));
+
+        ArgumentCaptor<TicketRecord> records = ArgumentCaptor.forClass(TicketRecord.class);
+        verify(ticketRecordMapper).insert(records.capture());
+        assertThat(records.getValue().getReason()).as("恰好 1000 个字符的原因可以落库")
+                .hasSize(1000);
+    }
+
+    /** 撤回成功：条件更新的四个入参、时间线记录与返回摘要三处必须一致，期限由 SQL 清空。 */
+    @Test
+    void withdrawSupplementRequestReturnsTicketToProcessingAndClearsDeadline() {
+        stubSuccessfulWithdraw();
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 7, 6L));
+        when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
+
+        TicketActionResult result = service.withdrawSupplementRequest(TICKET_NO,
+                new WithdrawSupplementRequestCommand(5L, "  提交人已补齐信息  "));
+
+        verify(ticketMapper).withdrawSupplementRequest(TICKET_ID, 5L, IT_USER_ID, NOW_UTC);
+        verify(ticketMapper, never())
+                .reportUnresolved(anyLong(), anyLong(), anyLong(), any());
+
+        ArgumentCaptor<TicketRecord> records = ArgumentCaptor.forClass(TicketRecord.class);
+        verify(ticketRecordMapper).insert(records.capture());
+        TicketRecord record = records.getValue();
+        assertThat(record.getRecordType()).isEqualTo("SUPPLEMENT_REQUEST_WITHDRAWN");
+        assertThat(record.getSequenceNo()).as("序号取递增后的 recordSeq").isEqualTo(7);
+        assertThat(record.getActorType()).isEqualTo("USER");
+        assertThat(record.getActorUserId()).isEqualTo(IT_USER_ID);
+        assertThat(record.getReason()).as("原因去除首尾空白后落库")
+                .isEqualTo("提交人已补齐信息");
+        assertThat(record.getContent()).as("撤回动作没有正文").isNull();
+        assertThat(record.getFromStatus()).isEqualTo(WAITING_FOR_REQUESTER);
+        assertThat(record.getToStatus()).isEqualTo(PROCESSING);
+        assertThat(record.getCreatedAt()).as("落库时间按 UTC 毫秒截断").isEqualTo(NOW_UTC);
+
+        assertThat(result.ticketNo()).isEqualTo(TICKET_NO);
+        assertThat(result.status()).as("撤回后回到处理中").isEqualTo(PROCESSING);
+        assertThat(result.assignee()).as("负责人不变，摘要取可见快照")
+                .isEqualTo(new TicketUserSummaryResult(IT_USER_ID, IT_DISPLAY_NAME));
+        assertThat(result.actionDeadlineAt()).as("原补充期限由条件更新一并清空").isNull();
+        assertThat(result.version()).isEqualTo(6L);
+        assertThat(result.actionTime()).isEqualTo(NOW.atOffset(ZoneOffset.UTC));
+    }
+
+    @Test
+    void withdrawSupplementRequestReportsConflictWithReloadedSnapshotWhenConditionalUpdateLoses() {
+        stubProcessActor();
+        stubVisible(detailRow(WAITING_FOR_REQUESTER, IT_USER_ID, 5L));
+        when(ticketMapper.withdrawSupplementRequest(TICKET_ID, 5L, IT_USER_ID, NOW_UTC))
+                .thenReturn(0);
+        when(ticketMapper.selectClaimConflictSnapshotForUpdate(TICKET_ID))
+                .thenReturn(conflictSnapshot(PROCESSING, 6L));
+
+        ApiException exception = assertApiException(
+                () -> service.withdrawSupplementRequest(TICKET_NO,
+                        new WithdrawSupplementRequestCommand(5L, "信息已补齐")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).as("携带读回的最新版本").isEqualTo(6L);
+        assertThat(exception.resourceStatus()).as("携带读回的最新状态").isEqualTo(PROCESSING);
+        verify(ticketMapper, never()).selectById(TICKET_ID);
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    @Test
+    void withdrawSupplementRequestFailsWhenConflictSnapshotCannotBeRead() {
+        stubProcessActor();
+        stubVisible(detailRow(WAITING_FOR_REQUESTER, IT_USER_ID, 5L));
+        when(ticketMapper.withdrawSupplementRequest(TICKET_ID, 5L, IT_USER_ID, NOW_UTC))
+                .thenReturn(0);
+        when(ticketMapper.selectClaimConflictSnapshotForUpdate(TICKET_ID)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.withdrawSupplementRequest(TICKET_NO,
+                new WithdrawSupplementRequestCommand(5L, "信息已补齐")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("撤回补充请求冲突后无法读取工单快照");
+    }
+
+    @Test
+    void withdrawSupplementRequestFailsWhenUpdatedTicketSnapshotIsMissing() {
+        stubSuccessfulWithdraw();
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.withdrawSupplementRequest(TICKET_NO,
+                new WithdrawSupplementRequestCommand(5L, "信息已补齐")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("撤回补充请求后无法读取工单快照");
+
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    @Test
+    void withdrawSupplementRequestFailsWhenUpdatedRecordSeqIsMissing() {
+        stubSuccessfulWithdraw();
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, null, 6L));
+
+        assertThatThrownBy(() -> service.withdrawSupplementRequest(TICKET_NO,
+                new WithdrawSupplementRequestCommand(5L, "信息已补齐")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("撤回补充请求后无法读取工单快照");
+    }
+
+    @Test
+    void withdrawSupplementRequestFailsWhenUpdatedVersionIsMissing() {
+        stubSuccessfulWithdraw();
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 7, null));
+
+        assertThatThrownBy(() -> service.withdrawSupplementRequest(TICKET_NO,
+                new WithdrawSupplementRequestCommand(5L, "信息已补齐")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("撤回补充请求后无法读取工单快照");
+    }
+
+    // ---------- reportUnresolved ----------
+
+    /**
+     * 权限闸门先于提交人身份闸门：IT 负责人能看到工单、也确实是负责人，
+     * 但缺 {@code TICKET_REQUESTER_ACTION} 时在读取可见性之前就该被 403 拦下。
+     */
+    @Test
+    void reportUnresolvedChecksRequesterPermissionBeforeIdentity() {
+        when(currentRequesterPort.currentUserId()).thenReturn(IT_USER_ID);
+        when(ticketReadPermissionPort.hasAuthority("TICKET_REQUESTER_ACTION")).thenReturn(false);
+
+        assertApiException(
+                () -> service.reportUnresolved(TICKET_NO,
+                        new ReportUnresolvedCommand(4L, "还没修好")),
+                HttpStatus.FORBIDDEN, "TICKET_ACTION_FORBIDDEN");
+
+        verify(ticketMapper, never())
+                .selectVisibleDetail(any(), anyLong(), anyBoolean(), anyBoolean(), anyBoolean());
+        verify(ticketMapper, never()).reportUnresolved(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void reportUnresolvedReportsNotFoundWhenTicketIsNotVisible() {
+        stubRequesterActor();
+
+        assertApiException(
+                () -> service.reportUnresolved(TICKET_NO,
+                        new ReportUnresolvedCommand(4L, "还没修好")),
+                HttpStatus.NOT_FOUND, "TICKET_NOT_FOUND");
+
+        verify(ticketMapper, never()).reportUnresolved(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void reportUnresolvedReportsConflictWhenTicketIsNotWaitingForConfirmation() {
+        stubRequesterActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 4L));
+
+        ApiException exception = assertApiException(
+                () -> service.reportUnresolved(TICKET_NO,
+                        new ReportUnresolvedCommand(4L, "还没修好")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).isEqualTo(4L);
+        assertThat(exception.resourceStatus()).isEqualTo(PROCESSING);
+        verify(ticketMapper, never()).reportUnresolved(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /** 有权限但不是提交人时按冲突处理，不用 403 暴露"谁是提交人"。 */
+    @Test
+    void reportUnresolvedReportsConflictWhenActorIsNotTheRequester() {
+        when(currentRequesterPort.currentUserId()).thenReturn(IT_USER_ID);
+        when(ticketReadPermissionPort.hasAuthority("TICKET_REQUESTER_ACTION")).thenReturn(true);
+        stubVisible(detailRow(WAITING_FOR_CONFIRMATION, IT_USER_ID, 4L));
+
+        ApiException exception = assertApiException(
+                () -> service.reportUnresolved(TICKET_NO,
+                        new ReportUnresolvedCommand(4L, "还没修好")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).isEqualTo(4L);
+        assertThat(exception.resourceStatus()).isEqualTo(WAITING_FOR_CONFIRMATION);
+        verify(ticketMapper, never()).reportUnresolved(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void reportUnresolvedReportsConflictWhenCommandVersionIsStale() {
+        stubRequesterActor();
+        stubVisible(detailRow(WAITING_FOR_CONFIRMATION, IT_USER_ID, 5L));
+
+        ApiException exception = assertApiException(
+                () -> service.reportUnresolved(TICKET_NO,
+                        new ReportUnresolvedCommand(4L, "还没修好")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).as("冲突响应携带可见快照版本").isEqualTo(5L);
+        assertThat(exception.resourceStatus()).isEqualTo(WAITING_FOR_CONFIRMATION);
+        verify(ticketMapper, never()).reportUnresolved(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /** 校验顺序：状态/提交人/版本冲突先于原因长度，空白原因 + 过期版本必须得到 409。 */
+    @Test
+    void reportUnresolvedReportsConflictBeforeValidatingBlankReason() {
+        stubRequesterActor();
+        stubVisible(detailRow(WAITING_FOR_CONFIRMATION, IT_USER_ID, 5L));
+
+        assertApiException(
+                () -> service.reportUnresolved(TICKET_NO,
+                        new ReportUnresolvedCommand(4L, "   ")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never()).reportUnresolved(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void reportUnresolvedRejectsBlankReasonWhenVersionMatches() {
+        stubRequesterActor();
+        stubVisible(detailRow(WAITING_FOR_CONFIRMATION, IT_USER_ID, 4L));
+
+        assertApiException(
+                () -> service.reportUnresolved(TICKET_NO,
+                        new ReportUnresolvedCommand(4L, "   ")),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verify(ticketMapper, never()).reportUnresolved(anyLong(), anyLong(), anyLong(), any());
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    /** 非 HTTP 调用方给出 null 原因同样归入 400 校验分支，不能因为 null 变成 500。 */
+    @Test
+    void reportUnresolvedRejectsNullReasonWithoutThrowing() {
+        stubRequesterActor();
+        stubVisible(detailRow(WAITING_FOR_CONFIRMATION, IT_USER_ID, 4L));
+
+        assertApiException(
+                () -> service.reportUnresolved(TICKET_NO,
+                        new ReportUnresolvedCommand(4L, null)),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verify(ticketMapper, never()).reportUnresolved(anyLong(), anyLong(), anyLong(), any());
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    @Test
+    void reportUnresolvedRejectsReasonOverLimit() {
+        stubRequesterActor();
+        stubVisible(detailRow(WAITING_FOR_CONFIRMATION, IT_USER_ID, 4L));
+
+        assertApiException(
+                () -> service.reportUnresolved(TICKET_NO,
+                        new ReportUnresolvedCommand(4L, "a".repeat(1001))),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verify(ticketMapper, never()).reportUnresolved(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /** 反馈未解决成功：回到处理中、期限清空、负责人保留，时间线写 {@code UNSATISFIED_FEEDBACK}。 */
+    @Test
+    void reportUnresolvedReturnsTicketToProcessingAndKeepsAssignee() {
+        stubSuccessfulReport();
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 6, 5L));
+        when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
+
+        TicketActionResult result = service.reportUnresolved(TICKET_NO,
+                new ReportUnresolvedCommand(4L, "  问题又出现了  "));
+
+        verify(ticketMapper).reportUnresolved(TICKET_ID, 4L, REQUESTER_ID, NOW_UTC);
+        verify(ticketMapper, never())
+                .withdrawSupplementRequest(anyLong(), anyLong(), anyLong(), any());
+
+        ArgumentCaptor<TicketRecord> records = ArgumentCaptor.forClass(TicketRecord.class);
+        verify(ticketRecordMapper).insert(records.capture());
+        TicketRecord record = records.getValue();
+        assertThat(record.getRecordType()).isEqualTo("UNSATISFIED_FEEDBACK");
+        assertThat(record.getSequenceNo()).as("序号取递增后的 recordSeq").isEqualTo(6);
+        assertThat(record.getActorType()).isEqualTo("USER");
+        assertThat(record.getActorUserId()).as("动作由提交人执行").isEqualTo(REQUESTER_ID);
+        assertThat(record.getReason()).as("原因去除首尾空白后落库").isEqualTo("问题又出现了");
+        assertThat(record.getContent()).as("未解决反馈没有正文").isNull();
+        assertThat(record.getFromStatus()).isEqualTo(WAITING_FOR_CONFIRMATION);
+        assertThat(record.getToStatus()).isEqualTo(PROCESSING);
+        assertThat(record.getFromAssigneeId()).as("退回不等于换人").isNull();
+        assertThat(record.getToAssigneeId()).as("退回不等于换人").isNull();
+        assertThat(record.getCreatedAt()).isEqualTo(NOW_UTC);
+
+        assertThat(result.ticketNo()).isEqualTo(TICKET_NO);
+        assertThat(result.status()).as("反馈后回到处理中").isEqualTo(PROCESSING);
+        assertThat(result.assignee()).as("原负责人保留")
+                .isEqualTo(new TicketUserSummaryResult(IT_USER_ID, IT_DISPLAY_NAME));
+        assertThat(result.actionDeadlineAt()).as("原确认期限由条件更新一并清空").isNull();
+        assertThat(result.version()).isEqualTo(5L);
+        assertThat(result.actionTime()).isEqualTo(NOW.atOffset(ZoneOffset.UTC));
+    }
+
+    /** 没有负责人时摘要为 null 而不是空对象：反馈路径与确认路径同一口径。 */
+    @Test
+    void reportUnresolvedReturnsNullAssigneeWhenTicketHasNoAssignee() {
+        stubRequesterActor();
+        stubVisible(detailRow(WAITING_FOR_CONFIRMATION, null, 4L));
+        when(ticketMapper.reportUnresolved(TICKET_ID, 4L, REQUESTER_ID, NOW_UTC)).thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 6, 5L));
+        when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
+
+        TicketActionResult result = service.reportUnresolved(TICKET_NO,
+                new ReportUnresolvedCommand(4L, "还没修好"));
+
+        assertThat(result.status()).isEqualTo(PROCESSING);
+        assertThat(result.assignee()).isNull();
+    }
+
+    @Test
+    void reportUnresolvedReportsConflictWithReloadedSnapshotWhenConditionalUpdateLoses() {
+        stubRequesterActor();
+        stubVisible(detailRow(WAITING_FOR_CONFIRMATION, IT_USER_ID, 4L));
+        when(ticketMapper.reportUnresolved(TICKET_ID, 4L, REQUESTER_ID, NOW_UTC)).thenReturn(0);
+        when(ticketMapper.selectClaimConflictSnapshotForUpdate(TICKET_ID))
+                .thenReturn(conflictSnapshot(COMPLETED, 5L));
+
+        ApiException exception = assertApiException(
+                () -> service.reportUnresolved(TICKET_NO,
+                        new ReportUnresolvedCommand(4L, "还没修好")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).as("携带读回的最新版本").isEqualTo(5L);
+        assertThat(exception.resourceStatus()).as("携带读回的最新状态").isEqualTo(COMPLETED);
+        verify(ticketMapper, never()).selectById(TICKET_ID);
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    @Test
+    void reportUnresolvedFailsWhenConflictSnapshotCannotBeRead() {
+        stubRequesterActor();
+        stubVisible(detailRow(WAITING_FOR_CONFIRMATION, IT_USER_ID, 4L));
+        when(ticketMapper.reportUnresolved(TICKET_ID, 4L, REQUESTER_ID, NOW_UTC)).thenReturn(0);
+        when(ticketMapper.selectClaimConflictSnapshotForUpdate(TICKET_ID)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.reportUnresolved(TICKET_NO,
+                new ReportUnresolvedCommand(4L, "还没修好")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("反馈未解决冲突后无法读取工单快照");
+    }
+
+    @Test
+    void reportUnresolvedFailsWhenUpdatedTicketSnapshotIsMissing() {
+        stubSuccessfulReport();
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.reportUnresolved(TICKET_NO,
+                new ReportUnresolvedCommand(4L, "还没修好")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("反馈未解决后无法读取工单快照");
+
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    @Test
+    void reportUnresolvedFailsWhenUpdatedRecordSeqIsMissing() {
+        stubSuccessfulReport();
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, null, 5L));
+
+        assertThatThrownBy(() -> service.reportUnresolved(TICKET_NO,
+                new ReportUnresolvedCommand(4L, "还没修好")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("反馈未解决后无法读取工单快照");
+    }
+
+    @Test
+    void reportUnresolvedFailsWhenUpdatedVersionIsMissing() {
+        stubSuccessfulReport();
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 6, null));
+
+        assertThatThrownBy(() -> service.reportUnresolved(TICKET_NO,
+                new ReportUnresolvedCommand(4L, "还没修好")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("反馈未解决后无法读取工单快照");
+    }
+
     // ---------- TicketProperties ----------
 
     @Test
@@ -1078,6 +1629,20 @@ class TicketServiceImplTest {
                 .getMethod("create", CreateTicketCommand.class)
                 .isAnnotationPresent(Transactional.class))
                 .as("create 用 REQUIRES_NEW 的 TransactionTemplate 自行管理事务边界").isFalse();
+    }
+
+    /** 片 A 的两个退回动作同样必须由声明式事务包住条件更新与时间线写入。 */
+    @Test
+    void returnActionMethodsDeclareTransactionBoundaries() throws NoSuchMethodException {
+        assertThat(TicketServiceImpl.class
+                .getMethod("withdrawSupplementRequest", String.class,
+                        WithdrawSupplementRequestCommand.class)
+                .isAnnotationPresent(Transactional.class))
+                .as("withdrawSupplementRequest 由声明式事务包住条件更新与时间线写入").isTrue();
+        assertThat(TicketServiceImpl.class
+                .getMethod("reportUnresolved", String.class, ReportUnresolvedCommand.class)
+                .isAnnotationPresent(Transactional.class))
+                .as("reportUnresolved 由声明式事务包住条件更新与时间线写入").isTrue();
     }
 
     // ---------- 辅助 ----------
@@ -1205,6 +1770,22 @@ class TicketServiceImplTest {
     private void stubRequesterActor() {
         when(currentRequesterPort.currentUserId()).thenReturn(REQUESTER_ID);
         when(ticketReadPermissionPort.hasAuthority("TICKET_REQUESTER_ACTION")).thenReturn(true);
+    }
+
+    /** 撤回路径的公共前置：有处理权限、本人是「待补充」的负责人、版本 5。 */
+    private void stubSuccessfulWithdraw() {
+        stubProcessActor();
+        stubVisible(detailRow(WAITING_FOR_REQUESTER, IT_USER_ID, 5L));
+        when(ticketMapper.withdrawSupplementRequest(TICKET_ID, 5L, IT_USER_ID, NOW_UTC))
+                .thenReturn(1);
+    }
+
+    /** 未解决反馈路径的公共前置：有提交人权限、本人是「待确认」的提交人、版本 4。 */
+    private void stubSuccessfulReport() {
+        stubRequesterActor();
+        stubVisible(detailRow(WAITING_FOR_CONFIRMATION, IT_USER_ID, 4L));
+        when(ticketMapper.reportUnresolved(TICKET_ID, 4L, REQUESTER_ID, NOW_UTC))
+                .thenReturn(1);
     }
 
     private void stubVisible(TicketDetailRow row) {

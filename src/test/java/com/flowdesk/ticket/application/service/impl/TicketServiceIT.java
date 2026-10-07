@@ -8,7 +8,9 @@ import com.flowdesk.ticket.application.command.AddProcessingRecordCommand;
 import com.flowdesk.ticket.application.command.ClaimTicketCommand;
 import com.flowdesk.ticket.application.command.ConfirmResolutionCommand;
 import com.flowdesk.ticket.application.command.CreateTicketCommand;
+import com.flowdesk.ticket.application.command.ReportUnresolvedCommand;
 import com.flowdesk.ticket.application.command.SubmitResolutionCommand;
+import com.flowdesk.ticket.application.command.WithdrawSupplementRequestCommand;
 import com.flowdesk.ticket.application.query.TicketRecordQuery;
 import com.flowdesk.ticket.application.result.TicketActionResult;
 import com.flowdesk.ticket.application.result.TicketCreatedResult;
@@ -22,6 +24,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -58,6 +61,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 /**
@@ -78,6 +82,13 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
  *       {@code ck_ticket_status_ended} / {@code ck_ticket_status_completion_method} /
  *       {@code ck_ticket_status_assignee} 在真实状态迁移后仍然成立。</li>
  * </ol>
+ *
+ * <p><b>片 A（退回处理中）的临时造数手段</b>：{@code withdrawSupplementRequest} 要求工单处于
+ * {@code WAITING_FOR_REQUESTER}，而进入该状态要靠片 B 的 {@code request-supplement}——
+ * 当前没有任何接口可以做到。因此 {@link #insertWaitingForRequesterTicket} 用 {@link JdbcTemplate}
+ * 直接把一张已领取的工单置位（状态、期限 = now + 7d、{@code version + 1}、{@code record_seq + 1}），
+ * 并补一条 {@code SUPPLEMENT_REQUEST} 记录保持时间线连贯，形状与一次真实动作落库后一致。
+ * 片 B 落地后这些用例应改为走 {@code request-supplement} 造数，本注释随之失效。</p>
  *
  * <p>与既有 IT 约定一致：{@code @ActiveProfiles("test")} + Testcontainers 临时库、
  * 不使用测试级 {@code @Transactional}（外层事务会掩盖 {@code REQUIRES_NEW} 与
@@ -101,11 +112,21 @@ class TicketServiceIT {
 
     private static final String PENDING = "PENDING";
     private static final String PROCESSING = "PROCESSING";
+    private static final String WAITING_FOR_REQUESTER = "WAITING_FOR_REQUESTER";
     private static final String WAITING_FOR_CONFIRMATION = "WAITING_FOR_CONFIRMATION";
     private static final String COMPLETED = "COMPLETED";
 
     /** 与 {@code application.yml} 的 {@code flowdesk.ticket.confirmation-window} 一致。 */
     private static final Duration CONFIRMATION_WINDOW = Duration.ofDays(7);
+
+    /**
+     * 「待补充」造数用的期限。
+     *
+     * <p>片 B 之前没有 {@code flowdesk.ticket.supplement-window} 配置，也没有任何接口能进入
+     * {@link #WAITING_FOR_REQUESTER}，因此这里固定按 7×24 小时造数；片 B 落地后应改为
+     * 走 {@code request-supplement} 接口并使用它自己的窗口配置。</p>
+     */
+    private static final Duration SUPPLEMENT_FIXTURE_WINDOW = Duration.ofDays(7);
 
     /** 直接造数用的工单号，避开当日序号分配出来的编号空间。 */
     private static final AtomicInteger FIXTURE_SEQUENCE = new AtomicInteger(900);
@@ -686,6 +707,235 @@ class TicketServiceIT {
         assertThat(timeline.items().get(4).context()).containsEntry("content", "已解决");
     }
 
+    // ---------- 片 A：退回处理中 ----------
+
+    /**
+     * 片 A 正常路径：员工反馈未解决后，工单从「待确认」回到「处理中」。
+     *
+     * <p>用真实服务把工单推到待确认（create → claim → submit-resolution），再执行反馈，
+     * 因此版本号与记录序号都来自真实动作，而不是造数拼接。</p>
+     */
+    @Test
+    void reportUnresolvedReturnsTicketToProcessingAndKeepsAssignee() {
+        authenticateAs(employeeId, EMPLOYEE);
+        TicketCreatedResult created = createTicket(UUID.randomUUID().toString(), "反馈未解决");
+        long ticketId = ticketIdOf(created.ticketNo());
+
+        authenticateAs(itUserId, IT_SUPPORT);
+        TicketActionResult claimed = ticketService.claim(
+                created.ticketNo(), new ClaimTicketCommand(created.version()));
+        TicketActionResult resolved = ticketService.submitResolution(
+                created.ticketNo(),
+                new SubmitResolutionCommand(claimed.version(), "已更换网线"));
+
+        authenticateAs(employeeId, EMPLOYEE);
+        TicketActionResult reported = ticketService.reportUnresolved(
+                created.ticketNo(),
+                new ReportUnresolvedCommand(resolved.version(), "  复测后仍有故障  "));
+
+        assertThat(reported.status()).isEqualTo(PROCESSING);
+        assertThat(reported.version()).as("反馈只推进一个版本")
+                .isEqualTo(resolved.version() + 1L);
+        assertThat(reported.actionDeadlineAt()).as("退回处理中不再有期限").isNull();
+        assertThat(reported.assignee().id()).as("退回不等于换人").isEqualTo(itUserId);
+
+        assertThat(statusOf(ticketId)).isEqualTo(PROCESSING);
+        assertThat(versionOf(ticketId)).as("库里版本只 +1")
+                .isEqualTo(resolved.version() + 1L);
+        assertThat(actionDeadlineOf(ticketId))
+                .as("ck_ticket_status_deadline：离开待确认后期限必须为 NULL")
+                .isNull();
+        assertThat(endedAtOf(ticketId))
+                .as("ck_ticket_status_ended：退回后不是终态").isNull();
+        assertThat(completionMethodOf(ticketId))
+                .as("ck_ticket_status_completion_method：退回后没有完成方式").isNull();
+        assertThat(assigneeOf(ticketId)).as("负责人保留").isEqualTo(itUserId);
+        assertThat(recordSeqOf(ticketId)).as("record_seq 与时间线同步推进").isEqualTo(4);
+
+        List<Map<String, Object>> rows = timelineOf(ticketId);
+        assertThat(rows).extracting(row -> ((Number) row.get("sequence_no")).intValue())
+                .as("记录序号从 1 起连续无跳号")
+                .containsExactly(1, 2, 3, 4);
+        assertThat(rows).extracting(row -> row.get("record_type"))
+                .as("解决结果作为历史保留，末尾追加未解决反馈")
+                .containsExactly("CREATE", "CLAIM", "RESOLUTION", "UNSATISFIED_FEEDBACK");
+        assertThat(lastRecordTypeOf(ticketId)).isEqualTo("UNSATISFIED_FEEDBACK");
+        assertThat(recordReason(ticketId, "UNSATISFIED_FEEDBACK"))
+                .as("反馈原因去除首尾空白后落库").isEqualTo("复测后仍有故障");
+        assertThat(recordContent(ticketId, "UNSATISFIED_FEEDBACK"))
+                .as("反馈记录没有正文").isNull();
+        assertThat(recordContent(ticketId, "RESOLUTION"))
+                .as("历史解决结果不被改写").isEqualTo("已更换网线");
+    }
+
+    /**
+     * 片 A 正常路径：当前负责人撤回补充请求后，工单从「待补充」回到「处理中」。
+     *
+     * <p>工单由 {@link #insertWaitingForRequesterTicket} 直接造数——片 B 之前没有接口能进入
+     * {@code WAITING_FOR_REQUESTER}，该方法是临时手段，片 B 落地后改用
+     * {@code request-supplement}。</p>
+     */
+    @Test
+    void withdrawSupplementRequestReturnsTicketToProcessingAndClearsSupplementDeadline() {
+        long ticketId = insertWaitingForRequesterTicket(employeeId, itUserId);
+        String ticketNo = ticketNoOf(ticketId);
+        long versionBefore = versionOf(ticketId);
+        LocalDateTime supplementDeadline = actionDeadlineOf(ticketId);
+
+        assertThat(statusOf(ticketId)).isEqualTo(WAITING_FOR_REQUESTER);
+        assertThat(supplementDeadline)
+                .as("造数必须满足 ck_ticket_status_deadline：待补充要有期限").isNotNull();
+
+        authenticateAs(itUserId, IT_SUPPORT);
+        TicketActionResult withdrawn = ticketService.withdrawSupplementRequest(
+                ticketNo,
+                new WithdrawSupplementRequestCommand(versionBefore, "  信息已足够  "));
+
+        assertThat(withdrawn.status()).isEqualTo(PROCESSING);
+        assertThat(withdrawn.version()).isEqualTo(versionBefore + 1L);
+        assertThat(withdrawn.actionDeadlineAt()).isNull();
+        assertThat(withdrawn.assignee().id()).as("负责人不变").isEqualTo(itUserId);
+
+        assertThat(statusOf(ticketId)).isEqualTo(PROCESSING);
+        assertThat(versionOf(ticketId)).as("库里版本只 +1").isEqualTo(versionBefore + 1);
+        assertThat(actionDeadlineOf(ticketId))
+                .as("ck_ticket_status_deadline：离开待补充后期限必须为 NULL")
+                .isNull();
+        assertThat(endedAtOf(ticketId)).as("退回后不是终态").isNull();
+        assertThat(assigneeOf(ticketId)).isEqualTo(itUserId);
+        assertThat(recordSeqOf(ticketId)).isEqualTo(3);
+
+        List<Map<String, Object>> rows = timelineOf(ticketId);
+        assertThat(rows).extracting(row -> ((Number) row.get("sequence_no")).intValue())
+                .as("补的 SUPPLEMENT_REQUEST 与撤回记录接在同一条时间线上")
+                .containsExactly(1, 2, 3);
+        assertThat(rows).extracting(row -> row.get("record_type"))
+                .containsExactly("CREATE", "SUPPLEMENT_REQUEST",
+                        "SUPPLEMENT_REQUEST_WITHDRAWN");
+        assertThat(lastRecordTypeOf(ticketId)).isEqualTo("SUPPLEMENT_REQUEST_WITHDRAWN");
+        assertThat(recordReason(ticketId, "SUPPLEMENT_REQUEST_WITHDRAWN"))
+                .as("撤回原因去除首尾空白后落库").isEqualTo("信息已足够");
+
+        // 真库 CHECK 约束不是摆设：应用漏写期限时，非等待态带期限会被数据库直接拒绝，
+        // 因此上面的 NULL 断言证明的是"约束被满足"，而不是"这一列恰好没人写"。
+        // MySQL 对 CHECK 违反返回 error 3819 / SQL state HY000，Spring 只能归到
+        // DataAccessException 的未分类子类，因此断言父类型 + 约束名。
+        assertThatThrownBy(() -> jdbc.update(
+                "UPDATE ticket SET action_deadline_at = ? WHERE id = ?",
+                supplementDeadline, ticketId))
+                .as("ck_ticket_status_deadline 在真库上确实生效")
+                .isInstanceOf(DataAccessException.class)
+                .hasMessageContaining("ck_ticket_status_deadline");
+    }
+
+    /**
+     * 真并发：两个线程用同一版本撤回补充请求。
+     *
+     * <p>两边都通过前置校验后同时执行条件更新，只有一个影响 1 行，败者读回已经 +1 的版本。
+     * 终态版本只 +1、撤回记录只多 1 条、期限被清空。</p>
+     */
+    @Test
+    void concurrentWithdrawSupplementRequestWithSameVersionHasExactlyOneWinner()
+            throws Exception {
+        long ticketId = insertWaitingForRequesterTicket(employeeId, itUserId);
+        String ticketNo = ticketNoOf(ticketId);
+        long versionBefore = versionOf(ticketId);
+
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        List<Object> results = runConcurrently(List.<Callable<Object>>of(
+                () -> withdrawAfterBarrier(barrier, ticketNo, versionBefore, "第一条撤回原因"),
+                () -> withdrawAfterBarrier(barrier, ticketNo, versionBefore, "第二条撤回原因")));
+
+        List<TicketActionResult> winners = results.stream()
+                .filter(TicketActionResult.class::isInstance)
+                .map(TicketActionResult.class::cast)
+                .toList();
+        assertThat(winners).as("同版本并发撤回只能有一个成功").hasSize(1);
+        assertThat(winners.getFirst().status()).isEqualTo(PROCESSING);
+        assertThat(winners.getFirst().version()).isEqualTo(versionBefore + 1L);
+        assertThat(winners.getFirst().actionDeadlineAt()).isNull();
+
+        ApiException loser = singleApiException(results);
+        assertThat(loser.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(loser.code()).isEqualTo("TICKET_CONFLICT");
+        assertThat(loser.resourceVersion()).as("冲突响应携带库里最新版本")
+                .isEqualTo(versionOf(ticketId));
+        assertThat(loser.resourceStatus()).isEqualTo(PROCESSING);
+
+        assertThat(versionOf(ticketId)).as("终态版本只 +1").isEqualTo(versionBefore + 1);
+        assertThat(countRecords(ticketId, "SUPPLEMENT_REQUEST_WITHDRAWN"))
+                .as("只多一条撤回记录").isEqualTo(1);
+        assertThat(recordSeqOf(ticketId)).isEqualTo(3);
+        assertThat(actionDeadlineOf(ticketId))
+                .as("ck_ticket_status_deadline：退回处理中后期限为 NULL").isNull();
+        assertThat(recordReason(ticketId, "SUPPLEMENT_REQUEST_WITHDRAWN"))
+                .as("落库原因只能来自其中一个赢家")
+                .isIn("第一条撤回原因", "第二条撤回原因");
+    }
+
+    /**
+     * 跨动作互斥：同一张「待确认」工单上并发执行 {@code confirm-resolution} 与
+     * {@code report-unresolved}。
+     *
+     * <p>两个动作的提交人相同、条件更新的预期状态都是 {@code WAITING_FOR_CONFIRMATION}，
+     * 因此只可能有一个影响 1 行。终态必须与落库的那条记录自洽：确认 → {@code COMPLETED} +
+     * {@code COMPLETION}；反馈 → {@code PROCESSING} + {@code UNSATISFIED_FEEDBACK}，
+     * 两条记录不可能同时存在。</p>
+     */
+    @Test
+    void concurrentConfirmationAndUnresolvedReportHaveExactlyOneWinner() throws Exception {
+        long ticketId = insertWaitingForConfirmationTicket(employeeId, itUserId);
+        String ticketNo = ticketNoOf(ticketId);
+        long versionBefore = versionOf(ticketId);
+
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        List<Object> results = runConcurrently(List.<Callable<Object>>of(
+                () -> confirmAfterBarrier(barrier, ticketNo, versionBefore),
+                () -> reportAfterBarrier(barrier, ticketNo, versionBefore, "并发反馈未解决")));
+
+        List<TicketActionResult> winners = results.stream()
+                .filter(TicketActionResult.class::isInstance)
+                .map(TicketActionResult.class::cast)
+                .toList();
+        assertThat(winners).as("两个互斥动作只能有一个成功").hasSize(1);
+        assertThat(winners.getFirst().version()).isEqualTo(versionBefore + 1L);
+
+        ApiException loser = singleApiException(results);
+        assertThat(loser.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(loser.code()).isEqualTo("TICKET_CONFLICT");
+        assertThat(loser.resourceVersion()).as("冲突响应携带库里最新版本")
+                .isEqualTo(versionOf(ticketId));
+        assertThat(loser.resourceStatus()).as("冲突响应携带库里最新状态")
+                .isEqualTo(statusOf(ticketId));
+
+        assertThat(versionOf(ticketId)).as("终态版本只 +1").isEqualTo(versionBefore + 1);
+        assertThat(recordSeqOf(ticketId)).isEqualTo(2);
+        assertThat(countRecords(ticketId, "COMPLETION")
+                + countRecords(ticketId, "UNSATISFIED_FEEDBACK"))
+                .as("两个动作的记录不可能同时落库").isEqualTo(1);
+        assertThat(assigneeOf(ticketId)).as("两个动作都不换负责人").isEqualTo(itUserId);
+
+        if (COMPLETED.equals(winners.getFirst().status())) {
+            assertThat(statusOf(ticketId)).isEqualTo(COMPLETED);
+            assertThat(countRecords(ticketId, "UNSATISFIED_FEEDBACK")).isZero();
+            assertThat(endedAtOf(ticketId))
+                    .as("ck_ticket_status_ended：终态必须有结束时间").isNotNull();
+            assertThat(completionMethodOf(ticketId)).isEqualTo("REQUESTER_CONFIRMED");
+        } else {
+            assertThat(winners.getFirst().status()).isEqualTo(PROCESSING);
+            assertThat(statusOf(ticketId)).isEqualTo(PROCESSING);
+            assertThat(countRecords(ticketId, "COMPLETION")).isZero();
+            assertThat(endedAtOf(ticketId)).as("退回不是终态").isNull();
+            assertThat(completionMethodOf(ticketId)).isNull();
+            assertThat(recordReason(ticketId, "UNSATISFIED_FEEDBACK"))
+                    .isEqualTo("并发反馈未解决");
+        }
+
+        assertThat(actionDeadlineOf(ticketId))
+                .as("ck_ticket_status_deadline：无论谁赢，离开待确认后期限都为 NULL")
+                .isNull();
+    }
+
     // ---------- 权限与身份闸门 ----------
 
     /**
@@ -779,6 +1029,106 @@ class TicketServiceIT {
         assertThat(countRecords(ticketId, "COMPLETION")).isZero();
     }
 
+    /**
+     * 片 A 权限闸门：IT 负责人缺 {@code TICKET_REQUESTER_ACTION}，即使他确实是这张「待确认」
+     * 工单的负责人、也看得见工单，反馈未解决仍必须先被 403 拦下（权限先于身份）。
+     */
+    @Test
+    void reportUnresolvedByItSupportIsForbiddenBeforeIdentityCheck() {
+        long ticketId = insertWaitingForConfirmationTicket(employeeId, itUserId);
+
+        authenticateAs(itUserId, IT_SUPPORT);
+
+        assertApiError(
+                () -> ticketService.reportUnresolved(ticketNoOf(ticketId),
+                        new ReportUnresolvedCommand(versionOf(ticketId), "还没修好")),
+                HttpStatus.FORBIDDEN,
+                "TICKET_ACTION_FORBIDDEN");
+        // 权限在可见性之前：不存在的编号也先得到 403，不会泄露编号是否存在
+        assertApiError(
+                () -> ticketService.reportUnresolved("FD-19700101-001",
+                        new ReportUnresolvedCommand(0L, "还没修好")),
+                HttpStatus.FORBIDDEN,
+                "TICKET_ACTION_FORBIDDEN");
+
+        assertThat(statusOf(ticketId)).isEqualTo(WAITING_FOR_CONFIRMATION);
+        assertThat(actionDeadlineOf(ticketId)).as("未执行的反馈不能改动期限").isNotNull();
+        assertThat(countRecords(ticketId, "UNSATISFIED_FEEDBACK")).isZero();
+        assertThat(versionOf(ticketId)).isZero();
+    }
+
+    /**
+     * 片 A 权限闸门：员工缺 {@code TICKET_PROCESS}，即使他是这张「待补充」工单的可见提交人，
+     * 撤回请求也必须先被 403 拦下。
+     */
+    @Test
+    void withdrawSupplementRequestByEmployeeIsForbiddenBeforeVisibilityCheck() {
+        long ticketId = insertWaitingForRequesterTicket(employeeId, itUserId);
+
+        authenticateAs(employeeId, EMPLOYEE);
+
+        assertApiError(
+                () -> ticketService.withdrawSupplementRequest(ticketNoOf(ticketId),
+                        new WithdrawSupplementRequestCommand(versionOf(ticketId), "撤回")),
+                HttpStatus.FORBIDDEN,
+                "TICKET_ACTION_FORBIDDEN");
+        assertApiError(
+                () -> ticketService.withdrawSupplementRequest("FD-19700101-001",
+                        new WithdrawSupplementRequestCommand(0L, "撤回")),
+                HttpStatus.FORBIDDEN,
+                "TICKET_ACTION_FORBIDDEN");
+
+        assertThat(statusOf(ticketId)).isEqualTo(WAITING_FOR_REQUESTER);
+        assertThat(actionDeadlineOf(ticketId)).as("未执行的撤回不能清空期限").isNotNull();
+        assertThat(countRecords(ticketId, "SUPPLEMENT_REQUEST_WITHDRAWN")).isZero();
+        assertThat(versionOf(ticketId)).isEqualTo(1);
+    }
+
+    /** 能看见工单但不是当前负责人：撤回按冲突返回，而不是 403 或 404。 */
+    @Test
+    void withdrawSupplementRequestByVisibleNonAssigneeIsConflict() {
+        long ticketId = insertWaitingForRequesterTicket(employeeId, itUserId);
+        insertParticipant(ticketId, otherItId);
+
+        authenticateAs(otherItId, IT_SUPPORT);
+
+        ApiException conflict = catchApiError(() -> ticketService.withdrawSupplementRequest(
+                ticketNoOf(ticketId),
+                new WithdrawSupplementRequestCommand(versionOf(ticketId), "我不是负责人")));
+
+        assertThat(conflict.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(conflict.code()).isEqualTo("TICKET_CONFLICT");
+        assertThat(conflict.resourceStatus()).isEqualTo(WAITING_FOR_REQUESTER);
+        assertThat(conflict.resourceVersion()).isEqualTo(versionOf(ticketId));
+        assertThat(statusOf(ticketId)).isEqualTo(WAITING_FOR_REQUESTER);
+        assertThat(countRecords(ticketId, "SUPPLEMENT_REQUEST_WITHDRAWN")).isZero();
+    }
+
+    /**
+     * 能看见工单但不是提交人：反馈未解决按冲突返回。
+     * 该账号同时持有 {@code TICKET_REQUESTER_ACTION}（EMPLOYEE）与 {@code TICKET_PROCESS}
+     * （IT_SUPPORT），因此闸门必须落到"只有提交人能反馈"这一条。
+     */
+    @Test
+    void reportUnresolvedByVisibleNonRequesterIsConflict() {
+        long dualRoleUserId = insertUser("dual-role-report", EMPLOYEE, IT_SUPPORT);
+        long ticketId = insertWaitingForConfirmationTicket(employeeId, dualRoleUserId);
+
+        authenticateAs(dualRoleUserId, EMPLOYEE, IT_SUPPORT);
+
+        ApiException conflict = catchApiError(() -> ticketService.reportUnresolved(
+                ticketNoOf(ticketId),
+                new ReportUnresolvedCommand(versionOf(ticketId), "我不是提交人")));
+
+        assertThat(conflict.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(conflict.code()).isEqualTo("TICKET_CONFLICT");
+        assertThat(conflict.resourceStatus()).isEqualTo(WAITING_FOR_CONFIRMATION);
+        assertThat(conflict.resourceVersion()).isEqualTo(versionOf(ticketId));
+        assertThat(statusOf(ticketId)).isEqualTo(WAITING_FOR_CONFIRMATION);
+        assertThat(actionDeadlineOf(ticketId)).isNotNull();
+        assertThat(countRecords(ticketId, "UNSATISFIED_FEEDBACK")).isZero();
+    }
+
     /** 无关用户：详情与动作都统一 404，不确认工单是否存在；有权限但看不见也一样。 */
     @Test
     void unrelatedUserCannotReadDetailOrClaim() {
@@ -832,6 +1182,22 @@ class TicketServiceIT {
         barrier.await(30, TimeUnit.SECONDS);
         authenticateAs(employeeId, EMPLOYEE);
         return ticketService.confirmResolution(ticketNo, new ConfirmResolutionCommand(version));
+    }
+
+    private Object withdrawAfterBarrier(
+            CyclicBarrier barrier, String ticketNo, long version, String reason) throws Exception {
+        barrier.await(30, TimeUnit.SECONDS);
+        authenticateAs(itUserId, IT_SUPPORT);
+        return ticketService.withdrawSupplementRequest(
+                ticketNo, new WithdrawSupplementRequestCommand(version, reason));
+    }
+
+    private Object reportAfterBarrier(
+            CyclicBarrier barrier, String ticketNo, long version, String reason) throws Exception {
+        barrier.await(30, TimeUnit.SECONDS);
+        authenticateAs(employeeId, EMPLOYEE);
+        return ticketService.reportUnresolved(
+                ticketNo, new ReportUnresolvedCommand(version, reason));
     }
 
     // ---------- 身份与断言辅助 ----------
@@ -976,6 +1342,36 @@ class TicketServiceIT {
         return ticketId;
     }
 
+    /**
+     * 片 B 之前的临时造数：没有接口能进入 {@code WAITING_FOR_REQUESTER}，
+     * 因此直接把一张已领取工单置位，并补一条 {@code SUPPLEMENT_REQUEST} 记录保持时间线连贯。
+     *
+     * <p>形状与一次真实动作落库后一致：{@code version + 1}、{@code record_seq + 1}、
+     * 期限 = now + 7d（满足 {@code ck_ticket_status_deadline} 与 {@code ck_ticket_status_assignee}）。
+     * 片 B 的 {@code request-supplement} 落地后应改为走接口造数。</p>
+     */
+    private long insertWaitingForRequesterTicket(long requesterId, long assigneeId) {
+        LocalDateTime deadline = LocalDateTime.now(ZoneOffset.UTC)
+                .plus(SUPPLEMENT_FIXTURE_WINDOW).truncatedTo(ChronoUnit.MILLIS);
+        long ticketId = insertTicketRow(requesterId, WAITING_FOR_REQUESTER, assigneeId, deadline);
+        insertCreateRecord(ticketId, requesterId);
+        jdbc.update("""
+                UPDATE ticket
+                SET version = version + 1,
+                    record_seq = record_seq + 1,
+                    updated_at = CURRENT_TIMESTAMP(3)
+                WHERE id = ?
+                """, ticketId);
+        jdbc.update("""
+                INSERT INTO ticket_record (
+                    ticket_id, sequence_no, record_type, actor_type, actor_user_id,
+                    content, from_status, to_status, deadline_at, created_at
+                ) VALUES (?, 2, 'SUPPLEMENT_REQUEST', 'USER', ?, ?, 'PROCESSING',
+                          'WAITING_FOR_REQUESTER', ?, CURRENT_TIMESTAMP(3))
+                """, ticketId, assigneeId, "请补充打印机型号与错误截图", deadline);
+        return ticketId;
+    }
+
     /** 造一张 record_seq = 1 的工单，与创建动作落库后的形状一致。 */
     private long insertTicketRow(long requesterId, String status, Long assigneeId,
                                  LocalDateTime actionDeadlineAt) {
@@ -1086,6 +1482,27 @@ class TicketServiceIT {
         return jdbc.queryForObject("""
                 SELECT content FROM ticket_record WHERE ticket_id = ? AND record_type = ?
                 """, String.class, ticketId, recordType);
+    }
+
+    private String recordReason(long ticketId, String recordType) {
+        return jdbc.queryForObject("""
+                SELECT reason FROM ticket_record WHERE ticket_id = ? AND record_type = ?
+                """, String.class, ticketId, recordType);
+    }
+
+    /** 时间线按序号升序：sequence_no 是 INT UNSIGNED，比较前先归一化成 int。 */
+    private List<Map<String, Object>> timelineOf(long ticketId) {
+        return jdbc.queryForList("""
+                SELECT sequence_no, record_type, content, reason
+                FROM ticket_record WHERE ticket_id = ? ORDER BY sequence_no ASC
+                """, ticketId);
+    }
+
+    private String lastRecordTypeOf(long ticketId) {
+        return jdbc.queryForObject("""
+                SELECT record_type FROM ticket_record
+                WHERE ticket_id = ? ORDER BY sequence_no DESC LIMIT 1
+                """, String.class, ticketId);
     }
 
     private int countParticipants(long ticketId) {
