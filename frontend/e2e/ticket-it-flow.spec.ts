@@ -251,8 +251,12 @@ test('阶段 3 主链：员工提交 → IT 领取 → 处理 → 提交解决 �
   await ownRow.locator('.ticket-cell__title').click()
 
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(title)
-  // 提交人看到的是确认入口，不是 IT 的处理入口
-  expect(await actionLabels(page)).toEqual(['确认已解决'])
+  /**
+   * 提交人在待确认时看到的是两个互斥选择：确认已解决 / 问题仍未解决（片 A 新增后者）。
+   * 两者的前置条件完全相同（待确认 + 本人是提交人 + `TICKET_REQUESTER_ACTION`），
+   * 所以顺序只由前端登记表决定——本用例仍要钉住"看到的是提交人动作，不是 IT 的处理入口"。
+   */
+  expect(await actionLabels(page)).toEqual(['确认已解决', '问题仍未解决'])
   // 同一个期限字段，对提交人说的是"我要在什么时候之前确认"
   await expect(page.locator('.ticket-facts dt:has-text("确认期限") + dd')).not.toBeEmpty()
   await page.screenshot({ path: resolve(reviewDir, 'employee-detail-confirm-1440.png'), fullPage: true })

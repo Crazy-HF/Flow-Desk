@@ -173,6 +173,18 @@ export interface ConfirmResolutionPayload {
   version: number
 }
 
+/** 撤回补充请求：原因必填，strip 后 1～1000 字符（`docs/api-design.md` 6.3）。 */
+export interface WithdrawSupplementRequestPayload {
+  version: number
+  reason: string
+}
+
+/** 反馈问题未解决：原因必填，长度约束与撤回一致。 */
+export interface ReportUnresolvedPayload {
+  version: number
+  reason: string
+}
+
 export interface CreatedTicket {
   ticketNo: string
   status: TicketStatus
@@ -365,6 +377,40 @@ export async function confirmResolution(
 ): Promise<TicketActionResult> {
   const response = await http.post<ApiEnvelope<TicketActionResult>>(
     `/tickets/${encodeURIComponent(ticketNo)}/actions/confirm-resolution`,
+    payload,
+  )
+  return response.data.data
+}
+
+/**
+ * 当前负责人撤回补充请求（`docs/api-design.md` 6.3，完整状态机片 A）。
+ *
+ * <p>成功后工单从「待员工补充」回到「处理中」，原补充期限由服务端清空；撤回原因必填。
+ * 期限与状态都由服务端判定，前端只负责展示并重新取详情。</p>
+ */
+export async function withdrawSupplementRequest(
+  ticketNo: string,
+  payload: WithdrawSupplementRequestPayload,
+): Promise<TicketActionResult> {
+  const response = await http.post<ApiEnvelope<TicketActionResult>>(
+    `/tickets/${encodeURIComponent(ticketNo)}/actions/withdraw-supplement-request`,
+    payload,
+  )
+  return response.data.data
+}
+
+/**
+ * 提交人反馈问题未解决（`docs/api-design.md` 6.4，完整状态机片 A）。
+ *
+ * <p>工单从「待员工确认」退回「处理中」，原确认期限失效、负责人保留，之前的解决结果
+ * 作为历史留在时间线上——退回不是"驳回"，也不换负责人。</p>
+ */
+export async function reportUnresolved(
+  ticketNo: string,
+  payload: ReportUnresolvedPayload,
+): Promise<TicketActionResult> {
+  const response = await http.post<ApiEnvelope<TicketActionResult>>(
+    `/tickets/${encodeURIComponent(ticketNo)}/actions/report-unresolved`,
     payload,
   )
   return response.data.data

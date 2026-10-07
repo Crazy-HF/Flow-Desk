@@ -42,7 +42,7 @@ describe('工单展示映射', () => {
   })
 
   describe('动作登记表', () => {
-    it('四个已实现动作的权限与后端判定条件一致', () => {
+    it('登记表里每个动作的权限与后端判定条件一致', () => {
       expect(
         Object.entries(TICKET_ACTIONS).map(([name, meta]) => [name, meta.permission]),
       ).toEqual([
@@ -50,6 +50,9 @@ describe('工单展示映射', () => {
         ['add-processing-record', 'TICKET_PROCESS'],
         ['submit-resolution', 'TICKET_PROCESS'],
         ['confirm-resolution', 'TICKET_REQUESTER_ACTION'],
+        // 完整状态机片 A：撤回补充请求（当前负责人）与反馈未解决（提交人）
+        ['withdraw-supplement-request', 'TICKET_PROCESS'],
+        ['report-unresolved', 'TICKET_REQUESTER_ACTION'],
       ])
     })
 
@@ -58,6 +61,9 @@ describe('工单展示映射', () => {
       expect(TICKET_ACTIONS['confirm-resolution'].content).toBeUndefined()
       expect(TICKET_ACTIONS['add-processing-record'].content?.maxLength).toBe(10000)
       expect(TICKET_ACTIONS['submit-resolution'].content?.maxLength).toBe(10000)
+      // 原因类动作的上限是 1000，与 WithdrawSupplementRequestCommand / ReportUnresolvedCommand 对齐
+      expect(TICKET_ACTIONS['withdraw-supplement-request'].content?.maxLength).toBe(1000)
+      expect(TICKET_ACTIONS['report-unresolved'].content?.maxLength).toBe(1000)
     })
 
     it('permittedActions 取 allowedActions 与权限的交集，顺序由登记表决定', () => {

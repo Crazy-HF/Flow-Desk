@@ -1,6 +1,22 @@
 # FlowDesk 项目状态
 
-## 当前结论：阶段 4 与收口两批（PR #11 / #12 / #13）均已合并 main；下一分支 flow-desk/full-state-machine 待方向确认（2026-10-06）
+## 当前结论：完整工单状态机片 A 已完成、已推送并创建合并请求（按用户指示本轮不合并）（2026-10-06）
+
+- **完整版 backlog 第 1 项「完整工单状态机」的开工裁决（用户 2026-10-06 逐条确认，已写入 `docs/implementation-plan.md` 9.3）**：
+  1. **分 4 片**、每片独立验收并交接：**A 退回处理中**（`report-unresolved` + `withdraw-supplement-request`）→ **B 补充往返**（`request-supplement` + `supplement` + `supplement-window`）→ **C 调整与转交**（`change-category`/`change-priority`/`transfer` + `transfer-candidates`）→ **D 结束路径**（`close` + `cancel`）。
+  2. **附件正文先行**：`supplement` 仍是 `multipart/form-data`，但只接受正文；带文件 part 返回 `400/VALIDATION_FAILED`，附件与失败补偿留 backlog 第 2 项。
+  3. **`close` 的 `DUPLICATE` 目标口径**：存在、同一提交人、非自身，且状态不是 `CANCELED`/`CLOSED`（`COMPLETED` 与流转中的工单都可作为重复目标）。
+  4. **超时自动任务本阶段不做**：只写 7×24h 期限并在界面展示，到期不自动改变状态；界面文案必须写明"到期不会自动处理"。
+- **不需要新增迁移与权限码**：`V1` 的 7 状态 / 15 种记录类型 / 8 条 CHECK 约束、`V2` 的 `TICKET_TRANSFER`/`TICKET_CLOSE`（`IT_SUPPORT`）与 `TICKET_REQUESTER_ACTION`（`EMPLOYEE`）都已就位；时间线 context 在 `TicketQueryServiceImpl.toRecordContext` 中也已为这 15 种类型写好。
+- **片 A 已完成并通过真实栈验收（2026-10-06，分支 `flow-desk/ticket-return-actions`，从 `main` `1f85c93` 创建；已提交、已推送并创建合并请求，按用户指示本轮不合并）**：
+  - **后端**：`TicketServiceImpl` 的两个方法与 `allowedActions` 两格由**用户编写**；Agent 写入两个 Command、两条条件更新 SQL（`TicketMapper`）、服务接口与两个 Controller 端点。`reportUnresolved` 的权限闸门先于身份闸门，`canReportUnresolved` 复用 `canConfirm`。
+  - **测试**：四个测试文件共新增 56 项——`TicketServiceImplTest` 55→**92**、`TicketQueryServiceImplTest` 41→**47**、`TicketControllerWebTest` 55→**75**、`TicketServiceIT` 16→**24**；全量 `clean verify` → surefire **722**（基线 666）+ failsafe **127**（基线 119），`Failures 0 / Errors 0`，`BUILD SUCCESS`（3 分 54 秒）。覆盖 403 权限先于可见性/身份、404、状态与身份不符 409、过期版本 409 带快照、空白原因+过期版本→409 的顺序陷阱、1000/1001 边界、真库正常路径、**同版本并发**、**`confirm-resolution` 与 `report-unresolved` 跨动作互斥**、`ck_ticket_status_deadline` 约束探针。
+  - **真实栈验收**：`scripts/slice-a-return-actions-acceptance.ps1` 在**并行后端 8092**（用户自己启动的 8081 全程未被触碰）上执行 **78 项断言全部通过、退出码 0**（脚本首次运行即通过）；五个关键动作各带 `X-Trace-Id`；演示库运行前后指纹一致、清理自证。证据 `docs/acceptance/2026-10-06-slice-a-return-actions.json`。
+  - **前端**：`TICKET_ACTIONS` 两格、`api/tickets.ts` 两个动作函数、详情页派发接通；`vite.config.ts` 的 `/fd` 代理目标改为可用 `FLOWDESK_API_TARGET` 覆盖（默认仍是 8081，理由写在注释里）。新增 E2E `frontend/e2e/ticket-return-actions.spec.ts`（待确认 → 反馈未解决 → 退回处理中 → IT 仍可继续处理）；全量 E2E **18 项通过**、单测 **149 项**、`typecheck`/`lint`/`build` 退出码 0。
+  - **E2E 抓到的真实缺陷（本轮最有价值的一条）**：详情页的动作派发原先是一串 `if/else`，末尾 `else` 兜底发成 `submit-resolution`；登记表加了两个新动作却没有对应分支，于是**点了按钮实际发出的是另一个动作**（若状态刚好允许，会真的改错东西）。已改为 `Record<TicketActionName, ...>` 的穷尽式映射——漏接一个动作**直接编译失败**，而不是悄悄发错请求。
+  - **因契约扩展而更新的既有断言（3 处，均为编码片 A 之前契约的断言）**：`TicketQueryServiceImplTest` 的确认用例（改名 + 期望加 `report-unresolved`）、`TicketQueryServiceIT:584`、`frontend/e2e/ticket-it-flow.spec.ts:255`。
+  - **null 兜底已按用户 2026-10-06 授权修复**：两个新方法的 `reason == null || reason.isEmpty() || reason.length() > MAX_REASON_LENGTH`（与内容类动作写法对齐），并补 2 条单元用例（非 HTTP 调用方传 null → 400 而不是 NPE），surefire 722→**724**。
+  - 待办：**等待用户审查合并请求**（用户 2026-10-06 明确「只推送 + 建 PR，不合并」）；合并后再从最新 `main` 建片 B 分支。
 
 - **阶段 4 交接已完成（2026-10-06）**：`flow-desk/mvp-closeout` 的六条提交（`1ee4bb8` 交接记录、`2bbde6b` 测试补齐、`e685493` 文档收口、`65750e6` 空库演示脚本与 E2E 加固、`0022230` 覆盖矩阵证据、`9c3d227` 交接前状态同步）经 **[PR #11](https://github.com/Crazy-HF/Flow-Desk/pull/11)** 以 merge commit 合并 `main`（合并提交 **`f49b65b`**，基线 `1bc2e4c`；43 files changed、+9553/−127）。CI 首轮即全绿（运行 `37424825486`：`backend-verify` 3.5 分钟、`frontend-verify` 0.8 分钟、`core-e2e` 2.6 分钟，总计 6.2 分钟），本地 `main` 已仅快进同步，随后从最新 `main` 创建 **`flow-desk/mvp-hardening`**。完整记录见 `docs/acceptance/2026-10-06-stage4-git-handoff.json`。
 - **下一阶段范围（用户 2026-10-06 指定：不新开能力，只收尾已确认的测试口径与工程债）**：① 三处已记录的生产代码问题（`TicketServiceImpl` 的 null 安全不对称、`TicketQuery.isFixedSortOnly()` 大小写口径、`create` 兜底分支可能回落 500）；② 测试稳定性（真并发与时序抖动、E2E 负载相关竞态——阶段 4 已修一处）；③ CI 时长与并行度评估（后端 `verify` 目前单进程串行跑 638 + 119，集成测试逐类拉起 MySQL 容器）；④ ~~唯一长期遗留仍是**用户逐项视觉反馈**~~：**2026-10-06 用户裁决「视觉反馈不用管，直接当作已通过」——本项关闭**，不再是遗留或阻塞条件，不重开打样轮。
@@ -236,10 +252,10 @@
 - 远程仓库：`git@github.com:Crazy-HF/Flow-Desk.git`
 - 稳定分支：`main`
 - 当前基线分支：`main`（阶段 1、前端外壳、第 3 步 RBAC、阶段 2 员工创建与查询、阶段 3 IT 处理闭环、**阶段 4 MVP 收口**、**收口第一批 ①②③ + 文档一致性**、**第二批前端技术债**均已合并，最新合并提交 `1f85c93`，即 PR #13）
-- 当前工作分支：`flow-desk/full-state-machine`（从 PR #13 合并后的最新 `main` `1f85c93` 创建；**暂定名**，尚未推送、尚无提交——首步是设计确认，不是写代码）
-- 下一次创建分支：若用户确认的方向与此名不符，从最新 `main` 另建 `flow-desk/<主题>`；已创建的暂定分支不承载任何提交，可直接删除
-- 当前阶段：**收口已完成**——阶段 4 与收口两批（①②③、文档一致性、前端技术债第 5/6 项）全部合并 `main`；视觉反馈遗留已按用户 2026-10-06 裁决关闭。**下一步是完整版 backlog 第 1 项（剩余 6 个 IT 动作 + 3 个员工动作）的设计确认**：需逐动作确认权限、字段、错误码、审计与时间线 context，并先定附件落地方案、超时自动任务、管理性交接与数据概览；确认前不写业务代码（详见"完整版开工前的收口清单"）。
-- 最新提交：`f49b65b`（PR #11 合并提交）；阶段 4 的六条提交为 `1ee4bb8`、`2bbde6b`、`e685493`、`65750e6`、`0022230`、`9c3d227`；阶段 3 的合并提交为 `1bc2e4c`（PR #10）。
+- 当前工作分支：`flow-desk/ticket-return-actions`（从 PR #13 合并后的最新 `main` `1f85c93` 创建，原暂定名 `flow-desk/full-state-machine` 已在写入业务代码前改名；承载完整状态机**片 A「退回处理中」**，尚未推送）
+- 下一次创建分支：片 A 交接后，从最新 `main` 另建片 B「补充往返」主题分支（`flow-desk/<主题>`）；四片的范围与顺序见 `docs/implementation-plan.md` 9.3
+- 当前阶段：**完整版 backlog 第 1 项「完整工单状态机」片 A「退回处理中」已完成、已推送、已建合并请求**（四项裁决见本文件首节；`report-unresolved` 与 `withdraw-supplement-request` 两个动作、后端 **724+127**、真实栈 **78/78**、E2E **18 项**、单测 **149 项**全绿；null 兜底已按授权修复）。**按用户 2026-10-06 指示：只推送 + 建 PR，不合并**——等用户审查后再合并。之后依次做片 B「补充往返」、片 C「调整与转交」、片 D「结束路径」，附件、超时自动任务、管理性交接与数据概览各自单独设计确认。
+- 最新提交：`1f85c93`（PR #13 合并提交）；片 A 的改动已提交并推送到 `origin/flow-desk/ticket-return-actions` 并创建合并请求（合并提交待用户审查后产生）。
 - 步骤①②③ 验收证据（2026-10-06）：`docs/acceptance/2026-10-06-stage3-claim-process-resolution-confirm.json`（77/77）、`docs/acceptance/2026-10-06-stage3-step3-summary.json`（汇总、三处脚本修正与环境发现）、`docs/acceptance/2026-10-06-stage3-claim-and-processing-record.json`（步骤①② 45/45）、三份 `*-pre-fix-fail.json`（原始失败原件）。
 - 步骤④ 验收证据（2026-10-06）：`frontend/e2e/ticket-it-flow.spec.ts`（端到端主链，16 项 E2E 全绿中的 1 项）、`.ui-craft/reviews/2026-10-06-ticket-it-flow/report.md` 与同目录 9 张截图 + `runtime-evidence.json`（五步状态码与 `traceId`、界面四态迁移、时间线 5 条、1440/375 溢出 0）。
 - 前一项完成（2026-09-24，**历史成果，已随 PR #8 合并 main**）：**`TASK-060` RBAC 管理端四页 + `TASK-062` 用户管理页 + `TASK-061` 契约对齐**——`frontend/src/views/admin/` 五页（用户管理、角色管理、权限管理、用户角色授权、角色权限授权）、`api/rbac.ts` 与 `api/users.ts`、`ProtectedMark` / `AdminListPanel` 两个共享件与 `useAdminList` 取数状态机；用户管理在 `docs/implementation-plan.md` 正式登记为 `TASK-061`/`TASK-062` 并移出完整版 backlog；替换角色路径按 8.2 契约由 `/role` 改为 `/roles`（后端 + Web 测试 + 文档同步）。**验证**：`./mvnw -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → 单元/Web **394** + 集成 **88** 全绿；前端 `typecheck` / `lint`（含 stylelint 闸门）/ `build` 退出码 0、单测 **17 套件 74 项**、E2E **13 项**全绿（含三条新增：RBAC 真实闭环、用户角色闭环、入口按权限显隐与窄屏），演示库经查无 `E2E_*` 残留。见下方 2026-09-24 记录。

@@ -12,9 +12,11 @@ import {
   confirmResolution,
   getTicket,
   listTicketRecords,
+  reportUnresolved,
   submitResolution,
+  withdrawSupplementRequest,
 } from '@/api/tickets'
-import type { TicketDetail, TicketRecord } from '@/api/tickets'
+import type { TicketActionResult, TicketDetail, TicketRecord } from '@/api/tickets'
 import AppPage from '@/components/AppPage.vue'
 import {
   describeRecordContext,
@@ -184,6 +186,34 @@ const actionError = ref('')
  */
 const actionContent = ref('')
 
+/**
+ * 动作名 → 请求。
+ *
+ * <p>刻意写成 `Record<TicketActionName, ...>` 而不是 if/else 链：登记表里新增一个动作却忘了
+ * 接上请求时，类型检查会直接报错；if/else 的兜底 `else` 则会把请求悄悄发成**另一个动作**。
+ * 2026-10-06 的片 A E2E 实测到的正是这一种：两个新动作落进了 `else`，被发成 `submit-resolution`
+ * ——界面上按钮点了像没反应，服务端收到的却是错误动作（若状态刚好允许，还会真的改错东西）。</p>
+ */
+const actionRequests: Record<
+  TicketActionName,
+  (
+    ticketNo: string,
+    payload: { version: number },
+    content: string,
+  ) => Promise<TicketActionResult>
+> = {
+  claim: (ticketNo, payload) => claimTicket(ticketNo, payload),
+  'confirm-resolution': (ticketNo, payload) => confirmResolution(ticketNo, payload),
+  'add-processing-record': (ticketNo, payload, content) =>
+    addProcessingRecord(ticketNo, { ...payload, content }),
+  'submit-resolution': (ticketNo, payload, content) =>
+    submitResolution(ticketNo, { ...payload, content }),
+  'withdraw-supplement-request': (ticketNo, payload, content) =>
+    withdrawSupplementRequest(ticketNo, { ...payload, reason: content }),
+  'report-unresolved': (ticketNo, payload, content) =>
+    reportUnresolved(ticketNo, { ...payload, reason: content }),
+}
+
 async function performAction(name: TicketActionName, content: string): Promise<void> {
   const current = detail.value
   if (!current || runningAction.value) {
@@ -193,16 +223,7 @@ async function performAction(name: TicketActionName, content: string): Promise<v
   runningAction.value = name
   actionError.value = ''
   try {
-    const payload = { version: current.version }
-    if (name === 'claim') {
-      await claimTicket(current.ticketNo, payload)
-    } else if (name === 'confirm-resolution') {
-      await confirmResolution(current.ticketNo, payload)
-    } else if (name === 'add-processing-record') {
-      await addProcessingRecord(current.ticketNo, { ...payload, content })
-    } else {
-      await submitResolution(current.ticketNo, { ...payload, content })
-    }
+    await actionRequests[name](current.ticketNo, { version: current.version }, content)
 
     // 动作结果里的 status/version 必须回写：下一动作要靠新版本做乐观锁
     await loadDetail(true)
