@@ -1,25 +1,39 @@
 # FlowDesk 项目状态
 
-## 当前结论：片 B 收口执行中（分支已推送、基点 `5e0e83e`），片 C 在独立工作树并行开工（2026-10-07）
+## 当前结论：片 B 已合并 `main`（`aa0417b`），工作树已收敛为单个，片 C 需重新开工（2026-10-07）
+
+- **工作树现状**：只剩 `D:\Idea\item\flow-Desk`（分支 `flow-desk/ticket-adjust-transfer-2`，从 `aa0417b` 创建）。并行工作树 `D:\Idea\item\flow-Desk-sliceC` 及其分支、其中的片 C 未提交改动**均已按用户 2026-10-07 要求删除，未作保留**——见下方「工作树删除记录」段。片 C 若要继续，从零开工。
 
 - **片 A 已交接完成（2026-10-07）**：三条提交 `d3b0849`（两个动作实现）、`46230ee`（单元/Web/集成用例）、`7e9c0c7`（前端登记与派发、验收脚本与证据）经 **[PR #14](https://github.com/Crazy-HF/Flow-Desk/pull/14) 以 merge commit 合并 `main`**（合并提交 **`5f4026f`**，基线 `1f85c93`；三个 job `backend-verify`/`frontend-verify`/`core-e2e` 全绿）。片 A 的完整交付细节见本文件下方「片 A 交付记录」段。
-- **片 B（补充往返）已完成编码并推送**：分支 **`flow-desk/ticket-supplement-roundtrip`**（从 `5f4026f` 创建，提交 **`5e0e83e`**，15 文件 +1582/−36，已推送 `origin` 并设为跟踪分支）。已写入：
+- **片 B（补充往返）已交接完成（2026-10-07）**：分支 **`flow-desk/ticket-supplement-roundtrip`**（从 `5f4026f` 创建）的两条提交 `5e0e83e`（后端实现与用例）与 `e3ed3f1`（收口：前端接通、E2E、真实栈验收脚本与证据、文档同步），加一条 CI 修正 `73524a4`，经 **[PR #15](https://github.com/Crazy-HF/Flow-Desk/pull/15) 以 merge commit 合并 `main`**（合并提交 **`aa0417b`**，基线 `5f4026f`）。CI 首轮 `core-e2e` 失败于 `ticket-it-flow.spec.ts` 仍断言旧标签「当前期限」，修正为按状态与角色给标签与提示后，运行 `37564858602` 三个 job 全绿。本地 `main` 已仅快进同步，随后从 `aa0417b` 创建 **`flow-desk/ticket-adjust-transfer-2`** 承载片 C。片 B 的交付内容：
   - **基础件**：`RequestSupplementCommand`、`SupplementCommand`（均为 `version` + `content`，上限 10000）、`TicketService` 两个方法签名、`TicketMapper.requestSupplement` / `TicketMapper.supplement` 两条条件更新（状态与期限在**同一条 UPDATE** 内原子写入，避开 `ck_ticket_status_deadline` 的中间态）、`TicketController` 两个端点（`supplement` 为 `multipart/form-data`，**文件 part 显式 400 而非静默忽略**）、`TicketQueryServiceImpl.allowedActions` 两格（`request-supplement` 与 `canProcess` 同族相邻、`supplement` 独立判定为「待补充 + 本人是提交人」）、`TicketProperties.supplementWindow`（默认 7d、下限 1m）与 `application.yml` 的 `flowdesk.ticket.supplement-window`。
   - **业务实现**：`TicketServiceImpl.requestSupplement` / `supplement`（门禁顺序与既有动作逐字对齐；`supplement` **刻意不判定期限是否已过**——本版本没有超时自动关闭，期限只用于展示，拦住过期提交比不做更糟；理由写在方法注释里）。
   - **测试**：`TicketServiceImplTest`（含 `requestSupplement` 与 `TicketProperties` 用例）、新增 `TicketSupplementServiceImplTest`、`TicketQueryServiceImplTest`、`TicketControllerWebTest`（含 6 项 multipart 文件部分用例）；四项均随 `5e0e83e` 入库。
-  - **收口待办（本轮执行）**：`TicketServiceIT` 去除片 A 遗留的 SQL 临时造数并新增片 B 集成用例、后端全量 `clean verify`、前端动作登记与派发、前端单测、E2E、真实栈验收脚本与证据、文档同步（`api-design.md` 6.3/6.4、`implementation-plan.md` 9.3）。
+  - **收口已完成（`e3ed3f1`）**：`TicketServiceIT` 去除片 A 遗留的 SQL 临时造数并新增片 B 集成用例、前端动作登记与派发、前端单测、E2E、真实栈验收脚本与证据、`PROJECT_STATUS.md` 同步。**后端全量 `clean verify` 由 CI 的 `backend-verify` 在本 PR 上实跑并通过**；`api-design.md` 6.3/6.4 与 `implementation-plan.md` 9.3 的片 B 交付记录仍未回头补写，列为片 C 之前的文档待办。
 - **用户裁决（2026-10-07，本轮）**：片 A 观察项「`supplement` 兜底用 `content.isEmpty()` 放行纯空白」**不改**。理由与边界见下方「片 A 观察项裁决」段。
 
-## 并行会话分工（2026-10-07 用户要求落盘）
+## 工作树删除记录（2026-10-07）
+
+用户 2026-10-07 要求删除并行工作树 `D:\Idea\item\flow-Desk-sliceC`，随后明确要求**不保留**其中内容。已执行：
+
+- **已删除**：工作树目录 `D:\Idea\item\flow-Desk-sliceC`、本地分支 `flow-desk/ticket-adjust-transfer`（基点 `5e0e83e`）。远程从未有过同名分支。
+- **未保留**：该树当时有片 C 的**未提交**基础件（5 个改动文件、5 个新文件：三个 Command、`TicketAssigneeOptionResult`、`TicketAssigneeRow`、`TicketController` 的 `transfer-candidates` 与三个动作端点、两个服务接口、`TicketQueryServiceImpl`、`TicketMapper` 条件更新）。曾以提交 + 标签临时保全，按用户指示已删除该标签，并用 `git gc --prune=now` 让对象不可恢复。
+- **后果**：片 C 无任何代码存量，重新开工时按 `docs/implementation-plan.md` 9.3 与 `docs/api-design.md` 6.3 的既有契约从零写起；片 B 已合并的 `main` 不受影响。
+
+## 并行会话分工（2026-10-07 用户要求落盘）——**已失效，仅作历史记录**
+
+> 本节描述的两工作树并行模式于 2026-10-07 结束：会话 1 的片 B 已合并 `main`，会话 2 的工作树及其内容已按用户要求删除（见上一节）。
 
 两个会话同时推进，靠**两个独立 Git 工作树**隔离；开工时把本段整体粘给片 C 会话即可。
 
-| 项 | 会话 1（本文件所在工作树） | 会话 2（片 C） |
+| 项 | 会话 1（本文件所在工作树，片 B） | 会话 2（片 C） |
 | --- | --- | --- |
 | 工作目录 | `D:\Idea\item\flow-Desk` | `D:\Idea\item\flow-Desk-sliceC` |
-| 分支 | `flow-desk/ticket-supplement-roundtrip` | `flow-desk/ticket-adjust-transfer` |
-| 基点 | `5f4026f`（片 A 合并后的 main）→ 提交 `5e0e83e` | **`5e0e83e`（片 B 的提交，不是 main）** |
+| 分支 | `flow-desk/ticket-supplement-roundtrip`（**已合并，工作树现已切到 `flow-desk/ticket-adjust-transfer-2`**） | `flow-desk/ticket-adjust-transfer`（**基点仍停在 `5e0e83e`，尚未 rebase**） |
+| 基点 | `5f4026f`（片 A 合并后的 main）→ 提交 `5e0e83e`、`e3ed3f1`、`73524a4` | 目的基点是 **`aa0417b`（片 B 合并后的 main）**；该树当前 HEAD 是 `5e0e83e`，需按下方汇合顺序 2 处理 |
 | 交付 | 片 B 收口五项：测试补齐、前端接通、E2E、真实栈验收脚本与证据、文档与状态同步 | 片 C「调整与转交」：`change-category`、`change-priority`、`transfer` + `GET /transfer-candidates` |
+
+**分支命名的一处变化（2026-10-07 片 B 交接时）**：本次交接要在片 B 合并后的 `main` 上开新分支，但 `flow-desk/ticket-adjust-transfer` 已被会话 2 的 `D:\Idea\item\flow-Desk-sliceC` 工作树占用（Git 不允许同一分支在第二棵树检出）。为不动那棵树的检出与工作区，本工作树新建的等价分支命名为 **`flow-desk/ticket-adjust-transfer-2`**（从 `aa0417b` 创建并已推送）。若会话 2 决定改在本工作树继续片 C，再把那棵树的工作迁过来；否则两处保持各自的分支名。
 
 **文件归属（严格，越界即返工）**
 
@@ -37,8 +51,8 @@
 **汇合点与汇合顺序（写死）**
 
 1. 汇合文件只有两个：`PROJECT_STATUS.md` 与 `docs/implementation-plan.md` 9.3。**会话 1 先落自己那段，会话 2 后补**。
-2. 合并顺序：片 B 的 PR 先合 `main` → 会话 2 `git fetch && git rebase main`（片 C 尚未推送，改历史零风险；已推送则改用 merge）→ 片 C 再提 PR。
-3. **片 C 的基点不是 main**，所以片 B 合并前不要提片 C 的 PR：否则 PR 会连带片 B 的 1582 行改动。CI 只在 `pull_request` 与 push 到 `main` 时触发，片 C 分支推送前不消耗 CI。
+2. 合并顺序：片 B 的 PR 先合 `main`（**已于 2026-10-07 完成：PR #15 → `aa0417b`**）→ 会话 2 `git fetch && git rebase main`（片 C 尚未推送，改历史零风险；已推送则改用 merge）→ 片 C 再提 PR。
+3. **片 C 的基点原本不是 main**，所以片 B 合并前不要提片 C 的 PR：否则 PR 会连带片 B 的 1582 行改动。**该前提已消除**——片 B 已合入 `main`（`aa0417b`），会话 2 rebase 到 `main` 后即可正常提 PR；CI 只在 `pull_request` 与 push 到 `main` 时触发，片 C 分支推送前不消耗 CI。
 
 ## 片 A 观察项裁决：`supplement` 兜底的空值口径不改（2026-10-07 用户确认）
 
