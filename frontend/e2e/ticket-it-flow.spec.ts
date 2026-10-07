@@ -191,8 +191,16 @@ test('阶段 3 主链：员工提交 → IT 领取 → 处理 → 提交解决 �
 
   // 领取后按钮立刻换成处理动作：版本已经 +1，界面必须按新快照重算
   await expect(page.locator('.ticket-meta')).toContainText('处理中')
-  // 处理中状态下负责人同时具备三个动作（片 B 起多了「请求补充信息」），顺序由前端登记表决定
-  expect(await actionLabels(page)).toEqual(['记录处理过程', '提交解决结果', '请求补充信息'])
+  // 处理中状态下负责人具备六个动作（片 B 起多了「请求补充信息」，片 C 起多了调整分类、
+  // 调整优先级与转交），顺序由前端登记表决定
+  expect(await actionLabels(page)).toEqual([
+    '记录处理过程',
+    '提交解决结果',
+    '请求补充信息',
+    '调整分类',
+    '调整优先级',
+    '转交工单',
+  ])
   await expect(page.locator('.ticket-facts dt:has-text("负责人") + dd')).toHaveText(itDisplayName)
 
   // ---------- 3. 追加处理记录 ----------

@@ -7,6 +7,8 @@ vi.mock('./http', () => ({
 import { http } from './http'
 import {
   addProcessingRecord,
+  changeTicketCategory,
+  changeTicketPriority,
   claimTicket,
   confirmResolution,
   createSubmissionKey,
@@ -14,9 +16,11 @@ import {
   getTicket,
   listTicketRecords,
   listTickets,
+  listTransferCandidates,
   requestSupplementTicket,
   submitResolution,
   supplementTicket,
+  transferTicket,
 } from './tickets'
 
 /** 只回信封里的 `data`：本文件测的是请求契约，不是响应解码。 */
@@ -238,6 +242,67 @@ describe('工单接口封装', () => {
       await expect((part as Blob).text()).resolves.toBe(
         JSON.stringify({ version: 10, content: '型号是 L3153' }),
       )
+    })
+
+    /**
+     * 片 C 的三个动作是"目标值 + 原因"这一种形状：目标字段名各自不同
+     * （`categoryId` / `priority` / `newAssigneeId`），原因统一叫 `reason`。
+     * 这里把字段名钉住——写错一个字段名，后端只会回一句笼统的 400。
+     */
+    it('调整分类发版本号、分类与原因', async () => {
+      await changeTicketCategory('FD-20260929-001', {
+        version: 6,
+        categoryId: 2,
+        reason: '归类到软件问题',
+      })
+
+      expect(http.post).toHaveBeenCalledWith('/tickets/FD-20260929-001/actions/change-category', {
+        version: 6,
+        categoryId: 2,
+        reason: '归类到软件问题',
+      })
+    })
+
+    it('调整优先级发版本号、优先级与原因', async () => {
+      await changeTicketPriority('FD-20260929-001', {
+        version: 4,
+        priority: 'LOW',
+        reason: '影响范围缩小',
+      })
+
+      expect(http.post).toHaveBeenCalledWith('/tickets/FD-20260929-001/actions/change-priority', {
+        version: 4,
+        priority: 'LOW',
+        reason: '影响范围缩小',
+      })
+    })
+
+    it('转交发版本号、新负责人与原因', async () => {
+      await transferTicket('FD-20260929-001', {
+        version: 11,
+        newAssigneeId: 5,
+        reason: '他更熟悉这套设备',
+      })
+
+      expect(http.post).toHaveBeenCalledWith('/tickets/FD-20260929-001/actions/transfer', {
+        version: 11,
+        newAssigneeId: 5,
+        reason: '他更熟悉这套设备',
+      })
+    })
+
+    it('转交候选人是独立子路径，没有候选人时原样返回空数组', async () => {
+      respondWith([{ id: 5, displayName: '演示同事' }])
+
+      await expect(listTransferCandidates('FD-20260929-001')).resolves.toEqual([
+        { id: 5, displayName: '演示同事' },
+      ])
+      expect(http.get).toHaveBeenCalledWith('/tickets/FD-20260929-001/transfer-candidates')
+
+      respondWith([])
+
+      // 空数组不是错误：界面据此说明"暂时转不出去"，不该当成请求失败
+      await expect(listTransferCandidates('FD-20260929-001')).resolves.toEqual([])
     })
   })
 })

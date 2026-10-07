@@ -6,17 +6,22 @@ import { nextTick } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { AuthUser } from '@/api/auth'
+import { listCategoryOptions } from '@/api/categories'
 import {
   addProcessingRecord,
+  changeTicketCategory,
+  changeTicketPriority,
   claimTicket,
   confirmResolution,
   getTicket,
   listTicketRecords,
+  listTransferCandidates,
   requestSupplementTicket,
   submitResolution,
   supplementTicket,
+  transferTicket,
 } from '@/api/tickets'
-import type { TicketDetail, TicketRecord } from '@/api/tickets'
+import type { TicketAssigneeOption, TicketDetail, TicketRecord } from '@/api/tickets'
 import { useAuthStore } from '@/stores/auth'
 import { createMessageBoxHarness } from './messageBoxHarness'
 import TicketDetailView from './TicketDetailView.vue'
@@ -28,8 +33,19 @@ vi.mock('@/api/tickets', () => ({
   addProcessingRecord: vi.fn(),
   submitResolution: vi.fn(),
   confirmResolution: vi.fn(),
+  withdrawSupplementRequest: vi.fn(),
+  reportUnresolved: vi.fn(),
   requestSupplementTicket: vi.fn(),
   supplementTicket: vi.fn(),
+  changeTicketCategory: vi.fn(),
+  changeTicketPriority: vi.fn(),
+  transferTicket: vi.fn(),
+  listTransferCandidates: vi.fn(),
+}))
+
+// 分类选项也是被页面真实请求的：不替身就会在用例里发出真实 HTTP 请求
+vi.mock('@/api/categories', () => ({
+  listCategoryOptions: vi.fn(),
 }))
 
 /** 确认框替身：真实挂载弹窗，用例按"打开 → 填内容 → 点确认"的真人顺序驱动。 */
@@ -66,6 +82,8 @@ const support: AuthUser = {
     'TICKET_CLAIM',
     'TICKET_VIEW_PARTICIPATED',
     'TICKET_PROCESS',
+    // 转交是独立授权（V2 里由 IT_SUPPORT 持有），不是 TICKET_PROCESS 的一部分
+    'TICKET_TRANSFER',
   ],
 }
 
@@ -143,12 +161,32 @@ async function openActionBox(wrapper: VueWrapper, label: string): Promise<void> 
   await flushPromises()
 }
 
-/** 当前确认框里的正文输入框；不需要正文的动作没有它。 */
+/** 当前确认框里的文本框；不需要正文或原因的动作没有它。 */
 function actionBoxTextarea(): HTMLTextAreaElement | null {
   return messageBox.current()?.textarea() ?? null
 }
 
-/** 在确认框里写好正文（真人先写、再点确认）。 */
+/** 展开目标值下拉，看看用户到底能选到哪些（选项在下拉里，不在 wrapper 里）。 */
+async function openActionBoxSelect(): Promise<string[]> {
+  return (await messageBox.current()?.openSelect()) ?? []
+}
+
+/** 在确认框里选一个目标值（真人先展开、再点那一项）。 */
+async function chooseInActionBox(label: string): Promise<void> {
+  await messageBox.current()?.choose(label)
+}
+
+/** 确认框正文的可见文字：空态与错误说明必须真的写出来给人看。 */
+function actionBoxText(): string {
+  return messageBox.current()?.text() ?? ''
+}
+
+/** 选择器上显示的选中值，等同用户看到自己选了什么。 */
+function actionBoxSelected(): string {
+  return messageBox.current()?.select()?.textContent?.trim() ?? ''
+}
+
+/** 在确认框里写好正文或原因（真人先写、再点确认）。 */
 async function typeIntoActionBox(text: string): Promise<void> {
   await messageBox.current()?.type(text)
 }
@@ -175,6 +213,12 @@ describe('TicketDetailView', () => {
     useAuthStore().user = requester
     vi.mocked(getTicket).mockResolvedValue(detail)
     vi.mocked(listTicketRecords).mockResolvedValue(pageOf([createRecord]))
+    // 每个用例都从这里起步：要测"没有可选项"或"取失败"的用例再各自覆盖
+    vi.mocked(listCategoryOptions).mockResolvedValue([
+      { id: 1, name: '硬件' },
+      { id: 2, name: '软件' },
+    ])
+    vi.mocked(listTransferCandidates).mockResolvedValue([{ id: 5, displayName: '演示同事' }])
   })
 
   it('标题用问题本身，编号、状态与优先级组成标识条', async () => {
@@ -732,5 +776,309 @@ describe('TicketDetailView', () => {
     expect(items[1]?.text()).toContain('待受理 → 处理中')
     // 全部记录都已读到，加载更多入口消失
     expect(wrapper.find('.ticket-timeline__more').exists()).toBe(false)
+  })
+
+  // ---------- 片 C：调整与转交 ----------
+
+  it('调整分类：选项来自启用中的分类，提交带 categoryId 与原因', async () => {
+    useAuthStore().user = support
+    vi.mocked(getTicket)
+      .mockResolvedValueOnce({
+        ...detail,
+        status: 'PROCESSING',
+        assignee: { id: 2, displayName: '演示 IT 支持人员' },
+        version: 6,
+        allowedActions: ['change-category'],
+      })
+      .mockResolvedValue({
+        ...detail,
+        category: { id: 2, name: '软件' },
+        status: 'PROCESSING',
+        assignee: { id: 2, displayName: '演示 IT 支持人员' },
+        version: 7,
+        allowedActions: ['change-category'],
+      })
+    vi.mocked(changeTicketCategory).mockResolvedValue({
+      ticketNo: detail.ticketNo,
+      status: 'PROCESSING',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      actionDeadlineAt: undefined,
+      version: 7,
+      actionTime: '2026-09-29T08:00:00Z',
+    })
+
+    const { wrapper } = await mountPage()
+    expect(actionLabels(wrapper)).toEqual(['调整分类'])
+
+    await openActionBox(wrapper, '调整分类')
+    // 选项来自服务端的"启用分类"接口，不是界面里写死的一份
+    expect(listCategoryOptions).toHaveBeenCalledTimes(1)
+    expect(await openActionBoxSelect()).toEqual(['硬件', '软件'])
+
+    await chooseInActionBox('软件')
+    expect(actionBoxSelected()).toContain('软件')
+    await typeIntoActionBox('  报错来自客户端，应归到软件  ')
+    await acceptActionBox()
+
+    expect(changeTicketCategory).toHaveBeenCalledWith('FD-20260929-001', {
+      version: 6,
+      categoryId: 2,
+      reason: '报错来自客户端，应归到软件',
+    })
+    // 动作成功后照旧重新取详情：属性栏的分类已经换成新的
+    expect(getTicket).toHaveBeenCalledTimes(2)
+    expect(wrapper.get('.ticket-facts').text()).toContain('软件')
+  })
+
+  it('调整优先级：选项是前端的静态刻度，不为它发请求', async () => {
+    useAuthStore().user = support
+    vi.mocked(getTicket)
+      .mockResolvedValueOnce({
+        ...detail,
+        status: 'PROCESSING',
+        assignee: { id: 2, displayName: '演示 IT 支持人员' },
+        version: 4,
+        allowedActions: ['change-priority'],
+      })
+      .mockResolvedValue({
+        ...detail,
+        priority: 'LOW',
+        status: 'PROCESSING',
+        assignee: { id: 2, displayName: '演示 IT 支持人员' },
+        version: 5,
+        allowedActions: ['change-priority'],
+      })
+    vi.mocked(changeTicketPriority).mockResolvedValue({
+      ticketNo: detail.ticketNo,
+      status: 'PROCESSING',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      actionDeadlineAt: undefined,
+      version: 5,
+      actionTime: '2026-09-29T08:30:00Z',
+    })
+
+    const { wrapper } = await mountPage()
+    await openActionBox(wrapper, '调整优先级')
+
+    // 优先级是前端已有的三级刻度：为它发一次请求既多等一次往返，也多一个失败点
+    expect(listCategoryOptions).not.toHaveBeenCalled()
+    expect(listTransferCandidates).not.toHaveBeenCalled()
+    expect(await openActionBoxSelect()).toEqual(['高', '中', '低'])
+
+    await chooseInActionBox('低')
+    await typeIntoActionBox('影响范围缩小，可以缓一缓')
+    await acceptActionBox()
+
+    expect(changeTicketPriority).toHaveBeenCalledWith('FD-20260929-001', {
+      version: 4,
+      priority: 'LOW',
+      reason: '影响范围缩小，可以缓一缓',
+    })
+    expect(wrapper.get('.ticket-meta').text()).toContain('优先级 低')
+  })
+
+  it('转交：候选人由服务端筛选，提交带 newAssigneeId 与原因', async () => {
+    useAuthStore().user = support
+    vi.mocked(getTicket)
+      .mockResolvedValueOnce({
+        ...detail,
+        status: 'PROCESSING',
+        assignee: { id: 2, displayName: '演示 IT 支持人员' },
+        version: 11,
+        allowedActions: ['transfer'],
+      })
+      .mockResolvedValue({
+        ...detail,
+        status: 'PROCESSING',
+        assignee: { id: 5, displayName: '演示同事二' },
+        version: 12,
+        allowedActions: ['transfer'],
+      })
+    vi.mocked(listTransferCandidates).mockResolvedValue([
+      { id: 5, displayName: '演示同事二' },
+      { id: 6, displayName: '演示同事三' },
+    ])
+    vi.mocked(transferTicket).mockResolvedValue({
+      ticketNo: detail.ticketNo,
+      status: 'PROCESSING',
+      assignee: { id: 5, displayName: '演示同事二' },
+      actionDeadlineAt: undefined,
+      version: 12,
+      actionTime: '2026-09-29T09:00:00Z',
+    })
+
+    const { wrapper } = await mountPage()
+    expect(actionLabels(wrapper)).toEqual(['转交工单'])
+
+    await openActionBox(wrapper, '转交工单')
+    // 候选人要按工单问服务端：谁能接、谁被排除，都不是界面能自己算的
+    expect(listTransferCandidates).toHaveBeenCalledWith('FD-20260929-001')
+    expect(await openActionBoxSelect()).toEqual(['演示同事二', '演示同事三'])
+
+    await chooseInActionBox('演示同事二')
+    await typeIntoActionBox('他更熟悉这套设备')
+    await acceptActionBox()
+
+    expect(transferTicket).toHaveBeenCalledWith('FD-20260929-001', {
+      version: 11,
+      newAssigneeId: 5,
+      reason: '他更熟悉这套设备',
+    })
+    // 直接转交：不需要接收方确认，属性栏的负责人立即换人
+    expect(wrapper.get('.ticket-facts').text()).toContain('演示同事二')
+  })
+
+  it('没有选目标值时拦下提交：不发请求，弹窗也不关', async () => {
+    useAuthStore().user = support
+    vi.mocked(getTicket).mockResolvedValue({
+      ...detail,
+      status: 'PROCESSING',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      version: 6,
+      allowedActions: ['change-category'],
+    })
+
+    const { wrapper } = await mountPage()
+    await openActionBox(wrapper, '调整分类')
+    // 选项已经取回来了，用户只是没选
+    expect(await openActionBoxSelect()).toHaveLength(2)
+
+    await typeIntoActionBox('原因写好了，但没选分类')
+    await acceptActionBox()
+
+    expect(changeTicketCategory).not.toHaveBeenCalled()
+    // 关掉再提示的话，用户得重新点按钮、重写一遍
+    expect(messageBox.current()).not.toBeNull()
+    await cancelActionBox()
+  })
+
+  /**
+   * 服务端允许同值调整（它只看状态、身份与版本），但界面不该凭空产生一条
+   * "分类从硬件改为硬件"：那对后来读时间线的人只是噪音，所以这一层由弹窗挡住。
+   */
+  it('选了和当前值相同的分类时拦下：不发请求，弹窗也不关', async () => {
+    useAuthStore().user = support
+    vi.mocked(getTicket).mockResolvedValue({
+      ...detail,
+      status: 'PROCESSING',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      version: 6,
+      allowedActions: ['change-category'],
+    })
+
+    const { wrapper } = await mountPage()
+    await openActionBox(wrapper, '调整分类')
+    await chooseInActionBox('硬件')
+    // 选中确实生效了：拦下它的原因只能是"没有变化"，不是"没选"
+    expect(actionBoxSelected()).toContain('硬件')
+
+    await typeIntoActionBox('想重新归一次类')
+    await acceptActionBox()
+
+    expect(changeTicketCategory).not.toHaveBeenCalled()
+    expect(messageBox.current()).not.toBeNull()
+    await cancelActionBox()
+  })
+
+  it('原因只填空格时拦下提交：不发请求，弹窗也不关', async () => {
+    useAuthStore().user = support
+    vi.mocked(getTicket).mockResolvedValue({
+      ...detail,
+      status: 'PROCESSING',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      version: 4,
+      allowedActions: ['change-priority'],
+    })
+
+    const { wrapper } = await mountPage()
+    await openActionBox(wrapper, '调整优先级')
+    await chooseInActionBox('低')
+    await typeIntoActionBox('   ')
+    await acceptActionBox()
+
+    expect(changeTicketPriority).not.toHaveBeenCalled()
+    expect(messageBox.current()).not.toBeNull()
+    await cancelActionBox()
+  })
+
+  it('一个候选人都没有时转交做不了：弹窗里说明原因，提交被拦下', async () => {
+    useAuthStore().user = support
+    vi.mocked(listTransferCandidates).mockResolvedValue([])
+    vi.mocked(getTicket).mockResolvedValue({
+      ...detail,
+      status: 'PROCESSING',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      version: 3,
+      allowedActions: ['transfer'],
+    })
+
+    const { wrapper } = await mountPage()
+    await openActionBox(wrapper, '转交工单')
+
+    // 空数组不是错误：界面必须自己把"为什么转不出去"说出来
+    expect(actionBoxText()).toContain('当前没有可以接手的同事')
+    expect(await openActionBoxSelect()).toEqual([])
+
+    await typeIntoActionBox('想转给别人')
+    await acceptActionBox()
+
+    expect(transferTicket).not.toHaveBeenCalled()
+    await cancelActionBox()
+  })
+
+  it('候选人没有加载成功时把原因写进弹窗，而不是留一个空下拉', async () => {
+    useAuthStore().user = support
+    vi.mocked(listTransferCandidates).mockRejectedValue({
+      response: { data: { code: 'INTERNAL_ERROR' } },
+    })
+    vi.mocked(getTicket).mockResolvedValue({
+      ...detail,
+      status: 'PROCESSING',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      version: 3,
+      allowedActions: ['transfer'],
+    })
+
+    const { wrapper } = await mountPage()
+    await openActionBox(wrapper, '转交工单')
+
+    // 失败不能静默，也不能借用"没有人可以接手"这个说法——那是另一个原因
+    expect(actionBoxText()).toContain('系统暂时无法处理该请求')
+    expect(actionBoxText()).not.toContain('当前没有可以接手的同事')
+
+    await acceptActionBox()
+    expect(transferTicket).not.toHaveBeenCalled()
+    await cancelActionBox()
+  })
+
+  it('候选人还在取的时候弹窗里就是加载态：用户不会对着空下拉点确认', async () => {
+    useAuthStore().user = support
+    let release: ((candidates: TicketAssigneeOption[]) => void) | undefined
+    vi.mocked(listTransferCandidates).mockReturnValue(
+      new Promise<TicketAssigneeOption[]>((resolve) => {
+        release = resolve
+      }),
+    )
+    vi.mocked(getTicket).mockResolvedValue({
+      ...detail,
+      status: 'PROCESSING',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      version: 3,
+      allowedActions: ['transfer'],
+    })
+
+    const { wrapper } = await mountPage()
+    await openActionBox(wrapper, '转交工单')
+
+    expect(actionBoxText()).toContain('正在加载可选项')
+    await acceptActionBox()
+    expect(transferTicket).not.toHaveBeenCalled()
+
+    release?.([{ id: 5, displayName: '演示同事' }])
+    await flushPromises()
+
+    // 取回来之后选项出现在同一个弹窗里，不用重新打开
+    expect(await openActionBoxSelect()).toEqual(['演示同事'])
+    await cancelActionBox()
   })
 })

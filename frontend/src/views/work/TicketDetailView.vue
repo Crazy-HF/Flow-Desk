@@ -6,19 +6,24 @@ import { RouterLink, useRoute } from 'vue-router'
 
 import { describeError } from '@/api/errorMessages'
 import { errorCode } from '@/api/http'
+import { listCategoryOptions } from '@/api/categories'
 import {
   addProcessingRecord,
+  changeTicketCategory,
+  changeTicketPriority,
   claimTicket,
   confirmResolution,
   getTicket,
   listTicketRecords,
+  listTransferCandidates,
   reportUnresolved,
   requestSupplementTicket,
   submitResolution,
   supplementTicket,
+  transferTicket,
   withdrawSupplementRequest,
 } from '@/api/tickets'
-import type { TicketActionResult, TicketDetail, TicketRecord } from '@/api/tickets'
+import type { TicketActionResult, TicketDetail, TicketPriority, TicketRecord } from '@/api/tickets'
 import AppPage from '@/components/AppPage.vue'
 import {
   describeRecordContext,
@@ -27,6 +32,7 @@ import {
   ticketCloseReasonLabel,
   ticketCompletionMethodLabel,
   TICKET_ACTIONS,
+  TICKET_PRIORITY_OPTIONS,
   ticketPriorityLabel,
   ticketPriorityTone,
   ticketRecordTypeLabel,
@@ -37,11 +43,13 @@ import type { TicketActionMeta, TicketActionName } from '@/constants/tickets'
 import { useAuthStore } from '@/stores/auth'
 import { formatDateTime } from '@/utils/format'
 import TicketActionContentField from './TicketActionContentField.vue'
+import TicketActionSelectField from './TicketActionSelectField.vue'
 
 /**
- * 工单详情与处理时间线（`docs/api-design.md` 5.4 / 5.5），以及这张工单上可执行的六个动作
+ * 工单详情与处理时间线（`docs/api-design.md` 5.4 / 5.5），以及这张工单上可执行的动作
  * （6.3：`claim` / `add-processing-record` / `submit-resolution` / `request-supplement` /
- * `withdraw-supplement-request`；6.4：`confirm-resolution` / `report-unresolved` / `supplement`）。
+ * `withdraw-supplement-request` / `change-category` / `change-priority` / `transfer`；
+ * 6.4：`confirm-resolution` / `report-unresolved` / `supplement`）。
  *
  * <p>三处容易读错的地方，这里显式处理：</p>
  * <p>1. **无权与不存在是同一种结果**。后端对"没有查看权限"和"编号不存在"统一返回
@@ -49,8 +57,8 @@ import TicketActionContentField from './TicketActionContentField.vue'
  * 不去猜"大概是没有权限"。</p>
  * <p>2. **按钮来自 `allowedActions`，不是前端推导**。后端按当前用户、角色、工单关系与状态算好
  * 可用动作；界面再用 `permittedActions` 叠一层本账号权限判断（应对"取详情之后被撤权"的窗口）。
- * 完整状态机里剩下的动作（调整分类/优先级、转交、关闭、取消）尚未在服务端放行，
- * 所以它们只在服务端开始返回时才会出现——这不是漏做，是不摆按不动的按钮。</p>
+ * 完整状态机里剩下的动作（关闭、取消）尚未在服务端放行，所以它们只在服务端开始返回时才会出现
+ * ——这不是漏做，是不摆按不动的按钮。</p>
  * <p>3. **动作结果里的 `version` 必须回写到详情**。每个动作都带乐观锁：不刷新就拿旧版本
  * 再发一次，会得到 `409/TICKET_CONFLICT`。所以每次动作成功后重新取详情与时间线，
  * 冲突（409）时也主动重新取一次，把版本对齐到服务端的当前值。</p>
@@ -233,13 +241,116 @@ const deadlineFact = computed<{ label: string; hint?: string } | null>(() => {
 const actionError = ref('')
 
 /**
- * 正文输入。
+ * 动作要写的那段说明。
  *
  * <p>放在组件里而不是 `ElMessageBox.prompt`：`prompt` 只给单行 `input`，而处理过程与解决结果
  * 都是要写几段话的正文，且契约上限是 10000 字符。自定义插槽里用一个受控 `ref`，
  * 确认时校验、失败时保留用户已经写好的内容。</p>
+ *
+ * <p>登记表里它有两个字段名：正文类动作叫 `content`（处理记录、解决结果、补充内容），
+ * 原因类动作叫 `reason`（撤回、未解决，以及片 C 的调整与转交）。**两者在界面上是同一件事**
+ * ——"这个动作要写的那段说明"，形状也完全相同（标签、占位、长度上限），且没有任何一个动作会同时
+ * 需要两段，所以共用这一个引用；调用处按动作自己的契约把值放进 `content` 或 `reason`。</p>
  */
 const actionContent = ref('')
+
+/**
+ * 弹窗里先选的目标值：分类 id、优先级编码或接手人 id。
+ *
+ * <p>可空是它的正常状态：弹窗刚打开时用户还没选。值的类型由 `el-select` 统一给成
+ * `string | number`，各动作在发请求前按自己的契约取用（`beforeClose` 已经拦掉"没选"）。</p>
+ */
+const actionTarget = ref<string | number | undefined>(undefined)
+
+/** 弹窗里的一个可选项。值可能是分类 / 用户 id 或优先级编码。 */
+type ActionSelectChoice = { value: string | number; label: string }
+
+/**
+ * 选项的取数状态。
+ *
+ * <p>选项是**打开弹窗之后**才取的（不能先取完再弹窗，否则用户先看到一段没有反馈的等待），
+ * 所以三种状态都必须在弹窗里可见：取的过程中要有加载态，取失败要带着 `describeError` 的文案
+ * 显示在弹窗里，而不是留下一个空下拉让用户对着它点确认。`idle` 只属于不需要选目标值的动作。</p>
+ */
+const actionSelectPhase = ref<'idle' | 'loading' | 'ready' | 'error'>('idle')
+const actionSelectOptions = ref<readonly ActionSelectChoice[]>([])
+const actionSelectError = ref('')
+
+/**
+ * 最近一次打开弹窗所取的选项属于哪一趟。
+ *
+ * <p>选项是异步取的，而用户可以"打开 → 取消 → 立刻打开另一个动作"。没有这个令牌时，前一趟的响应
+ * 会写进后一趟的弹窗——转交弹窗里列出分类就是现实后果，选中之后提交的是分类 id 当接手人 id。
+ * 只认最后一次打开的那一趟。</p>
+ */
+let actionSelectRequest = 0
+
+/**
+ * 按动作的 `select.source` 取目标值选项。
+ *
+ * <p>优先级直接用前端已有的 `TICKET_PRIORITY_OPTIONS`：它是一份静态刻度，为它发一次请求既多等
+ * 一次往返，也多一个失败点。分类与接手人必须问服务端——分类要的是"当前启用"的那一份，
+ * 接手人还要服务端判定谁有资格接。</p>
+ */
+async function loadActionSelect(meta: TicketActionMeta): Promise<void> {
+  const select = meta.select
+  if (!select) {
+    return
+  }
+
+  const request = (actionSelectRequest += 1)
+  actionSelectPhase.value = 'loading'
+  actionSelectError.value = ''
+  actionSelectOptions.value = []
+
+  try {
+    let choices: readonly ActionSelectChoice[]
+    if (select.source === 'priority') {
+      choices = TICKET_PRIORITY_OPTIONS
+    } else if (select.source === 'category') {
+      choices = (await listCategoryOptions()).map((option) => ({
+        value: option.id,
+        label: option.name,
+      }))
+    } else {
+      choices = (await listTransferCandidates(ticketNo.value)).map((candidate) => ({
+        value: candidate.id,
+        label: candidate.displayName,
+      }))
+    }
+
+    // 期间已经打开了另一个动作的弹窗：这一趟的结果不再写进去（见 actionSelectRequest）
+    if (request !== actionSelectRequest) {
+      return
+    }
+    actionSelectOptions.value = choices
+    actionSelectPhase.value = 'ready'
+  } catch (error) {
+    if (request !== actionSelectRequest) {
+      return
+    }
+    actionSelectError.value = describeError(error, `${select.label}选项没有加载成功，请稍后重试`)
+    actionSelectPhase.value = 'error'
+  }
+}
+
+/**
+ * 选中的就是当前值。
+ *
+ * <p>服务端允许同值调整（它只看状态、身份与版本），但那样会在时间线上凭空多出一条
+ * "分类从硬件改为硬件"。这类记录对后来读时间线的人只是噪音，所以界面在这里挡住。</p>
+ *
+ * <p>转交不适用：候选人已经排除了提交人与当前负责人，不存在"选了同一个人"。</p>
+ */
+function isUnchangedChoice(select: NonNullable<TicketActionMeta['select']>): boolean {
+  const current = detail.value
+  if (!current || select.source === 'assignee') {
+    return false
+  }
+  return select.source === 'category'
+    ? actionTarget.value === current.category.id
+    : actionTarget.value === current.priority
+}
 
 /**
  * 动作名 → 请求。
@@ -248,6 +359,10 @@ const actionContent = ref('')
  * 接上请求时，类型检查会直接报错；if/else 的兜底 `else` 则会把请求悄悄发成**另一个动作**。
  * 2026-10-06 的片 A E2E 实测到的正是这一种：两个新动作落进了 `else`，被发成 `submit-resolution`
  * ——界面上按钮点了像没反应，服务端收到的却是错误动作（若状态刚好允许，还会真的改错东西）。</p>
+ *
+ * <p>第三个参数是这个动作要写的那段说明，各动作按契约放进 `content` 或 `reason`；
+ * 需要先选目标值的三个动作（片 C）另外读 `actionTarget`，它的"没选"与"选了当前值"已在
+ * `beforeClose` 里被拦下，所以这里不必再判空。</p>
  */
 const actionRequests: Record<
   TicketActionName,
@@ -269,6 +384,25 @@ const actionRequests: Record<
     reportUnresolved(ticketNo, { ...payload, reason: content }),
   'request-supplement': (ticketNo, payload, content) =>
     requestSupplementTicket(ticketNo, { ...payload, content }),
+  'change-category': (ticketNo, payload, content) =>
+    changeTicketCategory(ticketNo, {
+      ...payload,
+      categoryId: Number(actionTarget.value),
+      reason: content,
+    }),
+  'change-priority': (ticketNo, payload, content) =>
+    changeTicketPriority(ticketNo, {
+      ...payload,
+      // 下拉里的值就来自 TICKET_PRIORITY_OPTIONS 这三项，收窄不会接受契约之外的编码
+      priority: String(actionTarget.value) as TicketPriority,
+      reason: content,
+    }),
+  transfer: (ticketNo, payload, content) =>
+    transferTicket(ticketNo, {
+      ...payload,
+      newAssigneeId: Number(actionTarget.value),
+      reason: content,
+    }),
   supplement: (ticketNo, payload, content) => supplementTicket(ticketNo, { ...payload, content }),
 }
 
@@ -304,22 +438,46 @@ async function performAction(name: TicketActionName, content: string): Promise<v
 }
 
 /**
- * 确认框的内容：说明 + 需要写正文时的输入框。
+ * 确认框的内容：说明 + 需要先选的目标值 + 要写的那段说明。
  *
- * <p>输入框是一个独立的单文件组件（`TicketActionContentField.vue`），不是在这里用渲染函数
- * 拼出来的：应用按运行时版 Vue 打包，`template` 选项不会被编译，而 `ElInput` 的
- * `modelValue` / `update:modelValue` 又是 props 而不是事件，渲染函数里写
- * `onUpdate:modelValue` 只会得到一个普通 prop，输入不会回流——那会变成"填了内容却提交空正文"。
- * 单文件组件里的 `v-model` 由构建期编译，两个问题都不存在。</p>
+ * <p>两个输入都是独立的单文件组件（`TicketActionSelectField.vue` /
+ * `TicketActionContentField.vue`），不是在这里用渲染函数拼出来的：应用按运行时版 Vue 打包，
+ * `template` 选项不会被编译，而 `ElInput` / `ElSelect` 的 `modelValue` / `update:modelValue`
+ * 又是 props 而不是事件，渲染函数里写 `onUpdate:modelValue` 只会得到一个普通 prop，
+ * 输入不会回流——那会变成"填了原因却提交空正文"。单文件组件里的 `v-model` 由构建期编译，
+ * 两个问题都不存在。</p>
  */
 function buildActionDialog(meta: TicketActionMeta) {
+  const select = meta.select
+  /** 正文与原因在界面上是同一件事，只是契约字段名不同，理由见 `actionContent`。 */
+  const textField = meta.content ?? meta.reason
+
   return h('div', { class: 'ticket-action-dialog__body' }, [
     h('p', { class: 'ticket-action-dialog__note' }, meta.description),
-    meta.content
+    select
+      ? h(TicketActionSelectField, {
+          label: select.label,
+          placeholder: select.placeholder,
+          options: actionSelectOptions.value,
+          loading: actionSelectPhase.value === 'loading',
+          disabled: actionSelectPhase.value !== 'ready',
+          // 取失败时**不借"没有可选项"的说法**：那会让人以为服务端说没人可接手，
+          // 真正的原因由下面那段说明单独给出
+          emptyText: actionSelectError.value === '' ? select.emptyText : '',
+          modelValue: actionTarget.value,
+          'onUpdate:modelValue': (value: string | number | undefined) => {
+            actionTarget.value = value
+          },
+        })
+      : null,
+    actionSelectError.value !== ''
+      ? h('p', { class: 'ticket-action-dialog__error', role: 'alert' }, actionSelectError.value)
+      : null,
+    textField
       ? h(TicketActionContentField, {
-          label: meta.content.label,
-          placeholder: meta.content.placeholder,
-          maxLength: meta.content.maxLength,
+          label: textField.label,
+          placeholder: textField.placeholder,
+          maxLength: textField.maxLength,
           modelValue: actionContent.value,
           'onUpdate:modelValue': (value: string) => {
             actionContent.value = value
@@ -333,17 +491,24 @@ function buildActionDialog(meta: TicketActionMeta) {
  * 打开确认框并执行动作。
  *
  * <p>确认框用 `ElMessageBox.confirm` + `message` 插槽，而不是 `prompt`：`prompt` 只给单行输入，
- * 而处理过程与解决结果都是要写几段话的正文（契约上限 10000 字符）。</p>
+ * 而处理过程与解决结果都是要写几段话的正文（契约上限 10000 字符），调整与转交还要先选目标值。</p>
  *
  * <p>校验走 `beforeClose`，而不是"先关弹窗再检查"：`handleAction` 在 `beforeClose` 里
  * 只有调用 `done()` 才真正关闭（见 Element Plus `message-box/src/index.vue`）。
- * 所以正文为空时提示一句、**不调用 `done()`**，用户写好的其它内容与弹窗都还在原处；
+ * 所以输入不完整时提示一句、**不调用 `done()`**，用户写好的其它内容与弹窗都还在原处；
  * 若先关掉再提示，用户得重新点一次按钮、重写一遍。</p>
  */
 async function runAction(name: TicketActionName): Promise<void> {
   const meta = TICKET_ACTIONS[name]
   actionError.value = ''
   actionContent.value = ''
+  actionTarget.value = undefined
+
+  /**
+   * 选项与弹窗同时开始：先取完再弹窗，用户会先看到一段没有任何反馈的等待；
+   * 而 `loadActionSelect` 是同步进入加载态的，弹窗第一帧就能说明"正在取"。
+   */
+  void loadActionSelect(meta)
 
   await new Promise<void>((resolve) => {
     void ElMessageBox.confirm(meta.description, meta.label, {
@@ -360,15 +525,40 @@ async function runAction(name: TicketActionName): Promise<void> {
           return
         }
 
-        const content = actionContent.value.trim()
-        if (meta.content && content === '') {
-          ElMessage.warning(`请先填写${meta.content.label}`)
+        const select = meta.select
+        if (select) {
+          if (actionSelectPhase.value === 'loading') {
+            ElMessage.warning(`${select.label}还在加载，请稍候再提交`)
+            return
+          }
+          if (actionSelectPhase.value === 'error') {
+            ElMessage.warning(actionSelectError.value)
+            return
+          }
+          if (actionSelectOptions.value.length === 0) {
+            ElMessage.warning(select.emptyText)
+            return
+          }
+          if (actionTarget.value === undefined) {
+            ElMessage.warning(`请先选择${select.label}`)
+            return
+          }
+          if (isUnchangedChoice(select)) {
+            ElMessage.warning('选的是当前值，没有变化，不需要提交')
+            return
+          }
+        }
+
+        const text = actionContent.value.trim()
+        const textField = meta.content ?? meta.reason
+        if (textField && text === '') {
+          ElMessage.warning(`请先填写${textField.label}`)
           return
         }
 
         done()
         // 请求本身不阻塞弹窗关闭：动作结果由页面上的动作区与提示反馈
-        void performAction(name, content).finally(resolve)
+        void performAction(name, text).finally(resolve)
       },
     }).catch(() => {
       // 取消或关闭：用户自己放弃，不做动作，也不报错

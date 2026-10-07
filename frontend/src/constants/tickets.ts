@@ -220,10 +220,11 @@ export function ticketCloseReasonLabel(reason: string | null | undefined): strin
 }
 
 /**
- * 工单动作：界面能渲染的四个动作，取值与接口路径末段逐字一致。
+ * 工单动作：界面能渲染的动作，取值与接口路径末段逐字一致。
  *
  * <p>**这是界面侧的登记表，不是可做动作的来源**——某个动作现在能不能做，只由详情响应里的
- * `allowedActions` 决定。这张表只回答"这个动作名对应什么按钮、什么权限、要不要填正文"。</p>
+ * `allowedActions` 决定。这张表只回答"这个动作名对应什么按钮、什么权限、要不要先选目标值、
+ * 要不要写一段说明"。</p>
  */
 export type TicketActionName =
   | 'claim'
@@ -233,6 +234,9 @@ export type TicketActionName =
   | 'confirm-resolution'
   | 'withdraw-supplement-request'
   | 'report-unresolved'
+  | 'change-category'
+  | 'change-priority'
+  | 'transfer'
   | 'supplement'
 
 export interface TicketActionMeta {
@@ -247,6 +251,21 @@ export interface TicketActionMeta {
   permission: string
   /** 是否需要一段正文（处理记录、解决结果），以及正文在界面上的称呼。 */
   content?: { label: string; placeholder: string; maxLength: number }
+  /**
+   * 需要先选目标值的动作：分类 / 优先级 / 转交对象。
+   *
+   * <p>`source` 决定选项从哪来，而不是由页面按动作名分支：分类要问服务端「当前启用」的那一份，
+   * 优先级是前端已有的静态刻度，转交对象还必须由服务端判定谁有资格接手。</p>
+   */
+  select?: {
+    source: 'category' | 'priority' | 'assignee'
+    label: string
+    placeholder: string
+    /** 没有可选项时的提示（转交时没有人可选）。 */
+    emptyText: string
+  }
+  /** 原因类说明输入：与后端 `@Size(max=1000)` 对齐。 */
+  reason?: { label: string; placeholder: string; maxLength: number }
   /** 执行前是否必须确认。影响工单终态的动作不能一点就走。 */
   destructive: boolean
 }
@@ -258,9 +277,9 @@ export interface TicketActionMeta {
 const ACTION_CONTENT_MAX_LENGTH = 10000
 
 /**
- * 原因类动作的长度上限，与 `WithdrawSupplementRequestCommand` / `ReportUnresolvedCommand`
- * 的 `@Size(max = 1000)` 对齐（`docs/api-design.md` 6.3/6.4：转交、调整、撤回、未解决、
- * 取消与关闭说明最长 1000）。
+ * 原因类动作的长度上限，与 `WithdrawSupplementRequestCommand` / `ReportUnresolvedCommand` /
+ * `ChangeCategoryCommand` / `ChangePriorityCommand` / `TransferCommand` 的 `@Size(max = 1000)`
+ * 对齐（`docs/api-design.md` 6.3/6.4：转交、调整、撤回、未解决、取消与关闭说明最长 1000）。
  */
 const ACTION_REASON_MAX_LENGTH = 1000
 
@@ -334,6 +353,67 @@ export const TICKET_ACTIONS: Record<TicketActionName, TicketActionMeta> = {
       maxLength: ACTION_REASON_MAX_LENGTH,
     },
     destructive: false,
+  },
+  /**
+   * 完整状态机片 C：调整与转交。
+   *
+   * <p>三个动作的允许状态都是「处理中」与「待补充」，都要求当前负责人；转交单独要求
+   * `TICKET_TRANSFER`（与处理权限分开授权），两个调整动作与「记录处理过程」共用 `TICKET_PROCESS`。
+   * 按登记表顺序排在这里：主要流程（记录、解决、请求补充）在前，对工单属性的就地修正排在后面。</p>
+   */
+  'change-category': {
+    label: '调整分类',
+    description:
+      '调整后这张工单立刻归到新分类，并在时间线上留下一条调整记录；状态、负责人和当前期限都不变。',
+    permission: 'TICKET_PROCESS',
+    select: {
+      source: 'category',
+      label: '调整后的分类',
+      placeholder: '请选择调整后的分类',
+      emptyText: '当前没有启用中的分类，暂时无法调整。',
+    },
+    reason: {
+      label: '调整原因',
+      placeholder: '请输入调整原因，例如问题实际属于另一类设备',
+      maxLength: ACTION_REASON_MAX_LENGTH,
+    },
+    destructive: false,
+  },
+  'change-priority': {
+    label: '调整优先级',
+    description:
+      '调整后优先级立刻生效，并在时间线上留下一条调整记录；状态、负责人和当前期限都不变。',
+    permission: 'TICKET_PROCESS',
+    select: {
+      source: 'priority',
+      label: '调整后的优先级',
+      placeholder: '请选择调整后的优先级',
+      emptyText: '优先级选项不可用，请关闭这个窗口后重新打开。',
+    },
+    reason: {
+      label: '调整原因',
+      placeholder: '请输入调整原因，例如影响范围扩大，需要提前处理',
+      maxLength: ACTION_REASON_MAX_LENGTH,
+    },
+    destructive: false,
+  },
+  transfer: {
+    label: '转交工单',
+    description:
+      '转交后由新负责人立即接手，不需要对方确认；工单状态不变，「待员工补充」期间转交，补充期限也不会重新计算。',
+    permission: 'TICKET_TRANSFER',
+    select: {
+      source: 'assignee',
+      label: '接手人',
+      placeholder: '请选择接手这张工单的同事',
+      emptyText: '当前没有可以接手的同事，这张工单暂时转不出去。',
+    },
+    reason: {
+      label: '转交原因',
+      placeholder: '请输入转交原因，例如这块设备由这位同事更熟悉',
+      maxLength: ACTION_REASON_MAX_LENGTH,
+    },
+    destructive: true,
   },
   /**
    * 放在最后：它是提交人侧唯一需要写正文的动作，其余提交人动作（确认、反馈未解决）都靠一句话说清；
