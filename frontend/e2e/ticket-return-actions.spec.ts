@@ -156,13 +156,16 @@ test('片 A：员工反馈问题仍未解决，工单退回处理中且 IT 可�
    * 片 A 的关键断言：提交人此时应该同时看到「确认已解决」与「问题仍未解决」。
    * 两个动作的前置条件完全相同（待确认 + 本人是提交人 + TICKET_REQUESTER_ACTION），
    * 所以顺序只由前端登记表决定，与后端拼接顺序无关。
+   *
+   * <p>片 D 起这一格还多一个「撤销工单」：撤销覆盖四种非终态，与确认、反馈未解决
+   * 共用同一个权限码但条件更宽，因此排在最后。</p>
    */
   await signOut(page)
   await signIn(page, employeeUsername)
   await page.goto(`/tickets/${ticketNo}`)
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(title)
   await expect(page.locator('.ticket-meta')).toContainText('待员工确认')
-  expect(await actionLabels(page)).toEqual(['确认已解决', '问题仍未解决'])
+  expect(await actionLabels(page)).toEqual(['确认已解决', '问题仍未解决', '撤销工单'])
   await page.screenshot({
     path: resolve(reviewDir, 'employee-waiting-confirmation-1440.png'),
     fullPage: true,
@@ -178,9 +181,9 @@ test('片 A：员工反馈问题仍未解决，工单退回处理中且 IT 可�
   expect(unresolved.status()).toBe(200)
   record(steps, 'report-unresolved', unresolved, '工单退回处理中')
 
-  // 状态回到处理中，员工侧不再有任何动作（员工不是负责人）
+  // 状态回到处理中：员工不是负责人，处理动作一个都不出现；留下的只有他自己那一格撤销
   await expect(page.locator('.ticket-meta')).toContainText('处理中')
-  await expect(page.locator('.ticket-action-panel')).toHaveCount(0)
+  expect(await actionLabels(page)).toEqual(['撤销工单'])
   // 未解决反馈进入时间线，解决结果仍在（不可变）
   await expect(page.locator('.ticket-timeline__item').last()).toContainText('反馈问题仍未解决')
   await expect(page.locator('.ticket-timeline__item').filter({ hasText: '提交解决结果' })).toHaveCount(1)
@@ -194,7 +197,7 @@ test('片 A：员工反馈问题仍未解决，工单退回处理中且 IT 可�
   await signIn(page, itUsername)
   await page.goto(`/tickets/${ticketNo}`)
   await expect(page.locator('.ticket-meta')).toContainText('处理中')
-  // 处理中 + 本人负责人：六个动作（片 B 起「请求补充信息」、片 C 起调整与转交都在这里）
+  // 处理中 + 本人负责人：七个动作（片 B 起「请求补充信息」、片 C 起调整与转交、片 D 起关闭都在这里）
   expect(await actionLabels(page)).toEqual([
     '记录处理过程',
     '提交解决结果',
@@ -202,6 +205,7 @@ test('片 A：员工反馈问题仍未解决，工单退回处理中且 IT 可�
     '调整分类',
     '调整优先级',
     '转交工单',
+    '关闭工单',
   ])
 
   const processed = await performAction(

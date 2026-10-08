@@ -1,4 +1,5 @@
 import type {
+  TicketCloseReason,
   TicketListSort,
   TicketPriority,
   TicketScope,
@@ -220,6 +221,18 @@ export function ticketCloseReasonLabel(reason: string | null | undefined): strin
 }
 
 /**
+ * 关闭原因的可选项（片 D）：只列**人工关闭**允许的三种。
+ *
+ * <p>标签复用上面那份展示映射——下拉里选的原因与时间线上回看的原因是同一句话，
+ * 不另写一份文案，两处也就不会漂移。第 4 个编码 `REQUESTER_NO_RESPONSE` 属于逾期未补充的
+ * 自动关闭（`AUTO_SUPPLEMENT_TIMEOUT`），人工关闭传它会被 `ck_ticket_close_semantics` 拒绝，
+ * 因此它只存在于展示映射里，不出现在选项里。</p>
+ */
+export const TICKET_CLOSE_REASON_OPTIONS: readonly { value: TicketCloseReason; label: string }[] = (
+  ['DUPLICATE', 'OUT_OF_SCOPE', 'INVALID'] as const
+).map((value) => ({ value, label: closeReasonLabels[value] ?? value }))
+
+/**
  * 工单动作：界面能渲染的动作，取值与接口路径末段逐字一致。
  *
  * <p>**这是界面侧的登记表，不是可做动作的来源**——某个动作现在能不能做，只由详情响应里的
@@ -237,7 +250,9 @@ export type TicketActionName =
   | 'change-category'
   | 'change-priority'
   | 'transfer'
+  | 'close'
   | 'supplement'
+  | 'cancel'
 
 export interface TicketActionMeta {
   /** 按钮文字。 */
@@ -247,22 +262,45 @@ export interface TicketActionMeta {
   /**
    * 这个动作应有的权限。只用于**前端二次收口**：后端已经按同一份权限算过 `allowedActions`，
    * 这里再查一次是为了应对"取详情后被撤权"的窗口，不是为了替代后端授权。
+   *
+   * <p>写法与 `authorization.ts` 的导航项一致（`string | readonly string[]`），但**语义相反**：
+   * 导航项是"任一满足即可见"（`hasAnyPermission`），动作是"**全部满足**才渲染"——
+   * 因为后端就是按合取算的：`close` 的 `canClose = canProcess && hasAuthority(TICKET_CLOSE)`，
+   * 两条授权缺一不可。写成一个字符串等价于只要求一条。</p>
    */
-  permission: string
+  permission: string | readonly string[]
   /** 是否需要一段正文（处理记录、解决结果），以及正文在界面上的称呼。 */
   content?: { label: string; placeholder: string; maxLength: number }
   /**
-   * 需要先选目标值的动作：分类 / 优先级 / 转交对象。
+   * 需要先选目标值的动作：分类 / 优先级 / 转交对象 / 关闭原因。
    *
    * <p>`source` 决定选项从哪来，而不是由页面按动作名分支：分类要问服务端「当前启用」的那一份，
-   * 优先级是前端已有的静态刻度，转交对象还必须由服务端判定谁有资格接手。</p>
+   * 转交对象还必须由服务端判定谁有资格接手；**优先级与关闭原因是本地静态刻度**
+   * （三级优先级、三种关闭原因），为它们发一次请求既多等一次往返，也多一个失败点。
+   * 界面因此只多认一个本地取值，不新增第二套"选项从哪来"的机制。</p>
    */
   select?: {
-    source: 'category' | 'priority' | 'assignee'
+    source: 'category' | 'priority' | 'assignee' | 'reasonCode'
     label: string
     placeholder: string
     /** 没有可选项时的提示（转交时没有人可选）。 */
     emptyText: string
+  }
+  /**
+   * 条件下出现的第二个输入：已经选中的目标值等于 `whenValue` 时才出现（片 D 的「重复工单」）。
+   *
+   * <p>取值口径由 `whenValue` 显式给出，页面只按它渲染与提交：值不等于 `whenValue` 时，
+   * 这个输入**既不出现在弹窗里，也不会出现在请求体里**。服务端对"非重复原因却带单号"返回
+   * `400/VALIDATION_FAILED` 而不是忽略多传的字段，所以"隐藏"和"不发"必须是同一件事。</p>
+   */
+  conditionalText?: {
+    /** 这个输入对应哪个契约字段（当前只有关闭工单的 `duplicateTicketNo`）。 */
+    field: 'duplicateTicketNo'
+    label: string
+    placeholder: string
+    maxLength: number
+    /** 上面 `select` 槽里选中的值等于它时才出现；取值必须落在 `select` 的取值域内。 */
+    whenValue: string
   }
   /** 原因类说明输入：与后端 `@Size(max=1000)` 对齐。 */
   reason?: { label: string; placeholder: string; maxLength: number }
@@ -282,6 +320,14 @@ const ACTION_CONTENT_MAX_LENGTH = 10000
  * 对齐（`docs/api-design.md` 6.3/6.4：转交、调整、撤回、未解决、取消与关闭说明最长 1000）。
  */
 const ACTION_REASON_MAX_LENGTH = 1000
+
+/**
+ * 工单编号的长度上限，与 `CloseTicketCommand.duplicateTicketNo` 的 `@Size(max = 32)` 对齐。
+ *
+ * <p>编号本身是 `FD-YYYYMMDD-NNN` 这样的 16 位标识，32 是服务端允许的上限而不是期望长度；
+ * 前端照抄上限，是为了"填不下"由界面先说，而不是让用户写完再吃一个 `400`。</p>
+ */
+const ACTION_TICKET_NO_MAX_LENGTH = 32
 
 export const TICKET_ACTIONS: Record<TicketActionName, TicketActionMeta> = {
   claim: {
@@ -416,8 +462,50 @@ export const TICKET_ACTIONS: Record<TicketActionName, TicketActionMeta> = {
     destructive: true,
   },
   /**
-   * 放在最后：它是提交人侧唯一需要写正文的动作，其余提交人动作（确认、反馈未解决）都靠一句话说清；
-   * 同一张工单上它与其它动作不会同时出现，位置差异不会被用户看到。
+   * 完整状态机片 D：结束路径的第一半——IT 异常关闭。
+   *
+   * <p>排在 `transfer` 之后：服务端的 `allowedActions` 也是"…转交、关闭"这个顺序，两个结束动作
+   * 里它先出现，是因为它要求当前负责人身份（人已经在工单上）；`cancel` 在整张表最后。</p>
+   *
+   * <p>`destructive = true` 的理由：一次点击就把工单推进**终态**，而且 v1 明确不提供申诉或恢复
+   * （`docs/kickoff.md` 4.8），所以按钮用警示色、确认框里必须把后果写清楚。</p>
+   *
+   * <p>**两条授权同时成立**（2026-10-08 用户裁决）：关闭结束整张工单，必须建立在处理权限之上，
+   * 后端 `canClose` 就是 `canProcess && TICKET_CLOSE`。早先这里只写了 `TICKET_CLOSE`，
+   * 差别只在"取详情后被撤掉 `TICKET_PROCESS`"的窗口里——按钮还摆着，点下去得到 403；
+   * 与片 C 的 `transfer` 只要求 `TICKET_TRANSFER` 是两条不同的口径，不要互相看齐。</p>
+   */
+  close: {
+    label: '关闭工单',
+    description:
+      '关闭后工单进入终态「已关闭」，不能再继续处理、转交或提交解决结果。这条路径用于重复、超出 IT 支持范围或无效的工单；「暂时解决不了」不在此列。',
+    permission: ['TICKET_PROCESS', 'TICKET_CLOSE'],
+    select: {
+      source: 'reasonCode',
+      label: '关闭原因',
+      placeholder: '请选择关闭原因',
+      emptyText: '关闭原因选项不可用，请关闭这个窗口后重新打开。',
+    },
+    conditionalText: {
+      field: 'duplicateTicketNo',
+      label: '重复的工单编号',
+      placeholder: '请输入另一张有效工单的编号，例如 FD-20261008-001',
+      maxLength: ACTION_TICKET_NO_MAX_LENGTH,
+      whenValue: 'DUPLICATE',
+    },
+    reason: {
+      label: '关闭说明',
+      placeholder: '请输入具体说明，例如与哪张工单重复、为什么不属于 IT 支持范围',
+      maxLength: ACTION_REASON_MAX_LENGTH,
+    },
+    destructive: true,
+  },
+  /**
+   * 提交人侧的补充动作：位置在 `close` 之后、`cancel` 之前。
+   *
+   * <p>它与 `cancel` 会在「待补充」上同时出现，所以顺序按用户处境定：先看到"把事情做完"
+   * （补充信息），再看到"终止这件事"（撤销）。其余提交人动作（确认、反馈未解决）都靠一句话
+   * 说清，不需要额外输入。</p>
    */
   supplement: {
     label: '提交补充信息',
@@ -431,13 +519,33 @@ export const TICKET_ACTIONS: Record<TicketActionName, TicketActionMeta> = {
     },
     destructive: false,
   },
+  /**
+   * 完整状态机片 D：结束路径的第二半——提交人撤销。
+   *
+   * <p>四种非终态（待受理 / 处理中 / 待补充 / 待确认）都能撤销，所以它和 `supplement` 会同时出现，
+   * 也和 IT 侧的 `close` 一样是终态动作。`destructive = true` 的理由同 `close`：一次点击结束
+   * 这张工单，v1 不支持恢复（`docs/kickoff.md` 4.7），而且它不需要 IT 同意——确认框必须写明
+   * "处理记录与负责人会保留、但工单不会再被处理"。</p>
+   */
+  cancel: {
+    label: '撤销工单',
+    description:
+      '撤销后工单进入终态「已取消」，不会再有人处理它；已经产生的处理记录与负责人都会保留。本版本不支持恢复，如果问题依然存在，需要重新提交一张工单。',
+    permission: 'TICKET_REQUESTER_ACTION',
+    reason: {
+      label: '撤销原因',
+      placeholder: '请输入撤销原因，例如问题已自行解决，或这是一次重复提交',
+      maxLength: ACTION_REASON_MAX_LENGTH,
+    },
+    destructive: true,
+  },
 }
 
 /**
  * 把详情的 `allowedActions` 收敛成界面真正会渲染的动作。
  *
  * <p>两件事必须同时成立才渲染按钮：动作名在登记表里（后端将来新增的动作名在界面实现之前
- * 不会变成一个按不动的按钮），并且当前账号仍持有该动作的权限。顺序按登记表声明顺序，
+ * 不会变成一个按不动的按钮），并且当前账号仍持有该动作声明的**全部**权限。顺序按登记表声明顺序，
  * 与后端返回顺序无关——同一张工单的按钮不该因为服务端拼接顺序变化而换位置。</p>
  */
 export function permittedActions(
@@ -446,8 +554,24 @@ export function permittedActions(
 ): TicketActionName[] {
   const allowed = new Set(allowedActions)
   return (Object.keys(TICKET_ACTIONS) as TicketActionName[]).filter(
-    (name) => allowed.has(name) && hasPermission(TICKET_ACTIONS[name].permission),
+    (name) => allowed.has(name) && holdsActionPermission(TICKET_ACTIONS[name].permission, hasPermission),
   )
+}
+
+/**
+ * 动作的权限二次收口：登记表里写了几条，就必须**全部**持有。
+ *
+ * <p>与导航项的 `hasAnyPermission` 相反是有意的——导航是"有其中一个入口权限就显示菜单"，
+ * 动作是"后端按合取算出来的能力"，任缺一条后端都会给 403（如 `close` 同时要
+ * `TICKET_PROCESS` 与 `TICKET_CLOSE`）。</p>
+ */
+function holdsActionPermission(
+  permission: string | readonly string[],
+  hasPermission: (code: string) => boolean,
+): boolean {
+  return typeof permission === 'string'
+    ? hasPermission(permission)
+    : permission.every((code) => hasPermission(code))
 }
 
 /** 记录上下文里一条可直接渲染的"标签 + 文本"。 */

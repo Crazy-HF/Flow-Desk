@@ -171,12 +171,12 @@ test('员工创建工单：双击只建一张、刷新后仍在、列表可回�
   await expect(meta).toContainText('优先级 高')
 
   /**
-   * 待受理 + 提交人自己：`allowedActions` 对员工是空数组，所以整块动作区都不出现。
-   * 这是"按服务端返回渲染按钮，而不是前端推导"最容易观察到的证据——
-   * 员工会看到 `claim` 按钮的那张工单，在服务端放行 `claim` 之前也不会出现。
+   * 待受理 + 提交人自己：`allowedActions` 不给 `claim`（不能领取自己提交的工单），
+   * 但片 D 起会给一格 `cancel`——撤销是提交人在四种非终态上都能做的事。
+   * 这是"按服务端返回渲染按钮，而不是前端推导"最容易观察到的证据：
+   * 同一张待受理工单，员工看到的是撤销，IT 看到的是领取。
    */
-  await expect(page.locator('.ticket-action-panel')).toHaveCount(0)
-  await expect(page.locator('.ticket-action .el-button')).toHaveCount(0)
+  await expect(page.locator('.ticket-action .el-button')).toHaveText(['撤销工单'])
 
   // 属性栏与时间线：问题正文、分类、提交人、时间都在，创建记录已写入时间线
   await expect(page.locator('.ticket-description')).toContainText('验证提交幂等')

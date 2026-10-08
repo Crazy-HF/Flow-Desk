@@ -9,9 +9,11 @@ import type { AuthUser } from '@/api/auth'
 import { listCategoryOptions } from '@/api/categories'
 import {
   addProcessingRecord,
+  cancelTicket,
   changeTicketCategory,
   changeTicketPriority,
   claimTicket,
+  closeTicket,
   confirmResolution,
   getTicket,
   listTicketRecords,
@@ -40,6 +42,8 @@ vi.mock('@/api/tickets', () => ({
   changeTicketCategory: vi.fn(),
   changeTicketPriority: vi.fn(),
   transferTicket: vi.fn(),
+  closeTicket: vi.fn(),
+  cancelTicket: vi.fn(),
   listTransferCandidates: vi.fn(),
 }))
 
@@ -84,6 +88,8 @@ const support: AuthUser = {
     'TICKET_PROCESS',
     // 转交是独立授权（V2 里由 IT_SUPPORT 持有），不是 TICKET_PROCESS 的一部分
     'TICKET_TRANSFER',
+    // 关闭又是另一条（V2 里同样由 IT_SUPPORT 持有）：后端还要叠 TICKET_PROCESS 才放行动作
+    'TICKET_CLOSE',
   ],
 }
 
@@ -166,6 +172,11 @@ function actionBoxTextarea(): HTMLTextAreaElement | null {
   return messageBox.current()?.textarea() ?? null
 }
 
+/** 条件下出现的单行输入（片 D 的重复工单编号）；条件不成立时是 null。 */
+function actionBoxConditionalInput(): HTMLInputElement | null {
+  return messageBox.current()?.conditionalInput() ?? null
+}
+
 /** 展开目标值下拉，看看用户到底能选到哪些（选项在下拉里，不在 wrapper 里）。 */
 async function openActionBoxSelect(): Promise<string[]> {
   return (await messageBox.current()?.openSelect()) ?? []
@@ -189,6 +200,11 @@ function actionBoxSelected(): string {
 /** 在确认框里写好正文或原因（真人先写、再点确认）。 */
 async function typeIntoActionBox(text: string): Promise<void> {
   await messageBox.current()?.type(text)
+}
+
+/** 在条件输入里写好工单编号（真人先写、再点确认）。 */
+async function typeIntoConditional(text: string): Promise<void> {
+  await messageBox.current()?.typeConditional(text)
 }
 
 async function acceptActionBox(): Promise<void> {
@@ -1080,5 +1096,220 @@ describe('TicketDetailView', () => {
     // 取回来之后选项出现在同一个弹窗里，不用重新打开
     expect(await openActionBoxSelect()).toEqual(['演示同事'])
     await cancelActionBox()
+  })
+
+  // ---------- 片 D：结束路径（关闭与撤销） ----------
+
+  /**
+   * 关闭工单：原因是本地静态三选一，说明走 `description`。
+   *
+   * <p>这里同时钉住一件容易被忽略的事：**没选「重复工单」时弹窗里没有第二个输入框**。
+   * 条件输入不是"隐藏的第二个正文"，它出现与否决定请求里带不带 `duplicateTicketNo`，
+   * 而服务端对多传的单号回的是 `400`，不是忽略。</p>
+   */
+  it('关闭工单：原因三选一、说明必填，非重复原因时不出现重复单号输入', async () => {
+    useAuthStore().user = support
+    vi.mocked(getTicket)
+      .mockResolvedValueOnce({
+        ...detail,
+        status: 'PROCESSING',
+        assignee: { id: 2, displayName: '演示 IT 支持人员' },
+        version: 6,
+        allowedActions: ['close'],
+      })
+      .mockResolvedValue({
+        ...detail,
+        status: 'CLOSED',
+        assignee: { id: 2, displayName: '演示 IT 支持人员' },
+        closeMethod: 'MANUAL',
+        closeReason: 'OUT_OF_SCOPE',
+        endedAt: '2026-10-08T03:00:00Z',
+        version: 7,
+        allowedActions: [],
+      })
+    vi.mocked(closeTicket).mockResolvedValue({
+      ticketNo: detail.ticketNo,
+      status: 'CLOSED',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      actionDeadlineAt: undefined,
+      version: 7,
+      actionTime: '2026-10-08T03:00:00Z',
+    })
+
+    const { wrapper } = await mountPage()
+    expect(actionLabels(wrapper)).toEqual(['关闭工单'])
+
+    await openActionBox(wrapper, '关闭工单')
+    // 关闭原因是契约里写死的三种，不为它发请求
+    expect(listCategoryOptions).not.toHaveBeenCalled()
+    expect(listTransferCandidates).not.toHaveBeenCalled()
+    expect(await openActionBoxSelect()).toEqual(['重复工单', '超出支持范围', '无效工单'])
+    // 还没选原因，也就没有"重复工单"这个前提：这里不该出现第二个输入框
+    expect(actionBoxConditionalInput()).toBeNull()
+
+    await chooseInActionBox('超出支持范围')
+    expect(actionBoxConditionalInput()).toBeNull()
+
+    await typeIntoActionBox('  门禁卡补办属于行政，不在 IT 支持范围  ')
+    await acceptActionBox()
+
+    expect(closeTicket).toHaveBeenCalledWith('FD-20260929-001', {
+      version: 6,
+      reasonCode: 'OUT_OF_SCOPE',
+      description: '门禁卡补办属于行政，不在 IT 支持范围',
+    })
+    // 非重复原因**不带**这个键：传空串虽然也会被服务端归一成"没传"，但那是把正确性寄托在容错上
+    expect(vi.mocked(closeTicket).mock.calls[0]?.[1]).not.toHaveProperty('duplicateTicketNo')
+    expect(wrapper.get('.ticket-meta').text()).toContain('已关闭')
+    expect(wrapper.get('.ticket-facts').text()).toContain('超出支持范围')
+  })
+
+  /**
+   * 选「重复工单」之后：条件输入出现，且**不填就不许提交**。
+   *
+   * <p>它是服务端解析目标工单的唯一入口，缺了必然 `400`；界面上先说，用户才不会拿到一句
+   * 与自己刚做的事对不上的报错。</p>
+   */
+  it('关闭为重复工单：选中后才出现编号输入，没填则拦下提交', async () => {
+    useAuthStore().user = support
+    vi.mocked(getTicket).mockResolvedValue({
+      ...detail,
+      status: 'PROCESSING',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      version: 4,
+      allowedActions: ['close'],
+    })
+    vi.mocked(closeTicket).mockResolvedValue({
+      ticketNo: detail.ticketNo,
+      status: 'CLOSED',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      actionDeadlineAt: undefined,
+      version: 5,
+      actionTime: '2026-10-08T03:30:00Z',
+    })
+
+    const { wrapper } = await mountPage()
+    await openActionBox(wrapper, '关闭工单')
+    await chooseInActionBox('重复工单')
+
+    // 输入框与它的触发项一起出现，上限与 CloseTicketCommand 的 @Size(max = 32) 对齐
+    expect(actionBoxConditionalInput()).not.toBeNull()
+    expect(actionBoxConditionalInput()?.getAttribute('maxlength')).toBe('32')
+    expect(actionBoxText()).toContain('重复的工单编号')
+
+    await typeIntoActionBox('同一个问题已经报过了')
+    await acceptActionBox()
+
+    expect(closeTicket).not.toHaveBeenCalled()
+    // 关掉再提示的话，用户得重新点按钮、重写一遍
+    expect(messageBox.current()).not.toBeNull()
+
+    await typeIntoConditional('  FD-20260929-001  ')
+    await acceptActionBox()
+
+    expect(closeTicket).toHaveBeenCalledWith('FD-20260929-001', {
+      version: 4,
+      reasonCode: 'DUPLICATE',
+      description: '同一个问题已经报过了',
+      duplicateTicketNo: 'FD-20260929-001',
+    })
+  })
+
+  /**
+   * 选过「重复工单」又改回别的原因时，编号必须**从请求里消失**，而不是"留着但不显示"。
+   *
+   * <p>这是"隐藏等于不发"那个不变量的反面用例：如果提交侧按"值是否为空"判断，用户改完原因后
+   * 依然会带着一个旧编号发出去，服务端回 `400`，界面上却什么都看不出来。</p>
+   */
+  it('从重复工单改回其他原因：输入框消失，已填的编号也不进请求', async () => {
+    useAuthStore().user = support
+    vi.mocked(getTicket).mockResolvedValue({
+      ...detail,
+      status: 'PROCESSING',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      version: 8,
+      allowedActions: ['close'],
+    })
+    vi.mocked(closeTicket).mockResolvedValue({
+      ticketNo: detail.ticketNo,
+      status: 'CLOSED',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      actionDeadlineAt: undefined,
+      version: 9,
+      actionTime: '2026-10-08T03:40:00Z',
+    })
+
+    const { wrapper } = await mountPage()
+    await openActionBox(wrapper, '关闭工单')
+    await chooseInActionBox('重复工单')
+    await typeIntoConditional('FD-20260929-001')
+    expect(actionBoxConditionalInput()).not.toBeNull()
+
+    await chooseInActionBox('无效工单')
+    expect(actionBoxConditionalInput()).toBeNull()
+
+    await typeIntoActionBox('测试数据，没有实际问题')
+    await acceptActionBox()
+
+    const payload = vi.mocked(closeTicket).mock.calls[0]?.[1]
+    expect(payload).toMatchObject({
+      reasonCode: 'INVALID',
+      description: '测试数据，没有实际问题',
+    })
+    expect(payload).not.toHaveProperty('duplicateTicketNo')
+  })
+
+  /**
+   * 撤销工单：提交人的终态动作，「处理中」也能做（IT 已经领了也算）。
+   *
+   * <p>它不需要 IT 同意，所以界面必须把后果写清楚：进入终态「已取消」，此前的处理记录与负责人
+   * 都保留，但不会再有人处理它，而且本版本不支持恢复。</p>
+   */
+  it('撤销工单：带版本号与原因提交，成功后进入已取消且不再有动作', async () => {
+    useAuthStore().user = requester
+    vi.mocked(getTicket)
+      .mockResolvedValueOnce({
+        ...detail,
+        status: 'PROCESSING',
+        assignee: { id: 2, displayName: '演示 IT 支持人员' },
+        version: 5,
+        allowedActions: ['cancel'],
+      })
+      .mockResolvedValue({
+        ...detail,
+        status: 'CANCELED',
+        assignee: { id: 2, displayName: '演示 IT 支持人员' },
+        endedAt: '2026-10-08T04:00:00Z',
+        version: 6,
+        allowedActions: [],
+      })
+    vi.mocked(cancelTicket).mockResolvedValue({
+      ticketNo: detail.ticketNo,
+      status: 'CANCELED',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      actionDeadlineAt: undefined,
+      version: 6,
+      actionTime: '2026-10-08T04:00:00Z',
+    })
+
+    const { wrapper } = await mountPage()
+    expect(actionLabels(wrapper)).toEqual(['撤销工单'])
+
+    await openActionBox(wrapper, '撤销工单')
+    // 撤销只要一段原因：没有要选的目标值，也没有条件输入
+    expect(messageBox.current()?.select()).toBeNull()
+    expect(actionBoxConditionalInput()).toBeNull()
+
+    await typeIntoActionBox('  问题已经自行解决  ')
+    await acceptActionBox()
+
+    expect(cancelTicket).toHaveBeenCalledWith('FD-20260929-001', {
+      version: 5,
+      reason: '问题已经自行解决',
+    })
+    expect(wrapper.get('.ticket-meta').text()).toContain('已取消')
+    // 终态要能看到结束时间：否则用户只知道"不动了"，不知道什么时候结束的
+    expect(wrapper.get('.ticket-facts').text()).toContain('结束时间')
+    expect(actionLabels(wrapper)).toEqual([])
   })
 })

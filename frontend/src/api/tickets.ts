@@ -40,6 +40,16 @@ export type TicketPriority = 'LOW' | 'MEDIUM' | 'HIGH'
  */
 export type TicketListSort = 'UPDATED_DESC' | 'CREATED_DESC' | 'CREATED_ASC' | 'PRIORITY_DESC_CREATED_ASC'
 
+/**
+ * 手动关闭的原因编码，与 `CloseTicketCommand` 的 `@Pattern` 一致（只有三种）。
+ *
+ * <p>第四个编码 `REQUESTER_NO_RESPONSE`（员工逾期未补充信息）属于**自动**关闭：
+ * `V1` 的 `ck_ticket_close_semantics` 把它与 `close_method = AUTO_SUPPLEMENT_TIMEOUT` 绑在一起，
+ * 人工关闭传它会被数据库约束拒绝。它因此只出现在展示映射里（`constants/tickets.ts`），
+ * 不在这个类型里，也不在关闭弹窗的选项里。</p>
+ */
+export type TicketCloseReason = 'DUPLICATE' | 'OUT_OF_SCOPE' | 'INVALID'
+
 /** 记录执行者类型：系统动作没有操作人。 */
 export type TicketActorType = 'USER' | 'SYSTEM'
 
@@ -232,6 +242,34 @@ export interface ChangePriorityPayload {
 export interface TransferPayload {
   version: number
   newAssigneeId: number
+  reason: string
+}
+
+/**
+ * 手动关闭工单（`docs/api-design.md` 6.3，完整状态机片 D）。
+ *
+ * <p>只有「处理中」的当前负责人能关闭，且后端**同时**要求 `TICKET_PROCESS` 与 `TICKET_CLOSE`；
+ * 成功后 `close_method` 固定为 `MANUAL`，`reasonCode` 就是关闭标准原因。</p>
+ */
+export interface CloseTicketPayload {
+  version: number
+  reasonCode: TicketCloseReason
+  /** 关闭说明：去首尾空白后 1～1000 字符，与 `CloseTicketCommand` 的 `@Size` 一致。 */
+  description: string
+  /**
+   * 被判定为"重复"的那张工单的编号。
+   *
+   * <p>**只有 `reasonCode === 'DUPLICATE'` 才带这个键**，而且必须是同一提交人的另一张有效工单
+   * （存在、非自身、状态不是已取消/已关闭）。传空串虽然会被命令的构造器归一成"没传"，
+   * 但那是把正确性寄托在服务端容错上；其他原因带一个真单号会被 `400/VALIDATION_FAILED` 拒绝，
+   * 所以这里必须真的省略这个键。</p>
+   */
+  duplicateTicketNo?: string
+}
+
+/** 撤销工单（`docs/api-design.md` 6.4，完整状态机片 D）：原因去首尾空白后 1～1000 字符。 */
+export interface CancelTicketPayload {
+  version: number
   reason: string
 }
 
@@ -569,6 +607,43 @@ export async function transferTicket(
 export async function listTransferCandidates(ticketNo: string): Promise<TicketAssigneeOption[]> {
   const response = await http.get<ApiEnvelope<TicketAssigneeOption[]>>(
     `/tickets/${encodeURIComponent(ticketNo)}/transfer-candidates`,
+  )
+  return response.data.data
+}
+
+/**
+ * 当前负责人手动关闭工单（`docs/api-design.md` 6.3，完整状态机片 D）。
+ *
+ * <p>只有「处理中」可以关闭：待受理要先领取（先承担处理责任），两个等待态要先回到处理中。
+ * 关闭原因只能是 `DUPLICATE` / `OUT_OF_SCOPE` / `INVALID`——"暂时解决不了""需要别人处理"
+ * 不是关闭原因，那些工单应当继续处理或转交；选择重复工单时还要给出同一提交人的另一张有效工单编号。
+ * 成功后进入终态「已关闭」，负责人保留，`actionDeadlineAt` 不再有值。</p>
+ */
+export async function closeTicket(
+  ticketNo: string,
+  payload: CloseTicketPayload,
+): Promise<TicketActionResult> {
+  const response = await http.post<ApiEnvelope<TicketActionResult>>(
+    `/tickets/${encodeURIComponent(ticketNo)}/actions/close`,
+    payload,
+  )
+  return response.data.data
+}
+
+/**
+ * 提交人撤销自己的工单（`docs/api-design.md` 6.4，完整状态机片 D）。
+ *
+ * <p>四种非终态（待受理 / 处理中 / 待补充 / 待确认）都可以撤销，进入终态「已取消」。
+ * 撤销是业务终止而不是删除：负责人、参与关系与此前的处理记录都保留，所以"已取消"只表示
+ * 请求被提交人终止，**不代表问题由 IT 成功解决**。原因必填，本版本不支持恢复。</p>
+ */
+export async function cancelTicket(
+  ticketNo: string,
+  payload: CancelTicketPayload,
+): Promise<TicketActionResult> {
+  const response = await http.post<ApiEnvelope<TicketActionResult>>(
+    `/tickets/${encodeURIComponent(ticketNo)}/actions/cancel`,
+    payload,
   )
   return response.data.data
 }

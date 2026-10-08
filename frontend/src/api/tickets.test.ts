@@ -7,9 +7,11 @@ vi.mock('./http', () => ({
 import { http } from './http'
 import {
   addProcessingRecord,
+  cancelTicket,
   changeTicketCategory,
   changeTicketPriority,
   claimTicket,
+  closeTicket,
   confirmResolution,
   createSubmissionKey,
   createTicket,
@@ -303,6 +305,88 @@ describe('工单接口封装', () => {
 
       // 空数组不是错误：界面据此说明"暂时转不出去"，不该当成请求失败
       await expect(listTransferCandidates('FD-20260929-001')).resolves.toEqual([])
+    })
+
+    /**
+     * 片 D 的关闭是"标准原因 + 说明 + 条件下才有的工单编号"这一种形状，字段名与前面几个动作都不同：
+     * 原因叫 `reasonCode`（不是 `reason`），说明叫 `description`（不是 `content`）。
+     * 写错一个字段名，服务端只会回一句笼统的 400，所以这里逐个钉住。
+     */
+    it('关闭工单发版本号、关闭原因与说明；不选重复工单时不带单号', async () => {
+      await closeTicket('FD-20260929-001', {
+        version: 12,
+        reasonCode: 'OUT_OF_SCOPE',
+        description: '门禁卡补办应由行政部门处理',
+      })
+
+      const call = vi.mocked(http.post).mock.calls[0]
+      expect(call?.[0]).toBe('/tickets/FD-20260929-001/actions/close')
+      expect(call?.[1]).toEqual({
+        version: 12,
+        reasonCode: 'OUT_OF_SCOPE',
+        description: '门禁卡补办应由行政部门处理',
+      })
+      // 非重复原因**不能**带这个键：服务端对多传的单号返回 400，而不是忽略它
+      expect(call?.[1]).not.toHaveProperty('duplicateTicketNo')
+    })
+
+    it('关闭为重复工单时带上同一提交人的另一张工单编号', async () => {
+      await closeTicket('FD-20260929-002', {
+        version: 3,
+        reasonCode: 'DUPLICATE',
+        description: '与更早那张是同一个问题',
+        duplicateTicketNo: 'FD-20260929-001',
+      })
+
+      expect(http.post).toHaveBeenCalledWith('/tickets/FD-20260929-002/actions/close', {
+        version: 3,
+        reasonCode: 'DUPLICATE',
+        description: '与更早那张是同一个问题',
+        duplicateTicketNo: 'FD-20260929-001',
+      })
+    })
+
+    it('关闭结果的终态没有期限：响应里没有这个键，读出来就是 undefined', async () => {
+      respondWith({
+        ticketNo: 'FD-20260929-001',
+        status: 'CLOSED',
+        assignee: { id: 2, displayName: '演示 IT 支持人员' },
+        version: 13,
+        actionTime: '2026-10-08T03:00:00Z',
+      })
+
+      const result = await closeTicket('FD-20260929-001', {
+        version: 12,
+        reasonCode: 'INVALID',
+        description: '测试数据，没有实际问题',
+      })
+
+      expect(result.status).toBe('CLOSED')
+      // 后端 non_null 策略下 null 字段整个不出现；负责人按快照保留，所以这个键是有的
+      expect(result.actionDeadlineAt).toBeUndefined()
+      expect(result.assignee?.displayName).toBe('演示 IT 支持人员')
+    })
+
+    it('撤销工单发版本号与原因，成功后返回已取消', async () => {
+      respondWith({
+        ticketNo: 'FD-20260929-001',
+        status: 'CANCELED',
+        version: 6,
+        actionTime: '2026-10-08T04:00:00Z',
+      })
+
+      const result = await cancelTicket('FD-20260929-001', {
+        version: 5,
+        reason: '问题已自行解决',
+      })
+
+      expect(http.post).toHaveBeenCalledWith('/tickets/FD-20260929-001/actions/cancel', {
+        version: 5,
+        reason: '问题已自行解决',
+      })
+      expect(result.status).toBe('CANCELED')
+      // 待受理撤销时本来就没有负责人：这个键不出现，界面按"未分配"显示
+      expect(result.assignee).toBeUndefined()
     })
   })
 })

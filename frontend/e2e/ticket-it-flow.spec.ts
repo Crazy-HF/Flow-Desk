@@ -154,9 +154,13 @@ test('阶段 3 主链：员工提交 → IT 领取 → 处理 → 提交解决 �
   expect(ticketNo).toMatch(/^FD-\d{8}-\d{3}$/)
   record(steps, 'create', created, `${ticketNo} 由员工通过界面创建`)
 
-  // 员工视角：待受理阶段没有可做的动作，动作区整块不出现
+  /**
+   * 员工视角：待受理阶段拿不到 `claim`（不能领取自己提交的工单），但片 D 起有一格
+   * 「撤销工单」——撤销覆盖四种非终态。这一格恰好证明按钮来自服务端返回的
+   * `allowedActions`：同一个界面、同一张工单，员工看到撤销、IT 看到领取。
+   */
   await expect(page.locator('.ticket-meta')).toContainText('待受理')
-  await expect(page.locator('.ticket-action-panel')).toHaveCount(0)
+  expect(await actionLabels(page)).toEqual(['撤销工单'])
   await signOut(page)
 
   // ---------- 2. IT 领取 ----------
@@ -191,8 +195,8 @@ test('阶段 3 主链：员工提交 → IT 领取 → 处理 → 提交解决 �
 
   // 领取后按钮立刻换成处理动作：版本已经 +1，界面必须按新快照重算
   await expect(page.locator('.ticket-meta')).toContainText('处理中')
-  // 处理中状态下负责人具备六个动作（片 B 起多了「请求补充信息」，片 C 起多了调整分类、
-  // 调整优先级与转交），顺序由前端登记表决定
+  // 处理中状态下负责人具备七个动作（片 B 起多了「请求补充信息」，片 C 起多了调整分类、
+  // 调整优先级与转交，片 D 起多了关闭），顺序由前端登记表决定
   expect(await actionLabels(page)).toEqual([
     '记录处理过程',
     '提交解决结果',
@@ -200,6 +204,7 @@ test('阶段 3 主链：员工提交 → IT 领取 → 处理 → 提交解决 �
     '调整分类',
     '调整优先级',
     '转交工单',
+    '关闭工单',
   ])
   await expect(page.locator('.ticket-facts dt:has-text("负责人") + dd')).toHaveText(itDisplayName)
 
@@ -266,11 +271,12 @@ test('阶段 3 主链：员工提交 → IT 领取 → 处理 → 提交解决 �
 
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(title)
   /**
-   * 提交人在待确认时看到的是两个互斥选择：确认已解决 / 问题仍未解决（片 A 新增后者）。
-   * 两者的前置条件完全相同（待确认 + 本人是提交人 + `TICKET_REQUESTER_ACTION`），
-   * 所以顺序只由前端登记表决定——本用例仍要钉住"看到的是提交人动作，不是 IT 的处理入口"。
+   * 提交人在待确认时看到的是两个互斥选择：确认已解决 / 问题仍未解决（片 A 新增后者），
+   * 外加片 D 起在四种非终态上都可用的撤销。
+   * 三者的前置条件不完全相同（撤销条件更宽），所以顺序只由前端登记表决定——
+   * 本用例仍要钉住"看到的是提交人动作，不是 IT 的处理入口"。
    */
-  expect(await actionLabels(page)).toEqual(['确认已解决', '问题仍未解决'])
+  expect(await actionLabels(page)).toEqual(['确认已解决', '问题仍未解决', '撤销工单'])
   // 同一个期限字段，对提交人说的是"我要在什么时候之前确认"
   await expect(page.locator('.ticket-facts dt:has-text("确认期限") + dd')).not.toBeEmpty()
   await page.screenshot({ path: resolve(reviewDir, 'employee-detail-confirm-1440.png'), fullPage: true })

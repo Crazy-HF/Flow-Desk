@@ -9,9 +9,11 @@ import { errorCode } from '@/api/http'
 import { listCategoryOptions } from '@/api/categories'
 import {
   addProcessingRecord,
+  cancelTicket,
   changeTicketCategory,
   changeTicketPriority,
   claimTicket,
+  closeTicket,
   confirmResolution,
   getTicket,
   listTicketRecords,
@@ -23,7 +25,13 @@ import {
   transferTicket,
   withdrawSupplementRequest,
 } from '@/api/tickets'
-import type { TicketActionResult, TicketDetail, TicketPriority, TicketRecord } from '@/api/tickets'
+import type {
+  TicketActionResult,
+  TicketCloseReason,
+  TicketDetail,
+  TicketPriority,
+  TicketRecord,
+} from '@/api/tickets'
 import AppPage from '@/components/AppPage.vue'
 import {
   describeRecordContext,
@@ -32,6 +40,7 @@ import {
   ticketCloseReasonLabel,
   ticketCompletionMethodLabel,
   TICKET_ACTIONS,
+  TICKET_CLOSE_REASON_OPTIONS,
   TICKET_PRIORITY_OPTIONS,
   ticketPriorityLabel,
   ticketPriorityTone,
@@ -44,12 +53,13 @@ import { useAuthStore } from '@/stores/auth'
 import { formatDateTime } from '@/utils/format'
 import TicketActionContentField from './TicketActionContentField.vue'
 import TicketActionSelectField from './TicketActionSelectField.vue'
+import TicketActionTextField from './TicketActionTextField.vue'
 
 /**
  * 工单详情与处理时间线（`docs/api-design.md` 5.4 / 5.5），以及这张工单上可执行的动作
  * （6.3：`claim` / `add-processing-record` / `submit-resolution` / `request-supplement` /
- * `withdraw-supplement-request` / `change-category` / `change-priority` / `transfer`；
- * 6.4：`confirm-resolution` / `report-unresolved` / `supplement`）。
+ * `withdraw-supplement-request` / `change-category` / `change-priority` / `transfer` / `close`；
+ * 6.4：`confirm-resolution` / `report-unresolved` / `supplement` / `cancel`）。
  *
  * <p>三处容易读错的地方，这里显式处理：</p>
  * <p>1. **无权与不存在是同一种结果**。后端对"没有查看权限"和"编号不存在"统一返回
@@ -57,8 +67,7 @@ import TicketActionSelectField from './TicketActionSelectField.vue'
  * 不去猜"大概是没有权限"。</p>
  * <p>2. **按钮来自 `allowedActions`，不是前端推导**。后端按当前用户、角色、工单关系与状态算好
  * 可用动作；界面再用 `permittedActions` 叠一层本账号权限判断（应对"取详情之后被撤权"的窗口）。
- * 完整状态机里剩下的动作（关闭、取消）尚未在服务端放行，所以它们只在服务端开始返回时才会出现
- * ——这不是漏做，是不摆按不动的按钮。</p>
+ * 登记表之外的动作名（后端将来先放行的新动作）不会变成按钮——宁可不摆，也不摆一个按不动的。</p>
  * <p>3. **动作结果里的 `version` 必须回写到详情**。每个动作都带乐观锁：不刷新就拿旧版本
  * 再发一次，会得到 `409/TICKET_CONFLICT`。所以每次动作成功后重新取详情与时间线，
  * 冲突（409）时也主动重新取一次，把版本对齐到服务端的当前值。</p>
@@ -262,8 +271,20 @@ const actionContent = ref('')
  */
 const actionTarget = ref<string | number | undefined>(undefined)
 
+/**
+ * 弹窗里**条件下出现**的那个输入：关闭工单选「重复工单」时要补的工单编号（片 D）。
+ *
+ * <p>与 `actionContent` 分开是因为它们的形状和归属都不同：正文/原因永远出现，是一段说明；
+ * 这一个只在选中的原因等于登记表里的 `whenValue` 时才出现，填的是一张工单的编号。
+ * **隐藏时它不参与提交**（空串表示"这次不带这个字段"），理由见 `activeConditionalField`。</p>
+ */
+const actionConditionalText = ref('')
+
 /** 弹窗里的一个可选项。值可能是分类 / 用户 id 或优先级编码。 */
 type ActionSelectChoice = { value: string | number; label: string }
+
+/** 条件输入的登记信息（`TicketActionMeta.conditionalText` 声明了才有）。 */
+type ConditionalTextField = NonNullable<TicketActionMeta['conditionalText']>
 
 /**
  * 选项的取数状态。
@@ -288,9 +309,9 @@ let actionSelectRequest = 0
 /**
  * 按动作的 `select.source` 取目标值选项。
  *
- * <p>优先级直接用前端已有的 `TICKET_PRIORITY_OPTIONS`：它是一份静态刻度，为它发一次请求既多等
- * 一次往返，也多一个失败点。分类与接手人必须问服务端——分类要的是"当前启用"的那一份，
- * 接手人还要服务端判定谁有资格接。</p>
+ * <p>两类来源，取法不同但出口是同一个：`priority` 与 `reasonCode` 直接用前端已有的静态刻度
+ * （三级优先级、三种关闭原因），为它们各发一次请求既多等一次往返，也多一个失败点；
+ * 分类与接手人必须问服务端——分类要的是"当前启用"的那一份，接手人还要服务端判定谁有资格接。</p>
  */
 async function loadActionSelect(meta: TicketActionMeta): Promise<void> {
   const select = meta.select
@@ -307,6 +328,8 @@ async function loadActionSelect(meta: TicketActionMeta): Promise<void> {
     let choices: readonly ActionSelectChoice[]
     if (select.source === 'priority') {
       choices = TICKET_PRIORITY_OPTIONS
+    } else if (select.source === 'reasonCode') {
+      choices = TICKET_CLOSE_REASON_OPTIONS
     } else if (select.source === 'category') {
       choices = (await listCategoryOptions()).map((option) => ({
         value: option.id,
@@ -340,16 +363,37 @@ async function loadActionSelect(meta: TicketActionMeta): Promise<void> {
  * <p>服务端允许同值调整（它只看状态、身份与版本），但那样会在时间线上凭空多出一条
  * "分类从硬件改为硬件"。这类记录对后来读时间线的人只是噪音，所以界面在这里挡住。</p>
  *
- * <p>转交不适用：候选人已经排除了提交人与当前负责人，不存在"选了同一个人"。</p>
+ * <p>只有分类与优先级有"当前值"这回事：转交的候选人已经排除了提交人与当前负责人，
+ * 关闭原因更不是工单上的一个既有字段。这两类一律返回 `false`，而不是落进某个兜底分支
+ * 去和 `priority` 比——那种比较永远为假，看起来"没问题"，实际是把一个错误留在代码里。</p>
  */
 function isUnchangedChoice(select: NonNullable<TicketActionMeta['select']>): boolean {
   const current = detail.value
-  if (!current || select.source === 'assignee') {
+  if (!current) {
     return false
   }
-  return select.source === 'category'
-    ? actionTarget.value === current.category.id
-    : actionTarget.value === current.priority
+  if (select.source === 'category') {
+    return actionTarget.value === current.category.id
+  }
+  if (select.source === 'priority') {
+    return actionTarget.value === current.priority
+  }
+  return false
+}
+
+/**
+ * 这次弹窗里条件输入是否出现；出现时返回它的登记信息。
+ *
+ * <p>**渲染、校验、提交三处共用这一条判定**：`whenValue` 只在这里比一次，任何一处单独改，
+ * 都会出现"输入框没显示、请求里却带着它"这类只有服务端才发现的不一致——而服务端对多传的
+ * 单号返回的是 `400`，用户看到的是一句与他刚做的事对不上的报错。</p>
+ */
+function activeConditionalField(meta: TicketActionMeta): ConditionalTextField | null {
+  const field = meta.conditionalText
+  if (!field) {
+    return null
+  }
+  return String(actionTarget.value ?? '') === field.whenValue ? field : null
 }
 
 /**
@@ -361,8 +405,8 @@ function isUnchangedChoice(select: NonNullable<TicketActionMeta['select']>): boo
  * ——界面上按钮点了像没反应，服务端收到的却是错误动作（若状态刚好允许，还会真的改错东西）。</p>
  *
  * <p>第三个参数是这个动作要写的那段说明，各动作按契约放进 `content` 或 `reason`；
- * 需要先选目标值的三个动作（片 C）另外读 `actionTarget`，它的"没选"与"选了当前值"已在
- * `beforeClose` 里被拦下，所以这里不必再判空。</p>
+ * 需要先选目标值的动作（片 C 的三个、片 D 的关闭）另外读 `actionTarget`，它的"没选"与"选了当前值"
+ * 已在 `beforeClose` 里被拦下，所以这里不必再判空。第四个参数是条件输入的值，规则见它的注释。</p>
  */
 const actionRequests: Record<
   TicketActionName,
@@ -370,6 +414,11 @@ const actionRequests: Record<
     ticketNo: string,
     payload: { version: number },
     content: string,
+    /**
+     * 条件输入的值（片 D 的「重复工单」）：没出现或留空时是空串，**空串表示"这次不带这个字段"**。
+     * 调用处已按 `whenValue` 判过可见性，所以动作里不必再问一次"该不该发"。
+     */
+    conditionalText: string,
   ) => Promise<TicketActionResult>
 > = {
   claim: (ticketNo, payload) => claimTicket(ticketNo, payload),
@@ -403,7 +452,22 @@ const actionRequests: Record<
       newAssigneeId: Number(actionTarget.value),
       reason: content,
     }),
+  /**
+   * 关闭工单：原因是静态三选一，说明走 `description`，被判定为重复时才多带一个工单编号。
+   *
+   * <p>非重复原因**不带** `duplicateTicketNo`：服务端对多传的单号返回 `400` 而不是忽略它，
+   * 所以"输入框没出现"与"请求体里没有这个键"必须是同一件事（可见性在 `performAction` 里判定）。</p>
+   */
+  close: (ticketNo, payload, content, conditionalText) =>
+    closeTicket(ticketNo, {
+      ...payload,
+      // 下拉里的值就来自 TICKET_CLOSE_REASON_OPTIONS 这三项，收窄不会接受契约之外的编码
+      reasonCode: String(actionTarget.value) as TicketCloseReason,
+      description: content,
+      ...(conditionalText === '' ? {} : { duplicateTicketNo: conditionalText }),
+    }),
   supplement: (ticketNo, payload, content) => supplementTicket(ticketNo, { ...payload, content }),
+  cancel: (ticketNo, payload, content) => cancelTicket(ticketNo, { ...payload, reason: content }),
 }
 
 async function performAction(name: TicketActionName, content: string): Promise<void> {
@@ -412,10 +476,23 @@ async function performAction(name: TicketActionName, content: string): Promise<v
     return
   }
 
+  /**
+   * 条件输入只在它该出现的时候取值：隐藏时给空串，动作据此决定"不带这个字段"。
+   * 这条判定与 `beforeClose` 的校验共用 `activeConditionalField`，两处不会各判一次。
+   */
+  const conditionalText = activeConditionalField(TICKET_ACTIONS[name])
+    ? actionConditionalText.value.trim()
+    : ''
+
   runningAction.value = name
   actionError.value = ''
   try {
-    await actionRequests[name](current.ticketNo, { version: current.version }, content)
+    await actionRequests[name](
+      current.ticketNo,
+      { version: current.version },
+      content,
+      conditionalText,
+    )
 
     // 动作结果里的 status/version 必须回写：下一动作要靠新版本做乐观锁
     await loadDetail(true)
@@ -438,19 +515,20 @@ async function performAction(name: TicketActionName, content: string): Promise<v
 }
 
 /**
- * 确认框的内容：说明 + 需要先选的目标值 + 要写的那段说明。
+ * 确认框的内容：说明 + 需要先选的目标值 + 条件下出现的第二个输入 + 要写的那段说明。
  *
- * <p>两个输入都是独立的单文件组件（`TicketActionSelectField.vue` /
- * `TicketActionContentField.vue`），不是在这里用渲染函数拼出来的：应用按运行时版 Vue 打包，
- * `template` 选项不会被编译，而 `ElInput` / `ElSelect` 的 `modelValue` / `update:modelValue`
- * 又是 props 而不是事件，渲染函数里写 `onUpdate:modelValue` 只会得到一个普通 prop，
- * 输入不会回流——那会变成"填了原因却提交空正文"。单文件组件里的 `v-model` 由构建期编译，
- * 两个问题都不存在。</p>
+ * <p>三个输入都是独立的单文件组件（`TicketActionSelectField.vue` /
+ * `TicketActionTextField.vue` / `TicketActionContentField.vue`），不是在这里用渲染函数拼出来的：
+ * 应用按运行时版 Vue 打包，`template` 选项不会被编译，而 `ElInput` / `ElSelect` 的
+ * `modelValue` / `update:modelValue` 又是 props 而不是事件，渲染函数里写 `onUpdate:modelValue`
+ * 只会得到一个普通 prop，输入不会回流——那会变成"填了原因却提交空正文"。单文件组件里的
+ * `v-model` 由构建期编译，两个问题都不存在。</p>
  */
 function buildActionDialog(meta: TicketActionMeta) {
   const select = meta.select
   /** 正文与原因在界面上是同一件事，只是契约字段名不同，理由见 `actionContent`。 */
   const textField = meta.content ?? meta.reason
+  const conditionalField = activeConditionalField(meta)
 
   return h('div', { class: 'ticket-action-dialog__body' }, [
     h('p', { class: 'ticket-action-dialog__note' }, meta.description),
@@ -472,6 +550,18 @@ function buildActionDialog(meta: TicketActionMeta) {
       : null,
     actionSelectError.value !== ''
       ? h('p', { class: 'ticket-action-dialog__error', role: 'alert' }, actionSelectError.value)
+      : null,
+    // 条件输入紧跟在触发它的那一项下面：刚选完「重复工单」，要补的编号就在同一只手上
+    conditionalField
+      ? h(TicketActionTextField, {
+          label: conditionalField.label,
+          placeholder: conditionalField.placeholder,
+          maxLength: conditionalField.maxLength,
+          modelValue: actionConditionalText.value,
+          'onUpdate:modelValue': (value: string) => {
+            actionConditionalText.value = value
+          },
+        })
       : null,
     textField
       ? h(TicketActionContentField, {
@@ -503,6 +593,7 @@ async function runAction(name: TicketActionName): Promise<void> {
   actionError.value = ''
   actionContent.value = ''
   actionTarget.value = undefined
+  actionConditionalText.value = ''
 
   /**
    * 选项与弹窗同时开始：先取完再弹窗，用户会先看到一段没有任何反馈的等待；
@@ -547,6 +638,16 @@ async function runAction(name: TicketActionName): Promise<void> {
             ElMessage.warning('选的是当前值，没有变化，不需要提交')
             return
           }
+        }
+
+        /**
+         * 条件输入出现时就是必填：它对应的是服务端要解析的目标工单编号，缺了会被判
+         * `400`；顺着上面的选择框往下先校验它，用户看到的第一句提示就是他刚做的那一步。
+         */
+        const conditionalField = activeConditionalField(meta)
+        if (conditionalField && actionConditionalText.value.trim() === '') {
+          ElMessage.warning(`请先填写${conditionalField.label}`)
+          return
         }
 
         const text = actionContent.value.trim()
