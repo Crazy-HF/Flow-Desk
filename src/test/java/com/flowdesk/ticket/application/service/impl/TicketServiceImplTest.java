@@ -2886,7 +2886,7 @@ class TicketServiceImplTest {
         when(ticketMapper.transfer(TICKET_ID, 5L, IT_USER_ID, NEW_IT_USER_ID, NOW_UTC))
                 .thenReturn(0);
         when(ticketMapper.selectClaimConflictSnapshotForUpdate(TICKET_ID))
-                .thenReturn(conflictSnapshot(PROCESSING, 5L), null);
+                .thenReturn(conflictSnapshot(PROCESSING, 5L), (Ticket) null);
 
         assertThatThrownBy(() -> service.transfer(TICKET_NO,
                 new TransferCommand(5L, NEW_IT_USER_ID, "换人跟进")))
