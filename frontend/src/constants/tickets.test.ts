@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   TICKET_ACTIONS,
+  TICKET_CLOSE_REASON_OPTIONS,
   TICKET_PRIORITY_OPTIONS,
   TICKET_SCOPES,
   TICKET_SORT_OPTIONS,
@@ -61,8 +62,13 @@ describe('工单展示映射', () => {
         ['change-category', 'TICKET_PROCESS'],
         ['change-priority', 'TICKET_PROCESS'],
         ['transfer', 'TICKET_TRANSFER'],
+        // 完整状态机片 D：关闭是唯一需要**两条授权同时成立**的动作
+        // （后端 canClose = canProcess && TICKET_CLOSE，2026-10-08 用户裁决）；
+        // 撤销与补充、确认、反馈未解决共用提交人动作权限
+        ['close', ['TICKET_PROCESS', 'TICKET_CLOSE']],
         // 完整状态机片 B：补充信息（提交人）
         ['supplement', 'TICKET_REQUESTER_ACTION'],
+        ['cancel', 'TICKET_REQUESTER_ACTION'],
       ])
     })
 
@@ -105,10 +111,16 @@ describe('工单展示映射', () => {
 
     /**
      * 没有可选项时的提示是转交唯一的说明：候选人接口返回空数组不是错误，界面只能靠这句话
-     * 讲清"为什么这个动作现在做不了"。三个动作各写一句，不能留空，也不能共用一句套话。
+     * 讲清"为什么这个动作现在做不了"。需要选目标值的动作各写一句，不能留空，也不能共用一句套话。
+     *
+     * <p>片 D 的关闭用的是本地静态三选一，空选项在现实中不会发生；它仍然登记一句，
+     * 是因为这个槽位的契约要求"没有可选项时说什么"必须有答案，而不是让页面在那一刻
+     * 退化成一个没人解释的空下拉。</p>
      */
     it('每个需要选目标值的动作都有自己的空态说明', () => {
-      const empties = (['change-category', 'change-priority', 'transfer'] as const).map((name) => {
+      const empties = (
+        ['change-category', 'change-priority', 'transfer', 'close'] as const
+      ).map((name) => {
         const select = TICKET_ACTIONS[name].select
         expect(select?.placeholder).toContain('请选择')
         return select?.emptyText ?? ''
@@ -156,13 +168,141 @@ describe('工单展示映射', () => {
     })
 
     /**
-     * 片 C 登记 `transfer` 之后，这条断言从"全部忽略"变成"只渲染登记过的那一个"。
+     * 服务端将来放行某个界面还没实现的动作名时，界面不会摆出一个按不动的按钮。
      *
-     * <p>`close` 仍然没有登记（片 D 的动作），所以它继续被忽略——这正是要保留这条用例的原因：
-     * 服务端将来放行某个界面还没实现的动作名时，界面不会摆出一个按不动的按钮。</p>
+     * <p>片 D 之后 `close` 与 `cancel` 都已登记，所以这条用例换成一个**确实还没实现**的动作名
+     * （`admin-handoff` 是完整版 backlog 第 4 项的管理性交接）。它比"随便写个字符串"更有意义：
+     * 这正是最可能先在后端出现、而界面还没接上的那一类动作。</p>
      */
     it('登记表之外的动作名被忽略，不会变成按不动的按钮', () => {
-      expect(permittedActions(['transfer', 'close'], () => true)).toEqual(['transfer'])
+      expect(permittedActions(['transfer', 'admin-handoff'], () => true)).toEqual(['transfer'])
+    })
+
+    /**
+     * 完整状态机片 D：结束路径的两个动作。
+     *
+     * <p>两者都是**终态动作**：一次点击就结束这张工单，而 v1 明确不支持恢复
+     * （`docs/kickoff.md` 4.7 / 4.8），所以两个都必须标成 `destructive`——按钮用警示色，
+     * 确认框也不允许点遮罩关掉。这是"点错就回不去"的最低防线。</p>
+     */
+    it('片 D 两格都是终态动作：destructive、原因上限 1000、且不混用 content', () => {
+      const cases: [TicketActionName, string | readonly string[]][] = [
+        ['close', ['TICKET_PROCESS', 'TICKET_CLOSE']],
+        ['cancel', 'TICKET_REQUESTER_ACTION'],
+      ]
+
+      for (const [name, permission] of cases) {
+        const meta = TICKET_ACTIONS[name]
+        // 结构比较：关闭声明的是两条权限的数组，`toBe` 会按引用判等而失败
+        expect(meta.permission).toEqual(permission)
+        expect(meta.destructive).toBe(true)
+        expect(meta.content).toBeUndefined()
+        // 与 CloseTicketCommand.description / CancelTicketCommand.reason 的 @Size(max = 1000) 对齐
+        expect(meta.reason?.maxLength).toBe(1000)
+        expect(meta.reason?.label.trim()).not.toBe('')
+        expect(meta.reason?.placeholder.trim()).not.toBe('')
+      }
+    })
+
+    it('关闭原因用本地静态刻度：只列人工关闭的三种，不含自动关闭的逾期原因', () => {
+      expect(TICKET_ACTIONS.close.select?.source).toBe('reasonCode')
+
+      // 三个选项就是 CloseTicketCommand 的 @Pattern，中文与时间线上的关闭原因共用同一份映射
+      expect(TICKET_CLOSE_REASON_OPTIONS.map((option) => option.value)).toEqual([
+        'DUPLICATE',
+        'OUT_OF_SCOPE',
+        'INVALID',
+      ])
+      expect(TICKET_CLOSE_REASON_OPTIONS.map((option) => option.label)).toEqual([
+        '重复工单',
+        '超出支持范围',
+        '无效工单',
+      ])
+      // REQUESTER_NO_RESPONSE 属于 AUTO_SUPPLEMENT_TIMEOUT（员工逾期未补充）：它能出现在展示映射里，
+      // 不能出现在选项里——人工关闭传它会被 ck_ticket_close_semantics 拒绝
+      expect(TICKET_CLOSE_REASON_OPTIONS.map((option) => option.value)).not.toContain(
+        'REQUESTER_NO_RESPONSE',
+      )
+    })
+
+    it('条件输入的取值口径：whenValue 落在同一动作的选项里，且只有关闭声明了它', () => {
+      const conditional = TICKET_ACTIONS.close.conditionalText
+      expect(conditional?.field).toBe('duplicateTicketNo')
+      // 与 CloseTicketCommand.duplicateTicketNo 的 @Size(max = 32) 对齐
+      expect(conditional?.maxLength).toBe(32)
+      expect(conditional?.label.trim()).not.toBe('')
+      expect(conditional?.placeholder.trim()).not.toBe('')
+
+      /**
+       * 这一条是真正的要害：`whenValue` 的语义是"已选目标值等于它时才出现"，所以它必须取自
+       * `select` 的取值域。写成一个不存在的编码时条件输入永远不会出现，而
+       * `duplicateTicketNo` 恰恰是"关闭原因为重复工单时必须填"的字段——用户选完重复工单、
+       * 提交、拿到一句 400，界面上却没有任何地方能填这个编号。
+       */
+      const values = TICKET_CLOSE_REASON_OPTIONS.map((option) => option.value as string)
+      expect(values).toContain(conditional?.whenValue)
+
+      // 其余动作都没有条件输入：多声明一个就会在弹窗里凭空多出一个输入框
+      const withConditional = (Object.keys(TICKET_ACTIONS) as TicketActionName[]).filter(
+        (name) => TICKET_ACTIONS[name].conditionalText !== undefined,
+      )
+      expect(withConditional).toEqual(['close'])
+      // 撤销是"写个原因就结束"，没有要选的目标值，也没有条件输入
+      expect(TICKET_ACTIONS.cancel.select).toBeUndefined()
+      expect(TICKET_ACTIONS.cancel.conditionalText).toBeUndefined()
+    })
+
+    /**
+     * 关闭与撤销分属两侧：关闭是负责人的动作，撤销是提交人的动作，两者不会出现在同一份
+     * `allowedActions` 里。顺序还是要钉住，因为 `permittedActions` 按登记表顺序渲染，
+     * 顺序一变按钮位置就变（同一张工单上补一个动作不该让已有按钮换位置）。
+     */
+    it('片 D 的动作位置：关闭紧随转交，撤销排在最后、补充信息在它前面', () => {
+      const allowAll = () => true
+
+      expect(permittedActions(['cancel', 'close', 'transfer'], allowAll)).toEqual([
+        'transfer',
+        'close',
+        'cancel',
+      ])
+      // 提交人在「待补充」上两件事都能做：先补齐信息，再考虑终止
+      expect(permittedActions(['cancel', 'supplement'], allowAll)).toEqual(['supplement', 'cancel'])
+    })
+
+    /**
+     * 片 D 的动作按权限二次收口，而且**关闭要两条都满足**。
+     *
+     * <p>这一格钉的是一次真实的口径差：后端 `canClose = canProcess && TICKET_CLOSE`，
+     * 而登记表原先只写了 `TICKET_CLOSE`。正常路径看不出差别（`V2` 把两个权限一起授给
+     * `IT_SUPPORT`），差别只出现在"取详情后 `TICKET_PROCESS` 被撤掉"的窗口里——
+     * 按钮还摆着，点下去得到 403。两条缺一都不该渲染。</p>
+     */
+    it('片 D 的动作按权限二次收口：关闭必须同时持有处理与关闭两条权限', () => {
+      const both = (code: string) => code === 'TICKET_PROCESS' || code === 'TICKET_CLOSE'
+
+      expect(permittedActions(['close'], both)).toEqual(['close'])
+      // 只持其中一条：不渲染（少写一条就等于放一个点了必 403 的按钮出去）
+      expect(permittedActions(['close'], (code) => code === 'TICKET_CLOSE')).toEqual([])
+      expect(permittedActions(['close'], (code) => code === 'TICKET_PROCESS')).toEqual([])
+      expect(permittedActions(['cancel'], (code) => code === 'TICKET_REQUESTER_ACTION')).toEqual([
+        'cancel',
+      ])
+      // 取详情后被撤权：按钮不该继续摆着，点下去只会得到 403
+      expect(permittedActions(['close', 'cancel'], () => false)).toEqual([])
+    })
+
+    /**
+     * 单个字符串与单元素数组等价，且"全部满足"只对数组生效。
+     *
+     * <p>没有这一格，`allowedActions` 与权限都不为空、却因为实现把数组当成"任一满足"
+     * 而渲染出按钮时，前面那些用例仍然会通过（它们给的权限集合恰好同时覆盖两条）。</p>
+     */
+    it('单权限动作不受影响：字符串与单元素数组都只要求那一条', () => {
+      expect(permittedActions(['transfer'], (code) => code === 'TICKET_TRANSFER')).toEqual([
+        'transfer',
+      ])
+      expect(permittedActions(['transfer'], () => false)).toEqual([])
+      expect(TICKET_ACTIONS.transfer.permission).toBe('TICKET_TRANSFER')
     })
   })
 

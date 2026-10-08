@@ -19,6 +19,16 @@ export interface MessageBoxHandle {
   textarea: () => HTMLTextAreaElement | null
   /** 输入正文（走 `input` 事件，等同用户键入）。 */
   type: (text: string) => Promise<void>
+  /**
+   * 条件下出现的单行输入（片 D 的重复工单编号）。
+   *
+   * <p>它是"条件输入"而不是"第二个正文"：只有选中的目标值等于登记表里的 `whenValue` 时
+   * 才存在。用例据此断言"没选重复工单时这个输入框不存在"——那一条与"请求里不带这个字段"
+   * 是同一个判定的两个出口。</p>
+   */
+  conditionalInput: () => HTMLInputElement | null
+  /** 在条件输入里键入（走 `input` 事件，等同用户键入）。 */
+  typeConditional: (text: string) => Promise<void>
   /** 确认框里的目标值选择器；不需要先选目标值的动作没有这个元素。 */
   select: () => HTMLElement | null
   /** 展开目标值下拉，返回可选的文案（真人要先点开下拉才看得到选项）。 */
@@ -44,6 +54,7 @@ export interface MessageBoxHarness {
 
 interface Host {
   textarea: () => HTMLTextAreaElement | null
+  conditionalInput: () => HTMLInputElement | null
   select: () => HTMLElement | null
   openSelect: () => Promise<string[]>
   choose: (label: string) => Promise<void>
@@ -143,6 +154,12 @@ export function createMessageBoxHarness(): MessageBoxHarness {
 
       const host: Host = {
         textarea: () => container.querySelector('textarea'),
+        /**
+         * 按固定 id 找条件输入：确认框里还有一个 `el-select` 内部的 input，
+         * "第一个 input" 这种找法会在两种控件之间摇摆。
+         */
+        conditionalInput: () =>
+          container.querySelector<HTMLInputElement>('#ticket-action-conditional-text'),
         select: () => container.querySelector<HTMLElement>('.el-select__wrapper'),
         /**
          * 目标值下拉由 `el-select` teleport 到 `body`（默认行为），所以只能从 `document.body` 找，
@@ -216,6 +233,16 @@ export function createMessageBoxHarness(): MessageBoxHarness {
           textarea.value = text
           textarea.dispatchEvent(new Event('input', { bubbles: true }))
           // 等 Vue 把这次输入同步回被测组件的状态
+          await Promise.resolve()
+        },
+        conditionalInput: () => host.conditionalInput(),
+        typeConditional: async (text: string) => {
+          const input = host.conditionalInput()
+          if (!input) {
+            throw new Error('这个确认框没有条件输入框')
+          }
+          input.value = text
+          input.dispatchEvent(new Event('input', { bubbles: true }))
           await Promise.resolve()
         },
         select: () => host.select(),

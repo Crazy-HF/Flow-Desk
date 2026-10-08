@@ -10,6 +10,7 @@ import com.flowdesk.ticket.mapper.TicketDailySequenceMapper;
 import com.flowdesk.ticket.mapper.TicketMapper;
 import com.flowdesk.ticket.mapper.TicketParticipantMapper;
 import com.flowdesk.ticket.mapper.TicketRecordMapper;
+import com.flowdesk.ticket.mapper.TicketRelationMapper;
 import org.mockito.Mockito;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
@@ -94,5 +95,17 @@ public class MockedPersistenceConfiguration {
     @Bean
     TicketDailySequenceMapper ticketDailySequenceMapper() {
         return Mockito.mock(TicketDailySequenceMapper.class);
+    }
+
+    /**
+     * 工单关联（片 D「重复工单」关闭时写入）依赖。
+     *
+     * <p>它自建库迁移预置后长期没有写入方，所以直到片 D 才需要这个替身；
+     * 漏了它的表现正是本类注释里写的那种——{@code IamUserControllerWebTest} 等与工单无关的
+     * Web 测试一起挂在 {@code ticketServiceImpl} 的构造注入上（2026-10-08 实测 228 个上下文错误）。</p>
+     */
+    @Bean
+    TicketRelationMapper ticketRelationMapper() {
+        return Mockito.mock(TicketRelationMapper.class);
     }
 }

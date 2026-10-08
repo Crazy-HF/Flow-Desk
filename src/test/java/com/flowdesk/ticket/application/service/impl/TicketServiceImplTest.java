@@ -4,7 +4,9 @@ import com.flowdesk.common.exception.ApiException;
 import com.flowdesk.ticket.application.command.AddProcessingRecordCommand;
 import com.flowdesk.ticket.application.command.ChangeCategoryCommand;
 import com.flowdesk.ticket.application.command.ChangePriorityCommand;
+import com.flowdesk.ticket.application.command.CancelTicketCommand;
 import com.flowdesk.ticket.application.command.ClaimTicketCommand;
+import com.flowdesk.ticket.application.command.CloseTicketCommand;
 import com.flowdesk.ticket.application.command.ConfirmResolutionCommand;
 import com.flowdesk.ticket.application.command.CreateTicketCommand;
 import com.flowdesk.ticket.application.command.ReportUnresolvedCommand;
@@ -24,10 +26,12 @@ import com.flowdesk.ticket.config.TicketProperties;
 import com.flowdesk.ticket.domain.Ticket;
 import com.flowdesk.ticket.domain.TicketRecord;
 import com.flowdesk.ticket.infrastructure.persistence.TicketDetailRow;
+import com.flowdesk.ticket.infrastructure.persistence.TicketDuplicateTargetRow;
 import com.flowdesk.ticket.mapper.TicketDailySequenceMapper;
 import com.flowdesk.ticket.mapper.TicketMapper;
 import com.flowdesk.ticket.mapper.TicketParticipantMapper;
 import com.flowdesk.ticket.mapper.TicketRecordMapper;
+import com.flowdesk.ticket.mapper.TicketRelationMapper;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -86,6 +90,12 @@ import static org.mockito.Mockito.when;
  * 由 SQL 一并清空 {@code action_deadline_at}。因此这里对两者使用对称的用例集
  * （权限 → 可见性 → 状态/负责人或提交人 → 版本 → 原因长度 → 条件更新落败读回快照），
  * 差别只在身份列：撤回要求"本人是当前负责人"，反馈要求"本人是提交人，且权限闸门先于身份闸门"。</p>
+ *
+ * <p>片 D 的结束路径（{@code close} 与 {@code cancel}）沿用同一套顺序守卫，差别在入口条件：
+ * 关闭要求 {@code TICKET_PROCESS} <b>与</b> {@code TICKET_CLOSE} 同时成立、且工单处于「处理中」；
+ * 撤销只要求 {@code TICKET_REQUESTER_ACTION}、但四种非终态都放行。两者都写入终态，
+ * 因此用例额外钉住"终态字段彼此可区分"：关闭写 {@code close_method}/{@code close_reason}，
+ * 撤销两者都为空。</p>
  */
 @ExtendWith(MockitoExtension.class)
 // 多个用例共享"可见性行 + 事务管理器"替身，未使用的桩不应判定为失败。
@@ -116,6 +126,8 @@ class TicketServiceImplTest {
     private static final String WAITING_FOR_REQUESTER = "WAITING_FOR_REQUESTER";
     private static final String WAITING_FOR_CONFIRMATION = "WAITING_FOR_CONFIRMATION";
     private static final String COMPLETED = "COMPLETED";
+    private static final String CANCELED = "CANCELED";
+    private static final String CLOSED = "CLOSED";
     private static final String HIGH = "HIGH";
     private static final String LOW = "LOW";
 
@@ -135,6 +147,10 @@ class TicketServiceImplTest {
     private TicketRecordMapper ticketRecordMapper;
     @Mock
     private TicketParticipantMapper ticketParticipantMapper;
+
+    /** 片 D 的「重复工单」关闭要写 ticket_relation，构造签名随之多一个参数。 */
+    @Mock
+    private TicketRelationMapper ticketRelationMapper;
     @Mock
     private CurrentRequesterPort currentRequesterPort;
     @Mock
@@ -2647,6 +2663,7 @@ class TicketServiceImplTest {
     void transferRejectsWhenActorIsNoLongerEligibleAfterLocking() {
         stubTransferActor();
         stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        stubLockedTicketSnapshot(PROCESSING, 5L);
         when(ticketClaimPort.lockEligibleClaimant(IT_USER_ID)).thenReturn(null);
         when(ticketClaimPort.lockEligibleClaimant(NEW_IT_USER_ID))
                 .thenReturn(new TicketUserSummaryResult(NEW_IT_USER_ID, NEW_IT_DISPLAY_NAME));
@@ -2664,6 +2681,7 @@ class TicketServiceImplTest {
     void transferRejectsIneligibleNewAssigneeAfterLocking() {
         stubTransferActor();
         stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        stubLockedTicketSnapshot(PROCESSING, 5L);
         when(ticketClaimPort.lockEligibleClaimant(IT_USER_ID))
                 .thenReturn(new TicketUserSummaryResult(IT_USER_ID, IT_DISPLAY_NAME));
         when(ticketClaimPort.lockEligibleClaimant(NEW_IT_USER_ID)).thenReturn(null);
@@ -2678,7 +2696,58 @@ class TicketServiceImplTest {
     }
 
     /**
-     * 固定锁顺序：无论"谁转给谁"，都按 {@code user_id} 升序取两把行锁。
+     * 片 D 的死锁修法：转交必须**先锁工单行，再锁用户行**。
+     *
+     * <p>反过来（先锁 {@code iam_user}）时，另一个已经持有工单行锁的动作会因为
+     * {@code ticket_record.actor_user_id} 的外键校验去申请同一行 {@code iam_user} 的共享锁，
+     * 「user → ticket」与「ticket → user」首尾相接成环，InnoDB 回滚其中一个，
+     * 调用方拿到的是 {@code 500} 而不是可重试的 {@code 409}。本用例把顺序钉死。</p>
+     */
+    @Test
+    void transferLocksTicketRowBeforeUserRows() {
+        stubTransferActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        stubLockedTicketSnapshot(PROCESSING, 5L);
+        when(ticketClaimPort.lockEligibleClaimant(IT_USER_ID))
+                .thenReturn(new TicketUserSummaryResult(IT_USER_ID, IT_DISPLAY_NAME));
+        when(ticketClaimPort.lockEligibleClaimant(NEW_IT_USER_ID))
+                .thenReturn(new TicketUserSummaryResult(NEW_IT_USER_ID, NEW_IT_DISPLAY_NAME));
+        when(ticketMapper.transfer(TICKET_ID, 5L, IT_USER_ID, NEW_IT_USER_ID, NOW_UTC))
+                .thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 6, 6L));
+        when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
+
+        service.transfer(TICKET_NO, new TransferCommand(5L, NEW_IT_USER_ID, "换人跟进"));
+
+        InOrder lockingOrder = inOrder(ticketMapper, ticketClaimPort);
+        lockingOrder.verify(ticketMapper).selectClaimConflictSnapshotForUpdate(TICKET_ID);
+        lockingOrder.verify(ticketClaimPort).lockEligibleClaimant(IT_USER_ID);
+        lockingOrder.verify(ticketClaimPort).lockEligibleClaimant(NEW_IT_USER_ID);
+    }
+
+    /**
+     * 等待工单行锁期间这张单被别人推进了：锁后的版本复核必须当场给出 409，
+     * 不能带着过期快照继续去锁用户行，更不能写库。
+     */
+    @Test
+    void transferReportsConflictWhenVersionChangedWhileWaitingForTheTicketLock() {
+        stubTransferActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        stubLockedTicketSnapshot(WAITING_FOR_CONFIRMATION, 6L);
+
+        ApiException exception = assertApiException(
+                () -> service.transfer(TICKET_NO, new TransferCommand(5L, NEW_IT_USER_ID, "换人跟进")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).as("快照来自拿到锁之后重新读到的行").isEqualTo(6L);
+        assertThat(exception.resourceStatus()).isEqualTo(WAITING_FOR_CONFIRMATION);
+        verifyNoInteractions(ticketClaimPort, ticketRecordMapper, ticketParticipantMapper);
+        verify(ticketMapper, never()).transfer(anyLong(), anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /**
+     * 固定锁顺序：无论"谁转给谁"，都按 {@code user_id} 升序取两把行锁；
+     * 而且两把用户行锁之前，工单行的锁已经在手（片 D 的死锁修法，见 {@link #transferLocksTicketRowBeforeUserRows()}）。
      *
      * <p>若两个事务各自"先锁自己、再锁对方"，{@code A→B} 与 {@code B→A} 并发就是 AB-BA 死锁，
      * InnoDB 会回滚其中一个，用户看到的是本可成功的转交失败。本用例把负责人设成 id 更大的
@@ -2689,6 +2758,7 @@ class TicketServiceImplTest {
         when(currentRequesterPort.currentUserId()).thenReturn(OTHER_IT_USER_ID);
         when(ticketReadPermissionPort.hasAuthority("TICKET_TRANSFER")).thenReturn(true);
         stubVisible(detailRow(PROCESSING, OTHER_IT_USER_ID, 5L));
+        stubLockedTicketSnapshot(PROCESSING, 5L);
         when(ticketClaimPort.lockEligibleClaimant(IT_USER_ID))
                 .thenReturn(new TicketUserSummaryResult(IT_USER_ID, IT_DISPLAY_NAME));
         when(ticketClaimPort.lockEligibleClaimant(OTHER_IT_USER_ID))
@@ -2715,6 +2785,7 @@ class TicketServiceImplTest {
     void transferReplacesAssigneeAndRecordsParticipation() {
         stubTransferActor();
         stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        stubLockedTicketSnapshot(PROCESSING, 5L);
         when(ticketClaimPort.lockEligibleClaimant(IT_USER_ID))
                 .thenReturn(new TicketUserSummaryResult(IT_USER_ID, IT_DISPLAY_NAME));
         when(ticketClaimPort.lockEligibleClaimant(NEW_IT_USER_ID))
@@ -2761,6 +2832,7 @@ class TicketServiceImplTest {
         TicketDetailRow row = detailRow(WAITING_FOR_REQUESTER, IT_USER_ID, 5L);
         row.setActionDeadlineAt(SUPPLEMENT_DEADLINE);
         stubVisible(row);
+        stubLockedTicketSnapshot(WAITING_FOR_REQUESTER, 5L);
         when(ticketClaimPort.lockEligibleClaimant(IT_USER_ID))
                 .thenReturn(new TicketUserSummaryResult(IT_USER_ID, IT_DISPLAY_NAME));
         when(ticketClaimPort.lockEligibleClaimant(NEW_IT_USER_ID))
@@ -2789,7 +2861,7 @@ class TicketServiceImplTest {
         when(ticketMapper.transfer(TICKET_ID, 5L, IT_USER_ID, NEW_IT_USER_ID, NOW_UTC))
                 .thenReturn(0);
         when(ticketMapper.selectClaimConflictSnapshotForUpdate(TICKET_ID))
-                .thenReturn(conflictSnapshot(PROCESSING, 6L));
+                .thenReturn(conflictSnapshot(PROCESSING, 5L), conflictSnapshot(PROCESSING, 6L));
 
         ApiException exception = assertApiException(
                 () -> service.transfer(TICKET_NO, new TransferCommand(5L, NEW_IT_USER_ID, "换人跟进")),
@@ -2813,7 +2885,8 @@ class TicketServiceImplTest {
                 .thenReturn(new TicketUserSummaryResult(NEW_IT_USER_ID, NEW_IT_DISPLAY_NAME));
         when(ticketMapper.transfer(TICKET_ID, 5L, IT_USER_ID, NEW_IT_USER_ID, NOW_UTC))
                 .thenReturn(0);
-        when(ticketMapper.selectClaimConflictSnapshotForUpdate(TICKET_ID)).thenReturn(null);
+        when(ticketMapper.selectClaimConflictSnapshotForUpdate(TICKET_ID))
+                .thenReturn(conflictSnapshot(PROCESSING, 5L), null);
 
         assertThatThrownBy(() -> service.transfer(TICKET_NO,
                 new TransferCommand(5L, NEW_IT_USER_ID, "换人跟进")))
@@ -2825,6 +2898,7 @@ class TicketServiceImplTest {
     void transferFailsWhenUpdatedTicketSnapshotIsMissing() {
         stubTransferActor();
         stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        stubLockedTicketSnapshot(PROCESSING, 5L);
         when(ticketClaimPort.lockEligibleClaimant(IT_USER_ID))
                 .thenReturn(new TicketUserSummaryResult(IT_USER_ID, IT_DISPLAY_NAME));
         when(ticketClaimPort.lockEligibleClaimant(NEW_IT_USER_ID))
@@ -2858,6 +2932,536 @@ class TicketServiceImplTest {
                 .getMethod("transfer", String.class, TransferCommand.class)
                 .isAnnotationPresent(Transactional.class))
                 .as("transfer 由声明式事务包住两把行锁、条件更新与时间线写入").isTrue();
+    }
+
+    // ---------- close ----------
+
+    /**
+     * 关闭是「两条授权同时成立」的动作，这是 2026-10-08 的用户裁决：关闭结束整张工单，
+     * 必须建立在处理权限之上；片 C 的 {@code transfer} 只要求 {@code TICKET_TRANSFER}，
+     * 两者口径不同是有意的。
+     */
+    @Test
+    void closeRejectsActorWithoutProcessAuthority() {
+        when(currentRequesterPort.currentUserId()).thenReturn(IT_USER_ID);
+        when(ticketReadPermissionPort.hasAuthority("TICKET_CLOSE")).thenReturn(true);
+
+        assertApiException(
+                () -> service.close(TICKET_NO, closeCommand(5L, "OUT_OF_SCOPE", "超出支持范围")),
+                HttpStatus.FORBIDDEN, "TICKET_ACTION_FORBIDDEN");
+
+        verify(ticketMapper, never())
+                .selectVisibleDetail(any(), anyLong(), anyBoolean(), anyBoolean(), anyBoolean());
+        verifyNoInteractions(ticketRelationMapper);
+    }
+
+    /** 反向的一格：只有 {@code TICKET_PROCESS} 而没有 {@code TICKET_CLOSE} 同样关闭不了。 */
+    @Test
+    void closeRejectsActorWithoutCloseAuthority() {
+        when(currentRequesterPort.currentUserId()).thenReturn(IT_USER_ID);
+        when(ticketReadPermissionPort.hasAuthority("TICKET_PROCESS")).thenReturn(true);
+
+        assertApiException(
+                () -> service.close(TICKET_NO, closeCommand(5L, "OUT_OF_SCOPE", "超出支持范围")),
+                HttpStatus.FORBIDDEN, "TICKET_ACTION_FORBIDDEN");
+
+        verify(ticketMapper, never())
+                .selectVisibleDetail(any(), anyLong(), anyBoolean(), anyBoolean(), anyBoolean());
+        verify(ticketMapper, never()).closeManually(anyLong(), anyLong(), anyLong(), any(), any());
+    }
+
+    @Test
+    void closeReportsNotFoundWhenTicketIsNotVisible() {
+        stubCloseActor();
+
+        assertApiException(
+                () -> service.close(TICKET_NO, closeCommand(5L, "OUT_OF_SCOPE", "超出支持范围")),
+                HttpStatus.NOT_FOUND, "TICKET_NOT_FOUND");
+
+        verify(ticketMapper, never()).closeManually(anyLong(), anyLong(), anyLong(), any(), any());
+        verifyNoInteractions(ticketRelationMapper);
+    }
+
+    /**
+     * 只有「处理中」能关闭：其余六个状态（含三个终态）都是 409，而不是 400 或 404。
+     *
+     * <p>参数里带上 {@code PENDING}（无人负责）与三个终态，是为了让「状态白名单」这件事
+     * 由一条用例整体钉住——只测一个 {@code WAITING_FOR_REQUESTER} 无法发现将来误放宽。</p>
+     */
+    @ParameterizedTest(name = "close is a conflict on {0}")
+    @ValueSource(strings = {PENDING, WAITING_FOR_REQUESTER, WAITING_FOR_CONFIRMATION,
+            COMPLETED, CANCELED, CLOSED})
+    void closeReportsConflictForEveryStatusOtherThanProcessing(String status) {
+        stubCloseActor();
+        Long assigneeId = PENDING.equals(status) ? null : IT_USER_ID;
+        stubVisible(detailRow(status, assigneeId, 5L));
+
+        ApiException exception = assertApiException(
+                () -> service.close(TICKET_NO, closeCommand(5L, "INVALID", "无效工单")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).isEqualTo(5L);
+        assertThat(exception.resourceStatus()).isEqualTo(status);
+        verify(ticketMapper, never()).closeManually(anyLong(), anyLong(), anyLong(), any(), any());
+    }
+
+    @Test
+    void closeReportsConflictWhenActorIsNotTheCurrentAssignee() {
+        stubCloseActor();
+        stubVisible(detailRow(PROCESSING, OTHER_IT_USER_ID, 5L));
+
+        assertApiException(
+                () -> service.close(TICKET_NO, closeCommand(5L, "INVALID", "无效工单")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never()).closeManually(anyLong(), anyLong(), anyLong(), any(), any());
+    }
+
+    @Test
+    void closeReportsConflictWhenTicketHasNoAssignee() {
+        stubCloseActor();
+        stubVisible(detailRow(PROCESSING, null, 5L));
+
+        assertApiException(
+                () -> service.close(TICKET_NO, closeCommand(5L, "INVALID", "无效工单")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never()).closeManually(anyLong(), anyLong(), anyLong(), any(), any());
+    }
+
+    @Test
+    void closeReportsConflictWhenCommandVersionIsStale() {
+        stubCloseActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+
+        ApiException exception = assertApiException(
+                () -> service.close(TICKET_NO, closeCommand(4L, "INVALID", "无效工单")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).as("冲突响应携带库里最新版本").isEqualTo(5L);
+        assertThat(exception.resourceStatus()).isEqualTo(PROCESSING);
+    }
+
+    /** 顺序陷阱：版本过期 + 非法原因码 + 空白说明，仍然必须是 409 而不是 400。 */
+    @Test
+    void closeReportsConflictBeforeValidatingReasonAndDescription() {
+        stubCloseActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+
+        assertApiException(
+                () -> service.close(TICKET_NO, closeCommand(4L, "NOT_A_REASON", "   ")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never()).closeManually(anyLong(), anyLong(), anyLong(), any(), any());
+    }
+
+    /**
+     * 人工关闭只接受三种标准原因。{@code REQUESTER_NO_RESPONSE} 是「员工逾期未补充」的
+     * 系统自动关闭（{@code close_method = AUTO_SUPPLEMENT_TIMEOUT}），必须由服务层挡住——
+     * HTTP 入口的 {@code @Pattern} 管不到脚本与将来的内部调用方。
+     */
+    @ParameterizedTest(name = "close rejects reason code [{0}]")
+    @ValueSource(strings = {"", "MANUAL", "REQUESTER_NO_RESPONSE", "duplicate", "OUT_OF_SCOPE "})
+    void closeRejectsReasonCodeOutsideTheManualSet(String reasonCode) {
+        stubCloseActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+
+        assertApiException(
+                () -> service.close(TICKET_NO, closeCommand(5L, reasonCode, "无效工单")),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verify(ticketMapper, never()).closeManually(anyLong(), anyLong(), anyLong(), any(), any());
+    }
+
+    @ParameterizedTest(name = "close rejects description length {0}")
+    @ValueSource(ints = {0, 1001})
+    void closeRejectsDescriptionOutsideOneToThousand(int length) {
+        stubCloseActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+
+        assertApiException(
+                () -> service.close(TICKET_NO, closeCommand(5L, "INVALID", "x".repeat(length))),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verify(ticketMapper, never()).closeManually(anyLong(), anyLong(), anyLong(), any(), any());
+    }
+
+    /** 非 HTTP 调用方传 null 说明：必须是 400，而不是 NPE。 */
+    @Test
+    void closeRejectsNullDescriptionWithoutThrowing() {
+        stubCloseActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+
+        assertApiException(
+                () -> service.close(TICKET_NO, closeCommand(5L, "INVALID", null)),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+    }
+
+    /** 跨字段规则：只有「重复工单」才允许带重复单号，其余原因带了一律 400。 */
+    @Test
+    void closeRejectsDuplicateTicketNoWhenReasonIsNotDuplicate() {
+        stubCloseActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+
+        assertApiException(
+                () -> service.close(TICKET_NO, new CloseTicketCommand(
+                        5L, "INVALID", "无效工单", "FD-20261006-002")),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verify(ticketMapper, never()).selectDuplicateTarget(anyLong(), anyLong(), any());
+        verify(ticketMapper, never()).closeManually(anyLong(), anyLong(), anyLong(), any(), any());
+    }
+
+    /** 反向的一格：重复原因必须给出目标编号，缺了就是 400，而不是关成一张"没有重复对象"的单。 */
+    @Test
+    void closeRejectsDuplicateReasonWithoutTicketNo() {
+        stubCloseActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+
+        assertApiException(
+                () -> service.close(TICKET_NO, new CloseTicketCommand(
+                        5L, "DUPLICATE", "与另一张单重复", null)),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verify(ticketMapper, never()).selectDuplicateTarget(anyLong(), anyLong(), any());
+        verify(ticketMapper, never()).closeManually(anyLong(), anyLong(), anyLong(), any(), any());
+    }
+
+    /**
+     * 目标不存在、属于他人、是自己或已是终态，在 SQL 里都归成"查不到"，统一 400。
+     *
+     * <p>"同一提交人"写进 {@code WHERE} 而不是查出来再判，正是为了不向调用方回显
+     * 他人的工单是否存在；因此这四种情况在服务层是同一条分支。</p>
+     */
+    @Test
+    void closeRejectsDuplicateTargetThatCannotBeResolved() {
+        stubCloseActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        when(ticketMapper.selectDuplicateTarget(TICKET_ID, REQUESTER_ID, "FD-20261006-002"))
+                .thenReturn(null);
+
+        assertApiException(
+                () -> service.close(TICKET_NO, new CloseTicketCommand(
+                        5L, "DUPLICATE", "与另一张单重复", "FD-20261006-002")),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verify(ticketMapper, never()).closeManually(anyLong(), anyLong(), anyLong(), any(), any());
+        verifyNoInteractions(ticketRelationMapper);
+    }
+
+    /**
+     * 人工关闭的真实写入：状态、关闭字段与结束时间必须由条件更新一句写完。
+     *
+     * <p>拆开会撞 {@code ck_ticket_status_ended}（终态必须有结束时间）；
+     * 负责人不写，按快照保留为历史信息。</p>
+     */
+    @Test
+    void closeWritesTerminalStateAndClosureRecord() {
+        stubCloseActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        when(ticketMapper.closeManually(TICKET_ID, 5L, IT_USER_ID, "OUT_OF_SCOPE", NOW_UTC))
+                .thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(closedTicket(6L));
+        when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
+
+        TicketActionResult result = service.close(TICKET_NO,
+                new CloseTicketCommand(5L, "OUT_OF_SCOPE", "  超出支持范围  ", "   "));
+
+        assertThat(result.ticketNo()).isEqualTo(TICKET_NO);
+        assertThat(result.status()).isEqualTo(CLOSED);
+        assertThat(result.assignee()).as("关闭后负责人保留为历史信息")
+                .isEqualTo(new TicketUserSummaryResult(IT_USER_ID, IT_DISPLAY_NAME));
+        assertThat(result.actionDeadlineAt()).as("终态不再有待办期限").isNull();
+        assertThat(result.version()).isEqualTo(6L);
+        assertThat(result.actionTime()).isEqualTo(NOW.atOffset(ZoneOffset.UTC));
+
+        ArgumentCaptor<TicketRecord> captor = ArgumentCaptor.forClass(TicketRecord.class);
+        verify(ticketRecordMapper).insert(captor.capture());
+        TicketRecord record = captor.getValue();
+        assertThat(record.getRecordType()).isEqualTo("CLOSURE");
+        assertThat(record.getActorType()).isEqualTo("USER");
+        assertThat(record.getActorUserId()).isEqualTo(IT_USER_ID);
+        assertThat(record.getReason()).as("关闭说明去掉首尾空白后进 reason 列")
+                .isEqualTo("超出支持范围");
+        assertThat(record.getCloseMethod()).as("人工关闭与超时自动关闭必须可区分")
+                .isEqualTo("MANUAL");
+        assertThat(record.getCloseReason()).isEqualTo("OUT_OF_SCOPE");
+        assertThat(record.getFromStatus()).isEqualTo(PROCESSING);
+        assertThat(record.getToStatus()).isEqualTo(CLOSED);
+        assertThat(record.getSequenceNo()).isEqualTo(6);
+        assertThat(record.getCreatedAt()).isEqualTo(NOW_UTC);
+
+        verifyNoInteractions(ticketRelationMapper);
+    }
+
+    /** 重复关闭必须落一条有向关联：source 是被关闭的本单，target 是解析到的有效目标。 */
+    @Test
+    void closeWritesDuplicateRelationToTheResolvedTarget() {
+        stubCloseActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        when(ticketMapper.selectDuplicateTarget(TICKET_ID, REQUESTER_ID, "FD-20261006-002"))
+                .thenReturn(duplicateTargetRow(2002L, "FD-20261006-002", PENDING));
+        when(ticketMapper.closeManually(TICKET_ID, 5L, IT_USER_ID, "DUPLICATE", NOW_UTC))
+                .thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(closedTicket(6L));
+        when(ticketRelationMapper.recordDuplicate(TICKET_ID, 2002L, IT_USER_ID, NOW_UTC))
+                .thenReturn(1);
+        when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
+
+        TicketActionResult result = service.close(TICKET_NO, new CloseTicketCommand(
+                5L, "DUPLICATE", "与另一张单重复", "  FD-20261006-002  "));
+
+        assertThat(result.status()).isEqualTo(CLOSED);
+        assertThat(result.version()).isEqualTo(6L);
+        verify(ticketRelationMapper).recordDuplicate(TICKET_ID, 2002L, IT_USER_ID, NOW_UTC);
+    }
+
+    /** 关联写入失败必须让整个事务回滚，而不是留下一张"说是重复却指不到谁"的已关闭工单。 */
+    @Test
+    void closeFailsWhenDuplicateRelationCannotBeWritten() {
+        stubCloseActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        when(ticketMapper.selectDuplicateTarget(TICKET_ID, REQUESTER_ID, "FD-20261006-002"))
+                .thenReturn(duplicateTargetRow(2002L, "FD-20261006-002", PENDING));
+        when(ticketMapper.closeManually(TICKET_ID, 5L, IT_USER_ID, "DUPLICATE", NOW_UTC))
+                .thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(closedTicket(6L));
+        when(ticketRelationMapper.recordDuplicate(TICKET_ID, 2002L, IT_USER_ID, NOW_UTC))
+                .thenReturn(0);
+
+        assertThatThrownBy(() -> service.close(TICKET_NO, new CloseTicketCommand(
+                5L, "DUPLICATE", "与另一张单重复", "FD-20261006-002")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("重复工单关联写入失败");
+
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    /** 终态本身也是一次状态迁移：条件更新输了就按冲突返回，并带回真实快照。 */
+    @Test
+    void closeReportsConflictWhenConditionalUpdateLosesTheRace() {
+        stubCloseActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        when(ticketMapper.closeManually(TICKET_ID, 5L, IT_USER_ID, "INVALID", NOW_UTC))
+                .thenReturn(0);
+        when(ticketMapper.selectClaimConflictSnapshotForUpdate(TICKET_ID))
+                .thenReturn(conflictSnapshot(WAITING_FOR_CONFIRMATION, 6L));
+
+        ApiException exception = assertApiException(
+                () -> service.close(TICKET_NO, closeCommand(5L, "INVALID", "无效工单")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).isEqualTo(6L);
+        assertThat(exception.resourceStatus()).isEqualTo(WAITING_FOR_CONFIRMATION);
+        verifyNoInteractions(ticketRecordMapper, ticketRelationMapper);
+    }
+
+    @Test
+    void closeFailsWhenUpdatedTicketSnapshotIsMissing() {
+        stubCloseActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        when(ticketMapper.closeManually(TICKET_ID, 5L, IT_USER_ID, "INVALID", NOW_UTC))
+                .thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.close(TICKET_NO, closeCommand(5L, "INVALID", "无效工单")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("关闭后无法读取工单快照");
+
+        verifyNoInteractions(ticketRecordMapper, ticketRelationMapper);
+    }
+
+    // ---------- cancel ----------
+
+    /** 撤销与补充、确认、未解决反馈共用 {@code TICKET_REQUESTER_ACTION}，闸门先于可见性。 */
+    @Test
+    void cancelRejectsActorWithoutRequesterActionAuthority() {
+        when(currentRequesterPort.currentUserId()).thenReturn(REQUESTER_ID);
+
+        assertApiException(() -> service.cancel(TICKET_NO, cancelCommand(3L, "问题已自行解决")),
+                HttpStatus.FORBIDDEN, "TICKET_ACTION_FORBIDDEN");
+
+        verify(ticketMapper, never())
+                .selectVisibleDetail(any(), anyLong(), anyBoolean(), anyBoolean(), anyBoolean());
+    }
+
+    @Test
+    void cancelReportsNotFoundWhenTicketIsNotVisible() {
+        stubRequesterActor();
+
+        assertApiException(() -> service.cancel(TICKET_NO, cancelCommand(3L, "问题已自行解决")),
+                HttpStatus.NOT_FOUND, "TICKET_NOT_FOUND");
+
+        verify(ticketMapper, never()).cancel(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /**
+     * 三个终态都不能再撤销：已完成/已关闭是别人正常走完的，已取消是撤销本身的结果。
+     *
+     * <p>这一格同时是"提交人身份正确、状态不对"的分支——与下面"身份不对"分开测，
+     * 两者的错误码相同但触发条件不同。</p>
+     */
+    @ParameterizedTest(name = "cancel is a conflict on terminal {0}")
+    @ValueSource(strings = {COMPLETED, CANCELED, CLOSED})
+    void cancelReportsConflictOnTerminalStatus(String status) {
+        stubRequesterActor();
+        stubVisible(detailRow(status, IT_USER_ID, 3L));
+
+        ApiException exception = assertApiException(
+                () -> service.cancel(TICKET_NO, cancelCommand(3L, "问题已自行解决")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).isEqualTo(3L);
+        assertThat(exception.resourceStatus()).isEqualTo(status);
+        verify(ticketMapper, never()).cancel(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /**
+     * 当前负责人撤不掉别人的工单：领取之后 IT 是负责人，但提交人始终是员工。
+     *
+     * <p>这里刻意让 IT 也持有 {@code TICKET_REQUESTER_ACTION}——权限齐备但仍然不是提交人，
+     * 撤销必须按冲突拒绝，而不是"有权限就放行"。</p>
+     */
+    @Test
+    void cancelReportsConflictWhenActorIsNotTheRequester() {
+        when(currentRequesterPort.currentUserId()).thenReturn(IT_USER_ID);
+        when(ticketReadPermissionPort.hasAuthority("TICKET_REQUESTER_ACTION")).thenReturn(true);
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+
+        assertApiException(() -> service.cancel(TICKET_NO, cancelCommand(3L, "不需要了")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never()).cancel(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void cancelReportsConflictWhenCommandVersionIsStale() {
+        stubRequesterActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+
+        ApiException exception = assertApiException(
+                () -> service.cancel(TICKET_NO, cancelCommand(2L, "问题已自行解决")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).isEqualTo(3L);
+        assertThat(exception.resourceStatus()).isEqualTo(PROCESSING);
+    }
+
+    /** 冲突判定先于 400：版本过期 + 空白原因仍然得到 409。 */
+    @Test
+    void cancelReportsConflictBeforeValidatingReason() {
+        stubRequesterActor();
+        stubVisible(detailRow(WAITING_FOR_CONFIRMATION, IT_USER_ID, 3L));
+
+        assertApiException(() -> service.cancel(TICKET_NO, cancelCommand(2L, "   ")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never()).cancel(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /**
+     * 四种非终态都能撤销（{@code docs/kickoff.md} 4.7 的逐状态表）。
+     *
+     * <p>「待补充」与「待确认」带着期限，撤销必须把期限清空——这正是
+     * {@code ck_ticket_status_deadline} 要求"非等待态期限为空"的地方，
+     * 状态与期限由 Mapper 的同一条 UPDATE 写入，因此这里只能断言入参与结果。</p>
+     */
+    @ParameterizedTest(name = "cancel from {0}")
+    @ValueSource(strings = {PENDING, PROCESSING, WAITING_FOR_REQUESTER, WAITING_FOR_CONFIRMATION})
+    void cancelMovesEveryNonTerminalStatusToCanceled(String status) {
+        stubRequesterActor();
+        Long assigneeId = PENDING.equals(status) ? null : IT_USER_ID;
+        stubVisible(detailRow(status, assigneeId, 3L));
+        when(ticketMapper.cancel(TICKET_ID, 3L, REQUESTER_ID, NOW_UTC)).thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(canceledTicket(4L, assigneeId));
+        when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
+
+        TicketActionResult result = service.cancel(TICKET_NO, cancelCommand(3L, "  问题已自行解决  "));
+
+        assertThat(result.ticketNo()).isEqualTo(TICKET_NO);
+        assertThat(result.status()).as("四种非终态都进入已取消").isEqualTo(CANCELED);
+        assertThat(result.version()).isEqualTo(4L);
+        assertThat(result.actionDeadlineAt()).as("终态不再有待办期限").isNull();
+        if (assigneeId == null) {
+            assertThat(result.assignee()).as("待受理本来就没有负责人").isNull();
+        } else {
+            assertThat(result.assignee()).as("其余状态保留最后负责人")
+                    .isEqualTo(new TicketUserSummaryResult(IT_USER_ID, IT_DISPLAY_NAME));
+        }
+
+        ArgumentCaptor<TicketRecord> captor = ArgumentCaptor.forClass(TicketRecord.class);
+        verify(ticketRecordMapper).insert(captor.capture());
+        TicketRecord record = captor.getValue();
+        assertThat(record.getRecordType()).isEqualTo("CANCELLATION");
+        assertThat(record.getActorType()).isEqualTo("USER");
+        assertThat(record.getActorUserId()).isEqualTo(REQUESTER_ID);
+        assertThat(record.getReason()).as("撤销原因去掉首尾空白后进 reason 列")
+                .isEqualTo("问题已自行解决");
+        assertThat(record.getFromStatus()).as("记录自己冻结撤销前的状态").isEqualTo(status);
+        assertThat(record.getToStatus()).isEqualTo(CANCELED);
+        assertThat(record.getCompletionMethod()).as("撤销不代表 IT 解决了问题").isNull();
+        assertThat(record.getCloseMethod()).as("撤销也不是关闭").isNull();
+        assertThat(record.getCloseReason()).isNull();
+        assertThat(record.getSequenceNo()).isEqualTo(6);
+        assertThat(record.getCreatedAt()).isEqualTo(NOW_UTC);
+    }
+
+    /** 非 HTTP 调用方传 null 与纯空白原因：必须是 400，而不是 NPE 或空原因入库。 */
+    @ParameterizedTest(name = "cancel rejects blank reason [{0}]")
+    @NullSource
+    @ValueSource(strings = {"", "   "})
+    void cancelRejectsBlankReason(String reason) {
+        stubRequesterActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+
+        assertApiException(() -> service.cancel(TICKET_NO, cancelCommand(3L, reason)),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verify(ticketMapper, never()).cancel(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void cancelRejectsReasonOverOneThousandCharacters() {
+        stubRequesterActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+
+        assertApiException(
+                () -> service.cancel(TICKET_NO, cancelCommand(3L, "x".repeat(1001))),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verify(ticketMapper, never()).cancel(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /** 条件更新是唯一胜者判定：输了就按冲突返回，并带回库里真实的版本与状态。 */
+    @Test
+    void cancelReportsConflictWhenConditionalUpdateLosesTheRace() {
+        stubRequesterActor();
+        stubVisible(detailRow(WAITING_FOR_REQUESTER, IT_USER_ID, 3L));
+        when(ticketMapper.cancel(TICKET_ID, 3L, REQUESTER_ID, NOW_UTC)).thenReturn(0);
+        when(ticketMapper.selectClaimConflictSnapshotForUpdate(TICKET_ID))
+                .thenReturn(conflictSnapshot(PROCESSING, 4L));
+
+        ApiException exception = assertApiException(
+                () -> service.cancel(TICKET_NO, cancelCommand(3L, "问题已自行解决")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).isEqualTo(4L);
+        assertThat(exception.resourceStatus()).isEqualTo(PROCESSING);
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    @Test
+    void cancelFailsWhenUpdatedTicketSnapshotIsMissing() {
+        stubRequesterActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+        when(ticketMapper.cancel(TICKET_ID, 3L, REQUESTER_ID, NOW_UTC)).thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.cancel(TICKET_NO, cancelCommand(3L, "问题已自行解决")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("撤销后无法读取工单快照");
+
+        verifyNoInteractions(ticketRecordMapper);
     }
 
     // ---------- TicketProperties ----------
@@ -2938,6 +3542,25 @@ class TicketServiceImplTest {
                 .as("supplement 由声明式事务包住条件更新与时间线写入").isTrue();
     }
 
+    /**
+     * 片 D 的两个结束动作同样必须由声明式事务包住。
+     *
+     * <p>{@code close} 的事务里除条件更新与时间线外还有 {@code ticket_relation} 的写入，
+     * 关联失败必须连同终态一起回滚；{@code cancel} 的状态与期限是同一条 UPDATE，
+     * 事务边界保证"期限清空但状态没变"这种中间态不会被人看见。</p>
+     */
+    @Test
+    void closeAndCancelMethodsDeclareTransactionBoundaries() throws NoSuchMethodException {
+        assertThat(TicketServiceImpl.class
+                .getMethod("close", String.class, CloseTicketCommand.class)
+                .isAnnotationPresent(Transactional.class))
+                .as("close 由声明式事务包住条件更新、重复关联与时间线写入").isTrue();
+        assertThat(TicketServiceImpl.class
+                .getMethod("cancel", String.class, CancelTicketCommand.class)
+                .isAnnotationPresent(Transactional.class))
+                .as("cancel 由声明式事务包住条件更新与时间线写入").isTrue();
+    }
+
     // ---------- 辅助 ----------
 
     private TicketServiceImpl service(Clock clock, TicketProperties properties) {
@@ -2953,6 +3576,7 @@ class TicketServiceImplTest {
                 transactionManager,
                 ticketClaimPort,
                 ticketParticipantMapper,
+                ticketRelationMapper,
                 properties);
     }
 
@@ -3055,6 +3679,62 @@ class TicketServiceImplTest {
     private void stubTransferActor() {
         when(currentRequesterPort.currentUserId()).thenReturn(IT_USER_ID);
         when(ticketReadPermissionPort.hasAuthority("TICKET_TRANSFER")).thenReturn(true);
+    }
+
+    /**
+     * 转交的第一段加锁：先取工单行的写锁（片 D 的死锁修法，顺序见
+     * {@link #transferLocksTicketRowBeforeUserRows()}）。
+     *
+     * <p>拿到锁之后实现会用 {@code version} 复核快照，所以默认回一行与 {@code visible}
+     * 同版本的行；需要"锁后版本已变"的场景自己用连续返回写（{@code thenReturn(v5, v6)}）。</p>
+     */
+    private void stubLockedTicketSnapshot(String status, long version) {
+        when(ticketMapper.selectClaimConflictSnapshotForUpdate(TICKET_ID))
+                .thenReturn(conflictSnapshot(status, version));
+    }
+
+    /** 关闭路径的公共前置：两条授权同时成立（2026-10-08 的用户裁决）。 */
+    private void stubCloseActor() {
+        when(currentRequesterPort.currentUserId()).thenReturn(IT_USER_ID);
+        when(ticketReadPermissionPort.hasAuthority("TICKET_PROCESS")).thenReturn(true);
+        when(ticketReadPermissionPort.hasAuthority("TICKET_CLOSE")).thenReturn(true);
+    }
+
+    private static CloseTicketCommand closeCommand(long version, String reasonCode, String description) {
+        return new CloseTicketCommand(version, reasonCode, description, null);
+    }
+
+    private static CancelTicketCommand cancelCommand(long version, String reason) {
+        return new CancelTicketCommand(version, reason);
+    }
+
+    /** 条件更新之后读回的终态快照：关闭与撤销只差状态与负责人。 */
+    private static Ticket endedTicket(String status, Long assigneeId, long version) {
+        Ticket ticket = new Ticket();
+        ticket.setId(TICKET_ID);
+        ticket.setTicketNo(TICKET_NO);
+        ticket.setStatus(status);
+        ticket.setAssigneeId(assigneeId);
+        ticket.setRecordSeq(6);
+        ticket.setVersion(version);
+        return ticket;
+    }
+
+    private static Ticket closedTicket(long version) {
+        return endedTicket(CLOSED, IT_USER_ID, version);
+    }
+
+    private static Ticket canceledTicket(long version, Long assigneeId) {
+        return endedTicket(CANCELED, assigneeId, version);
+    }
+
+    private static TicketDuplicateTargetRow duplicateTargetRow(
+            long id, String ticketNo, String status) {
+        TicketDuplicateTargetRow row = new TicketDuplicateTargetRow();
+        row.setId(id);
+        row.setTicketNo(ticketNo);
+        row.setStatus(status);
+        return row;
     }
 
     private void stubSubmittableTicket(long version, LocalDateTime deadline) {

@@ -1,9 +1,11 @@
 package com.flowdesk.ticket.application.service;
 
 import com.flowdesk.ticket.application.command.AddProcessingRecordCommand;
+import com.flowdesk.ticket.application.command.CancelTicketCommand;
 import com.flowdesk.ticket.application.command.ChangeCategoryCommand;
 import com.flowdesk.ticket.application.command.ChangePriorityCommand;
 import com.flowdesk.ticket.application.command.ClaimTicketCommand;
+import com.flowdesk.ticket.application.command.CloseTicketCommand;
 import com.flowdesk.ticket.application.command.ConfirmResolutionCommand;
 import com.flowdesk.ticket.application.command.CreateTicketCommand;
 import com.flowdesk.ticket.application.command.ReportUnresolvedCommand;
@@ -60,4 +62,12 @@ public interface TicketService {
     /** 当前负责人直接转交给另一名 IT 支持人员；状态与期限不变，负责人立即替换。 */
     TicketActionResult transfer(
             String ticketNo, TransferCommand command);
+
+    /** 当前负责人手动关闭工单；只有「处理中」可以关闭，进入终态「已关闭」。 */
+    TicketActionResult close(
+            String ticketNo, CloseTicketCommand command);
+
+    /** 提交人撤销自己的工单；四种非终态都可以撤销，进入终态「已取消」。 */
+    TicketActionResult cancel(
+            String ticketNo, CancelTicketCommand command);
 }

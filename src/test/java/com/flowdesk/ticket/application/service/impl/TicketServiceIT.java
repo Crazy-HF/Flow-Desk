@@ -5,9 +5,11 @@ import com.flowdesk.auth.infrastructure.AuthSessionRepository;
 import com.flowdesk.common.exception.ApiException;
 import com.flowdesk.common.web.PageResult;
 import com.flowdesk.ticket.application.command.AddProcessingRecordCommand;
+import com.flowdesk.ticket.application.command.CancelTicketCommand;
 import com.flowdesk.ticket.application.command.ChangeCategoryCommand;
 import com.flowdesk.ticket.application.command.ChangePriorityCommand;
 import com.flowdesk.ticket.application.command.ClaimTicketCommand;
+import com.flowdesk.ticket.application.command.CloseTicketCommand;
 import com.flowdesk.ticket.application.command.ConfirmResolutionCommand;
 import com.flowdesk.ticket.application.command.CreateTicketCommand;
 import com.flowdesk.ticket.application.command.ReportUnresolvedCommand;
@@ -120,6 +122,8 @@ class TicketServiceIT {
     private static final String WAITING_FOR_REQUESTER = "WAITING_FOR_REQUESTER";
     private static final String WAITING_FOR_CONFIRMATION = "WAITING_FOR_CONFIRMATION";
     private static final String COMPLETED = "COMPLETED";
+    private static final String CANCELED = "CANCELED";
+    private static final String CLOSED = "CLOSED";
 
     /** 与 {@code application.yml} 的 {@code flowdesk.ticket.confirmation-window} 一致。 */
     private static final Duration CONFIRMATION_WINDOW = Duration.ofDays(7);
@@ -193,6 +197,14 @@ class TicketServiceIT {
                 DELETE record
                 FROM ticket_record record
                 JOIN ticket ON ticket.id = record.ticket_id
+                JOIN ticket_category category ON category.id = ticket.category_id
+                WHERE category.name LIKE ?
+                """, CATEGORY_PREFIX + "%");
+        // 片 D 起工单会有指向别的工单的关联（重复关闭），必须在删工单之前先按 source 清掉
+        jdbc.update("""
+                DELETE relation
+                FROM ticket_relation relation
+                JOIN ticket ON ticket.id = relation.source_ticket_id
                 JOIN ticket_category category ON category.id = ticket.category_id
                 WHERE category.name LIKE ?
                 """, CATEGORY_PREFIX + "%");
@@ -1553,7 +1565,7 @@ class TicketServiceIT {
         assertThat(assigneeOf(ticketOfOther)).isEqualTo(itUserId);
     }
 
-    /** 同一张工单上「转交」与「撤回补充请求」并发：版本条件更新决定唯一赢家。 */
+    /** 同一张工单上「转交」与「撤回补充请求」并发：版本条件更新决定唯一赢家（片 D 起败者必须是 409）。 */
     @Test
     void concurrentTransferAndWithdrawOnSameTicketHaveExactlyOneWinner() throws Exception {
         long ticketId = insertWaitingForRequesterTicket(employeeId, itUserId);
@@ -1572,36 +1584,25 @@ class TicketServiceIT {
         assertThat(winners).as("同版本并发只能有一个动作成功").hasSize(1);
 
         /**
-         * 败者有两条可能的路：正常路径是条件更新影响 0 行、读回快照后抛 {@code 409/TICKET_CONFLICT}；
-         * 另一条是 InnoDB 判定死锁后回滚其中一个事务。
+         * 败者只有一条路：条件更新影响 0 行、读回快照后抛 {@code 409/TICKET_CONFLICT}。
          *
-         * <p>死锁来自**两条路径的加锁顺序相反**：转交按 {@code user_id} 升序先锁住「原负责人 +
-         * 新负责人」两行 {@code iam_user}，再去改工单行；而撤回在持有工单行锁的同时，会因为
-         * {@code ticket_record.actor_user_id} 的外键去申请同一条 {@code iam_user} 行的共享锁。
-         * 于是「user → ticket」与「ticket → user」首尾相接成环。片 A 的
-         * {@code withdrawSupplementRequest} 并发用例不会撞上它，因为两个撤回都由工单行起手，
-         * 顺序一致；只有"转交 + 同一个人对同一张工单的另一个动作"才会出现这种交叉。</p>
+         * <p>片 D 之前这里还允许第二种结果——InnoDB 死锁回滚，调用方拿到的是 {@code 500}。
+         * 环来自两条路径的加锁顺序相反：转交按 {@code user_id} 升序先锁「原负责人 + 新负责人」
+         * 两行 {@code iam_user}，再去改工单行；而撤回在持有工单行锁的同时，会因为
+         * {@code ticket_record.actor_user_id} 的外键去申请同一条 {@code iam_user} 行的共享锁。</p>
          *
-         * <p>回滚是安全结果（版本只 +1、只多一条记录，下面的断言逐条核对），但用户拿到的是
-         * {@code 500/INTERNAL_ERROR} 而不是可重试的 {@code 409}。是否把转交改成"先锁工单行、
-         * 再锁两行用户"属于业务代码的决策，记在 {@code PROJECT_STATUS.md} 的已知问题里，
-         * 这里只如实记录真实类型，不把它粉饰成 409。</p>
+         * <p>修法是让转交也以工单行的写锁起手（{@code selectClaimConflictSnapshotForUpdate}
+         * 加锁并复核版本），所有动作从此顺序一致，环消失。因此本用例不再接受死锁作为合法结果：
+         * 败者必须是可立刻重试的 409，断言用 {@link #singleApiException} 收口——
+         * 若败者是死锁异常，那一句会先失败。</p>
          */
-        Object loser = results.stream()
-                .filter(result -> !(result instanceof TicketActionResult))
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("并发结果里必须有一个败者：" + results));
-        if (loser instanceof ApiException conflict) {
-            assertThat(conflict.status()).isEqualTo(HttpStatus.CONFLICT);
-            assertThat(conflict.code()).isEqualTo("TICKET_CONFLICT");
-            assertThat(conflict.resourceVersion()).as("冲突响应携带库里最新版本")
-                    .isEqualTo(versionOf(ticketId));
-        } else {
-            assertThat(loser)
-                    .as("非 409 的败者只能是 InnoDB 回滚的死锁，实际为 %s", loser)
-                    .isInstanceOf(DataAccessException.class);
-            assertThat(((Exception) loser).getMessage()).containsIgnoringCase("deadlock");
-        }
+        ApiException loser = singleApiException(results);
+        assertThat(loser.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(loser.code()).isEqualTo("TICKET_CONFLICT");
+        assertThat(loser.resourceVersion()).as("冲突响应携带库里最新版本")
+                .isEqualTo(versionOf(ticketId));
+        assertThat(loser.resourceStatus()).as("冲突响应携带库里最新状态")
+                .isEqualTo(statusOf(ticketId));
 
         assertThat(versionOf(ticketId)).as("终态版本只 +1").isEqualTo(versionBefore + 1);
         assertThat(countRecords(ticketId, "TRANSFER")
@@ -1638,6 +1639,371 @@ class TicketServiceIT {
         authenticateAs(outsiderId, IT_SUPPORT);
         assertApiError(() -> ticketQueryService.transferCandidates(ticketNo),
                 HttpStatus.NOT_FOUND, "TICKET_NOT_FOUND");
+    }
+
+    // ---------- 片 D：结束路径 ----------
+
+    /**
+     * 人工关闭的真实写入：状态、关闭字段与结束时间必须在一条 UPDATE 里落地，
+     * 时间线留一条 {@code CLOSURE}，负责人按快照保留。
+     */
+    @Test
+    void closeWritesTerminalStateAndClosureRecord() {
+        long ticketId = insertProcessingTicket(employeeId, itUserId);
+        String ticketNo = ticketNoOf(ticketId);
+        long versionBefore = versionOf(ticketId);
+
+        authenticateAs(itUserId, IT_SUPPORT);
+        TicketActionResult closed = ticketService.close(ticketNo,
+                new CloseTicketCommand(versionBefore, "OUT_OF_SCOPE", "  超出支持范围  ", null));
+
+        assertThat(closed.status()).isEqualTo(CLOSED);
+        assertThat(closed.assignee().id()).as("关闭后负责人保留为历史信息").isEqualTo(itUserId);
+        assertThat(closed.actionDeadlineAt()).as("终态不再有待办期限").isNull();
+        assertThat(closed.version()).isEqualTo(versionBefore + 1L);
+
+        assertThat(statusOf(ticketId)).isEqualTo(CLOSED);
+        assertThat(versionOf(ticketId)).isEqualTo(versionBefore + 1L);
+        assertThat(recordSeqOf(ticketId)).isEqualTo(2);
+        assertThat(endedAtOf(ticketId)).as("ck_ticket_status_ended 要求终态必须有结束时间")
+                .isNotNull();
+        assertThat(actionDeadlineOf(ticketId)).isNull();
+        assertThat(assigneeOf(ticketId)).isEqualTo(itUserId);
+        assertThat(closeMethodOf(ticketId)).as("人工关闭与超时自动关闭必须可区分")
+                .isEqualTo("MANUAL");
+        assertThat(closeReasonOf(ticketId)).isEqualTo("OUT_OF_SCOPE");
+
+        Map<String, Object> record = lastRecordOf(ticketId);
+        assertThat(record.get("record_type")).isEqualTo("CLOSURE");
+        assertThat(record.get("reason")).as("说明去除首尾空白后进 reason 列")
+                .isEqualTo("超出支持范围");
+        assertThat(record.get("close_method")).isEqualTo("MANUAL");
+        assertThat(record.get("close_reason")).isEqualTo("OUT_OF_SCOPE");
+        assertThat(record.get("from_status")).isEqualTo(PROCESSING);
+        assertThat(record.get("to_status")).isEqualTo(CLOSED);
+        assertThat(countRelations(ticketId)).as("非重复关闭不写工单关联").isZero();
+    }
+
+    /**
+     * 重复关闭的真实关联：{@code ticket_relation} 一条有向边，
+     * source = 被关闭的本单，target = 同一提交人的另一张有效工单。
+     */
+    @Test
+    void closeWithDuplicateTargetWritesRelation() {
+        authenticateAs(employeeId, EMPLOYEE);
+        TicketCreatedResult original = createTicket(UUID.randomUUID().toString(), "原始工单");
+        TicketCreatedResult duplicated = createTicket(UUID.randomUUID().toString(), "重复提交的工单");
+
+        authenticateAs(itUserId, IT_SUPPORT);
+        ticketService.claim(duplicated.ticketNo(), new ClaimTicketCommand(duplicated.version()));
+
+        long duplicatedId = ticketIdOf(duplicated.ticketNo());
+        long originalId = ticketIdOf(original.ticketNo());
+
+        TicketActionResult closed = ticketService.close(duplicated.ticketNo(),
+                new CloseTicketCommand(versionOf(duplicatedId), "DUPLICATE", "与先前提交的工单重复",
+                        "  " + original.ticketNo() + "  "));
+
+        assertThat(closed.status()).isEqualTo(CLOSED);
+        assertThat(statusOf(duplicatedId)).isEqualTo(CLOSED);
+        assertThat(statusOf(originalId)).as("重复目标本身不受影响").isEqualTo(PENDING);
+
+        Map<String, Object> relation = relationOf(duplicatedId);
+        assertThat(((Number) relation.get("source_ticket_id")).longValue())
+                .as("source 是被关闭的本单").isEqualTo(duplicatedId);
+        assertThat(((Number) relation.get("target_ticket_id")).longValue()).isEqualTo(originalId);
+        assertThat(relation.get("relation_type")).isEqualTo("DUPLICATE");
+        assertThat(((Number) relation.get("created_by")).longValue()).isEqualTo(itUserId);
+    }
+
+    /** 目标属于别人、是自己、或已是终态：三种都按 400 拒绝，且不在本单上留下任何痕迹。 */
+    @Test
+    void closeRejectsInvalidDuplicateTargetsWithoutTouchingTheRow() {
+        long otherEmployeeId = insertUser("other-employee", EMPLOYEE);
+        long foreignTicketId = insertPendingTicket(otherEmployeeId);
+        long terminalTicketId = insertPendingTicket(employeeId);
+        String terminalTicketNo = ticketNoOf(terminalTicketId);
+
+        authenticateAs(employeeId, EMPLOYEE);
+        ticketService.cancel(terminalTicketNo,
+                new CancelTicketCommand(versionOf(terminalTicketId), "重复提交了"));
+
+        long ticketId = insertProcessingTicket(employeeId, itUserId);
+        String ticketNo = ticketNoOf(ticketId);
+        long versionBefore = versionOf(ticketId);
+
+        authenticateAs(itUserId, IT_SUPPORT);
+        for (String target : List.of(ticketNoOf(foreignTicketId), ticketNo, terminalTicketNo)) {
+            assertApiError(() -> ticketService.close(ticketNo, new CloseTicketCommand(
+                            versionBefore, "DUPLICATE", "与另一张单重复", target)),
+                    HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+        }
+
+        assertThat(statusOf(ticketId)).as("失败的关闭不能留下任何痕迹").isEqualTo(PROCESSING);
+        assertThat(versionOf(ticketId)).isEqualTo(versionBefore);
+        assertThat(countRecords(ticketId, "CLOSURE")).isZero();
+        assertThat(countRelations(ticketId)).isZero();
+    }
+
+    /** 已完成（非终态之外的正常结束方式）仍可作为重复目标：重复只说明"同一问题已有另一张单"。 */
+    @Test
+    void closeAcceptsCompletedTicketAsDuplicateTarget() {
+        long targetId = insertWaitingForConfirmationTicket(employeeId, itUserId);
+        String targetNo = ticketNoOf(targetId);
+
+        authenticateAs(employeeId, EMPLOYEE);
+        ticketService.confirmResolution(targetNo,
+                new ConfirmResolutionCommand(versionOf(targetId)));
+        assertThat(statusOf(targetId)).isEqualTo(COMPLETED);
+
+        long ticketId = insertProcessingTicket(employeeId, itUserId);
+        authenticateAs(itUserId, IT_SUPPORT);
+        TicketActionResult closed = ticketService.close(ticketNoOf(ticketId),
+                new CloseTicketCommand(versionOf(ticketId), "DUPLICATE", "与已完成的工单重复", targetNo));
+
+        assertThat(closed.status()).isEqualTo(CLOSED);
+        assertThat(((Number) relationOf(ticketId).get("target_ticket_id")).longValue())
+                .isEqualTo(targetId);
+    }
+
+    /**
+     * 关闭的两道闸门：缺 {@code TICKET_CLOSE} 的会话是 403；持有两条授权但不是当前负责人
+     * （只是历史参与者，因此看得到这张单）是 409。
+     */
+    @Test
+    void closeRequiresBothPermissionsAndTheCurrentAssignee() {
+        long ticketId = insertProcessingTicket(employeeId, itUserId);
+        String ticketNo = ticketNoOf(ticketId);
+        long versionBefore = versionOf(ticketId);
+
+        // 模拟"会话里还留着部分权限"：只有 TICKET_PROCESS，没有 TICKET_CLOSE
+        authenticateWith(itUserId, usernameOf(itUserId), Set.of(
+                "TICKET_VIEW_QUEUE", "TICKET_VIEW_PARTICIPATED", "TICKET_PROCESS"));
+        assertApiError(() -> ticketService.close(ticketNo,
+                        new CloseTicketCommand(versionBefore, "INVALID", "无效工单", null)),
+                HttpStatus.FORBIDDEN, "TICKET_ACTION_FORBIDDEN");
+
+        // 历史参与者：看得到这张单（TICKET_VIEW_PARTICIPATED），但不是当前负责人
+        insertParticipant(ticketId, otherItId);
+        authenticateAs(otherItId, IT_SUPPORT);
+        ApiException conflict = catchApiError(() -> ticketService.close(ticketNo,
+                new CloseTicketCommand(versionBefore, "INVALID", "无效工单", null)));
+        assertThat(conflict.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(conflict.code()).isEqualTo("TICKET_CONFLICT");
+
+        assertThat(statusOf(ticketId)).isEqualTo(PROCESSING);
+        assertThat(versionOf(ticketId)).isEqualTo(versionBefore);
+        assertThat(countRecords(ticketId, "CLOSURE")).isZero();
+    }
+
+    /** 版本过期的关闭：{@code 409} 并带回库里真实快照，且不写终态字段。 */
+    @Test
+    void closeWithStaleVersionReportsCurrentSnapshot() {
+        long ticketId = insertProcessingTicket(employeeId, itUserId);
+        String ticketNo = ticketNoOf(ticketId);
+
+        authenticateAs(itUserId, IT_SUPPORT);
+        assertStaleConflict(() -> ticketService.close(ticketNo,
+                new CloseTicketCommand(versionOf(ticketId) - 1L, "INVALID", "无效工单", null)),
+                ticketId);
+
+        assertThat(statusOf(ticketId)).isEqualTo(PROCESSING);
+        assertThat(closeReasonOf(ticketId)).isNull();
+    }
+
+    /**
+     * 撤销的真实写入：四种非终态都进入已取消，期限被同一条 UPDATE 清空，
+     * 且撤销出来的终态不带任何完成/关闭字段——「已取消」「已完成」「已关闭」三态可区分。
+     *
+     * <p>「待补充」是四种状态里唯一带期限的非终态入口，因此它同时验证
+     * {@code ck_ticket_status_deadline} 不会被中间态撞破。</p>
+     */
+    @Test
+    void cancelClearsDeadlineAndKeepsTerminalStatesDistinguishable() {
+        long ticketId = insertWaitingForRequesterTicket(employeeId, itUserId);
+        String ticketNo = ticketNoOf(ticketId);
+        long versionBefore = versionOf(ticketId);
+        assertThat(actionDeadlineOf(ticketId)).as("「待补充」本来带着期限").isNotNull();
+
+        authenticateAs(employeeId, EMPLOYEE);
+        TicketActionResult canceled = ticketService.cancel(ticketNo,
+                new CancelTicketCommand(versionBefore, "  问题已自行解决  "));
+
+        assertThat(canceled.status()).isEqualTo(CANCELED);
+        assertThat(canceled.assignee().id()).as("撤销保留最后负责人").isEqualTo(itUserId);
+        assertThat(canceled.actionDeadlineAt()).isNull();
+        assertThat(canceled.version()).isEqualTo(versionBefore + 1L);
+
+        assertThat(statusOf(ticketId)).isEqualTo(CANCELED);
+        assertThat(actionDeadlineOf(ticketId)).as("期限在同一条 UPDATE 里被清空").isNull();
+        assertThat(endedAtOf(ticketId)).isNotNull();
+        assertThat(completionMethodOf(ticketId)).as("撤销不代表 IT 解决了问题").isNull();
+        assertThat(closeMethodOf(ticketId)).as("撤销也不是关闭").isNull();
+        assertThat(closeReasonOf(ticketId)).isNull();
+        assertThat(assigneeOf(ticketId)).isEqualTo(itUserId);
+
+        Map<String, Object> record = lastRecordOf(ticketId);
+        assertThat(record.get("record_type")).isEqualTo("CANCELLATION");
+        assertThat(record.get("reason")).isEqualTo("问题已自行解决");
+        assertThat(record.get("from_status")).isEqualTo(WAITING_FOR_REQUESTER);
+        assertThat(record.get("to_status")).isEqualTo(CANCELED);
+        assertThat(record.get("completion_method")).isNull();
+        assertThat(record.get("close_method")).isNull();
+    }
+
+    /** 待受理没有负责人，撤销后仍然是 null：{@code ck_ticket_status_assignee} 两种都允许。 */
+    @Test
+    void cancelOfPendingTicketKeepsNullAssignee() {
+        long ticketId = insertPendingTicket(employeeId);
+        String ticketNo = ticketNoOf(ticketId);
+
+        authenticateAs(employeeId, EMPLOYEE);
+        TicketActionResult canceled = ticketService.cancel(ticketNo,
+                new CancelTicketCommand(versionOf(ticketId), "已经不需要了"));
+
+        assertThat(canceled.status()).isEqualTo(CANCELED);
+        assertThat(canceled.assignee()).isNull();
+        assertThat(statusOf(ticketId)).isEqualTo(CANCELED);
+        assertThat(assigneeOf(ticketId)).isNull();
+        assertThat(countRecords(ticketId, "CANCELLATION")).isEqualTo(1);
+    }
+
+    /**
+     * 领取之后 IT 是负责人，但提交人始终是员工：IT 撤不掉这张单。
+     *
+     * <p>即使给 IT 会话补上 {@code TICKET_REQUESTER_ACTION}，身份判定仍然按 409 拒绝——
+     * 这正是用户 2026-10-08 追问的那一格。</p>
+     */
+    @Test
+    void cancelIsRejectedForTheCurrentAssignee() {
+        long ticketId = insertProcessingTicket(employeeId, itUserId);
+        String ticketNo = ticketNoOf(ticketId);
+        long versionBefore = versionOf(ticketId);
+
+        authenticateWith(itUserId, usernameOf(itUserId), Set.of(
+                "TICKET_VIEW_QUEUE", "TICKET_VIEW_PARTICIPATED", "TICKET_PROCESS",
+                "TICKET_CLOSE", "TICKET_REQUESTER_ACTION"));
+        ApiException conflict = catchApiError(() -> ticketService.cancel(ticketNo,
+                new CancelTicketCommand(versionBefore, "IT 想撤销")));
+        assertThat(conflict.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(conflict.code()).isEqualTo("TICKET_CONFLICT");
+
+        assertThat(statusOf(ticketId)).isEqualTo(PROCESSING);
+        assertThat(versionOf(ticketId)).isEqualTo(versionBefore);
+        assertThat(countRecords(ticketId, "CANCELLATION")).isZero();
+    }
+
+    /** 没有提交人权限的账号连可见性都不查：闸门是 403，不是 404。 */
+    @Test
+    void cancelRejectsActorWithoutRequesterActionAuthority() {
+        long ticketId = insertPendingTicket(employeeId);
+        String ticketNo = ticketNoOf(ticketId);
+
+        authenticateWith(employeeId, usernameOf(employeeId), Set.of("TICKET_VIEW_OWN"));
+        assertApiError(() -> ticketService.cancel(ticketNo,
+                        new CancelTicketCommand(versionOf(ticketId), "已经不需要了")),
+                HttpStatus.FORBIDDEN, "TICKET_ACTION_FORBIDDEN");
+
+        assertThat(statusOf(ticketId)).isEqualTo(PENDING);
+    }
+
+    /** 终态再撤销：{@code 409} 并带回当前快照，不会覆盖第一次结束的结果。 */
+    @Test
+    void cancelOnTerminalTicketReportsCurrentSnapshot() {
+        long ticketId = insertPendingTicket(employeeId);
+        String ticketNo = ticketNoOf(ticketId);
+
+        authenticateAs(employeeId, EMPLOYEE);
+        TicketActionResult first = ticketService.cancel(ticketNo,
+                new CancelTicketCommand(versionOf(ticketId), "已经不需要了"));
+        long versionAfterCancel = versionOf(ticketId);
+
+        assertStaleConflict(() -> ticketService.cancel(ticketNo,
+                new CancelTicketCommand(first.version(), "再撤一次")), ticketId);
+
+        assertThat(versionOf(ticketId)).as("失败的撤销不改版本").isEqualTo(versionAfterCancel);
+        assertThat(countRecords(ticketId, "CANCELLATION")).isEqualTo(1);
+    }
+
+    /** 终态没有出口：已关闭的工单不能再被领取。 */
+    @Test
+    void closedTicketCannotBeClaimedOrClosedAgain() {
+        long ticketId = insertProcessingTicket(employeeId, itUserId);
+        String ticketNo = ticketNoOf(ticketId);
+
+        authenticateAs(itUserId, IT_SUPPORT);
+        ticketService.close(ticketNo,
+                new CloseTicketCommand(versionOf(ticketId), "INVALID", "无效工单", null));
+        long versionAfterClose = versionOf(ticketId);
+
+        assertStaleConflict(() -> ticketService.close(ticketNo,
+                new CloseTicketCommand(versionAfterClose, "INVALID", "再关一次", null)), ticketId);
+        assertThat(versionOf(ticketId)).isEqualTo(versionAfterClose);
+        assertThat(countRecords(ticketId, "CLOSURE")).isEqualTo(1);
+    }
+
+    /**
+     * 同一张「处理中」工单上「员工撤销」与「IT 关闭」并发：恰好一个赢家，败者必须是 409。
+     *
+     * <p>两个动作都从工单行的条件更新起手，输的一方读回快照后按 {@code TICKET_CONFLICT} 返回；
+     * 这条用例同时也是"结束路径不会互相覆盖"的真库证据——终态字段只属于赢家。</p>
+     */
+    @Test
+    void concurrentCloseAndCancelOnSameTicketHaveExactlyOneWinner() throws Exception {
+        long ticketId = insertProcessingTicket(employeeId, itUserId);
+        String ticketNo = ticketNoOf(ticketId);
+        long versionBefore = versionOf(ticketId);
+
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        List<Object> results = runConcurrently(List.<Callable<Object>>of(
+                () -> closeAfterBarrier(barrier, ticketNo, versionBefore),
+                () -> cancelAfterBarrier(barrier, ticketNo, versionBefore)));
+
+        List<TicketActionResult> winners = results.stream()
+                .filter(TicketActionResult.class::isInstance)
+                .map(TicketActionResult.class::cast)
+                .toList();
+        assertThat(winners).as("同版本并发只能有一个动作成功").hasSize(1);
+
+        ApiException loser = singleApiException(results);
+        assertThat(loser.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(loser.code()).isEqualTo("TICKET_CONFLICT");
+        assertThat(loser.resourceVersion()).as("冲突响应携带库里最新版本")
+                .isEqualTo(versionOf(ticketId));
+
+        assertThat(versionOf(ticketId)).as("终态版本只 +1").isEqualTo(versionBefore + 1);
+        assertThat(countRecords(ticketId, "CLOSURE") + countRecords(ticketId, "CANCELLATION"))
+                .as("两个结束动作只有一个落库").isEqualTo(1);
+        assertThat(statusOf(ticketId)).isIn(CLOSED, CANCELED);
+    }
+
+    /** 待受理上「员工撤销」与「IT 领取」并发：同样是唯一胜者，败者 409。 */
+    @Test
+    void concurrentClaimAndCancelOnSameTicketHaveExactlyOneWinner() throws Exception {
+        long ticketId = insertPendingTicket(employeeId);
+        String ticketNo = ticketNoOf(ticketId);
+
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        List<Object> results = runConcurrently(List.<Callable<Object>>of(
+                () -> claimAfterBarrier(barrier, itUserId, ticketNo),
+                () -> cancelAfterBarrier(barrier, ticketNo, 0L)));
+
+        List<TicketActionResult> winners = results.stream()
+                .filter(TicketActionResult.class::isInstance)
+                .map(TicketActionResult.class::cast)
+                .toList();
+        assertThat(winners).as("领取与撤销只能有一个成功").hasSize(1);
+
+        ApiException loser = singleApiException(results);
+        assertThat(loser.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(loser.code()).isEqualTo("TICKET_CONFLICT");
+
+        assertThat(versionOf(ticketId)).isEqualTo(1L);
+        assertThat(statusOf(ticketId)).as("赢家只有一个：要么被领走，要么被撤销")
+                .isIn(PROCESSING, CANCELED);
+        if (CANCELED.equals(statusOf(ticketId))) {
+            assertThat(assigneeOf(ticketId)).as("没有赢家的领取不能留下负责人").isNull();
+        }
     }
 
     // ---------- 并发动作辅助 ----------
@@ -1703,6 +2069,22 @@ class TicketServiceIT {
         authenticateAs(actorId, IT_SUPPORT);
         return ticketService.transfer(ticketNo,
                 new TransferCommand(version, newAssigneeId, "并发转交"));
+    }
+
+    private Object closeAfterBarrier(CyclicBarrier barrier, String ticketNo, long version)
+            throws Exception {
+        barrier.await(30, TimeUnit.SECONDS);
+        authenticateAs(itUserId, IT_SUPPORT);
+        return ticketService.close(ticketNo,
+                new CloseTicketCommand(version, "INVALID", "并发关闭", null));
+    }
+
+    private Object cancelAfterBarrier(CyclicBarrier barrier, String ticketNo, long version)
+            throws Exception {
+        barrier.await(30, TimeUnit.SECONDS);
+        authenticateAs(employeeId, EMPLOYEE);
+        return ticketService.cancel(ticketNo,
+                new CancelTicketCommand(version, "并发撤销"));
     }
 
     // ---------- 身份与断言辅助 ----------
@@ -1989,6 +2371,30 @@ class TicketServiceIT {
     private String completionMethodOf(long ticketId) {
         return jdbc.queryForObject(
                 "SELECT completion_method FROM ticket WHERE id = ?", String.class, ticketId);
+    }
+
+    private String closeMethodOf(long ticketId) {
+        return jdbc.queryForObject(
+                "SELECT close_method FROM ticket WHERE id = ?", String.class, ticketId);
+    }
+
+    private String closeReasonOf(long ticketId) {
+        return jdbc.queryForObject(
+                "SELECT close_reason FROM ticket WHERE id = ?", String.class, ticketId);
+    }
+
+    /** 一份工单作为 source 的关联行；没有关联时 {@code queryForMap} 会抛异常，正是"必须存在"的断言。 */
+    private Map<String, Object> relationOf(long sourceTicketId) {
+        return jdbc.queryForMap("""
+                SELECT source_ticket_id, target_ticket_id, relation_type, created_by
+                FROM ticket_relation WHERE source_ticket_id = ?
+                """, sourceTicketId);
+    }
+
+    private int countRelations(long sourceTicketId) {
+        return jdbc.queryForObject(
+                "SELECT COUNT(*) FROM ticket_relation WHERE source_ticket_id = ?",
+                Integer.class, sourceTicketId);
     }
 
     private int countRecords(long ticketId, String recordType) {

@@ -16,6 +16,7 @@ import com.flowdesk.ticket.mapper.TicketDailySequenceMapper;
 import com.flowdesk.ticket.mapper.TicketMapper;
 import com.flowdesk.ticket.mapper.TicketParticipantMapper;
 import com.flowdesk.ticket.mapper.TicketRecordMapper;
+import com.flowdesk.ticket.mapper.TicketRelationMapper;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -95,6 +96,10 @@ class TicketSupplementServiceImplTest {
     private TicketRecordMapper ticketRecordMapper;
     @Mock
     private TicketParticipantMapper ticketParticipantMapper;
+
+    /** 片 D 的「重复工单」关闭要写 ticket_relation，构造签名随之多一个参数。 */
+    @Mock
+    private TicketRelationMapper ticketRelationMapper;
     @Mock
     private CurrentRequesterPort currentRequesterPort;
     @Mock
@@ -417,6 +422,7 @@ class TicketSupplementServiceImplTest {
                 transactionManager,
                 ticketClaimPort,
                 ticketParticipantMapper,
+                ticketRelationMapper,
                 properties);
     }
 
