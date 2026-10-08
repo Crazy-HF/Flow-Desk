@@ -4,9 +4,11 @@ import com.flowdesk.common.exception.ApiException;
 import com.flowdesk.common.web.R;
 import com.flowdesk.common.web.PageResult;
 import com.flowdesk.ticket.application.command.AddProcessingRecordCommand;
+import com.flowdesk.ticket.application.command.CancelTicketCommand;
 import com.flowdesk.ticket.application.command.ChangeCategoryCommand;
 import com.flowdesk.ticket.application.command.ChangePriorityCommand;
 import com.flowdesk.ticket.application.command.ClaimTicketCommand;
+import com.flowdesk.ticket.application.command.CloseTicketCommand;
 import com.flowdesk.ticket.application.command.ConfirmResolutionCommand;
 import com.flowdesk.ticket.application.command.CreateTicketCommand;
 import com.flowdesk.ticket.application.command.ReportUnresolvedCommand;
@@ -184,6 +186,22 @@ public class TicketController {
             @PathVariable String ticketNo,
             @Valid @RequestBody TransferCommand command) {
         return R.success(ticketService.transfer(ticketNo, command));
+    }
+
+    /** 当前负责人异常关闭工单；只有「处理中」可以关闭，进入终态 CLOSED。 */
+    @PostMapping("/{ticketNo}/actions/close")
+    public R<TicketActionResult> close(
+            @PathVariable String ticketNo,
+            @Valid @RequestBody CloseTicketCommand command) {
+        return R.success(ticketService.close(ticketNo, command));
+    }
+
+    /** 提交人撤销自己的工单；四种非终态都可以撤销，进入终态 CANCELED。 */
+    @PostMapping("/{ticketNo}/actions/cancel")
+    public R<TicketActionResult> cancel(
+            @PathVariable String ticketNo,
+            @Valid @RequestBody CancelTicketCommand command) {
+        return R.success(ticketService.cancel(ticketNo, command));
     }
 
 }

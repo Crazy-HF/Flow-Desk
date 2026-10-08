@@ -15,10 +15,12 @@ import com.flowdesk.ticket.domain.Ticket;
 import com.flowdesk.ticket.domain.TicketPriority;
 import com.flowdesk.ticket.domain.TicketRecord;
 import com.flowdesk.ticket.infrastructure.persistence.TicketDetailRow;
+import com.flowdesk.ticket.infrastructure.persistence.TicketDuplicateTargetRow;
 import com.flowdesk.ticket.mapper.TicketMapper;
 import com.flowdesk.ticket.mapper.TicketDailySequenceMapper;
 import com.flowdesk.ticket.mapper.TicketParticipantMapper;
 import com.flowdesk.ticket.mapper.TicketRecordMapper;
+import com.flowdesk.ticket.mapper.TicketRelationMapper;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -55,6 +57,9 @@ public class TicketServiceImpl implements TicketService {
     /** 转交权限由动态 RBAC 授予；与处理权限分开，可以单独授予一个角色。 */
     private static final String TICKET_TRANSFER = "TICKET_TRANSFER";
 
+    /** 关闭权限由动态 RBAC 授予；关闭是结束工单的处置动作，必须同时具备处理权限。 */
+    private static final String TICKET_CLOSE = "TICKET_CLOSE";
+
     /** 处理正文去除首尾空白后的长度上限，与请求校验保持一致。 */
     private static final int MAX_CONTENT_LENGTH = 10000;
 
@@ -77,6 +82,8 @@ public class TicketServiceImpl implements TicketService {
     private final TicketReadPermissionPort ticketReadPermissionPort;
     private final TicketClaimantPort ticketClaimPort;
     private final TicketParticipantMapper ticketParticipantMapper;
+    /** 工单有向关联（ticket_relation）：关闭为「重复工单」时写入一条指向有效工单的关联。 */
+    private final TicketRelationMapper ticketRelationMapper;
     /** 确认期限来自配置，服务端计算，不接受客户端传入。 */
     private final TicketProperties ticketProperties;
 
@@ -92,6 +99,7 @@ public class TicketServiceImpl implements TicketService {
             PlatformTransactionManager transactionManager,
             TicketClaimantPort ticketClaimPort,
             TicketParticipantMapper ticketParticipantMapper,
+            TicketRelationMapper ticketRelationMapper,
             TicketProperties ticketProperties) {
         this.clock = clock;
         this.ticketMapper = ticketMapper;
@@ -102,6 +110,7 @@ public class TicketServiceImpl implements TicketService {
         this.ticketReadPermissionPort = ticketReadPermissionPort;
         this.ticketClaimPort = ticketClaimPort;
         this.ticketParticipantMapper = ticketParticipantMapper;
+        this.ticketRelationMapper = ticketRelationMapper;
         this.ticketProperties = ticketProperties;
 
         this.transactionTemplate =
@@ -1333,7 +1342,25 @@ public class TicketServiceImpl implements TicketService {
                     "不能转交给工单提交人");
         }
 
-        // 7. 固定锁顺序：无论谁转给谁，一律按 user_id 升序锁「当前负责人 + 新负责人」两行。
+        // 7. 固定锁顺序第一段：先锁工单行，再锁用户行。
+        //    所有工单动作都以工单行的写锁起手；反过来先锁 iam_user 时，另一个动作持有工单行锁后会因为
+        //    ticket_record.actor_user_id 的外键校验去申请同一行 iam_user 的共享锁，两条路径首尾相接成环，
+        //    InnoDB 回滚其中一个，调用方拿到的是 500 而不是可重试的 409。
+        Ticket locked = ticketMapper.selectClaimConflictSnapshotForUpdate(visible.getId());
+        if (locked == null) {
+            throw new ApiException(
+                    HttpStatus.NOT_FOUND,
+                    "TICKET_NOT_FOUND",
+                    "工单不存在");
+        }
+
+        // 拿到工单行锁后复核快照：version 是这一行的变更计数，领取、转交、任何状态迁移都会 +1，
+        // 因此 version 未变即证明前面读到的状态、负责人与提交人都还是当前值
+        if (!Objects.equals(locked.getVersion(), visible.getVersion())) {
+            throw conflict(locked.getVersion(), locked.getStatus());
+        }
+
+        // 8. 固定锁顺序第二段：无论谁转给谁，一律按 user_id 升序锁「当前负责人 + 新负责人」两行。
         //    互转并发（A 转给 B、B 转给 A）时两边以同一顺序取锁，不会形成 AB-BA 死锁
         long firstUserId = Math.min(actorId, newAssigneeId);
         long secondUserId = Math.max(actorId, newAssigneeId);
@@ -1346,7 +1373,7 @@ public class TicketServiceImpl implements TicketService {
         TicketUserSummaryResult newAssignee =
                 newAssigneeId == firstUserId ? firstLocked : secondLocked;
 
-        // 8. 锁住之后再复核双方资格，并发的角色或账号变更由这次复核收敛
+        // 9. 锁住之后再复核双方资格，并发的角色或账号变更由这次复核收敛
         if (actorLocked == null) {
             throw new ApiException(
                     HttpStatus.FORBIDDEN,
@@ -1364,7 +1391,7 @@ public class TicketServiceImpl implements TicketService {
         Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
         LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
 
-        // 9. 条件更新是唯一胜者判定：版本、状态、原负责人与"新负责人不是提交人"都在 WHERE 里；
+        // 10. 条件更新是唯一胜者判定：版本、状态、原负责人与"新负责人不是提交人"都在 WHERE 里；
         //    status 与 action_deadline_at 都不写，转交不产生中间态
         int updatedRows = ticketMapper.transfer(
                 visible.getId(),
@@ -1388,13 +1415,13 @@ public class TicketServiceImpl implements TicketService {
             throw new IllegalStateException("转交后无法读取工单快照");
         }
 
-        // 10. 记录新负责人的参与关系：与领取一致，转交后他才能看到这张工单
+        // 11. 记录新负责人的参与关系：与领取一致，转交后他才能看到这张工单
         ticketParticipantMapper.recordAssignment(
                 updated.getId(),
                 newAssigneeId,
                 now);
 
-        // 11. 不可变时间线：原负责人 → 新负责人 + 原因；状态没变，两侧写同一个状态
+        // 12. 不可变时间线：原负责人 → 新负责人 + 原因；状态没变，两侧写同一个状态
         TicketRecord record = new TicketRecord();
         record.setTicketId(updated.getId());
         record.setSequenceNo(updated.getRecordSeq());
@@ -1412,12 +1439,295 @@ public class TicketServiceImpl implements TicketService {
             throw new IllegalStateException("转交记录插入失败");
         }
 
-        // 12. 摘要里的负责人是新负责人；「待补充」时转交，期限原样有效，一并返回
+        // 13. 摘要里的负责人是新负责人；「待补充」时转交，期限原样有效，一并返回
         return new TicketActionResult(
                 updated.getTicketNo(),
                 visible.getStatus(),
                 newAssignee,
                 toOffsetDateTime(visible.getActionDeadlineAt()),
+                updated.getVersion(),
+                instant.atOffset(ZoneOffset.UTC));
+    }
+
+    /**
+     * 当前负责人手动关闭工单：只有「处理中」可以关闭，进入终态「已关闭」。
+     */
+    @Override
+    @Transactional
+    public TicketActionResult close(String ticketNo, CloseTicketCommand command) {
+        //1.身份、权限
+        // 必须是基本类型：下面用 `visible.getAssigneeId() != actorId` 判定"本人是负责人"，
+        // 若这里写成 Long，两侧就是 Long 与 Long 的引用比较（超出 Long 缓存范围的用户 ID 会被误判成 409）
+        long actorId = currentRequesterPort.currentUserId();
+
+        if (!ticketReadPermissionPort.hasAuthority(TICKET_PROCESS)
+                || !ticketReadPermissionPort.hasAuthority(TICKET_CLOSE)) {
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN,
+                    "TICKET_ACTION_FORBIDDEN",
+                    "无关闭工单权限");
+        }
+
+        // 2. 可见性：无权查看与编号不存在统一 404
+        TicketDetailRow visible = ticketMapper.selectVisibleDetail(
+                ticketNo,
+                actorId,
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_OWN"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_QUEUE"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_PARTICIPATED"));
+
+        if (visible == null) {
+            throw new ApiException(
+                    HttpStatus.NOT_FOUND,
+                    "TICKET_NOT_FOUND",
+                    "工单不存在");
+        }
+
+        // 3. 只有「处理中」的当前负责人可以关闭
+        if (!PROCESSING.equals(visible.getStatus())
+                || visible.getAssigneeId() == null
+                || visible.getAssigneeId() != actorId) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        // 4. 版本必须与客户端读到的一致
+        if (!Objects.equals(command.version(), visible.getVersion())) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        // 5. 字段校验先于条件更新：原因、说明与「重复工单」的跨字段规则
+        String reasonCode = command.reasonCode();
+        if (!"DUPLICATE".equals(reasonCode)
+                && !"OUT_OF_SCOPE".equals(reasonCode)
+                && !"INVALID".equals(reasonCode)) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_FAILED",
+                    "关闭原因必须是 DUPLICATE、OUT_OF_SCOPE 或 INVALID");
+        }
+
+        String description = command.description();
+        if (description == null || description.isEmpty() || description.length() > MAX_REASON_LENGTH) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_FAILED",
+                    "关闭说明长度必须在 1 到 1000 之间");
+        }
+
+        boolean duplicate = "DUPLICATE".equals(reasonCode);
+        String duplicateTicketNo = command.duplicateTicketNo();
+
+        if (!duplicate && duplicateTicketNo != null) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_FAILED",
+                    "只有关闭原因为重复工单时才能填写重复工单编号");
+        }
+
+
+        // 6. 重复原因必须解析到有效目标：存在、同一提交人、非自身、状态不是已取消/已关闭。
+        //    目标属于别人与目标不存在都得到 null，统一 400，不向调用方回显他人工单是否存在。
+        TicketDuplicateTargetRow duplicateTarget = null;
+        if(duplicate){
+            //重复工单是判断是否填写重复工单号
+            if(duplicateTicketNo == null || duplicateTicketNo.isEmpty()){
+                throw new ApiException(
+                        HttpStatus.BAD_REQUEST,
+                        "VALIDATION_FAILED",
+                        "关闭原因为重复工单时必须填写重复工单编号");
+            }
+
+            //获取重复工单
+            duplicateTarget = ticketMapper.selectDuplicateTarget(
+                    visible.getId(),
+                    visible.getRequesterId(),
+                    duplicateTicketNo);
+
+            if (duplicateTarget == null) {
+                throw new ApiException(
+                        HttpStatus.BAD_REQUEST,
+                        "VALIDATION_FAILED",
+                        "重复工单编号无效");
+            }
+        }
+
+        Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
+        LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+
+        // 7. 条件更新是唯一胜者判定：版本、状态与负责人都在 WHERE 里；
+        //    状态、关闭字段与 ended_at 写在同一句，拆开就会撞 ck_ticket_status_ended
+        int updatedRows = ticketMapper.closeManually(
+                visible.getId(),
+                command.version(),
+                actorId,
+                reasonCode,
+                now);
+
+        if (updatedRows != 1) {
+            Ticket current = ticketMapper.selectClaimConflictSnapshotForUpdate(visible.getId());
+            if (current == null) {
+                throw new IllegalStateException("关闭冲突后无法读取工单快照");
+            }
+            throw conflict(current.getVersion(), current.getStatus());
+        }
+
+        Ticket updated = ticketMapper.selectById(visible.getId());
+        if (updated == null
+                || updated.getRecordSeq() == null
+                || updated.getVersion() == null) {
+            throw new IllegalStateException("关闭后无法读取工单快照");
+        }
+
+        // 8. 只有重复关闭才写工单关联：source = 被关闭的本单，target = 有效的那张。
+        //    唯一键 uk_ticket_relation_source_type 保证一张单只有一条重复指向；
+        //    「重复关闭」本身已被第 7 步的条件更新挡住，不会走到唯一键冲突
+        if (duplicateTarget != null) {
+            if (ticketRelationMapper.recordDuplicate(
+                    updated.getId(),
+                    duplicateTarget.getId(),
+                    actorId,
+                    now) != 1) {
+                throw new IllegalStateException("重复工单关联写入失败");
+            }
+        }
+
+        // 9. 不可变时间线：关闭方式与标准原因随记录留存，供「三条终态可区分」使用
+        TicketRecord record = new TicketRecord();
+        record.setTicketId(updated.getId());
+        record.setSequenceNo(updated.getRecordSeq());
+        record.setRecordType("CLOSURE");
+        record.setActorType("USER");
+        record.setActorUserId(actorId);
+        record.setReason(description);
+        record.setCloseMethod("MANUAL");
+        record.setCloseReason(reasonCode);
+        record.setFromStatus(PROCESSING);
+        record.setToStatus("CLOSED");
+        record.setCreatedAt(now);
+
+        if (ticketRecordMapper.insert(record) != 1) {
+            throw new IllegalStateException("关闭记录插入失败");
+        }
+
+        // 10. 终态期限已失效；负责人按快照保留（ck_ticket_status_assignee 允许「已关闭」带负责人）
+        TicketUserSummaryResult assignee = new TicketUserSummaryResult(
+                visible.getAssigneeId(),
+                visible.getAssigneeDisplayName());
+
+        return new TicketActionResult(
+                updated.getTicketNo(),
+                "CLOSED",
+                assignee,
+                null,
+                updated.getVersion(),
+                instant.atOffset(ZoneOffset.UTC));
+    }
+
+    /**
+     * 提交人撤销自己的工单：四种非终态都可以撤销，进入终态「已取消」
+     */
+    @Override
+    @Transactional
+    public TicketActionResult cancel(String ticketNo, CancelTicketCommand command) {
+        // 1. 身份与提交人动作权限：撤销与补充、确认、未解决反馈共用 TICKET_REQUESTER_ACTION
+        long actorId = currentRequesterPort.currentUserId();
+
+        if (!ticketReadPermissionPort.hasAuthority(TICKET_REQUESTER_ACTION)) {
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN,
+                    "TICKET_ACTION_FORBIDDEN",
+                    "无提交人操作权限");
+        }
+
+        // 2. 可见性：无权查看与编号不存在统一 404
+        TicketDetailRow visible = ticketMapper.selectVisibleDetail(
+                ticketNo,
+                actorId,
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_OWN"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_QUEUE"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_PARTICIPATED"));
+
+        if (visible == null) {
+            throw new ApiException(
+                    HttpStatus.NOT_FOUND,
+                    "TICKET_NOT_FOUND",
+                    "工单不存在");
+        }
+
+        // 3. 只有提交人能在四种非终态上撤销；终态与「不是提交人」都按冲突返回
+        if (!isCancelableStatus(visible.getStatus())
+                || visible.getRequesterId() == null
+                || visible.getRequesterId() != actorId) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        // 4. 版本必须与客户端读到的一致
+        if (!Objects.equals(command.version(), visible.getVersion())) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        // 5. 原因必填
+        String reason = command.reason();
+        if (reason == null || reason.isEmpty() || reason.length() > MAX_REASON_LENGTH) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_FAILED",
+                    "撤销原因长度必须在 1 到 1000 之间");
+        }
+
+        Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
+        LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+
+        // 6. 条件更新是唯一胜者判定：版本、提交人与四种非终态都在 WHERE 里
+        int updatedRows = ticketMapper.cancel(
+                visible.getId(),
+                command.version(),
+                actorId,
+                now);
+
+        if (updatedRows != 1) {
+            Ticket current = ticketMapper.selectClaimConflictSnapshotForUpdate(visible.getId());
+            if (current == null) {
+                throw new IllegalStateException("撤销冲突后无法读取工单快照");
+            }
+            throw conflict(current.getVersion(), current.getStatus());
+        }
+
+        Ticket updated = ticketMapper.selectById(visible.getId());
+        if (updated == null
+                || updated.getRecordSeq() == null
+                || updated.getVersion() == null) {
+            throw new IllegalStateException("撤销后无法读取工单快照");
+        }
+
+        // 7. 不可变时间线：撤销原因只存在于记录里（ticket 表没有撤销原因列）
+        TicketRecord record = new TicketRecord();
+        record.setTicketId(updated.getId());
+        record.setSequenceNo(updated.getRecordSeq());
+        record.setRecordType("CANCELLATION");
+        record.setActorType("USER");
+        record.setActorUserId(actorId);
+        record.setReason(reason);
+        record.setFromStatus(visible.getStatus());
+        record.setToStatus("CANCELED");
+        record.setCreatedAt(now);
+
+        if (ticketRecordMapper.insert(record) != 1) {
+            throw new IllegalStateException("撤销记录插入失败");
+        }
+
+        // 8. 终态期限已失效；待受理本来没有负责人，其余状态保留最后负责人
+        TicketUserSummaryResult assignee = visible.getAssigneeId() == null
+                ? null
+                : new TicketUserSummaryResult(
+                visible.getAssigneeId(),
+                visible.getAssigneeDisplayName());
+
+        return new TicketActionResult(
+                updated.getTicketNo(),
+                "CANCELED",
+                assignee,
+                null,
                 updated.getVersion(),
                 instant.atOffset(ZoneOffset.UTC));
     }
@@ -1515,6 +1825,14 @@ public class TicketServiceImpl implements TicketService {
     /** 「处理中」与「待补充」：当前负责人可调整分类、优先级并转交的两个状态。 */
     private boolean isAdjustableStatus(String status) {
         return PROCESSING.equals(status) || WAITING_FOR_REQUESTER.equals(status);
+    }
+
+    /** 四种非终态：提交人在这些状态下可以撤销自己的工单（`docs/kickoff.md` 4.7）。 */
+    private boolean isCancelableStatus(String status) {
+        return PENDING.equals(status)
+                || PROCESSING.equals(status)
+                || WAITING_FOR_REQUESTER.equals(status)
+                || WAITING_FOR_CONFIRMATION.equals(status);
     }
 
     /** 优先级取值以 {@link TicketPriority} 为准，避免再抄一份正则；null 视为非法。 */

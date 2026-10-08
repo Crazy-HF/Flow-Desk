@@ -7,6 +7,7 @@ import com.flowdesk.ticket.domain.Ticket;
 import com.flowdesk.ticket.infrastructure.persistence.TicketAssigneeRow;
 import com.flowdesk.ticket.infrastructure.persistence.TicketListRow;
 import com.flowdesk.ticket.infrastructure.persistence.TicketDetailRow;
+import com.flowdesk.ticket.infrastructure.persistence.TicketDuplicateTargetRow;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -417,4 +418,92 @@ public interface TicketMapper extends BaseMapper<Ticket> {
             @Param("actorId") long actorId,
             @Param("newAssigneeId") long newAssigneeId,
             @Param("now") LocalDateTime now);
+
+    /**
+     * 当前负责人手动关闭工单：只有「处理中」可以关闭，待受理必须先领取。
+     *
+     * <p>关闭方式固定 {@code MANUAL}，关闭原因由调用方保证是 {@code DUPLICATE} /
+     * {@code OUT_OF_SCOPE} / {@code INVALID} 之一——{@code ck_ticket_close_semantics} 把
+     * {@code AUTO_SUPPLEMENT_TIMEOUT} + {@code REQUESTER_NO_RESPONSE} 这条自动关闭路径
+     * 留给 backlog 第 3 项，这个接口进不去。</p>
+     *
+     * <p>状态、关闭字段与 {@code ended_at} 写在同一条 UPDATE 内：{@code ck_ticket_status_ended}
+     * 要求终态必须有结束时间，拆开就会撞约束。负责人不写，关闭后保留为历史信息；
+     * 「处理中」的期限本来就是空，{@code ck_ticket_status_deadline} 无需额外处理。</p>
+     */
+    @Update("""
+    UPDATE ticket
+    SET status = 'CLOSED',
+        close_method = 'MANUAL',
+        close_reason = #{closeReason},
+        ended_at = #{now},
+        version = version + 1,
+        record_seq = record_seq + 1,
+        updated_at = #{now}
+    WHERE id = #{ticketId}
+      AND version = #{expectedVersion}
+      AND status = 'PROCESSING'
+      AND assignee_id = #{actorId}
+    """)
+    int closeManually(
+            @Param("ticketId") long ticketId,
+            @Param("expectedVersion") long expectedVersion,
+            @Param("actorId") long actorId,
+            @Param("closeReason") String closeReason,
+            @Param("now") LocalDateTime now);
+
+    /**
+     * 提交人撤销自己的工单：待受理、处理中、待补充、待确认四种非终态都可以撤销。
+     *
+     * <p>状态与 {@code action_deadline_at} 必须**在同一条 UPDATE 里原子写入**：
+     * {@code ck_ticket_status_deadline} 要求待补充与待确认之外的状态期限为空，
+     * 而「待补充」「待确认」两态恰恰带着期限，拆成两次更新会在中间撞约束
+     * （与 {@link #requestSupplement} 同因、反向）。</p>
+     *
+     * <p>负责人不写：待受理本来就没有负责人，其余状态保留最后负责人，
+     * {@code ck_ticket_status_assignee} 对「已取消」两种都允许。</p>
+     */
+    @Update("""
+    UPDATE ticket
+    SET status = 'CANCELED',
+        action_deadline_at = NULL,
+        ended_at = #{now},
+        version = version + 1,
+        record_seq = record_seq + 1,
+        updated_at = #{now}
+    WHERE id = #{ticketId}
+      AND version = #{expectedVersion}
+      AND requester_id = #{actorId}
+      AND status IN ('PENDING', 'PROCESSING', 'WAITING_FOR_REQUESTER', 'WAITING_FOR_CONFIRMATION')
+    """)
+    int cancel(
+            @Param("ticketId") long ticketId,
+            @Param("expectedVersion") long expectedVersion,
+            @Param("actorId") long actorId,
+            @Param("now") LocalDateTime now);
+
+    /**
+     * 关闭为「重复工单」时解析目标工单。
+     *
+     * <p>口径（{@code docs/kickoff.md} 4.8 与 {@code docs/api-design.md} 6.3）：目标必须存在、
+     * 属于**同一提交人**、不是自身，且状态不是 {@code CANCELED} / {@code CLOSED}——
+     * 已完成与仍在流转的工单都可以作为重复目标，重复只说明"同一问题已有另一张单"。</p>
+     *
+     * <p>「同一提交人」写进 WHERE 而不是查出来再判：目标属于别人与目标不存在都得到
+     * {@code null}，调用方统一按 400 处理，不向调用方回显他人的工单是否存在。</p>
+     */
+    @Select("""
+    SELECT t.id AS id,
+           t.ticket_no AS ticketNo,
+           t.status AS status
+    FROM ticket t
+    WHERE t.ticket_no = #{duplicateTicketNo}
+      AND t.requester_id = #{requesterId}
+      AND t.id <> #{sourceTicketId}
+      AND t.status NOT IN ('CANCELED', 'CLOSED')
+    """)
+    TicketDuplicateTargetRow selectDuplicateTarget(
+            @Param("sourceTicketId") long sourceTicketId,
+            @Param("requesterId") long requesterId,
+            @Param("duplicateTicketNo") String duplicateTicketNo);
 }

@@ -56,6 +56,9 @@ public class TicketQueryServiceImpl implements TicketQueryService {
     /** 转交工单权限：转交动作与候选人接口共用；与处理权限分开，可以单独授予一个角色。 */
     private static final String TICKET_TRANSFER = "TICKET_TRANSFER";
 
+    /** 关闭工单权限：与处理权限同时具备才能关闭（关闭是结束工单的处置动作）。 */
+    private static final String TICKET_CLOSE = "TICKET_CLOSE";
+
     private final TicketMapper ticketMapper;
     private final CurrentRequesterPort currentRequesterPort;
     private final TicketReadPermissionPort ticketReadPermissionPort;
@@ -363,8 +366,8 @@ public class TicketQueryServiceImpl implements TicketQueryService {
         boolean canSubmitResolution = canProcess;
         boolean canRequestSupplement = canProcess;
 
-        // 待确认状态只暴露提交人已实现的动作；IT 侧在这一状态下的转交与关闭尚未实现，
-        // 因此这里不返回，避免前端渲染按不动的按钮。
+        // 待确认状态只暴露提交人的动作：转交按契约只允许「处理中」与「待补充」、关闭只允许「处理中」，
+        // 在这一状态本来就不该返回，避免前端渲染按不动的按钮。
         boolean canConfirm = STATUS_WAITING_FOR_CONFIRMATION.equals(row.getStatus())
                 && row.getRequesterId() == currentUserId
                 && ticketReadPermissionPort.hasAuthority(TICKET_REQUESTER_ACTION);
@@ -403,6 +406,20 @@ public class TicketQueryServiceImpl implements TicketQueryService {
         // 转交单独要求 TICKET_TRANSFER；候选人接口与这个动作共用同一条权限判定
         boolean canTransfer = isAssigneeOnAdjustableStatus
                 && ticketReadPermissionPort.hasAuthority(TICKET_TRANSFER);
+
+        // 关闭的前置条件与 canProcess 完全相同（处理中 + 本人是负责人 + TICKET_PROCESS），
+        // 再叠一个 TICKET_CLOSE。两处要求不同是有意的：关闭结束工单，转交只换人
+        boolean canClose = canProcess
+                && ticketReadPermissionPort.hasAuthority(TICKET_CLOSE);
+
+        // 撤销：四种非终态都是提交人的动作，权限与补充、确认、未解决反馈共用 TICKET_REQUESTER_ACTION
+        boolean canCancel = (STATUS_PENDING.equals(row.getStatus())
+                || STATUS_PROCESSING.equals(row.getStatus())
+                || STATUS_WAITING_FOR_REQUESTER.equals(row.getStatus())
+                || STATUS_WAITING_FOR_CONFIRMATION.equals(row.getStatus()))
+                && row.getRequesterId() != null
+                && row.getRequesterId() == currentUserId
+                && ticketReadPermissionPort.hasAuthority(TICKET_REQUESTER_ACTION);
 
         // 一个动作一个条件，动作名与接口路径末段逐字一致。
         List<String> allowedActions = new ArrayList<>();
@@ -449,6 +466,14 @@ public class TicketQueryServiceImpl implements TicketQueryService {
 
         if (canTransfer) {
             allowedActions.add("transfer");
+        }
+
+        if (canClose) {
+            allowedActions.add("close");
+        }
+
+        if (canCancel) {
+            allowedActions.add("cancel");
         }
         return new TicketDetailResult(
                 row.getTicketNo(),
