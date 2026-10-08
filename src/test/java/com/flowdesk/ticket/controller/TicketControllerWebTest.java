@@ -6,9 +6,11 @@ import com.flowdesk.common.exception.ApiException;
 import com.flowdesk.common.web.PageResult;
 import com.flowdesk.support.MockedPersistenceConfiguration;
 import com.flowdesk.ticket.application.command.AddProcessingRecordCommand;
+import com.flowdesk.ticket.application.command.CancelTicketCommand;
 import com.flowdesk.ticket.application.command.ChangeCategoryCommand;
 import com.flowdesk.ticket.application.command.ChangePriorityCommand;
 import com.flowdesk.ticket.application.command.ClaimTicketCommand;
+import com.flowdesk.ticket.application.command.CloseTicketCommand;
 import com.flowdesk.ticket.application.command.ConfirmResolutionCommand;
 import com.flowdesk.ticket.application.command.CreateTicketCommand;
 import com.flowdesk.ticket.application.command.ReportUnresolvedCommand;
@@ -112,6 +114,9 @@ class TicketControllerWebTest {
     private static final String CHANGE_PRIORITY = "change-priority";
     private static final String TRANSFER = "transfer";
     private static final String TRANSFER_CANDIDATES = TICKETS + "/" + TICKET_NO + "/transfer-candidates";
+    /** 片 D：结束路径的两个动作。 */
+    private static final String CLOSE = "close";
+    private static final String CANCEL = "cancel";
     private static final long NEW_ASSIGNEE_ID = 11L;
     private static final String SUBMISSION_KEY = "3f1c2b7e-1d4a-4f2b-9c6e-8a7d5b0c1e2f";
     private static final long CATEGORY_ID = 7L;
@@ -150,7 +155,7 @@ class TicketControllerWebTest {
         verifyNoInteractions(ticketService, ticketQueryService);
     }
 
-    /** 八个端点：列表、详情、时间线、创建与四个动作。 */
+    /** 十个端点：列表、详情、时间线、创建与六个动作。 */
     static Stream<Arguments> ticketRequests() {
         return Stream.of(
                 Arguments.of("list tickets", get(TICKETS)),
@@ -169,6 +174,10 @@ class TicketControllerWebTest {
                         """)),
                 Arguments.of("confirm resolution", actionRequest("confirm-resolution", """
                         {"version": 3}
+                        """)),
+                Arguments.of("close ticket", actionRequest(CLOSE, validCloseBody())),
+                Arguments.of("cancel ticket", actionRequest(CANCEL, """
+                        {"version": 3, "reason": "问题已自行解决"}
                         """))
         );
     }
@@ -1524,6 +1533,268 @@ class TicketControllerWebTest {
                 .andExpect(jsonPath("$.data.traceId").exists());
     }
 
+    // ---------- 片 D：结束路径 ----------
+
+    /**
+     * 关闭的字段校验：版本、原因码、说明与重复单号长度都在进服务层之前被 Bean Validation 拦下。
+     *
+     * <p>{@code REQUESTER_NO_RESPONSE} 是系统自动关闭的原因码，人工接口明确不接受；
+     * 它与 {@code duplicate}（小写）都由 {@code @Pattern} 挡住。</p>
+     */
+    @ParameterizedTest(name = "close rejects {0}")
+    @MethodSource("invalidCloseBodies")
+    void closeRejectsInvalidBody(String caseName, String requestBody, String field)
+            throws Exception {
+        mockMvc.perform(actionRequest(CLOSE, requestBody)
+                        .with(ticketUser("TICKET_PROCESS", "TICKET_CLOSE")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.data.fieldErrors[*].field", hasItem(field)));
+
+        verifyNoInteractions(ticketService);
+    }
+
+    static Stream<Arguments> invalidCloseBodies() {
+        String tooLongDescription = "x".repeat(1001);
+        String tooLongTicketNo = "F".repeat(33);
+        return Stream.of(
+                Arguments.of("a missing version", """
+                        {"reasonCode": "OUT_OF_SCOPE", "description": "超出支持范围"}
+                        """, "version"),
+                Arguments.of("a negative version", """
+                        {"version": -1, "reasonCode": "OUT_OF_SCOPE", "description": "超出支持范围"}
+                        """, "version"),
+                Arguments.of("a missing reason code", """
+                        {"version": 4, "description": "超出支持范围"}
+                        """, "reasonCode"),
+                Arguments.of("the automatic close reason", """
+                        {"version": 4, "reasonCode": "REQUESTER_NO_RESPONSE", "description": "逾期未补充"}
+                        """, "reasonCode"),
+                Arguments.of("a lowercase reason code", """
+                        {"version": 4, "reasonCode": "duplicate", "description": "与另一张单重复"}
+                        """, "reasonCode"),
+                Arguments.of("a blank description", """
+                        {"version": 4, "reasonCode": "INVALID", "description": "   "}
+                        """, "description"),
+                Arguments.of("a description over 1000 characters", """
+                        {"version": 4, "reasonCode": "INVALID", "description": "%s"}
+                        """.formatted(tooLongDescription), "description"),
+                Arguments.of("a duplicate ticket number over 32 characters", """
+                        {"version": 4, "reasonCode": "DUPLICATE", "description": "与另一张单重复",
+                         "duplicateTicketNo": "%s"}
+                        """.formatted(tooLongTicketNo), "duplicateTicketNo")
+        );
+    }
+
+    /** 关闭成功的信封：终态没有期限，字段整体不出现（全局 {@code non_null} 策略）。 */
+    @Test
+    void closeReturnsTicketActionEnvelope() throws Exception {
+        when(ticketService.close(eq(TICKET_NO), any())).thenReturn(closedAction());
+
+        mockMvc.perform(actionRequest(CLOSE, """
+                        {"version": 4, "reasonCode": "OUT_OF_SCOPE", "description": "  超出支持范围  ",
+                         "duplicateTicketNo": "   "}
+                        """).with(ticketUser("TICKET_PROCESS", "TICKET_CLOSE")))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.ticketNo").value(TICKET_NO))
+                .andExpect(jsonPath("$.data.status").value("CLOSED"))
+                .andExpect(jsonPath("$.data.assignee.id").value(ASSIGNEE_ID))
+                .andExpect(jsonPath("$.data.actionDeadlineAt").doesNotExist())
+                .andExpect(jsonPath("$.data.version").value(5));
+
+        ArgumentCaptor<CloseTicketCommand> captor = ArgumentCaptor.forClass(CloseTicketCommand.class);
+        verify(ticketService).close(eq(TICKET_NO), captor.capture());
+        assertThat(captor.getValue().version()).isEqualTo(4L);
+        assertThat(captor.getValue().reasonCode()).isEqualTo("OUT_OF_SCOPE");
+        assertThat(captor.getValue().description()).as("说明在命令构造器中去除了首尾空白")
+                .isEqualTo("超出支持范围");
+        assertThat(captor.getValue().duplicateTicketNo())
+                .as("纯空白的重复单号等于没传，不该变成「非重复原因却带了单号」的 400")
+                .isNull();
+    }
+
+    /** 重复关闭：单号去空白后原样进入命令，由服务层解析目标并写关联。 */
+    @Test
+    void closePassesStrippedDuplicateTicketNoToService() throws Exception {
+        when(ticketService.close(eq(TICKET_NO), any())).thenReturn(closedAction());
+
+        mockMvc.perform(actionRequest(CLOSE, """
+                        {"version": 4, "reasonCode": "DUPLICATE", "description": "与另一张单重复",
+                         "duplicateTicketNo": "  FD-20261006-0002  "}
+                        """).with(ticketUser("TICKET_PROCESS", "TICKET_CLOSE")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("CLOSED"));
+
+        ArgumentCaptor<CloseTicketCommand> captor = ArgumentCaptor.forClass(CloseTicketCommand.class);
+        verify(ticketService).close(eq(TICKET_NO), captor.capture());
+        assertThat(captor.getValue().duplicateTicketNo()).isEqualTo("FD-20261006-0002");
+    }
+
+    /**
+     * 关闭要求 {@code TICKET_PROCESS} 与 {@code TICKET_CLOSE} 同时成立
+     * （2026-10-08 用户裁决），任一缺失都由服务层给出同一个 403 编码。
+     */
+    @Test
+    void closeIsForbiddenWithoutBothAuthorities() throws Exception {
+        when(ticketService.close(eq(TICKET_NO), any()))
+                .thenThrow(new ApiException(HttpStatus.FORBIDDEN, "TICKET_ACTION_FORBIDDEN",
+                        "无关闭工单权限"));
+
+        mockMvc.perform(actionRequest(CLOSE, validCloseBody())
+                        .with(ticketUser("TICKET_PROCESS")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("TICKET_ACTION_FORBIDDEN"));
+
+        verify(ticketService).close(eq(TICKET_NO), any());
+    }
+
+    @Test
+    void closeConflictCarriesCurrentSnapshot() throws Exception {
+        when(ticketService.close(eq(TICKET_NO), any()))
+                .thenThrow(new ApiException(HttpStatus.CONFLICT, "TICKET_CONFLICT",
+                        "工单状态或版本已变化", 6L, "WAITING_FOR_CONFIRMATION"));
+
+        mockMvc.perform(actionRequest(CLOSE, validCloseBody())
+                        .with(ticketUser("TICKET_PROCESS", "TICKET_CLOSE")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("TICKET_CONFLICT"))
+                .andExpect(jsonPath("$.data.version").value(6))
+                .andExpect(jsonPath("$.data.status").value("WAITING_FOR_CONFIRMATION"));
+    }
+
+    @Test
+    void closeReportsNotFoundWhenTicketIsInvisible() throws Exception {
+        when(ticketService.close(eq(TICKET_NO), any()))
+                .thenThrow(new ApiException(HttpStatus.NOT_FOUND, "TICKET_NOT_FOUND", "工单不存在"));
+
+        mockMvc.perform(actionRequest(CLOSE, validCloseBody())
+                        .with(ticketUser("TICKET_PROCESS", "TICKET_CLOSE")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("TICKET_NOT_FOUND"))
+                .andExpect(jsonPath("$.data.traceId").exists());
+    }
+
+    /** 跨字段规则（非重复原因带单号）由服务层判定：Web 层原样透传 400。 */
+    @Test
+    void closePassesCrossFieldValidationFailureThrough() throws Exception {
+        when(ticketService.close(eq(TICKET_NO), any()))
+                .thenThrow(new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED",
+                        "只有关闭原因为重复工单时才能填写重复工单编号"));
+
+        mockMvc.perform(actionRequest(CLOSE, """
+                        {"version": 4, "reasonCode": "INVALID", "description": "无效工单",
+                         "duplicateTicketNo": "FD-20261006-0002"}
+                        """).with(ticketUser("TICKET_PROCESS", "TICKET_CLOSE")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
+    @ParameterizedTest(name = "cancel rejects {0}")
+    @MethodSource("invalidCancelBodies")
+    void cancelRejectsInvalidBody(String caseName, String requestBody, String field)
+            throws Exception {
+        mockMvc.perform(actionRequest(CANCEL, requestBody)
+                        .with(ticketUser("TICKET_REQUESTER_ACTION")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.data.fieldErrors[*].field", hasItem(field)));
+
+        verifyNoInteractions(ticketService);
+    }
+
+    static Stream<Arguments> invalidCancelBodies() {
+        String tooLongReason = "x".repeat(1001);
+        return Stream.of(
+                Arguments.of("a missing version", """
+                        {"reason": "问题已自行解决"}
+                        """, "version"),
+                Arguments.of("a negative version", """
+                        {"version": -1, "reason": "问题已自行解决"}
+                        """, "version"),
+                Arguments.of("a missing reason", """
+                        {"version": 4}
+                        """, "reason"),
+                Arguments.of("a blank reason", """
+                        {"version": 4, "reason": "   "}
+                        """, "reason"),
+                Arguments.of("a reason over 1000 characters", """
+                        {"version": 4, "reason": "%s"}
+                        """.formatted(tooLongReason), "reason")
+        );
+    }
+
+    /** 撤销成功的信封：终态、期限消失、说明去空白。 */
+    @Test
+    void cancelReturnsTicketActionEnvelope() throws Exception {
+        when(ticketService.cancel(eq(TICKET_NO), any())).thenReturn(canceledAction());
+
+        mockMvc.perform(actionRequest(CANCEL, """
+                        {"version": 4, "reason": "  问题已自行解决  "}
+                        """).with(ticketUser("TICKET_REQUESTER_ACTION")))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.ticketNo").value(TICKET_NO))
+                .andExpect(jsonPath("$.data.status").value("CANCELED"))
+                .andExpect(jsonPath("$.data.assignee.id").value(ASSIGNEE_ID))
+                .andExpect(jsonPath("$.data.actionDeadlineAt").doesNotExist())
+                .andExpect(jsonPath("$.data.version").value(5));
+
+        ArgumentCaptor<CancelTicketCommand> captor = ArgumentCaptor.forClass(CancelTicketCommand.class);
+        verify(ticketService).cancel(eq(TICKET_NO), captor.capture());
+        assertThat(captor.getValue().version()).isEqualTo(4L);
+        assertThat(captor.getValue().reason()).as("原因在命令构造器中去除了首尾空白")
+                .isEqualTo("问题已自行解决");
+    }
+
+    /**
+     * 撤销的 403 由服务层给出：端点没有方法级 {@code @PreAuthorize}，已认证但缺权限的账号
+     * 会一路走到服务层，再由它给出 {@code TICKET_ACTION_FORBIDDEN}——
+     * 这样"无权"与"不存在"才可能共用同一个 404 口径。
+     */
+    @Test
+    void cancelIsForbiddenWithoutRequesterActionAuthority() throws Exception {
+        when(ticketService.cancel(eq(TICKET_NO), any()))
+                .thenThrow(new ApiException(HttpStatus.FORBIDDEN, "TICKET_ACTION_FORBIDDEN",
+                        "无提交人操作权限"));
+
+        mockMvc.perform(actionRequest(CANCEL, """
+                        {"version": 4, "reason": "问题已自行解决"}
+                        """).with(ticketUser("TICKET_VIEW_OWN")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("TICKET_ACTION_FORBIDDEN"));
+    }
+
+    @Test
+    void cancelConflictCarriesCurrentSnapshot() throws Exception {
+        when(ticketService.cancel(eq(TICKET_NO), any()))
+                .thenThrow(new ApiException(HttpStatus.CONFLICT, "TICKET_CONFLICT",
+                        "工单状态或版本已变化", 6L, "COMPLETED"));
+
+        mockMvc.perform(actionRequest(CANCEL, """
+                        {"version": 4, "reason": "问题已自行解决"}
+                        """).with(ticketUser("TICKET_REQUESTER_ACTION")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("TICKET_CONFLICT"))
+                .andExpect(jsonPath("$.data.version").value(6))
+                .andExpect(jsonPath("$.data.status").value("COMPLETED"));
+    }
+
+    @Test
+    void cancelReportsNotFoundWhenTicketIsInvisible() throws Exception {
+        when(ticketService.cancel(eq(TICKET_NO), any()))
+                .thenThrow(new ApiException(HttpStatus.NOT_FOUND, "TICKET_NOT_FOUND", "工单不存在"));
+
+        mockMvc.perform(actionRequest(CANCEL, """
+                        {"version": 4, "reason": "问题已自行解决"}
+                        """).with(ticketUser("TICKET_REQUESTER_ACTION")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("TICKET_NOT_FOUND"))
+                .andExpect(jsonPath("$.data.traceId").exists());
+    }
+
     // ---------- 辅助 ----------
 
     /** 片 B 两个动作的成功信封：请求补充进入「待补充」，提交补充回到「处理中」。 */
@@ -1591,6 +1862,31 @@ class TicketControllerWebTest {
                 null,
                 4L,
                 CREATED_AT);
+    }
+
+    /** 片 D 两个结束动作的成功信封：终态、无期限、负责人保留。 */
+    private static TicketActionResult closedAction() {
+        return endedAction("CLOSED");
+    }
+
+    private static TicketActionResult canceledAction() {
+        return endedAction("CANCELED");
+    }
+
+    private static TicketActionResult endedAction(String status) {
+        return new TicketActionResult(
+                TICKET_NO,
+                status,
+                new TicketUserSummaryResult(ASSIGNEE_ID, "演示 IT 支持人员"),
+                null,
+                5L,
+                CREATED_AT);
+    }
+
+    private static String validCloseBody() {
+        return """
+                {"version": 4, "reasonCode": "OUT_OF_SCOPE", "description": "超出支持范围"}
+                """;
     }
 
     /** 片 A 两个动作的入口不同，参数化用例按动作名分派替身。 */

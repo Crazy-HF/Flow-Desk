@@ -415,7 +415,9 @@ class TicketQueryServiceIT {
         assertThat(own.createdAt().getOffset()).isEqualTo(ZoneOffset.UTC);
         assertThat(own.completionMethod()).isNull();
         assertThat(own.endedAt()).isNull();
-        assertThat(own.allowedActions()).as("提交人自己不能领取自己的工单").isEmpty();
+        // 提交人自己不能领取自己的工单；片 D 起待受理的提交人拿到的是撤销那一格
+        assertThat(own.allowedActions()).as("提交人不能领取自己的工单，但可以撤销")
+                .containsExactly("cancel");
 
         // 当前负责人
         authenticateAs(assigneeId);
@@ -570,12 +572,13 @@ class TicketQueryServiceIT {
                 "已完成动作", COMPLETED, assigneeId, MEDIUM, BASE_TIME, BASE_TIME);
 
         // 处理中 + 本人负责人：追加处理记录、提交解决结果、请求员工补充（片 B），
-        // 以及调整分类、调整优先级、转交（片 C）
+        // 调整分类、调整优先级、转交（片 C），以及关闭（片 D，IT_SUPPORT 同时持有 TICKET_CLOSE）
         authenticateAs(assigneeId);
         assertThat(ticketQueryService.detail(processingNo).allowedActions())
-                .as("阶段 3 回归 + 片 B + 片 C：负责人拿到六个动作")
+                .as("阶段 3 回归 + 片 B + 片 C + 片 D：负责人拿到七个动作")
                 .containsExactlyInAnyOrder("add-processing-record", "submit-resolution",
-                        "request-supplement", "change-category", "change-priority", "transfer");
+                        "request-supplement", "change-category", "change-priority",
+                        "transfer", "close");
         assertThat(ticketQueryService.detail(completedNo).allowedActions())
                 .as("终态没有可执行动作")
                 .isEmpty();
@@ -583,25 +586,26 @@ class TicketQueryServiceIT {
                 .as("负责人不是提交人，不能确认")
                 .isEmpty();
         assertThat(ticketQueryService.detail(supplementNo).allowedActions())
-                .as("待补充期间负责人不能提交解决结果，但可以撤回、调整与转交")
+                .as("待补充期间负责人不能提交解决结果、也不能关闭，但可以撤回、调整与转交")
                 .containsExactly("withdraw-supplement-request",
                         "change-category", "change-priority", "transfer");
 
         // 待确认 + 提交人：确认与「问题仍未解决」两个动作的前置条件完全相同，
-        // 顺序由装配顺序决定（片 A 起从一格变成两格，旧断言只写了 confirm-resolution）
+        // 顺序由装配顺序决定（片 A 起从一格变成两格，旧断言只写了 confirm-resolution）；
+        // 片 D 起提交人在四种非终态上都还有一格撤销，因此这里再多一项
         authenticateAs(requesterId);
         assertThat(ticketQueryService.detail(waitingNo).allowedActions())
-                .as("待确认时提交人同时拿到确认与反馈未解决，顺序固定")
-                .containsExactly("confirm-resolution", "report-unresolved");
+                .as("待确认时提交人同时拿到确认、反馈未解决与撤销，顺序固定")
+                .containsExactly("confirm-resolution", "report-unresolved", "cancel");
         assertThat(ticketQueryService.detail(supplementNo).allowedActions())
-                .as("待补充时提交人只能补充信息（片 B），且拿不到负责人的撤回入口")
-                .containsExactly("supplement");
+                .as("待补充时提交人只能补充信息（片 B）并撤销（片 D），拿不到负责人的撤回入口")
+                .containsExactly("supplement", "cancel");
         assertThat(ticketQueryService.detail(processingNo).allowedActions())
-                .as("提交人没有处理权限，看不到处理动作")
-                .isEmpty();
+                .as("提交人没有处理权限，看不到处理动作；能撤销但不是负责人")
+                .containsExactly("cancel");
         assertThat(ticketQueryService.detail(pendingNo).allowedActions())
-                .as("不能领取自己提交的工单")
-                .isEmpty();
+                .as("不能领取自己提交的工单，但待受理同样可以撤销")
+                .containsExactly("cancel");
 
         // 待受理 + 具备队列/领取权限的 IT（非提交人）：只允许领取
         authenticateAs(queueItId);

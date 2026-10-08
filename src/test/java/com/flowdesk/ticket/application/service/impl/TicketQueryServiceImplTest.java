@@ -25,6 +25,10 @@ import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -38,6 +42,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -69,6 +74,11 @@ import static org.mockito.Mockito.when;
  * {@code TICKET_REQUESTER_ACTION} → {@code confirm-resolution} 与 {@code report-unresolved}
  * 同时出现（装配顺序以前者在前）。后一格的期望值由原来的单动作改为两个动作——
  * {@code canReportUnresolved} 直接复用 {@code canConfirm}，旧断言编码的是片 A 之前的实现。</p>
+ *
+ * <p>片 D 再新增两格：{@code close}（复用 {@code canProcess} 的身份判定，再叠
+ * {@code TICKET_CLOSE}，只允许「处理中」）与 {@code cancel}（四种非终态 + 本人是提交人 +
+ * {@code TICKET_REQUESTER_ACTION}）。两格共用权限码的地方有意不同：关闭要两条授权，
+ * 撤销只要提交人那一条。</p>
  */
 @ExtendWith(MockitoExtension.class)
 // 多个用例共享"当前用户 + 权限 + 可见性行"替身，未使用的桩不应判定为失败。
@@ -91,6 +101,8 @@ class TicketQueryServiceImplTest {
     private static final String WAITING_FOR_REQUESTER = "WAITING_FOR_REQUESTER";
     private static final String WAITING_FOR_CONFIRMATION = "WAITING_FOR_CONFIRMATION";
     private static final String COMPLETED = "COMPLETED";
+    private static final String CANCELED = "CANCELED";
+    private static final String CLOSED = "CLOSED";
     private static final String HIGH = "HIGH";
 
     /** 时间线记录里所有可映射字段都用非空值，任何"多出来的键"都会被白名单断言抓住。 */
@@ -396,6 +408,9 @@ class TicketQueryServiceImplTest {
      * <p>两者前置条件完全相同（待确认 + 本人是提交人 + {@code TICKET_REQUESTER_ACTION}），
      * 装配顺序固定为 {@code confirm-resolution} 在前；{@code report-unresolved} 是片 A 新增的判定，
      * 因此本用例的期望值从单个动作改为一对——旧断言编码的是片 A 之前的实现。</p>
+     *
+     * <p>片 D 又在这张表上加了第三格 {@code cancel}：撤销在四种非终态上都可用，与确认、
+     * 反馈未解决共用同一个权限码但条件更宽，因此它排在最后。</p>
      */
     @Test
     void detailAllowsConfirmAndReportUnresolvedForRequesterInFixedOrder() {
@@ -406,8 +421,8 @@ class TicketQueryServiceImplTest {
         TicketDetailResult result = service.detail(TICKET_NO);
 
         assertThat(result.allowedActions())
-                .as("提交人在待确认上有两个互斥选择，顺序固定且两个都必须在")
-                .containsExactly("confirm-resolution", "report-unresolved");
+                .as("提交人在待确认上有两个互斥选择，外加随时可用的撤销，顺序固定且三个都必须在")
+                .containsExactly("confirm-resolution", "report-unresolved", "cancel");
     }
 
     /** 待确认状态下 IT 侧只暴露已实现的动作，负责人自己不是提交人，不应拿到确认按钮。 */
@@ -484,11 +499,11 @@ class TicketQueryServiceImplTest {
     // ---------- allowedActions：片 B 新增两格 ----------
 
     /**
-     * 「待补充」+ 本人是提交人 + {@code TICKET_REQUESTER_ACTION}：恰好一格补充动作。
+     * 「待补充」+ 本人是提交人 + {@code TICKET_REQUESTER_ACTION}：补充与撤销两格。
      *
      * <p>提交人在这个状态上不是负责人，因此不能复用 {@code canProcess} 一族的判定；
      * 同时也不该拿到 {@code report-unresolved} 或 {@code confirm-resolution}——
-     * 那两格只属于「待确认」。</p>
+     * 那两格只属于「待确认」。{@code cancel} 是片 D 新增的：撤销在四种非终态上都可用。</p>
      */
     @Test
     void detailAllowsSupplementForRequesterOfWaitingForRequester() {
@@ -499,8 +514,8 @@ class TicketQueryServiceImplTest {
         TicketDetailResult result = service.detail(TICKET_NO);
 
         assertThat(result.allowedActions())
-                .as("提交人在待补充上只应该拿到补充这一格")
-                .containsExactly("supplement");
+                .as("提交人在待补充上能补充，也能直接撤销")
+                .containsExactly("supplement", "cancel");
     }
 
     @Test
@@ -881,14 +896,20 @@ class TicketQueryServiceImplTest {
         assertActions(service.detail(TICKET_NO));
     }
 
-    /** 提交人自己不是负责人：即使持有全部相关权限也不该看到调整与转交。 */
+    /**
+     * 提交人自己不是负责人：即使持有全部相关权限也不该看到调整与转交。
+     *
+     * <p>片 D 之后这张单上他仍有一件事可做——撤销（四种非终态 + 本人是提交人 +
+     * {@code TICKET_REQUESTER_ACTION}），因此期望值从空集变成一格。负责人那一族的五个动作
+     * 一个都不能出现：权限齐备不等于可以替别人处理。</p>
+     */
     @Test
     void detailHidesAdjustAndTransferForRequesterOfProcessing() {
         stubCurrentUser(REQUESTER_ID);
         grant("TICKET_PROCESS", "TICKET_TRANSFER", "TICKET_REQUESTER_ACTION");
         stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
 
-        assertActions(service.detail(TICKET_NO));
+        assertActions(service.detail(TICKET_NO), "cancel");
     }
 
     /** 「待确认」不在可调整态：负责人持有两个权限也拿不到这三格。 */
@@ -911,6 +932,140 @@ class TicketQueryServiceImplTest {
         assertActions(service.detail(TICKET_NO),
                 "withdraw-supplement-request",
                 "change-category", "change-priority", "transfer");
+    }
+
+    // ---------- allowedActions：片 D 新增两格 ----------
+
+    /**
+     * 「处理中」+ 本人是负责人 + 两条授权齐备：关闭排在转交之后。
+     *
+     * <p>{@code canClose} 复用 {@code canProcess} 的同一条身份判定，再叠 {@code TICKET_CLOSE}。
+     * 关闭与撤销在这张表上永远不会同时出现（前者要求"本人是负责人"，后者要求"本人是提交人"，
+     * 而 {@code ck_ticket_assignee_not_requester} 禁止同一人是两者），所以顺序只需各自钉住。</p>
+     */
+    @Test
+    void detailAllowsCloseForAssigneeWithBothAuthorities() {
+        stubCurrentUser(IT_USER_ID);
+        grant("TICKET_PROCESS", "TICKET_CLOSE");
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+
+        assertActions(service.detail(TICKET_NO),
+                "add-processing-record", "submit-resolution", "request-supplement",
+                "change-category", "change-priority", "close");
+    }
+
+    /** 缺 {@code TICKET_CLOSE}：处理权限一族照旧，但关闭那一格不出现。 */
+    @Test
+    void detailHidesCloseWithoutCloseAuthority() {
+        stubCurrentUser(IT_USER_ID);
+        grant("TICKET_PROCESS");
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+
+        assertActions(service.detail(TICKET_NO),
+                "add-processing-record", "submit-resolution", "request-supplement",
+                "change-category", "change-priority");
+    }
+
+    /**
+     * 反向的一格：只有 {@code TICKET_CLOSE} 而没有 {@code TICKET_PROCESS} 同样关不了。
+     *
+     * <p>这是 2026-10-08 的用户裁决——关闭结束整张工单，必须建立在处理权限之上；
+     * 与片 C 的 {@code transfer} 只要求 {@code TICKET_TRANSFER} 是两条不同的口径。</p>
+     */
+    @Test
+    void detailHidesCloseWithoutProcessAuthority() {
+        stubCurrentUser(IT_USER_ID);
+        grant("TICKET_CLOSE");
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+
+        assertActions(service.detail(TICKET_NO));
+    }
+
+    /** 关闭只允许「处理中」：待补充时负责人能撤回与调整，但关不掉这张单。 */
+    @Test
+    void detailHidesCloseOutsideProcessing() {
+        stubCurrentUser(IT_USER_ID);
+        grant("TICKET_PROCESS", "TICKET_CLOSE");
+        stubVisible(detailRow(WAITING_FOR_REQUESTER, IT_USER_ID, 5L));
+
+        assertActions(service.detail(TICKET_NO),
+                "withdraw-supplement-request", "change-category", "change-priority");
+    }
+
+    @Test
+    void detailHidesCloseForNonAssignee() {
+        stubCurrentUser(OTHER_IT_USER_ID);
+        grant("TICKET_PROCESS", "TICKET_CLOSE");
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+
+        assertActions(service.detail(TICKET_NO));
+    }
+
+    /**
+     * 撤销是四种非终态上提交人的动作，等待态各自还有自己的那一格。
+     *
+     * <p>期望值按状态逐个给：{@code PENDING} 与 {@code PROCESSING} 只有撤销，
+     * {@code WAITING_FOR_REQUESTER} 多一格补充，{@code WAITING_FOR_CONFIRMATION} 多两格
+     * （确认与反馈未解决）。撤销一律排在最后。</p>
+     */
+    @ParameterizedTest(name = "requester sees cancel on {0}")
+    @MethodSource("cancelableStatusesWithExpectedActions")
+    void detailAllowsCancelForRequesterOnEveryNonTerminalStatus(
+            String status, Long assigneeId, List<String> expectedActions) {
+        stubCurrentUser(REQUESTER_ID);
+        grant("TICKET_REQUESTER_ACTION");
+        stubVisible(detailRow(status, assigneeId, 3L));
+
+        assertThat(service.detail(TICKET_NO).allowedActions())
+                .as("撤销覆盖四种非终态，且不挤掉各等待态自己的那一格")
+                .containsExactlyElementsOf(expectedActions);
+    }
+
+    static Stream<Arguments> cancelableStatusesWithExpectedActions() {
+        return Stream.of(
+                Arguments.of(PENDING, null, List.of("cancel")),
+                Arguments.of(PROCESSING, IT_USER_ID, List.of("cancel")),
+                Arguments.of(WAITING_FOR_REQUESTER, IT_USER_ID, List.of("supplement", "cancel")),
+                Arguments.of(WAITING_FOR_CONFIRMATION, IT_USER_ID,
+                        List.of("confirm-resolution", "report-unresolved", "cancel")));
+    }
+
+    @Test
+    void detailHidesCancelWithoutRequesterActionAuthority() {
+        stubCurrentUser(REQUESTER_ID);
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+
+        assertActions(service.detail(TICKET_NO));
+    }
+
+    /**
+     * 「处理中」的当前负责人拿不到撤销：他不是提交人。
+     *
+     * <p>这里刻意让负责人也持有 {@code TICKET_REQUESTER_ACTION}——权限齐备但身份不对，
+     * 撤销那一格仍然不能出现，与动作接口的 409 判定同源。</p>
+     */
+    @Test
+    void detailHidesCancelForAssigneeOfProcessing() {
+        stubCurrentUser(IT_USER_ID);
+        grant("TICKET_REQUESTER_ACTION", "TICKET_PROCESS");
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+
+        assertActions(service.detail(TICKET_NO),
+                "add-processing-record", "submit-resolution", "request-supplement",
+                "change-category", "change-priority");
+    }
+
+    /** 三个终态都不再有任何出口，撤销也不例外。 */
+    @ParameterizedTest(name = "terminal {0} has no actions")
+    @ValueSource(strings = {COMPLETED, CANCELED, CLOSED})
+    void detailReturnsNoActionsForEveryTerminalStatus(String status) {
+        stubCurrentUser(REQUESTER_ID);
+        grant("TICKET_REQUESTER_ACTION");
+        stubVisible(detailRow(status, IT_USER_ID, 5L));
+
+        assertThat(service.detail(TICKET_NO).allowedActions())
+                .as("%s 是终态，提交人也不再能撤销", status)
+                .isEmpty();
     }
 
     // ---------- transferCandidates ----------
