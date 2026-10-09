@@ -54,6 +54,22 @@
 - **一处需要记账的偏差（2026-10-08，如实记录）**：清理本轮 E2E 行时，除自建的 5 个账号（id 58–62）与自建角色外，还删掉了一个**运行前就存在**的孤儿角色 `E2E_AGENT_797768`（id 94，含 `iam_role_permission` 一行 `94|1`）。它是片 C 的 E2E 轮遗留（片 C 的收尾只删了账号、没删角色），**没有任何用户持有它**（否则外键会阻止删除）；本轮按"E2E 角色"前缀一并清理，因此角色数由记录中的 4 变成 **3**（只剩三个内置角色），权限关联由 15 变成 14。功能上无影响（无引用、非内置），但没有按"只删自己创建的行"执行，特此记录；如需还原，其 code / name / 权限指向在上一行已写明。
 - **当时的下一步（已被本文件顶部取代，保留为历史）**：① 两阶段撤销的设计点确认——**已完成**（用户 2026-10-08 确认五个设计点，后端已实现）；② 本分支首个提交记录片 D 的交接结果——**已提交** `72b39e3`；③ 一处测试代码的 varargs 歧义告警（`TicketServiceImplTest` 的 `thenReturn(snapshot, null)` 被 javac 按非 varargs 解释成"数组本身是 null"）——**已修正**为显式 `(Ticket) null`，见提交 `884b8a2`。
 
+## 页模板与页面契约（2026-10-09，分支 `flow-desk/page-template`）
+
+- **本轮主题**：以前端框架一致性为目标，把对照项目 `YeJuZhi-Vue-CPY/plus-ui`（RuoYi-Vue-Plus 5.6.2）的**页面骨架**（筛选卡 → 工具栏 → 列表 → 分页四区 + 弹窗类名 + 六态落点）落成 flow-Desk 自己的统一模板；用户 2026-10-09 选定的是**页面层对齐**，不是换框架——若依的框架层（动态菜单路由、`v-hasPermi`、`useDict`、`utils/request.ts`、UnoCSS、`:deep()`、TagsView、localStorage token）全部**不引入**。
+- **交付物（7 个新文件 + 10 个已跟踪文件修改）**：
+  - `frontend/PAGE-TEMPLATE.md`（219 行）：页面契约——页面分类、四区骨架、六态落点、新增页面 10 步、提交前自检清单；§9.2 列明未办项。
+  - `frontend/scripts/scaffold.mjs`（183 行，零新依赖）+ `frontend/scripts/templates/page/{ListView.vue.tpl,ListView.test.ts.tpl,api.ts.tpl}`：`node scripts/scaffold.mjs --layer admin --page XListView --title … --api … --permission …` 生成「页面 + 同目录单测 + API 模块」三个文件，并打印路由与 `navigationEntries` 片段。**刻意不自动改** `router/index.ts` 与 `constants/authorization.ts`：导航权限是 any-of、工单动作是 all-of，两种语义需要人判断。
+  - `frontend/src/components/AppPagination.vue` + `AppPagination.test.ts`：把 7 个列表页里重复的 `el-pagination` 收敛为一个组件（显示条件、宽窄屏 layout、页大小都在组件内）。
+- **三处对齐**：① `TicketListView` 的「排序」从工具栏右侧移回筛选卡——它是查询条件（改了要重新请求），宽度改走通用 `.admin-filter-input`，工具栏右侧只剩刷新；② `UserListView` 三个弹窗由 `user-list-dialog` 统一为 `admin-dialog`，`main.css` 里的重复选择器一并收敛；③ 6 个管理端列表页 + 工单列表页统一改用 `AppPagination`，`useCompactPagination` 现在只被该组件消费。
+- **占位页按原样保留**：`/dashboard`（数据概览，backlog 5）与 `/admin/users/:userId`（用户详情，backlog 4）继续指向 `PlannedWorkView`，`meta.plannedTask` 未改——两者都还没有后端接口，建真页面等于造假入口。
+- **验证（在分支状态实跑）**：`typecheck` 退出码 0；`lint`（eslint + stylelint）退出码 0；`build` 退出码 0；`test:unit --run --maxWorkers=1` **24 套件 195 项全绿**（基线 23 套件 186 项，新增 `AppPagination.test.ts` 9 项）。脚手架另做实测：由它生成的 `SmokeListView` 通过 typecheck + lint + 其 6 项生成单测后删除。
+- **未验证（如实记录）**：本机 `test:e2e` 未执行（检查时 8081/8092 无后端监听），E2E 交由 PR 的 `core-e2e` job 在 CI 真实栈上覆盖；本批含 UI 结构变更，但**未补 1440/375 截图**，与片 E 那种带评审截图入库的 UI 片相比缺一份视觉证据。
+- **与 `main` 的关系**：本分支基点为 `95eee90`（PR #17 合并提交），`main` 已前进到 `2cf1bc1`（PR #18），因此本次进入 `main` 是 merge commit 而非快进。唯一双方都改的文件是 `frontend/src/styles/main.css`，已用三方合并（`git merge-file`）实测**无冲突**；其余 9 个已跟踪修改文件与 PR #18 的改动**无交集**。
+- **工作树现状（更新本文此前的「唯一工作树」表述）**：本轮使用**第二棵工作树**（与主树同级的 `flow-Desk-page-template`，分支 `flow-desk/page-template`），refs 与主仓库共享；主树停在 `flow-desk/attachments-and-relations`（附件与关联主题）。**注意**：主树内留有分析阶段的旧草稿 `frontend/PAGE-TEMPLATE.md`（未跟踪，24055 字节，已被最终版取代），它会拦住主树对 `main` 的快进拉取（`untracked working tree files would be overwritten by merge`），拉取前需先删除或改名。
+- **§9.2 未办项（不阻塞本次交接）**：C2 业务列表复用、C5 筛选卡标题/描述口径、C6 授权页两类空态文案、C8 占位页去留、C9 `user-list-*` 私有样式前缀收敛（`main.css` 约 10 条规则）。
+- **PR 号、CI 运行号与合并提交按仓库惯例记录在下一分支的首个提交。**
+
 ## 已修：转交与「工单侧动作」的交叉死锁（2026-10-07 实测，2026-10-08 片 D 内修复）
 
 - **现象**：`TicketServiceIT.concurrentTransferAndWithdrawOnSameTicketHaveExactlyOneWinner` 在全量集成测试中偶发失败——同一个负责人、同一张工单上「转交」与「撤回补充请求」并发时，InnoDB 检测到死锁并回滚其中一个。

@@ -1064,9 +1064,9 @@ h1 {
   border-top: thin solid var(--fd-color-border-subtle);
 }
 
-/* 弹窗宽度不超过视口：`width` 属性在窄屏会把对话框顶出屏幕。 */
-.admin-dialog,
-.user-list-dialog {
+/* 弹窗宽度不超过视口：`width` 属性在窄屏会把对话框顶出屏幕。
+   所有管理页弹窗统一挂 `admin-dialog`，不要再各页自造 `*-dialog` 类。 */
+.admin-dialog {
   max-width: calc(100vw - var(--fd-space-7));
 }
 
@@ -1490,15 +1490,12 @@ h1 {
   padding-top: var(--fd-space-4);
 }
 
-/* 时间范围是唯一需要横向展开的筛选控件，给它固定的可用宽度；排序是列表级控件，
-   放在工具栏右侧，宽度按最长选项（"优先级从高到低"）留够。 */
+/* 时间范围是唯一需要横向展开的筛选控件，给它固定的可用宽度。
+   排序不在这里：它是查询条件（改了它要重新请求），放在筛选卡里，
+   宽度走通用的 .admin-filter-input。 */
 .ticket-filter-range {
   width: 24rem;
   max-width: 100%;
-}
-
-.ticket-sort {
-  width: 11rem;
 }
 
 /* 列表主列：标题在上、编号在下。这是工单列表唯一需要读层级的地方——
@@ -2071,8 +2068,7 @@ h1 {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .ticket-filter-range,
-  .ticket-sort {
+  .ticket-filter-range {
     width: 100%;
   }
 

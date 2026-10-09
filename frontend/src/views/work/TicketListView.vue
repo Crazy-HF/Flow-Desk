@@ -8,6 +8,7 @@ import type { CategoryOption } from '@/api/categories'
 import { listTickets } from '@/api/tickets'
 import type { TicketListItem, TicketPriority, TicketScope, TicketStatus } from '@/api/tickets'
 import AdminListPanel from '@/components/AdminListPanel.vue'
+import AppPagination from '@/components/AppPagination.vue'
 import AppPage from '@/components/AppPage.vue'
 import {
   TICKET_PRIORITY_OPTIONS,
@@ -23,7 +24,6 @@ import type { TicketSortChoice } from '@/constants/tickets'
 import { useAuthStore } from '@/stores/auth'
 import { formatDateTime } from '@/utils/format'
 import { useAdminList } from '@/composables/useAdminList'
-import { useCompactPagination } from '@/composables/useCompactPagination'
 
 /**
  * 工单列表（`docs/api-design.md` 5.3，`GET /fd/v1/tickets`）。
@@ -56,7 +56,6 @@ const props = withDefaults(
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
-const compactPagination = useCompactPagination()
 
 /**
  * 列宽：`el-table` 用 `parseInt` 解析 `width` / `min-width`，写 `7rem` 只会得到 7px
@@ -147,7 +146,7 @@ async function loadCategoryOptions(): Promise<void> {
   }
 }
 
-const { items, total, pageNo, pageSize, phase, errorMessage, retrying, search, changePage, changePageSize } =
+const { items, total, pageNo, pageSize, phase, errorMessage, retrying, search, load } =
   useAdminList<TicketListItem>((page) =>
     listTickets({
       scope: scope.value,
@@ -164,6 +163,19 @@ const { items, total, pageNo, pageSize, phase, errorMessage, retrying, search, c
       ...(sort.value === 'DEFAULT' ? {} : { sort: sort.value }),
     }),
   )
+
+/**
+ * 分页变化：AppPagination 只报告"用户想要哪一页、每页多少条"，取数仍由 useAdminList.load 负责。
+ * 换每页条数必须回到第 1 页——否则会停在一个按新页大小算并不存在的页上。
+ */
+function onPaginationChange(next: { page: number; pageSize: number }): void {
+  if (next.pageSize !== pageSize.value) {
+    pageSize.value = next.pageSize
+    void load({ page: 1 })
+    return
+  }
+  void load({ page: next.page })
+}
 
 const hasFilters = computed(
   () =>
@@ -412,6 +424,24 @@ onMounted(() => {
             />
           </span>
 
+          <span class="admin-filter-field">
+            排序
+            <el-select
+              id="ticket-sort"
+              v-model="sort"
+              aria-label="工单排序"
+              class="admin-filter-input"
+              @change="search"
+            >
+              <el-option
+                v-for="option in TICKET_SORT_OPTIONS"
+                :key="option.value"
+                :label="option.label"
+                :value="option.value"
+              />
+            </el-select>
+          </span>
+
           <div class="admin-filter-actions">
             <el-button
               :icon="Search"
@@ -447,20 +477,6 @@ onMounted(() => {
           </el-button>
 
           <div class="admin-action-bar__end">
-            <el-select
-              id="ticket-sort"
-              v-model="sort"
-              aria-label="工单排序"
-              class="ticket-sort"
-              @change="search"
-            >
-              <el-option
-                v-for="option in TICKET_SORT_OPTIONS"
-                :key="option.value"
-                :label="option.label"
-                :value="option.value"
-              />
-            </el-select>
             <el-tooltip
               content="刷新列表"
               placement="top"
@@ -594,22 +610,14 @@ onMounted(() => {
           </el-table>
         </AdminListPanel>
 
-        <div
-          v-if="phase === 'ready' && items.length > 0"
-          class="admin-pagination"
-        >
-          <el-pagination
-            background
-            :current-page="pageNo"
-            :layout="compactPagination ? 'total, prev, pager, next' : 'total, sizes, prev, pager, next, jumper'"
-            :pager-count="5"
-            :page-size="pageSize"
-            :page-sizes="[10, 20, 50]"
-            :total="total"
-            @current-change="changePage"
-            @size-change="changePageSize"
-          />
-        </div>
+        <AppPagination
+          :has-subject="true"
+          :page="pageNo"
+          :page-size="pageSize"
+          :phase="phase"
+          :total-elements="total"
+          @change="onPaginationChange"
+        />
       </section>
     </template>
   </AppPage>

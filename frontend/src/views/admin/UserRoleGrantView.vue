@@ -10,11 +10,11 @@ import type { RoleDetail, UserRoleGrant } from '@/api/rbac'
 import { getUser, listUsers } from '@/api/users'
 import type { UserDetail } from '@/api/users'
 import AdminListPanel from '@/components/AdminListPanel.vue'
+import AppPagination from '@/components/AppPagination.vue'
 import AppPage from '@/components/AppPage.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import { formatDateTime } from '@/utils/format'
 import { useAdminList } from '@/composables/useAdminList'
-import { useCompactPagination } from '@/composables/useCompactPagination'
 
 /**
  * 用户角色授权（`docs/api-design.md` 8.2.1，`TASK-060`）。
@@ -24,7 +24,6 @@ import { useCompactPagination } from '@/composables/useCompactPagination'
  */
 const route = useRoute()
 const router = useRouter()
-const compactPagination = useCompactPagination()
 
 const subject = ref<UserDetail | null>(null)
 const subjectOptions = shallowRef<UserDetail[]>([])
@@ -37,10 +36,23 @@ const grantError = ref('')
 
 const subjectId = computed(() => subject.value?.id ?? 0)
 
-const { items, total, pageNo, pageSize, phase, errorMessage, retrying, search, changePage, changePageSize } =
+const { items, total, pageNo, pageSize, phase, errorMessage, retrying, search, load } =
   useAdminList<UserRoleGrant>((page) =>
     listUserRoleGrants({ ...page, userId: subjectId.value }),
   )
+
+/**
+ * 分页变化：AppPagination 只报告"用户想要哪一页、每页多少条"，取数仍由 useAdminList.load 负责。
+ * 换每页条数必须回到第 1 页——否则会停在一个按新页大小算并不存在的页上。
+ */
+function onPaginationChange(next: { page: number; pageSize: number }): void {
+  if (next.pageSize !== pageSize.value) {
+    pageSize.value = next.pageSize
+    void load({ page: 1 })
+    return
+  }
+  void load({ page: next.page })
+}
 
 /** 远程用户检索：数据源是 `GET /fd/v1/users`（`USER_MANAGE`）。 */
 async function searchSubjects(query: string): Promise<void> {
@@ -363,22 +375,14 @@ onMounted(async () => {
         </div>
       </AdminListPanel>
 
-      <div
-        v-if="subject && phase === 'ready' && items.length > 0"
-        class="admin-pagination"
-      >
-        <el-pagination
-          background
-          :current-page="pageNo"
-          :layout="compactPagination ? 'total, prev, pager, next' : 'total, sizes, prev, pager, next, jumper'"
-          :pager-count="5"
-          :page-size="pageSize"
-          :page-sizes="[10, 20, 50]"
-          :total="total"
-          @current-change="changePage"
-          @size-change="changePageSize"
-        />
-      </div>
+      <AppPagination
+        :has-subject="Boolean(subject)"
+        :page="pageNo"
+        :page-size="pageSize"
+        :phase="phase"
+        :total-elements="total"
+        @change="onPaginationChange"
+      />
     </section>
 
     <p

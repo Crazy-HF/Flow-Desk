@@ -18,17 +18,16 @@ import {
 } from '@/api/users'
 import type { UserDetail, UserStatus } from '@/api/users'
 import AdminListPanel from '@/components/AdminListPanel.vue'
+import AppPagination from '@/components/AppPagination.vue'
 import AppPage from '@/components/AppPage.vue'
 import ProtectedMark from '@/components/ProtectedMark.vue'
 import { isProtectedRole } from '@/constants/authorization'
 import { useAuthStore } from '@/stores/auth'
 import { useAdminList } from '@/composables/useAdminList'
-import { useCompactPagination } from '@/composables/useCompactPagination'
 
 /** 用户管理（`docs/api-design.md` 8.2，`TASK-062`）。 */
 const auth = useAuthStore()
 const router = useRouter()
-const compactPagination = useCompactPagination()
 
 /**
  * 列宽。
@@ -50,7 +49,7 @@ const keyword = ref('')
 const statusFilter = ref<UserStatus | ''>('')
 const roleFilter = ref<number | ''>('')
 
-const { items, total, pageNo, pageSize, phase, errorMessage, retrying, search, changePage, changePageSize } =
+const { items, total, pageNo, pageSize, phase, errorMessage, retrying, search, load } =
   useAdminList<UserDetail>((page) =>
     listUsers({
       ...page,
@@ -59,6 +58,19 @@ const { items, total, pageNo, pageSize, phase, errorMessage, retrying, search, c
       ...(roleFilter.value ? { roleId: roleFilter.value } : {}),
     }),
   )
+
+/**
+ * 分页变化：AppPagination 只报告"用户想要哪一页、每页多少条"，取数仍由 useAdminList.load 负责。
+ * 换每页条数必须回到第 1 页——否则会停在一个按新页大小算并不存在的页上。
+ */
+function onPaginationChange(next: { page: number; pageSize: number }): void {
+  if (next.pageSize !== pageSize.value) {
+    pageSize.value = next.pageSize
+    void load({ page: 1 })
+    return
+  }
+  void load({ page: next.page })
+}
 
 const hasFilters = computed(() =>
   Boolean(keyword.value.trim() || statusFilter.value || roleFilter.value),
@@ -666,27 +678,19 @@ onMounted(() => {
         </el-table>
       </AdminListPanel>
 
-      <div
-        v-if="phase === 'ready' && items.length > 0"
-        class="admin-pagination"
-      >
-        <el-pagination
-          background
-          :current-page="pageNo"
-          :layout="compactPagination ? 'total, prev, pager, next' : 'total, sizes, prev, pager, next, jumper'"
-          :pager-count="5"
-          :page-size="pageSize"
-          :page-sizes="[10, 20, 50]"
-          :total="total"
-          @current-change="changePage"
-          @size-change="changePageSize"
-        />
-      </div>
+      <AppPagination
+        :has-subject="true"
+        :page="pageNo"
+        :page-size="pageSize"
+        :phase="phase"
+        :total-elements="total"
+        @change="onPaginationChange"
+      />
     </section>
 
     <el-dialog
       v-model="createVisible"
-      class="user-list-dialog"
+      class="admin-dialog"
       title="新建用户"
       width="30rem"
       :close-on-click-modal="false"
@@ -789,7 +793,7 @@ onMounted(() => {
     </el-dialog>
 
     <el-dialog
-      class="user-list-dialog"
+      class="admin-dialog"
       :model-value="editing !== null"
       title="修改资料"
       width="26rem"
@@ -846,7 +850,7 @@ onMounted(() => {
     </el-dialog>
 
     <el-dialog
-      class="user-list-dialog"
+      class="admin-dialog"
       :model-value="resetting !== null"
       title="重置密码"
       width="26rem"

@@ -15,4 +15,12 @@ export default defineConfigWithVueTs(
       'vue/multi-word-component-names': 'off',
     },
   },
+  {
+    // 脚手架脚本跑在 Node 而不是浏览器：只对 scripts/ 放行 console / process 等全局，
+    // 应用代码的校验强度不变。
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      globals: { console: 'readonly', process: 'readonly' },
+    },
+  },
 )
