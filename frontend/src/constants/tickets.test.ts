@@ -11,6 +11,7 @@ import {
   permittedActions,
   ticketCloseReasonLabel,
   ticketPriorityTone,
+  ticketRecordTypeLabel,
   ticketStatusLabel,
   ticketStatusTone,
 } from './tickets'
@@ -68,6 +69,12 @@ describe('工单展示映射', () => {
         ['close', ['TICKET_PROCESS', 'TICKET_CLOSE']],
         // 完整状态机片 B：补充信息（提交人）
         ['supplement', 'TICKET_REQUESTER_ACTION'],
+        // 两阶段撤销（2026-10-08 规则变更）：提交人侧发起与撤回共用提交人动作权限，
+        // 负责人侧同意与驳回共用处理权限（**不要求** TICKET_CLOSE——撤销不是关闭）
+        ['request-cancel', 'TICKET_REQUESTER_ACTION'],
+        ['withdraw-cancel-request', 'TICKET_REQUESTER_ACTION'],
+        ['approve-cancel', 'TICKET_PROCESS'],
+        ['reject-cancel', 'TICKET_PROCESS'],
         ['cancel', 'TICKET_REQUESTER_ACTION'],
       ])
     })
@@ -304,6 +311,79 @@ describe('工单展示映射', () => {
       expect(permittedActions(['transfer'], () => false)).toEqual([])
       expect(TICKET_ACTIONS.transfer.permission).toBe('TICKET_TRANSFER')
     })
+
+    /**
+     * 两阶段撤销的四格（2026-10-08 规则变更，`docs/kickoff.md` 4.7）。
+     *
+     * <p>这四格的价值在于**界面不再把"申请"渲染成"已经撤销"**：只有 `approve-cancel` 是终态动作
+     * （`destructive`），另外三格点下去都不结束工单。发起与驳回要写一段说明（`reason`），
+     * 同意与撤回与 `claim` 一样只需要版本，因此没有 `reason` 也没有 `content`——
+     * 多声明一个就会在弹窗里凭空多出一个没人看的输入框。</p>
+     */
+    it('两阶段撤销四格：只有「同意撤销」是终态动作，写说明的两格走 reason', () => {
+      expect(TICKET_ACTIONS['request-cancel'].destructive).toBe(false)
+      expect(TICKET_ACTIONS['withdraw-cancel-request'].destructive).toBe(false)
+      // 同意 = 一次点击把工单推进终态「已取消」，v1 不支持恢复
+      expect(TICKET_ACTIONS['approve-cancel'].destructive).toBe(true)
+      // 驳回只是不同意这一次申请，工单继续处理，所以不该用警示色
+      expect(TICKET_ACTIONS['reject-cancel'].destructive).toBe(false)
+
+      // 与 RequestCancelCommand.reason / RejectCancelCommand.reason 的 @Size(max = 1000) 对齐
+      expect(TICKET_ACTIONS['request-cancel'].reason?.maxLength).toBe(1000)
+      expect(TICKET_ACTIONS['reject-cancel'].reason?.maxLength).toBe(1000)
+      expect(TICKET_ACTIONS['request-cancel'].reason?.label.trim()).not.toBe('')
+      expect(TICKET_ACTIONS['reject-cancel'].reason?.label.trim()).not.toBe('')
+
+      // 只需要版本的两个动作：没有说明槽，也没有正文槽
+      for (const name of ['withdraw-cancel-request', 'approve-cancel'] as const) {
+        expect(TICKET_ACTIONS[name].reason).toBeUndefined()
+        expect(TICKET_ACTIONS[name].content).toBeUndefined()
+        expect(TICKET_ACTIONS[name].select).toBeUndefined()
+        expect(TICKET_ACTIONS[name].conditionalText).toBeUndefined()
+      }
+
+      // 四格都不需要选目标值
+      for (const name of [
+        'request-cancel',
+        'withdraw-cancel-request',
+        'approve-cancel',
+        'reject-cancel',
+      ] as const) {
+        expect(TICKET_ACTIONS[name].select).toBeUndefined()
+        expect(TICKET_ACTIONS[name].label.trim()).not.toBe('')
+        expect(TICKET_ACTIONS[name].description.trim()).not.toBe('')
+      }
+    })
+
+    /**
+     * 按钮位置：`permittedActions` 按登记表顺序渲染，顺序一变按钮位置就变。
+     *
+     * <p>两对动作各自**互斥**：同一张单上提交人只会看到"申请"或"撤回"其中之一，
+     * 负责人只会看到"同意 + 驳回"。位置按生命周期排（申请 → 撤回 → 同意 → 驳回），
+     * 并排在 `cancel` 之前——`cancel` 只剩「待受理」，与它们不会同屏。</p>
+     */
+    it('两阶段撤销四格的位置与互斥：申请在撤回前，同意在驳回前，都排在撤销之前', () => {
+      const allowAll = () => true
+
+      expect(
+        permittedActions(
+          ['approve-cancel', 'cancel', 'withdraw-cancel-request', 'request-cancel'],
+          allowAll,
+        ),
+      ).toEqual(['request-cancel', 'withdraw-cancel-request', 'approve-cancel', 'cancel'])
+
+      // 提交人在「待补充」上同时能补充与申请撤销：先补齐信息，再谈终止
+      expect(permittedActions(['supplement', 'request-cancel'], allowAll)).toEqual([
+        'supplement',
+        'request-cancel',
+      ])
+      // 负责人在「处理中」上：关闭与同意/驳回会同时出现（申请期间工单不冻结）
+      expect(permittedActions(['approve-cancel', 'reject-cancel', 'close'], allowAll)).toEqual([
+        'close',
+        'approve-cancel',
+        'reject-cancel',
+      ])
+    })
   })
 
   it('状态选项覆盖七个编码且顺序按生命周期，不是按字母', () => {
@@ -337,6 +417,31 @@ describe('工单展示映射', () => {
     expect(ticketStatusTone('COMPLETED')).toBe('done')
     expect(ticketStatusTone('CLOSED')).toBe('ended')
     expect(ticketStatusLabel('WAITING_FOR_CONFIRMATION')).toBe('待员工确认')
+  })
+
+  /**
+   * 记录类型中文名必须与迁移同步：少一个键不会报错，只会让时间线里那一行显示成英文编码
+   * （`ticketRecordTypeLabels[recordType] ?? recordType` 的兜底）。
+   *
+   * <p>`V7` 追加的四种两阶段撤销记录尤其容易漏：它们是一条完整链路（申请 → 同意 / 驳回 / 撤回），
+   * 而"待受理直接撤销"的 `CANCELLATION` 是另一件事，两者不能共用一个中文名，否则时间线上
+   * 分不清"有人申请撤销"和"工单已经被撤销"。</p>
+   */
+  it('V7 追加的四种撤销记录都有独立中文名，且与 CANCELLATION 区分', () => {
+    const labels = [
+      ticketRecordTypeLabel('CANCELLATION_REQUEST'),
+      ticketRecordTypeLabel('CANCELLATION_APPROVED'),
+      ticketRecordTypeLabel('CANCELLATION_REJECTED'),
+      ticketRecordTypeLabel('CANCELLATION_REQUEST_WITHDRAWN'),
+    ]
+
+    expect(labels.every((label) => label.trim() !== '' && !label.includes('CANCELLATION'))).toBe(
+      true,
+    )
+    // 四个名字互不相同，也都不等于"待受理直接撤销"那一条
+    expect(new Set([...labels, ticketRecordTypeLabel('CANCELLATION')]).size).toBe(5)
+    // 兜底行为不变：迁移里将来新增、界面还没接上的类型按编码原样显示，而不是丢掉这一行
+    expect(ticketRecordTypeLabel('FUTURE_RECORD')).toBe('FUTURE_RECORD')
   })
 })
 
@@ -406,6 +511,37 @@ describe('describeRecordContext', () => {
 
   it('空白字符串与缺失字段都不产生条目，避免渲染出一堆空标签', () => {
     expect(describeRecordContext({ reason: '   ', content: undefined }, format)).toEqual([])
+  })
+
+  /**
+   * 撤销申请记录（`CANCELLATION_REQUEST`）：说明与响应期限都要能看到。
+   *
+   * <p>它**不迁移状态**，所以上下文里 `fromStatus` 与 `toStatus` 相同；这里不断言那一行的具体
+   * 文案，只用 `toContainEqual` 钉住"申请理由"和"响应期限"必须出现——时间线在状态没变时照样
+   * 渲染一行状态，是 `PROCESS` / `TRANSFER` 等既有记录就有的共同口径，不因这条记录改变。</p>
+   */
+  it('撤销申请记录渲染申请理由与响应期限', () => {
+    const facts = describeRecordContext(
+      {
+        reason: '问题已自行解决，不需要 IT 再处理了',
+        deadlineAt: '2026-10-11T02:00:00Z',
+        fromStatus: 'PROCESSING',
+        toStatus: 'PROCESSING',
+      },
+      format,
+    )
+
+    expect(facts).toContainEqual({ label: '原因', value: '问题已自行解决，不需要 IT 再处理了' })
+    expect(facts).toContainEqual({ label: '期限', value: 'T(2026-10-11T02:00:00Z)' })
+  })
+
+  it('驳回撤销申请记录必须带理由：没有理由只渲染出状态一行', () => {
+    const facts = describeRecordContext(
+      { reason: '问题尚未定位，正在等供应商回复', fromStatus: 'PROCESSING', toStatus: 'PROCESSING' },
+      format,
+    )
+
+    expect(facts).toContainEqual({ label: '原因', value: '问题尚未定位，正在等供应商回复' })
   })
 
   it('终态原因文案由同一份映射给出', () => {

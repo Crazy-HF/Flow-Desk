@@ -7,6 +7,7 @@ vi.mock('./http', () => ({
 import { http } from './http'
 import {
   addProcessingRecord,
+  approveCancel,
   cancelTicket,
   changeTicketCategory,
   changeTicketPriority,
@@ -19,10 +20,13 @@ import {
   listTicketRecords,
   listTickets,
   listTransferCandidates,
+  rejectCancel,
+  requestCancelTicket,
   requestSupplementTicket,
   submitResolution,
   supplementTicket,
   transferTicket,
+  withdrawCancelRequest,
 } from './tickets'
 
 /** 只回信封里的 `data`：本文件测的是请求契约，不是响应解码。 */
@@ -387,6 +391,84 @@ describe('工单接口封装', () => {
       expect(result.status).toBe('CANCELED')
       // 待受理撤销时本来就没有负责人：这个键不出现，界面按"未分配"显示
       expect(result.assignee).toBeUndefined()
+    })
+
+    /**
+     * 两阶段撤销（2026-10-08 规则变更）：申请**不改变工单状态**，所以返回值里
+     * `status` 仍是原状态、`actionDeadlineAt` 仍是工单自己的期限（不是申请的响应期限）。
+     * 申请的响应期限只从详情 `cancelRequest` 读——把它当成动作结果的一部分，
+     * 界面就会在申请之后显示一个工单根本没有的期限。
+     */
+    it('申请撤销只发版本与原因，返回的仍是原状态与原期限', async () => {
+      respondWith({
+        ticketNo: 'FD-20260929-001',
+        status: 'PROCESSING',
+        assignee: { id: 2, displayName: '演示 IT 支持人员' },
+        version: 6,
+        actionTime: '2026-10-08T05:00:00Z',
+      })
+
+      const result = await requestCancelTicket('FD-20260929-001', {
+        version: 5,
+        reason: '问题已自行解决',
+      })
+
+      expect(http.post).toHaveBeenCalledWith('/tickets/FD-20260929-001/actions/request-cancel', {
+        version: 5,
+        reason: '问题已自行解决',
+      })
+      expect(result.status).toBe('PROCESSING')
+      expect(result.actionDeadlineAt).toBeUndefined()
+    })
+
+    it('撤回撤销申请与同意撤销都只发版本号，不凭空多带字段', async () => {
+      await withdrawCancelRequest('FD-20260929-001', { version: 6 })
+      expect(http.post).toHaveBeenCalledWith(
+        '/tickets/FD-20260929-001/actions/withdraw-cancel-request',
+        { version: 6 },
+      )
+
+      await approveCancel('FD-20260929-001', { version: 6 })
+      expect(http.post).toHaveBeenCalledWith('/tickets/FD-20260929-001/actions/approve-cancel', {
+        version: 6,
+      })
+    })
+
+    it('同意撤销成功后进入已取消，并且申请带来的期限不再有值', async () => {
+      respondWith({
+        ticketNo: 'FD-20260929-001',
+        status: 'CANCELED',
+        assignee: { id: 2, displayName: '演示 IT 支持人员' },
+        version: 8,
+        actionTime: '2026-10-08T06:00:00Z',
+      })
+
+      const result = await approveCancel('FD-20260929-001', { version: 7 })
+
+      expect(result.status).toBe('CANCELED')
+      // 终态期限已失效（批准那一条 UPDATE 会一并清空），负责人按快照保留
+      expect(result.actionDeadlineAt).toBeUndefined()
+      expect(result.assignee?.displayName).toBe('演示 IT 支持人员')
+    })
+
+    it('驳回撤销申请要带理由，返回的是原状态', async () => {
+      respondWith({
+        ticketNo: 'FD-20260929-001',
+        status: 'WAITING_FOR_REQUESTER',
+        version: 9,
+        actionTime: '2026-10-08T07:00:00Z',
+      })
+
+      const result = await rejectCancel('FD-20260929-001', {
+        version: 8,
+        reason: '问题尚未定位，正在等供应商回复',
+      })
+
+      expect(http.post).toHaveBeenCalledWith('/tickets/FD-20260929-001/actions/reject-cancel', {
+        version: 8,
+        reason: '问题尚未定位，正在等供应商回复',
+      })
+      expect(result.status).toBe('WAITING_FOR_REQUESTER')
     })
   })
 })
