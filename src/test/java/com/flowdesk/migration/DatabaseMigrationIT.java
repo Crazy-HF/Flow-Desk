@@ -83,7 +83,7 @@ class DatabaseMigrationIT {
         var history = jdbc.queryForList(
                 "SELECT version, success FROM flyway_schema_history ORDER BY installed_rank");
         assertThat(history).extracting(row -> String.valueOf(row.get("version")))
-                .containsExactly("1", "2", "4", "5", "6");
+                .containsExactly("1", "2", "4", "5", "6", "7");
         assertThat(history).allSatisfy(row ->
                 assertThat(row.get("success")).isEqualTo(Boolean.TRUE));
 

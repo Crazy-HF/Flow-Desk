@@ -9,6 +9,7 @@ import com.flowdesk.ticket.application.port.TicketReadPermissionPort;
 import com.flowdesk.ticket.application.query.TicketQuery;
 import com.flowdesk.ticket.application.query.TicketRecordQuery;
 import com.flowdesk.ticket.application.result.TicketAssigneeOptionResult;
+import com.flowdesk.ticket.application.result.TicketCancelRequestResult;
 import com.flowdesk.ticket.application.result.TicketCategorySummaryResult;
 import com.flowdesk.ticket.application.result.TicketDetailResult;
 import com.flowdesk.ticket.application.result.TicketListItemResult;
@@ -110,6 +111,18 @@ class TicketQueryServiceImplTest {
     private static final LocalDateTime UPDATED_AT = LocalDateTime.of(2026, 10, 6, 2, 0, 0);
     private static final LocalDateTime DEADLINE_AT = LocalDateTime.of(2026, 10, 13, 1, 30, 15);
     private static final LocalDateTime ENDED_AT = LocalDateTime.of(2026, 10, 6, 3, 0, 0);
+
+    /**
+     * 待决撤销请求的三列（{@code docs/kickoff.md} 4.7 的两阶段撤销）。
+     *
+     * <p>它们与 {@link #DEADLINE_AT} 是两组独立的期限：前者是"IT 需在多长时间内答复"，
+     * 后者是工单自己的补充/确认期限。</p>
+     */
+    private static final LocalDateTime CANCEL_REQUESTED_AT =
+            LocalDateTime.of(2026, 10, 6, 4, 0, 0);
+    private static final String CANCEL_REQUEST_REASON = "问题已自行解决";
+    private static final LocalDateTime CANCEL_REQUEST_DEADLINE_AT =
+            LocalDateTime.of(2026, 10, 9, 4, 0, 0);
 
     @Mock
     private TicketMapper ticketMapper;
@@ -409,8 +422,8 @@ class TicketQueryServiceImplTest {
      * 装配顺序固定为 {@code confirm-resolution} 在前；{@code report-unresolved} 是片 A 新增的判定，
      * 因此本用例的期望值从单个动作改为一对——旧断言编码的是片 A 之前的实现。</p>
      *
-     * <p>片 D 又在这张表上加了第三格 {@code cancel}：撤销在四种非终态上都可用，与确认、
-     * 反馈未解决共用同一个权限码但条件更宽，因此它排在最后。</p>
+     * <p>两阶段撤销之后第三格从 {@code cancel} 变成 {@code request-cancel}：待确认已经有人负责，
+     * 提交人只能发起请求，由当前负责人批准或拒绝（2026-10-08 规则变更）。</p>
      */
     @Test
     void detailAllowsConfirmAndReportUnresolvedForRequesterInFixedOrder() {
@@ -421,8 +434,8 @@ class TicketQueryServiceImplTest {
         TicketDetailResult result = service.detail(TICKET_NO);
 
         assertThat(result.allowedActions())
-                .as("提交人在待确认上有两个互斥选择，外加随时可用的撤销，顺序固定且三个都必须在")
-                .containsExactly("confirm-resolution", "report-unresolved", "cancel");
+                .as("提交人在待确认上有两个互斥选择，外加随时可发的撤销请求，顺序固定且三个都必须在")
+                .containsExactly("confirm-resolution", "report-unresolved", "request-cancel");
     }
 
     /** 待确认状态下 IT 侧只暴露已实现的动作，负责人自己不是提交人，不应拿到确认按钮。 */
@@ -499,11 +512,12 @@ class TicketQueryServiceImplTest {
     // ---------- allowedActions：片 B 新增两格 ----------
 
     /**
-     * 「待补充」+ 本人是提交人 + {@code TICKET_REQUESTER_ACTION}：补充与撤销两格。
+     * 「待补充」+ 本人是提交人 + {@code TICKET_REQUESTER_ACTION}：补充与撤销请求两格。
      *
      * <p>提交人在这个状态上不是负责人，因此不能复用 {@code canProcess} 一族的判定；
      * 同时也不该拿到 {@code report-unresolved} 或 {@code confirm-resolution}——
-     * 那两格只属于「待确认」。{@code cancel} 是片 D 新增的：撤销在四种非终态上都可用。</p>
+     * 那两格只属于「待确认」。第三格是两阶段撤销的发起入口：待补充已经有人负责，
+     * 直接撤销不再可用（2026-10-08 规则变更）。</p>
      */
     @Test
     void detailAllowsSupplementForRequesterOfWaitingForRequester() {
@@ -514,8 +528,8 @@ class TicketQueryServiceImplTest {
         TicketDetailResult result = service.detail(TICKET_NO);
 
         assertThat(result.allowedActions())
-                .as("提交人在待补充上能补充，也能直接撤销")
-                .containsExactly("supplement", "cancel");
+                .as("提交人在待补充上能补充，也能发起撤销请求")
+                .containsExactly("supplement", "request-cancel");
     }
 
     @Test
@@ -899,9 +913,9 @@ class TicketQueryServiceImplTest {
     /**
      * 提交人自己不是负责人：即使持有全部相关权限也不该看到调整与转交。
      *
-     * <p>片 D 之后这张单上他仍有一件事可做——撤销（四种非终态 + 本人是提交人 +
-     * {@code TICKET_REQUESTER_ACTION}），因此期望值从空集变成一格。负责人那一族的五个动作
-     * 一个都不能出现：权限齐备不等于可以替别人处理。</p>
+     * <p>两阶段撤销之后这张单上他仍有一件事可做——发起撤销请求（三种"有人负责"的状态 +
+     * 本人是提交人 + {@code TICKET_REQUESTER_ACTION}），因此期望值是一格而不是空集。
+     * 负责人那一族的五个动作一个都不能出现：权限齐备不等于可以替别人处理。</p>
      */
     @Test
     void detailHidesAdjustAndTransferForRequesterOfProcessing() {
@@ -909,7 +923,7 @@ class TicketQueryServiceImplTest {
         grant("TICKET_PROCESS", "TICKET_TRANSFER", "TICKET_REQUESTER_ACTION");
         stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
 
-        assertActions(service.detail(TICKET_NO), "cancel");
+        assertActions(service.detail(TICKET_NO), "request-cancel");
     }
 
     /** 「待确认」不在可调整态：负责人持有两个权限也拿不到这三格。 */
@@ -1002,32 +1016,34 @@ class TicketQueryServiceImplTest {
     }
 
     /**
-     * 撤销是四种非终态上提交人的动作，等待态各自还有自己的那一格。
+     * 提交人在每种非终态上拿到的撤销那格（2026-10-08 规则变更）。
      *
-     * <p>期望值按状态逐个给：{@code PENDING} 与 {@code PROCESSING} 只有撤销，
-     * {@code WAITING_FOR_REQUESTER} 多一格补充，{@code WAITING_FOR_CONFIRMATION} 多两格
-     * （确认与反馈未解决）。撤销一律排在最后。</p>
+     * <p>待受理没有负责人，直接给 {@code cancel}；其余三种状态已经有人负责，只能发起
+     * {@code request-cancel}，由当前负责人批准或拒绝，因此不存在既能直接撤销又能发起请求的状态。</p>
+     *
+     * <p>期望值按状态逐个给：等待态各自还有自己那一格，撤销一律排在最后。</p>
      */
-    @ParameterizedTest(name = "requester sees cancel on {0}")
+    @ParameterizedTest(name = "requester sees cancel or request-cancel on {0}")
     @MethodSource("cancelableStatusesWithExpectedActions")
-    void detailAllowsCancelForRequesterOnEveryNonTerminalStatus(
+    void detailAllowsCancelOrRequestCancelForRequesterOnEveryNonTerminalStatus(
             String status, Long assigneeId, List<String> expectedActions) {
         stubCurrentUser(REQUESTER_ID);
         grant("TICKET_REQUESTER_ACTION");
         stubVisible(detailRow(status, assigneeId, 3L));
 
         assertThat(service.detail(TICKET_NO).allowedActions())
-                .as("撤销覆盖四种非终态，且不挤掉各等待态自己的那一格")
+                .as("撤销入口覆盖四种非终态，且不挤掉各等待态自己的那一格")
                 .containsExactlyElementsOf(expectedActions);
     }
 
     static Stream<Arguments> cancelableStatusesWithExpectedActions() {
         return Stream.of(
                 Arguments.of(PENDING, null, List.of("cancel")),
-                Arguments.of(PROCESSING, IT_USER_ID, List.of("cancel")),
-                Arguments.of(WAITING_FOR_REQUESTER, IT_USER_ID, List.of("supplement", "cancel")),
+                Arguments.of(PROCESSING, IT_USER_ID, List.of("request-cancel")),
+                Arguments.of(WAITING_FOR_REQUESTER, IT_USER_ID,
+                        List.of("supplement", "request-cancel")),
                 Arguments.of(WAITING_FOR_CONFIRMATION, IT_USER_ID,
-                        List.of("confirm-resolution", "report-unresolved", "cancel")));
+                        List.of("confirm-resolution", "report-unresolved", "request-cancel")));
     }
 
     @Test
@@ -1066,6 +1082,119 @@ class TicketQueryServiceImplTest {
         assertThat(service.detail(TICKET_NO).allowedActions())
                 .as("%s 是终态，提交人也不再能撤销", status)
                 .isEmpty();
+    }
+
+    // ---------- allowedActions：两阶段撤销的四格 ----------
+
+    /**
+     * 待决请求存在时，提交人那一格从 {@code request-cancel} 换成
+     * {@code withdraw-cancel-request}。
+     *
+     * <p>两者互斥：同一张单上不可能既"可以发起"又"可以撤回"，界面因此不会同时摆出两个入口。</p>
+     */
+    @ParameterizedTest(name = "requester sees withdraw-cancel-request on {0} with a pending request")
+    @MethodSource("cancelRequestableStatusesWithActionsForRequester")
+    void detailSwapsRequestCancelForWithdrawWhileARequestIsPending(
+            String status, Long assigneeId, List<String> expectedActions) {
+        stubCurrentUser(REQUESTER_ID);
+        grant("TICKET_REQUESTER_ACTION");
+        stubVisible(detailRowWithCancelRequest(status, assigneeId, 3L));
+
+        assertThat(service.detail(TICKET_NO).allowedActions())
+                .as("待决请求存在时只能撤回自己那一个，不能再发起")
+                .containsExactlyElementsOf(expectedActions);
+    }
+
+    static Stream<Arguments> cancelRequestableStatusesWithActionsForRequester() {
+        return Stream.of(
+                Arguments.of(PROCESSING, IT_USER_ID, List.of("withdraw-cancel-request")),
+                Arguments.of(WAITING_FOR_REQUESTER, IT_USER_ID,
+                        List.of("supplement", "withdraw-cancel-request")),
+                Arguments.of(WAITING_FOR_CONFIRMATION, IT_USER_ID,
+                        List.of("confirm-resolution", "report-unresolved",
+                                "withdraw-cancel-request")));
+    }
+
+    /**
+     * 待决请求存在时，当前负责人多出批准与拒绝两格。
+     *
+     * <p>两格共用同一条判定，因此必须成对出现——只给一格会让人以为另一种选择不存在；
+     * 位置由装配顺序决定，排在所有处理动作之后。</p>
+     */
+    @ParameterizedTest(name = "assignee decides the pending request on {0}")
+    @MethodSource("cancelRequestableStatusesWithActionsForAssignee")
+    void detailOffersApproveAndRejectToTheAssigneeHoldingAPendingRequest(
+            String status, List<String> expectedActions) {
+        stubCurrentUser(IT_USER_ID);
+        grant("TICKET_PROCESS", "TICKET_CLOSE", "TICKET_TRANSFER");
+        stubVisible(detailRowWithCancelRequest(status, IT_USER_ID, 3L));
+
+        assertThat(service.detail(TICKET_NO).allowedActions())
+                .as("批准与拒绝成对出现，且不挤掉该状态原有的处理动作")
+                .containsExactlyElementsOf(expectedActions);
+    }
+
+    static Stream<Arguments> cancelRequestableStatusesWithActionsForAssignee() {
+        return Stream.of(
+                Arguments.of(PROCESSING, List.of("add-processing-record", "submit-resolution",
+                        "request-supplement", "change-category", "change-priority",
+                        "transfer", "close", "approve-cancel", "reject-cancel")),
+                Arguments.of(WAITING_FOR_REQUESTER, List.of("withdraw-supplement-request",
+                        "change-category", "change-priority", "transfer",
+                        "approve-cancel", "reject-cancel")),
+                Arguments.of(WAITING_FOR_CONFIRMATION, List.of("approve-cancel", "reject-cancel")));
+    }
+
+    /**
+     * 待受理上没有负责人，提交人只拿直接撤销；两阶段那三格一个都不出现。
+     *
+     * <p>与 {@code cancelableStatusesWithExpectedActions} 的"恰好等于"是同一件事，
+     * 这里把"不含 {@code request-cancel}"写成显式断言，避免将来有人把两格都加上时
+     * 只改动期望集合就悄悄通过。</p>
+     */
+    @Test
+    void detailOffersNoCancelRequestOnPendingWhereNobodyHasToApprove() {
+        stubCurrentUser(REQUESTER_ID);
+        grant("TICKET_REQUESTER_ACTION");
+        stubVisible(detailRow(PENDING, null, 3L));
+
+        assertThat(service.detail(TICKET_NO).allowedActions())
+                .containsExactly("cancel")
+                .doesNotContain("request-cancel", "withdraw-cancel-request",
+                        "approve-cancel", "reject-cancel");
+    }
+
+    // ---------- 详情：cancelRequest ----------
+
+    /** 没有待决请求时详情不返回它：界面据此不显示"待批准"。 */
+    @Test
+    void detailOmitsCancelRequestWhenThereIsNoPendingRequest() {
+        stubCurrentUser(REQUESTER_ID);
+        grant("TICKET_REQUESTER_ACTION");
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+
+        assertThat(service.detail(TICKET_NO).cancelRequest()).isNull();
+    }
+
+    /**
+     * 有待决请求时三个字段都要返回，两个时间统一转成 UTC 偏移。
+     *
+     * <p>请求期间状态不变，所以这份数据是界面识别"IT 正在等批准"的唯一依据。</p>
+     */
+    @Test
+    void detailMapsPendingCancelRequestWithReasonAndUtcTimestamps() {
+        stubCurrentUser(REQUESTER_ID);
+        grant("TICKET_REQUESTER_ACTION");
+        stubVisible(detailRowWithCancelRequest(WAITING_FOR_REQUESTER, IT_USER_ID, 3L));
+
+        TicketCancelRequestResult cancelRequest = service.detail(TICKET_NO).cancelRequest();
+
+        assertThat(cancelRequest).isNotNull();
+        assertThat(cancelRequest.requestedAt()).as("发起时间按 UTC 输出")
+                .isEqualTo(CANCEL_REQUESTED_AT.atOffset(ZoneOffset.UTC));
+        assertThat(cancelRequest.deadlineAt()).as("响应期限按 UTC 输出")
+                .isEqualTo(CANCEL_REQUEST_DEADLINE_AT.atOffset(ZoneOffset.UTC));
+        assertThat(cancelRequest.reason()).isEqualTo(CANCEL_REQUEST_REASON);
     }
 
     // ---------- transferCandidates ----------
@@ -1272,6 +1401,16 @@ class TicketQueryServiceImplTest {
 
     private static TicketDetailRow detailRow(String status, Long assigneeId, long version) {
         return detailRow(status, assigneeId, version, REQUESTER_ID);
+    }
+
+    /** 带待决撤销请求的可见行：两阶段撤销的四格都靠 {@code cancel_requested_at} 区分。 */
+    private static TicketDetailRow detailRowWithCancelRequest(
+            String status, Long assigneeId, long version) {
+        TicketDetailRow row = detailRow(status, assigneeId, version);
+        row.setCancelRequestedAt(CANCEL_REQUESTED_AT);
+        row.setCancelRequestReason(CANCEL_REQUEST_REASON);
+        row.setCancelRequestDeadlineAt(CANCEL_REQUEST_DEADLINE_AT);
+        return row;
     }
 
     private static TicketAssigneeRow assigneeRow(long id, String displayName) {
