@@ -135,13 +135,13 @@ PENDING（待受理） → PROCESSING（处理中） → WAITING_FOR_CONFIRMATIO
 - **依赖方向**：`ticket`/`category` → `iam` 通过 **port（接口在被依赖方的 `application.port`，由调用方的 `infrastructure` 实现）**；`auth` → `iam`。生产代码的数据访问集中在 `mapper` 的注解 SQL 与 MyBatis-Plus wrapper，业务编排在 `application.service.impl`。
 - **分层约定（硬约束）**：`application.command` / `query` / `result` / `service`，实现入 `application.service.impl`；Controller 直接接收 Command/Query、直接返回 Result；`domain` 不放 BO/VO。完整约定见 `docs/technical-architecture.md` 5.1。
 - **认证与授权**：Access Token 只在 Pinia 内存（15 分钟），刷新依赖 HttpOnly Refresh Cookie（7 天，轮换 + 重用检测）；授权是动态 RBAC——权限编码存库、随角色授予，接口用 `hasAuthority` 兜底、服务层按资源关系复核，无权查看与不存在统一 `404`。
-- **数据**：MySQL 8.4（Flyway 管理 `V1/V2/V4/V5/V6`，外加仅 demo 加载的演示种子）、Redis（会话快照与刷新令牌索引）。状态与期限、结束时间、完成方式之间的合法组合由数据库 CHECK 约束固定。
+- **数据**：MySQL 8.4（Flyway 管理 `V1/V2/V4/V5/V6/V7`，外加仅 demo 加载的演示种子）、Redis（会话快照与刷新令牌索引）。状态与期限、结束时间、完成方式之间的合法组合由数据库 CHECK 约束固定。
 - **前端**：Vue 3 + Element Plus + Pinia + vue-router；页面按 `views/work`（工单与 IT 工作台）与 `views/admin`（管理端）分层，设计 token 单一真源在 `frontend/src/styles/tokens.css`，由 stylelint 门禁强制。
 
 ## 已知限制
 
-- **完整版未实现**（不计入 MVP）：完整工单状态机的**动作**已全部交付（`docs/implementation-plan.md` 9.3 的片 A～片 D）——`close`（人工关闭，三种标准原因 + 重复工单关联）与 `cancel`（员工撤销，四种非终态）已在 2026-10-08 的 **片 D** 实现；仍未实现的是**超时自动任务**（待确认超时自动完成、待补充超时关闭，属 backlog 第 3 项），此外附件上传下载、数据概览图表、管理性交接也未实现。界面只摆已实现的动作，不出现"按不动的按钮"。
-- **撤销是提交人的单方面动作**（v1 口径，`docs/kickoff.md` 4.7）：IT 领取并处理中的工单，提交人仍可直接撤销，IT 没有否决权。这不影响正确性——撤销是业务终止而不是删除，负责人、参与关系与全部处理记录都保留，且"已取消"不计入 IT 的解决成果；收窄它会让"处理中"的提交人失去唯一出口。若要改成"提交人发起、负责人批准"，那是业务规则变更，设计要点见 `docs/implementation-plan.md` 9.3 的决策记录。
+- **完整版未实现**（不计入 MVP）：完整工单状态机的**动作**已全部交付（`docs/implementation-plan.md` 9.3 的片 A～片 D），并在 2026-10-08 追加了**两阶段撤销**的规则变更（`cancel` 收窄为待受理直接撤销，另加 `request-cancel` / `approve-cancel` / `reject-cancel` / `withdraw-cancel-request` 四个动作）；仍未实现的是**超时自动任务**（待确认超时自动完成、待补充超时关闭，属 backlog 第 3 项），此外附件上传下载、数据概览图表、管理性交接也未实现。界面只摆已实现的动作，不出现"按不动的按钮"。
+- **撤销已改为两阶段**（2026-10-08 规则变更，`docs/kickoff.md` 4.7）：待受理没有负责人，提交人仍可直接撤销；处理中、待补充、待确认下提交人只能**发起撤销请求**，由**当前负责人批准或拒绝**，提交人也可以随时撤回自己的请求。请求期间工单状态与原期限不变，请求自带响应期限（默认 3 天，`flowdesk.ticket.cancel-request-window`）但**到期不自动处置**，期限只用于展示。**后端与前端动作区均已实现**（含真实 MySQL 集成用例、界面单测与 E2E 场景）；真实栈验收与分支交接见 `PROJECT_STATUS.md` 的当前结论。
 - **单节点设计**：未做多实例下的分布式协调；会话与刷新索引集中在一个 Redis 实例上。
 - **前端打包**：Element Plus 目前全量引入（构建产物约 1.2 MB / gzip 约 379 KB），未做按需引入；构建会打印大 chunk 提示，不影响退出码。
 - **测试策略**：不做覆盖率门禁（`jacoco` 只出报告），以行为断言为准；集成测试依赖 Docker。

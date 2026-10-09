@@ -1,0 +1,30 @@
+{
+  "ticketNo": "FD-20261009-019",
+  "title": "E2E 片D撤销 165001",
+  "steps": [
+    {
+      "step": "create",
+      "status": 201,
+      "traceId": "ba8fea5e-9cac-445c-b7b8-d482f32f7ff9",
+      "detail": "FD-20261009-019 由员工通过界面创建"
+    },
+    {
+      "step": "claim",
+      "status": 200,
+      "traceId": "866a0919-0c3c-4a07-8ed7-78a21d4fed4c",
+      "detail": "IT 领取成功，工单进入「处理中」"
+    },
+    {
+      "step": "request-cancel",
+      "status": 200,
+      "traceId": "1419f5d7-76cf-43ab-b2f8-904c3f9aa0d2",
+      "detail": "提交人在「处理中」发起撤销申请，工单状态不变"
+    },
+    {
+      "step": "approve-cancel",
+      "status": 200,
+      "traceId": "164e5b71-835c-4e6d-87fb-3ccd558c701a",
+      "detail": "当前负责人同意撤销，工单进入「已取消」"
+    }
+  ]
+}

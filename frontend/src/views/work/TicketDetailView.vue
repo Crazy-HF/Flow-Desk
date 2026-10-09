@@ -9,6 +9,7 @@ import { errorCode } from '@/api/http'
 import { listCategoryOptions } from '@/api/categories'
 import {
   addProcessingRecord,
+  approveCancel,
   cancelTicket,
   changeTicketCategory,
   changeTicketPriority,
@@ -18,11 +19,14 @@ import {
   getTicket,
   listTicketRecords,
   listTransferCandidates,
+  rejectCancel,
   reportUnresolved,
+  requestCancelTicket,
   requestSupplementTicket,
   submitResolution,
   supplementTicket,
   transferTicket,
+  withdrawCancelRequest,
   withdrawSupplementRequest,
 } from '@/api/tickets'
 import type {
@@ -58,8 +62,9 @@ import TicketActionTextField from './TicketActionTextField.vue'
 /**
  * 工单详情与处理时间线（`docs/api-design.md` 5.4 / 5.5），以及这张工单上可执行的动作
  * （6.3：`claim` / `add-processing-record` / `submit-resolution` / `request-supplement` /
- * `withdraw-supplement-request` / `change-category` / `change-priority` / `transfer` / `close`；
- * 6.4：`confirm-resolution` / `report-unresolved` / `supplement` / `cancel`）。
+ * `withdraw-supplement-request` / `change-category` / `change-priority` / `transfer` / `close` /
+ * `approve-cancel` / `reject-cancel`；6.4：`confirm-resolution` / `report-unresolved` / `supplement` /
+ * `cancel` / `request-cancel` / `withdraw-cancel-request`）。
  *
  * <p>三处容易读错的地方，这里显式处理：</p>
  * <p>1. **无权与不存在是同一种结果**。后端对"没有查看权限"和"编号不存在"统一返回
@@ -244,6 +249,50 @@ const deadlineFact = computed<{ label: string; hint?: string } | null>(() => {
    * 不去猜一个好看的标签：把日期原样显示出来，标签直说是"期限"。
    */
   return { label: '期限' }
+})
+
+/**
+ * 待批准的撤销申请怎么讲给当前这个人（2026-10-08 两阶段撤销）。
+ *
+ * <p>申请期间工单**状态不变**，所以"谁在等谁"推不出来，只能按"这一格动作归谁"分岔：
+ * 有 `approve-cancel` 的人是**做决定的那一方**（他需要先读到提交人写的理由），
+ * 有 `withdraw-cancel-request` 的人是**发起的那一方**（他还能撤回），
+ * 两者都没有的人只是旁观者（例如已经交接走的历史负责人、或刚好被撤掉处理权限的账号），
+ * 这时只陈述事实，不指使他做任何事。</p>
+ *
+ * <p>与 `deadlineFact` 一样，提示按**角色**给而不是按"有没有按钮"给：负责人若刚好没有
+ * `TICKET_PROCESS`，他也应该看到"有人在申请撤销"，而不是看到一块空的动作区。</p>
+ */
+const cancelRequestNotice = computed<{ lead: string; actionHint: string } | null>(() => {
+  const current = detail.value
+  if (!current?.cancelRequest) {
+    return null
+  }
+
+  const requester = current.requester.displayName
+  const assignee = current.assignee?.displayName
+
+  if (availableActions.value.includes('approve-cancel')) {
+    return {
+      lead: `${requester}申请撤销这张工单，正在等你处理。`,
+      actionHint: '在下面的操作里选择「同意撤销」（工单进入已取消）或「驳回撤销申请」（工单继续处理）。',
+    }
+  }
+
+  if (availableActions.value.includes('withdraw-cancel-request')) {
+    return {
+      lead: '你已申请撤销这张工单，正在等待当前负责人处理。',
+      // 人名直接贴着动词：中文里 name + 空格 + 动词会被读成一个停顿，而这里只是一个主语
+      actionHint: assignee
+        ? `在${assignee}处理之前，你可以在下面撤回这次申请。`
+        : '在负责人处理之前，你可以在下面撤回这次申请。',
+    }
+  }
+
+  return {
+    lead: `${requester}已申请撤销这张工单，正在等待当前负责人处理。`,
+    actionHint: '在负责人同意或驳回之前，工单仍按当前状态继续流转。',
+  }
 })
 
 /** 动作失败的原因：显示在动作区里，而不是只在右上角闪一下。 */
@@ -468,6 +517,18 @@ const actionRequests: Record<
     }),
   supplement: (ticketNo, payload, content) => supplementTicket(ticketNo, { ...payload, content }),
   cancel: (ticketNo, payload, content) => cancelTicket(ticketNo, { ...payload, reason: content }),
+  /**
+   * 两阶段撤销的四个动作（2026-10-08 规则变更）。
+   *
+   * <p>发起与驳回都要写一段说明（走 `reason`）；同意与撤回与 `claim` 一样只需要版本，
+   * 登记表里没有 `reason` 槽，弹窗也就不会摆出一个没人看的输入框。</p>
+   */
+  'request-cancel': (ticketNo, payload, content) =>
+    requestCancelTicket(ticketNo, { ...payload, reason: content }),
+  'withdraw-cancel-request': (ticketNo, payload) => withdrawCancelRequest(ticketNo, payload),
+  'approve-cancel': (ticketNo, payload) => approveCancel(ticketNo, payload),
+  'reject-cancel': (ticketNo, payload, content) =>
+    rejectCancel(ticketNo, { ...payload, reason: content }),
 }
 
 async function performAction(name: TicketActionName, content: string): Promise<void> {
@@ -750,6 +811,50 @@ async function runAction(name: TicketActionName): Promise<void> {
 
       <div class="ticket-detail">
         <div class="ticket-detail__main">
+          <!--
+            待批准的撤销申请：申请期间工单状态不变，所以它推不出来，只能靠详情单独返回的
+            cancelRequest。放在动作区**之前**而不是动作区里面：负责人要先读到"为什么有人要撤销"
+            才谈得上同意或驳回，而这个块在没有决策权限的旁观者那里也必须看得见——那时动作区是空的。
+          -->
+          <section
+            v-if="detail.cancelRequest"
+            class="ticket-panel ticket-cancel-request"
+            aria-labelledby="ticket-cancel-request-heading"
+          >
+            <header class="ticket-panel__header">
+              <h2 id="ticket-cancel-request-heading">
+                撤销申请待处理
+              </h2>
+              <p class="ticket-panel__count">
+                申请期间工单的状态与期限都不变
+              </p>
+            </header>
+            <div class="ticket-panel__body">
+              <p class="ticket-cancel-request__lead">
+                {{ cancelRequestNotice?.lead }}
+              </p>
+              <!-- 插值单独成行（模板规则要求）：Vue 的 condense 会把首尾空白去掉，pre-wrap 不会多出空行 -->
+              <p class="ticket-cancel-request__reason">
+                {{ detail.cancelRequest.reason }}
+              </p>
+              <dl class="ticket-facts ticket-cancel-request__facts">
+                <dt>申请时间</dt>
+                <dd>{{ formatDateTime(detail.cancelRequest.requestedAt) }}</dd>
+
+                <dt>响应期限</dt>
+                <dd>
+                  {{ formatDateTime(detail.cancelRequest.deadlineAt) }}
+                  <span class="ticket-facts__hint">
+                    到期不会自动处理：工单不会因此自动取消，这次申请也不会自动失效。
+                  </span>
+                </dd>
+              </dl>
+              <p class="ticket-cancel-request__hint">
+                {{ cancelRequestNotice?.actionHint }}
+              </p>
+            </div>
+          </section>
+
           <section
             v-if="availableActions.length > 0"
             class="ticket-panel ticket-action-panel"

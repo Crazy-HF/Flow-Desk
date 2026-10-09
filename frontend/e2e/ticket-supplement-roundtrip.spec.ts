@@ -175,8 +175,8 @@ test('片 B：IT 请求补充、员工补充，工单回到处理中且 IT 可�
   await page.goto(`/tickets/${ticketNo}`)
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(title)
   await expect(page.locator('.ticket-meta')).toContainText('待员工补充')
-  // 提交人在待补充上只能做一件事：补充信息
-  expect(await actionLabels(page)).toEqual(['提交补充信息', '撤销工单'])
+  // 提交人在待补充上能做两件事：补充信息，或申请撤销（2026-10-08 两阶段撤销后不再直接撤销）
+  expect(await actionLabels(page)).toEqual(['提交补充信息', '申请撤销工单'])
 
   const employeeFacts = page.locator('.ticket-facts')
   await expect(employeeFacts).toContainText('补充截止时间')
@@ -201,9 +201,9 @@ test('片 B：IT 请求补充、员工补充，工单回到处理中且 IT 可�
   expect(supplemented.status()).toBe(200)
   record(steps, 'supplement', supplemented, '员工补充后回到处理中')
 
-  // ---------- 4. 回到处理中：期限消失、员工侧只剩撤销、时间线两条新记录 ----------
+  // ---------- 4. 回到处理中：期限消失、员工侧只剩申请撤销、时间线两条新记录 ----------
   await expect(page.locator('.ticket-meta')).toContainText('处理中')
-  expect(await actionLabels(page)).toEqual(['撤销工单'])
+  expect(await actionLabels(page)).toEqual(['申请撤销工单'])
   await expect(employeeFacts).not.toContainText('补充截止时间')
   const supplementRecord = page
     .locator('.ticket-timeline__item')

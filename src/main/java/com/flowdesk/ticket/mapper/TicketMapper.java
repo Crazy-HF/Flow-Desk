@@ -40,6 +40,7 @@ public interface TicketMapper extends BaseMapper<Ticket> {
                    t.requester_id, requester.display_name AS requester_display_name,
                    t.assignee_id, assignee.display_name AS assignee_display_name,
                    t.action_deadline_at, t.version,
+                   t.cancel_requested_at, t.cancel_request_reason, t.cancel_request_deadline_at,
                    t.completion_method, t.close_method, t.close_reason, t.ended_at,
                    t.created_at, t.updated_at
             FROM ticket t
@@ -225,6 +226,9 @@ public interface TicketMapper extends BaseMapper<Ticket> {
     SET status = 'COMPLETED',
         action_deadline_at = NULL,
         completion_method = 'REQUESTER_CONFIRMED',
+        cancel_requested_at = NULL,
+        cancel_request_reason = NULL,
+        cancel_request_deadline_at = NULL,
         ended_at = #{now},
         version = version + 1,
         record_seq = record_seq + 1,
@@ -436,6 +440,9 @@ public interface TicketMapper extends BaseMapper<Ticket> {
     SET status = 'CLOSED',
         close_method = 'MANUAL',
         close_reason = #{closeReason},
+        cancel_requested_at = NULL,
+        cancel_request_reason = NULL,
+        cancel_request_deadline_at = NULL,
         ended_at = #{now},
         version = version + 1,
         record_seq = record_seq + 1,
@@ -453,15 +460,15 @@ public interface TicketMapper extends BaseMapper<Ticket> {
             @Param("now") LocalDateTime now);
 
     /**
-     * 提交人撤销自己的工单：待受理、处理中、待补充、待确认四种非终态都可以撤销。
+     * 提交人直接撤销自己的工单：**只剩「待受理」**（2026-10-08 规则变更）。
+     *
+     * <p>待受理没有负责人，没有人需要批准；处理中、待补充、待确认改走
+     * {@link #requestCancel} + {@link #approveCancel} / {@link #rejectCancel} 两阶段。</p>
      *
      * <p>状态与 {@code action_deadline_at} 必须**在同一条 UPDATE 里原子写入**：
-     * {@code ck_ticket_status_deadline} 要求待补充与待确认之外的状态期限为空，
-     * 而「待补充」「待确认」两态恰恰带着期限，拆成两次更新会在中间撞约束
-     * （与 {@link #requestSupplement} 同因、反向）。</p>
-     *
-     * <p>负责人不写：待受理本来就没有负责人，其余状态保留最后负责人，
-     * {@code ck_ticket_status_assignee} 对「已取消」两种都允许。</p>
+     * {@code ck_ticket_status_deadline} 要求待补充与待确认之外的状态期限为空。
+     * 待受理本来期限就是空，这条在这里是防御性的——收窄之后已经没有带期限的来源状态，
+     * 但保留它可以让"将来放宽允许状态"的人不必重新推一遍约束。</p>
      */
     @Update("""
     UPDATE ticket
@@ -474,7 +481,7 @@ public interface TicketMapper extends BaseMapper<Ticket> {
     WHERE id = #{ticketId}
       AND version = #{expectedVersion}
       AND requester_id = #{actorId}
-      AND status IN ('PENDING', 'PROCESSING', 'WAITING_FOR_REQUESTER', 'WAITING_FOR_CONFIRMATION')
+      AND status = 'PENDING'
     """)
     int cancel(
             @Param("ticketId") long ticketId,
@@ -506,4 +513,125 @@ public interface TicketMapper extends BaseMapper<Ticket> {
             @Param("sourceTicketId") long sourceTicketId,
             @Param("requesterId") long requesterId,
             @Param("duplicateTicketNo") String duplicateTicketNo);
+
+    /**
+     * 提交人发起撤销请求：三个「有人负责且未终结」的状态都可以发起，状态不变。
+     *
+     * <p>{@code cancel_requested_at IS NULL} 是判定的一部分：一张工单同时只能有一个待决请求。
+     * 重复发起由条件更新挡成 409，而不是静默覆盖前一次的说明。</p>
+     *
+     * <p>三列必须**在同一条 UPDATE 里**写入：{@code ck_ticket_cancel_request_pair} 要求三列同生同灭。
+     * 状态不在 SET 里，因此不必动 {@code action_deadline_at}，也就不会撞期限约束——
+     * 这一点与 {@link #cancel} 恰好相反（那条必须清期限）。</p>
+     */
+    @Update("""
+    UPDATE ticket
+    SET cancel_requested_at = #{now},
+        cancel_request_reason = #{reason},
+        cancel_request_deadline_at = #{deadlineAt},
+        version = version + 1,
+        record_seq = record_seq + 1,
+        updated_at = #{now}
+    WHERE id = #{ticketId}
+      AND version = #{expectedVersion}
+      AND requester_id = #{actorId}
+      AND status IN ('PROCESSING', 'WAITING_FOR_REQUESTER', 'WAITING_FOR_CONFIRMATION')
+      AND cancel_requested_at IS NULL
+    """)
+    int requestCancel(
+            @Param("ticketId") long ticketId,
+            @Param("expectedVersion") long expectedVersion,
+            @Param("actorId") long actorId,
+            @Param("reason") String reason,
+            @Param("deadlineAt") LocalDateTime deadlineAt,
+            @Param("now") LocalDateTime now);
+
+    /**
+     * 当前负责人批准撤销请求：进入终态「已取消」。
+     *
+     * <p><b>必须同时清 {@code action_deadline_at}</b>：待补充与待确认这两个来源状态本身带着期限，
+     * 而 {@code ck_ticket_status_deadline} 要求其它状态期限为空；只改 status 会直接撞约束。</p>
+     *
+     * <p>请求三列的清空与 {@code ended_at} 也在同一条里：
+     * {@code ck_ticket_cancel_request_status} 不允许待决请求留在终态上，
+     * {@code ck_ticket_status_ended} 又要求终态必须有结束时间。</p>
+     *
+     * <p>{@code cancel_requested_at IS NOT NULL} 与版本一起进 WHERE：批准、拒绝、提交人撤回
+     * 三者并发时只有一条能命中，另外两路拿到 409 而不是互相覆盖。</p>
+     */
+    @Update("""
+    UPDATE ticket
+    SET status = 'CANCELED',
+        action_deadline_at = NULL,
+        cancel_requested_at = NULL,
+        cancel_request_reason = NULL,
+        cancel_request_deadline_at = NULL,
+        ended_at = #{now},
+        version = version + 1,
+        record_seq = record_seq + 1,
+        updated_at = #{now}
+    WHERE id = #{ticketId}
+      AND version = #{expectedVersion}
+      AND assignee_id = #{actorId}
+      AND status IN ('PROCESSING', 'WAITING_FOR_REQUESTER', 'WAITING_FOR_CONFIRMATION')
+      AND cancel_requested_at IS NOT NULL
+    """)
+    int approveCancel(
+            @Param("ticketId") long ticketId,
+            @Param("expectedVersion") long expectedVersion,
+            @Param("actorId") long actorId,
+            @Param("now") LocalDateTime now);
+
+    /**
+     * 当前负责人拒绝撤销请求：状态与期限都不变，只让请求失效。
+     *
+     * <p>与 {@link #approveCancel} 形状相同、只有状态迁移那一行不同。刻意写成两条独立的 SQL，
+     * 与 {@link #withdrawSupplementRequest} / {@link #supplement} 同一理由：
+     * "批准还是拒绝"是业务判定本身，参数化会让它从 SQL 里消失。</p>
+     */
+    @Update("""
+    UPDATE ticket
+    SET cancel_requested_at = NULL,
+        cancel_request_reason = NULL,
+        cancel_request_deadline_at = NULL,
+        version = version + 1,
+        record_seq = record_seq + 1,
+        updated_at = #{now}
+    WHERE id = #{ticketId}
+      AND version = #{expectedVersion}
+      AND assignee_id = #{actorId}
+      AND status IN ('PROCESSING', 'WAITING_FOR_REQUESTER', 'WAITING_FOR_CONFIRMATION')
+      AND cancel_requested_at IS NOT NULL
+    """)
+    int rejectCancel(
+            @Param("ticketId") long ticketId,
+            @Param("expectedVersion") long expectedVersion,
+            @Param("actorId") long actorId,
+            @Param("now") LocalDateTime now);
+
+    /**
+     * 提交人撤回自己的撤销请求：状态与期限都不变，只让请求失效。
+     *
+     * <p>身份列是 {@code requester_id} 而不是 {@code assignee_id}：这是提交人的动作，
+     * 当前负责人即使同时持有提交人权限也撤不掉别人的请求（与 {@link #cancel} 同一条口径）。</p>
+     */
+    @Update("""
+    UPDATE ticket
+    SET cancel_requested_at = NULL,
+        cancel_request_reason = NULL,
+        cancel_request_deadline_at = NULL,
+        version = version + 1,
+        record_seq = record_seq + 1,
+        updated_at = #{now}
+    WHERE id = #{ticketId}
+      AND version = #{expectedVersion}
+      AND requester_id = #{actorId}
+      AND status IN ('PROCESSING', 'WAITING_FOR_REQUESTER', 'WAITING_FOR_CONFIRMATION')
+      AND cancel_requested_at IS NOT NULL
+    """)
+    int withdrawCancelRequest(
+            @Param("ticketId") long ticketId,
+            @Param("expectedVersion") long expectedVersion,
+            @Param("actorId") long actorId,
+            @Param("now") LocalDateTime now);
 }

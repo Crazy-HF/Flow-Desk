@@ -65,6 +65,9 @@ flowdesk:
     # 员工补充期限：IT 请求补充后 7×24 小时（docs/kickoff.md 4.12 已确认规则）。
     # 本版本只写入并在界面展示，到期不会自动关闭工单（用户 2026-10-06 裁决）。
     supplement-window: 7d
+    # 撤销请求的响应期限：提交人发起后 IT 需在 3×24 小时内批准或拒绝（docs/kickoff.md 4.7）。
+    # 与上面两个期限同口径：只写入并在界面展示，到期不会自动改变工单状态。
+    cancel-request-window: 3d
 
 jwt:
   secret: ${FLOWDESK_JWT_SECRET}

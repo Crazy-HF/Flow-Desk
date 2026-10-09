@@ -23,6 +23,9 @@ public class Ticket {
     private String status;
     private Long assigneeId;
     private LocalDateTime actionDeadlineAt;
+    private LocalDateTime cancelRequestedAt;
+    private String cancelRequestReason;
+    private LocalDateTime cancelRequestDeadlineAt;
     private String completionMethod;
     private String closeMethod;
     private String closeReason;

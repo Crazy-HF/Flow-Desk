@@ -155,9 +155,10 @@ test('阶段 3 主链：员工提交 → IT 领取 → 处理 → 提交解决 �
   record(steps, 'create', created, `${ticketNo} 由员工通过界面创建`)
 
   /**
-   * 员工视角：待受理阶段拿不到 `claim`（不能领取自己提交的工单），但片 D 起有一格
-   * 「撤销工单」——撤销覆盖四种非终态。这一格恰好证明按钮来自服务端返回的
-   * `allowedActions`：同一个界面、同一张工单，员工看到撤销、IT 看到领取。
+   * 员工视角：待受理阶段拿不到 `claim`（不能领取自己提交的工单），但有一格「撤销工单」——
+   * 2026-10-08 两阶段撤销后**只剩待受理**是直接撤销（那里没有负责人，不需要谁批准）。
+   * 这一格恰好证明按钮来自服务端返回的 `allowedActions`：同一个界面、同一张工单，
+   * 员工看到撤销、IT 看到领取。
    */
   await expect(page.locator('.ticket-meta')).toContainText('待受理')
   expect(await actionLabels(page)).toEqual(['撤销工单'])
@@ -272,11 +273,12 @@ test('阶段 3 主链：员工提交 → IT 领取 → 处理 → 提交解决 �
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(title)
   /**
    * 提交人在待确认时看到的是两个互斥选择：确认已解决 / 问题仍未解决（片 A 新增后者），
-   * 外加片 D 起在四种非终态上都可用的撤销。
-   * 三者的前置条件不完全相同（撤销条件更宽），所以顺序只由前端登记表决定——
-   * 本用例仍要钉住"看到的是提交人动作，不是 IT 的处理入口"。
+   * 外加一个撤销入口——2026-10-08 两阶段撤销后它叫「申请撤销工单」（待确认已有人负责，
+   * 提交人只能申请，由当前负责人同意或驳回）。
+   * 三者的前置条件不完全相同（申请撤销只需要"本人是提交人且当前没有待批申请"），
+   * 所以顺序只由前端登记表决定——本用例仍要钉住"看到的是提交人动作，不是 IT 的处理入口"。
    */
-  expect(await actionLabels(page)).toEqual(['确认已解决', '问题仍未解决', '撤销工单'])
+  expect(await actionLabels(page)).toEqual(['确认已解决', '问题仍未解决', '申请撤销工单'])
   // 同一个期限字段，对提交人说的是"我要在什么时候之前确认"
   await expect(page.locator('.ticket-facts dt:has-text("确认期限") + dd')).not.toBeEmpty()
   await page.screenshot({ path: resolve(reviewDir, 'employee-detail-confirm-1440.png'), fullPage: true })

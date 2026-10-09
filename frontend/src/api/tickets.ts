@@ -100,6 +100,24 @@ export interface TicketListItem {
   version: number
 }
 
+/**
+ * 待批准的撤销申请（`docs/api-design.md` 5.4，2026-10-08 两阶段撤销）。
+ *
+ * <p>申请存在期间工单**状态不变**，所以它推不出来，只能由详情单独返回：没有这份数据，
+ * 界面就画不出「IT 正在等批准」以及同意 / 驳回 / 撤回三个入口。</p>
+ *
+ * <p>`deadlineAt` 只用于展示与提醒：本版本没有超时自动任务，到期不会自动取消工单，
+ * 申请也不会自动失效（`docs/kickoff.md` 4.7）。</p>
+ */
+export interface TicketCancelRequest {
+  /** 提交人发起申请的时间。 */
+  requestedAt: string
+  /** 负责人应当在此之前处理的响应期限；只展示，到期不自动处置。 */
+  deadlineAt: string
+  /** 提交人写的申请理由，也就是负责人做决定时要看的那段说明。 */
+  reason: string
+}
+
 /** 详情：列表项字段加原始问题描述与终态信息。 */
 export interface TicketDetail extends TicketListItem {
   description: string
@@ -111,12 +129,21 @@ export interface TicketDetail extends TicketListItem {
   /** 终态结束时间，非终态下不出现。 */
   endedAt?: string
   /**
+   * 当前待批准的撤销申请；没有待批申请时这个键不出现（`non_null` 约定）。
+   *
+   * <p>它是唯一能看出"这张工单正卡在一次撤销申请上"的字段——状态、期限与负责人此时都还是原样。</p>
+   */
+  cancelRequest?: TicketCancelRequest
+  /**
    * 后端按当前用户、角色、工单关系与状态计算的可用动作。
    *
-   * <p>动作名与接口路径末段**逐字一致**（`TicketQueryServiceImpl.toDetail` 的构造注释），
-   * 目前会出现的取值是 `claim`、`add-processing-record`、`confirm-resolution`
-   * （`docs/api-design.md` 6.3）；界面只按这个数组渲染按钮，
-   * **不自行推导"应该有"的动作**——比如「提交解决结果」在服务端放行该动作前不会出现。</p>
+   * <p>动作名与接口路径末段**逐字一致**（`TicketQueryServiceImpl.toDetail` 的构造注释）；
+   * 截至 2026-10-08 共 17 格，取值域是 `claim`、`add-processing-record`、`submit-resolution`、
+   * `request-supplement`、`confirm-resolution`、`withdraw-supplement-request`、`report-unresolved`、
+   * `supplement`、`change-category`、`change-priority`、`transfer`、`close`、`request-cancel`、
+   * `withdraw-cancel-request`、`approve-cancel`、`reject-cancel`、`cancel`（`docs/api-design.md` 6.3）。
+   * 界面只按这个数组渲染按钮，**不自行推导"应该有"的动作**；取值域以服务端为准，
+   * 这里的枚举只是给"登记表里有没有这一格"对账用。</p>
    *
    * <p>这个字段不能替代动作接口再次鉴权：它只说明"后端认为现在可以做"，不是许可凭证。
    * 动作仍可能因为并发（`409/TICKET_CONFLICT`）或资格变化而失败。</p>
@@ -271,6 +298,34 @@ export interface CloseTicketPayload {
 export interface CancelTicketPayload {
   version: number
   reason: string
+}
+
+/**
+ * 申请撤销工单（`docs/api-design.md` 6.4，2026-10-08 两阶段撤销）。
+ *
+ * <p>只有「处理中 / 待补充 / 待确认」有这一格——这三个状态已经有人负责，单方面终止需要
+ * 当前负责人同意；「待受理」没有负责人，走 `CancelTicketPayload` 直接撤销。
+ * 说明去首尾空白后 1～1000 字符，且它是**给负责人看的理由**，不是可选备注。</p>
+ */
+export interface RequestCancelPayload {
+  version: number
+  reason: string
+}
+
+/** 同意撤销申请：与 `claim` / `confirm-resolution` 一样只需要版本，成功后进入终态。 */
+export interface ApproveCancelPayload {
+  version: number
+}
+
+/** 驳回撤销申请：理由必填（没有理由，提交人只看到"被驳回"而无从调整），长度约束与其它原因类一致。 */
+export interface RejectCancelPayload {
+  version: number
+  reason: string
+}
+
+/** 撤回自己的撤销申请：不需要理由，申请里写过的说明仍留在时间线上。 */
+export interface WithdrawCancelRequestPayload {
+  version: number
 }
 
 export interface CreatedTicket {
@@ -643,6 +698,77 @@ export async function cancelTicket(
 ): Promise<TicketActionResult> {
   const response = await http.post<ApiEnvelope<TicketActionResult>>(
     `/tickets/${encodeURIComponent(ticketNo)}/actions/cancel`,
+    payload,
+  )
+  return response.data.data
+}
+
+/**
+ * 提交人申请撤销工单（`docs/api-design.md` 6.4，2026-10-08 两阶段撤销）。
+ *
+ * <p>只有「处理中 / 待补充 / 待确认」能申请：这三个状态已经有人负责，单方面终止要先取得
+ * 当前负责人同意；「待受理」没有负责人，仍走 `cancelTicket` 直接撤销。申请成功后工单
+ * **状态、负责人与期限都不变**，只是多出一份待批准的申请（详情 `cancelRequest`），
+ * 因此返回的 `TicketActionResult.actionDeadlineAt` 仍是工单自己的期限，不是申请的响应期限。</p>
+ */
+export async function requestCancelTicket(
+  ticketNo: string,
+  payload: RequestCancelPayload,
+): Promise<TicketActionResult> {
+  const response = await http.post<ApiEnvelope<TicketActionResult>>(
+    `/tickets/${encodeURIComponent(ticketNo)}/actions/request-cancel`,
+    payload,
+  )
+  return response.data.data
+}
+
+/**
+ * 提交人撤回自己的撤销申请（2026-10-08 两阶段撤销）。
+ *
+ * <p>身份要求是**提交人本人**：当前负责人即使同时持有提交人权限也撤不掉别人的申请。
+ * 撤回后工单回到"没有被申请撤销"的状态，可以再次发起。</p>
+ */
+export async function withdrawCancelRequest(
+  ticketNo: string,
+  payload: WithdrawCancelRequestPayload,
+): Promise<TicketActionResult> {
+  const response = await http.post<ApiEnvelope<TicketActionResult>>(
+    `/tickets/${encodeURIComponent(ticketNo)}/actions/withdraw-cancel-request`,
+    payload,
+  )
+  return response.data.data
+}
+
+/**
+ * 当前负责人同意撤销申请（2026-10-08 两阶段撤销）。
+ *
+ * <p>成功后进入终态「已取消」：请求期限与 `actionDeadlineAt` 一并清空、写入结束时间、
+ * 保留最后负责人。权限只要 `TICKET_PROCESS`，**不要求 `TICKET_CLOSE`**——撤销不是关闭
+ * （`close` 与它是两条不同的授权口径）。</p>
+ */
+export async function approveCancel(
+  ticketNo: string,
+  payload: ApproveCancelPayload,
+): Promise<TicketActionResult> {
+  const response = await http.post<ApiEnvelope<TicketActionResult>>(
+    `/tickets/${encodeURIComponent(ticketNo)}/actions/approve-cancel`,
+    payload,
+  )
+  return response.data.data
+}
+
+/**
+ * 当前负责人驳回撤销申请（2026-10-08 两阶段撤销）。
+ *
+ * <p>工单保留原状态与原期限，只是申请失效；理由必填并进入时间线。权限与同意申请相同
+ * （`TICKET_PROCESS`）。</p>
+ */
+export async function rejectCancel(
+  ticketNo: string,
+  payload: RejectCancelPayload,
+): Promise<TicketActionResult> {
+  const response = await http.post<ApiEnvelope<TicketActionResult>>(
+    `/tickets/${encodeURIComponent(ticketNo)}/actions/reject-cancel`,
     payload,
   )
   return response.data.data

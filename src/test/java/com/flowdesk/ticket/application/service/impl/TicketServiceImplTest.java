@@ -2,6 +2,7 @@ package com.flowdesk.ticket.application.service.impl;
 
 import com.flowdesk.common.exception.ApiException;
 import com.flowdesk.ticket.application.command.AddProcessingRecordCommand;
+import com.flowdesk.ticket.application.command.ApproveCancelCommand;
 import com.flowdesk.ticket.application.command.ChangeCategoryCommand;
 import com.flowdesk.ticket.application.command.ChangePriorityCommand;
 import com.flowdesk.ticket.application.command.CancelTicketCommand;
@@ -9,11 +10,14 @@ import com.flowdesk.ticket.application.command.ClaimTicketCommand;
 import com.flowdesk.ticket.application.command.CloseTicketCommand;
 import com.flowdesk.ticket.application.command.ConfirmResolutionCommand;
 import com.flowdesk.ticket.application.command.CreateTicketCommand;
+import com.flowdesk.ticket.application.command.RejectCancelCommand;
 import com.flowdesk.ticket.application.command.ReportUnresolvedCommand;
+import com.flowdesk.ticket.application.command.RequestCancelCommand;
 import com.flowdesk.ticket.application.command.RequestSupplementCommand;
 import com.flowdesk.ticket.application.command.SubmitResolutionCommand;
 import com.flowdesk.ticket.application.command.SupplementCommand;
 import com.flowdesk.ticket.application.command.TransferCommand;
+import com.flowdesk.ticket.application.command.WithdrawCancelRequestCommand;
 import com.flowdesk.ticket.application.command.WithdrawSupplementRequestCommand;
 import com.flowdesk.ticket.application.port.CategoryAvailabilityPort;
 import com.flowdesk.ticket.application.port.CurrentRequesterPort;
@@ -93,9 +97,18 @@ import static org.mockito.Mockito.when;
  *
  * <p>片 D 的结束路径（{@code close} 与 {@code cancel}）沿用同一套顺序守卫，差别在入口条件：
  * 关闭要求 {@code TICKET_PROCESS} <b>与</b> {@code TICKET_CLOSE} 同时成立、且工单处于「处理中」；
- * 撤销只要求 {@code TICKET_REQUESTER_ACTION}、但四种非终态都放行。两者都写入终态，
+ * 直接撤销只要求 {@code TICKET_REQUESTER_ACTION}、并且只剩「待受理」放行。两者都写入终态，
  * 因此用例额外钉住"终态字段彼此可区分"：关闭写 {@code close_method}/{@code close_reason}，
  * 撤销两者都为空。</p>
+ *
+ * <p>两阶段撤销（{@code requestCancel} / {@code approveCancel} / {@code rejectCancel} /
+ * {@code withdrawCancelRequest}）是片 D 之后的一次规则变更：三种「有人负责且未终结」的状态下
+ * 提交人只能发起请求，由当前负责人批准或拒绝，提交人也可以自己撤回。四个方法共用同一套顺序
+ * 守卫，因此用例集也写成对称的；差别集中在三处入口条件——权限码（提交人侧
+ * {@code TICKET_REQUESTER_ACTION}、负责人侧 {@code TICKET_PROCESS}）、身份列
+ * （{@code requester_id} 对 {@code assignee_id}），以及请求列必须满足的方向（发起要求为空，
+ * 另外三个要求非空）。除批准之外三个动作都不迁移状态，所以"返回摘要"与"记录的 from/to"
+ * 必须一起钉住原状态。</p>
  */
 @ExtendWith(MockitoExtension.class)
 // 多个用例共享"可见性行 + 事务管理器"替身，未使用的桩不应判定为失败。
@@ -135,9 +148,20 @@ class TicketServiceImplTest {
     private static final LocalDateTime SUPPLEMENT_DEADLINE =
             LocalDateTime.of(2026, 10, 13, 8, 15, 30);
 
+    /**
+     * 待决撤销请求的三列：请求期间它们挂在工单上，与工单自己的期限是两组独立的期限。
+     *
+     * <p>用例只需要"有没有请求"这一位信息，说明与期限取固定值即可。</p>
+     */
+    private static final LocalDateTime CANCEL_REQUESTED_AT =
+            LocalDateTime.of(2026, 10, 6, 9, 0, 0);
+    private static final String CANCEL_REQUEST_REASON = "问题已自行解决";
+    private static final LocalDateTime CANCEL_REQUEST_DEADLINE_AT =
+            LocalDateTime.of(2026, 10, 9, 9, 0, 0);
+
     private static final String SUBMISSION_KEY = "3f1c9f4e-2a6b-4b7c-8d9e-0a1b2c3d4e5f";
     private static final TicketProperties DEFAULT_PROPERTIES =
-            new TicketProperties(Duration.ofDays(7), Duration.ofDays(7));
+            new TicketProperties(Duration.ofDays(7), Duration.ofDays(7), Duration.ofDays(3));
 
     @Mock
     private TicketMapper ticketMapper;
@@ -915,7 +939,7 @@ class TicketServiceImplTest {
         stubSubmittableTicket(3L, deadline);
 
         TicketActionResult result = service(CLOCK,
-                new TicketProperties(Duration.ofHours(1), null))
+                new TicketProperties(Duration.ofHours(1), null, null))
                 .submitResolution(TICKET_NO, new SubmitResolutionCommand(3L, "已恢复"));
 
         verify(ticketMapper).submitResolution(TICKET_ID, 3L, IT_USER_ID, deadline, NOW_UTC);
@@ -1791,7 +1815,7 @@ class TicketServiceImplTest {
         when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
 
         TicketActionResult result = service(CLOCK,
-                new TicketProperties(null, Duration.ofHours(1)))
+                new TicketProperties(null, Duration.ofHours(1), null))
                 .requestSupplement(TICKET_NO,
                         new RequestSupplementCommand(3L, "请补充打印机型号"));
 
@@ -2886,7 +2910,7 @@ class TicketServiceImplTest {
         when(ticketMapper.transfer(TICKET_ID, 5L, IT_USER_ID, NEW_IT_USER_ID, NOW_UTC))
                 .thenReturn(0);
         when(ticketMapper.selectClaimConflictSnapshotForUpdate(TICKET_ID))
-                .thenReturn(conflictSnapshot(PROCESSING, 5L), null);
+                .thenReturn(conflictSnapshot(PROCESSING, 5L), (Ticket) null);
 
         assertThatThrownBy(() -> service.transfer(TICKET_NO,
                 new TransferCommand(5L, NEW_IT_USER_ID, "换人跟进")))
@@ -3317,6 +3341,27 @@ class TicketServiceImplTest {
     }
 
     /**
+     * 三种「有人负责」的非终态不再允许直接撤销（2026-10-08 规则变更）。
+     *
+     * <p>提交人身份正确、权限齐备、版本也是最新的，仍然按冲突返回——判定只差状态这一项，
+     * 因此这一格与"终态不能撤销""身份不对"三者的错误码相同而触发条件各不相同。</p>
+     */
+    @ParameterizedTest(name = "cancel is a conflict on {0} because somebody has to approve")
+    @ValueSource(strings = {PROCESSING, WAITING_FOR_REQUESTER, WAITING_FOR_CONFIRMATION})
+    void cancelReportsConflictOnEveryStatusThatRequiresApproval(String status) {
+        stubRequesterActor();
+        stubVisible(detailRow(status, IT_USER_ID, 3L));
+
+        ApiException exception = assertApiException(
+                () -> service.cancel(TICKET_NO, cancelCommand(3L, "问题已自行解决")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).isEqualTo(3L);
+        assertThat(exception.resourceStatus()).isEqualTo(status);
+        verify(ticketMapper, never()).cancel(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /**
      * 当前负责人撤不掉别人的工单：领取之后 IT 是负责人，但提交人始终是员工。
      *
      * <p>这里刻意让 IT 也持有 {@code TICKET_REQUESTER_ACTION}——权限齐备但仍然不是提交人，
@@ -3326,7 +3371,7 @@ class TicketServiceImplTest {
     void cancelReportsConflictWhenActorIsNotTheRequester() {
         when(currentRequesterPort.currentUserId()).thenReturn(IT_USER_ID);
         when(ticketReadPermissionPort.hasAuthority("TICKET_REQUESTER_ACTION")).thenReturn(true);
-        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+        stubVisible(detailRow(PENDING, null, 3L));
 
         assertApiException(() -> service.cancel(TICKET_NO, cancelCommand(3L, "不需要了")),
                 HttpStatus.CONFLICT, "TICKET_CONFLICT");
@@ -3337,21 +3382,21 @@ class TicketServiceImplTest {
     @Test
     void cancelReportsConflictWhenCommandVersionIsStale() {
         stubRequesterActor();
-        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+        stubVisible(detailRow(PENDING, null, 3L));
 
         ApiException exception = assertApiException(
                 () -> service.cancel(TICKET_NO, cancelCommand(2L, "问题已自行解决")),
                 HttpStatus.CONFLICT, "TICKET_CONFLICT");
 
         assertThat(exception.resourceVersion()).isEqualTo(3L);
-        assertThat(exception.resourceStatus()).isEqualTo(PROCESSING);
+        assertThat(exception.resourceStatus()).isEqualTo(PENDING);
     }
 
     /** 冲突判定先于 400：版本过期 + 空白原因仍然得到 409。 */
     @Test
     void cancelReportsConflictBeforeValidatingReason() {
         stubRequesterActor();
-        stubVisible(detailRow(WAITING_FOR_CONFIRMATION, IT_USER_ID, 3L));
+        stubVisible(detailRow(PENDING, null, 3L));
 
         assertApiException(() -> service.cancel(TICKET_NO, cancelCommand(2L, "   ")),
                 HttpStatus.CONFLICT, "TICKET_CONFLICT");
@@ -3360,34 +3405,28 @@ class TicketServiceImplTest {
     }
 
     /**
-     * 四种非终态都能撤销（{@code docs/kickoff.md} 4.7 的逐状态表）。
+     * 「待受理」可以直接撤销（{@code docs/kickoff.md} 4.7）。
      *
-     * <p>「待补充」与「待确认」带着期限，撤销必须把期限清空——这正是
-     * {@code ck_ticket_status_deadline} 要求"非等待态期限为空"的地方，
-     * 状态与期限由 Mapper 的同一条 UPDATE 写入，因此这里只能断言入参与结果。</p>
+     * <p><b>2026-10-08 规则变更</b>：其余三种非终态不再直接撤销——那里已经有人负责，
+     * 提交人只能发起撤销请求，由当前负责人批准或拒绝。本用例因此只覆盖待受理这一条直接路径，
+     * 被收窄掉的那一格由 {@link #cancelReportsConflictOnEveryStatusThatRequiresApproval(String)}
+     * 覆盖，两阶段的三条路径见下面 {@code request-cancel} 起的分节。</p>
      */
-    @ParameterizedTest(name = "cancel from {0}")
-    @ValueSource(strings = {PENDING, PROCESSING, WAITING_FOR_REQUESTER, WAITING_FOR_CONFIRMATION})
-    void cancelMovesEveryNonTerminalStatusToCanceled(String status) {
+    @Test
+    void cancelMovesPendingToCanceled() {
         stubRequesterActor();
-        Long assigneeId = PENDING.equals(status) ? null : IT_USER_ID;
-        stubVisible(detailRow(status, assigneeId, 3L));
+        stubVisible(detailRow(PENDING, null, 3L));
         when(ticketMapper.cancel(TICKET_ID, 3L, REQUESTER_ID, NOW_UTC)).thenReturn(1);
-        when(ticketMapper.selectById(TICKET_ID)).thenReturn(canceledTicket(4L, assigneeId));
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(canceledTicket(4L, null));
         when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
 
         TicketActionResult result = service.cancel(TICKET_NO, cancelCommand(3L, "  问题已自行解决  "));
 
         assertThat(result.ticketNo()).isEqualTo(TICKET_NO);
-        assertThat(result.status()).as("四种非终态都进入已取消").isEqualTo(CANCELED);
+        assertThat(result.status()).as("待受理撤销后进入已取消").isEqualTo(CANCELED);
         assertThat(result.version()).isEqualTo(4L);
         assertThat(result.actionDeadlineAt()).as("终态不再有待办期限").isNull();
-        if (assigneeId == null) {
-            assertThat(result.assignee()).as("待受理本来就没有负责人").isNull();
-        } else {
-            assertThat(result.assignee()).as("其余状态保留最后负责人")
-                    .isEqualTo(new TicketUserSummaryResult(IT_USER_ID, IT_DISPLAY_NAME));
-        }
+        assertThat(result.assignee()).as("待受理本来就没有负责人").isNull();
 
         ArgumentCaptor<TicketRecord> captor = ArgumentCaptor.forClass(TicketRecord.class);
         verify(ticketRecordMapper).insert(captor.capture());
@@ -3397,7 +3436,7 @@ class TicketServiceImplTest {
         assertThat(record.getActorUserId()).isEqualTo(REQUESTER_ID);
         assertThat(record.getReason()).as("撤销原因去掉首尾空白后进 reason 列")
                 .isEqualTo("问题已自行解决");
-        assertThat(record.getFromStatus()).as("记录自己冻结撤销前的状态").isEqualTo(status);
+        assertThat(record.getFromStatus()).as("记录自己冻结撤销前的状态").isEqualTo(PENDING);
         assertThat(record.getToStatus()).isEqualTo(CANCELED);
         assertThat(record.getCompletionMethod()).as("撤销不代表 IT 解决了问题").isNull();
         assertThat(record.getCloseMethod()).as("撤销也不是关闭").isNull();
@@ -3412,7 +3451,7 @@ class TicketServiceImplTest {
     @ValueSource(strings = {"", "   "})
     void cancelRejectsBlankReason(String reason) {
         stubRequesterActor();
-        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+        stubVisible(detailRow(PENDING, null, 3L));
 
         assertApiException(() -> service.cancel(TICKET_NO, cancelCommand(3L, reason)),
                 HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
@@ -3423,7 +3462,7 @@ class TicketServiceImplTest {
     @Test
     void cancelRejectsReasonOverOneThousandCharacters() {
         stubRequesterActor();
-        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+        stubVisible(detailRow(PENDING, null, 3L));
 
         assertApiException(
                 () -> service.cancel(TICKET_NO, cancelCommand(3L, "x".repeat(1001))),
@@ -3436,7 +3475,7 @@ class TicketServiceImplTest {
     @Test
     void cancelReportsConflictWhenConditionalUpdateLosesTheRace() {
         stubRequesterActor();
-        stubVisible(detailRow(WAITING_FOR_REQUESTER, IT_USER_ID, 3L));
+        stubVisible(detailRow(PENDING, null, 3L));
         when(ticketMapper.cancel(TICKET_ID, 3L, REQUESTER_ID, NOW_UTC)).thenReturn(0);
         when(ticketMapper.selectClaimConflictSnapshotForUpdate(TICKET_ID))
                 .thenReturn(conflictSnapshot(PROCESSING, 4L));
@@ -3453,7 +3492,7 @@ class TicketServiceImplTest {
     @Test
     void cancelFailsWhenUpdatedTicketSnapshotIsMissing() {
         stubRequesterActor();
-        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+        stubVisible(detailRow(PENDING, null, 3L));
         when(ticketMapper.cancel(TICKET_ID, 3L, REQUESTER_ID, NOW_UTC)).thenReturn(1);
         when(ticketMapper.selectById(TICKET_ID)).thenReturn(null);
 
@@ -3464,29 +3503,861 @@ class TicketServiceImplTest {
         verifyNoInteractions(ticketRecordMapper);
     }
 
+    // ---------- 两阶段撤销：request-cancel ----------
+
+    /**
+     * 发起撤销请求复用提交人动作权限，闸门先于可见性。
+     *
+     * <p>与补充、确认、未解决反馈、直接撤销是同一个码：它在业务上就是"员工对自己的工单做点什么"。</p>
+     */
+    @Test
+    void requestCancelRejectsActorWithoutRequesterActionAuthority() {
+        when(currentRequesterPort.currentUserId()).thenReturn(REQUESTER_ID);
+
+        assertApiException(() -> service.requestCancel(TICKET_NO,
+                        new RequestCancelCommand(3L, CANCEL_REQUEST_REASON)),
+                HttpStatus.FORBIDDEN, "TICKET_ACTION_FORBIDDEN");
+
+        verify(ticketMapper, never())
+                .selectVisibleDetail(any(), anyLong(), anyBoolean(), anyBoolean(), anyBoolean());
+    }
+
+    @Test
+    void requestCancelReportsNotFoundWhenTicketIsNotVisible() {
+        stubRequesterActor();
+
+        assertApiException(() -> service.requestCancel(TICKET_NO,
+                        new RequestCancelCommand(3L, CANCEL_REQUEST_REASON)),
+                HttpStatus.NOT_FOUND, "TICKET_NOT_FOUND");
+
+        verify(ticketMapper, never()).requestCancel(
+                anyLong(), anyLong(), anyLong(), any(), any(), any());
+    }
+
+    /**
+     * 「待受理」上没有负责人，发起撤销请求是冲突：那里直接走 {@code cancel}。
+     *
+     * <p>与下面"身份不对"那一格分开测：错误码相同，但这里提交人确实是本人，只是走错了入口。</p>
+     */
+    @Test
+    void requestCancelReportsConflictOnPendingWhereNobodyHasToApprove() {
+        stubRequesterActor();
+        stubVisible(detailRow(PENDING, null, 3L));
+
+        ApiException exception = assertApiException(() -> service.requestCancel(TICKET_NO,
+                        new RequestCancelCommand(3L, CANCEL_REQUEST_REASON)),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).isEqualTo(3L);
+        assertThat(exception.resourceStatus()).isEqualTo(PENDING);
+        verify(ticketMapper, never()).requestCancel(
+                anyLong(), anyLong(), anyLong(), any(), any(), any());
+    }
+
+    /**
+     * 三个终态上四个动作一律冲突：终态既不接受新的撤销请求，也不可能还挂着待决请求。
+     *
+     * <p>可见行刻意同时满足"有请求列"与"身份正确"，这样冲突只可能来自状态本身，不会因为
+     * 走错分支而碰巧通过；四个动作一起断言是为了钉住它们共用的那张状态白名单。</p>
+     */
+    @ParameterizedTest(name = "two-phase cancel actions are conflicts on terminal {0}")
+    @ValueSource(strings = {COMPLETED, CANCELED, CLOSED})
+    void twoPhaseCancelActionsReportConflictOnTerminalStatus(String status) {
+        stubRequesterActor();
+        stubVisible(detailRowWithCancelRequest(status, IT_USER_ID, 3L));
+        assertApiException(() -> service.requestCancel(TICKET_NO,
+                        new RequestCancelCommand(3L, CANCEL_REQUEST_REASON)),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+        assertApiException(() -> service.withdrawCancelRequest(TICKET_NO,
+                        new WithdrawCancelRequestCommand(3L)),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        stubProcessActor();
+        assertApiException(() -> service.approveCancel(TICKET_NO, new ApproveCancelCommand(3L)),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+        assertApiException(() -> service.rejectCancel(TICKET_NO,
+                        new RejectCancelCommand(3L, "还不能撤销")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never()).requestCancel(
+                anyLong(), anyLong(), anyLong(), any(), any(), any());
+        verify(ticketMapper, never()).approveCancel(anyLong(), anyLong(), anyLong(), any());
+        verify(ticketMapper, never()).rejectCancel(anyLong(), anyLong(), anyLong(), any());
+        verify(ticketMapper, never())
+                .withdrawCancelRequest(anyLong(), anyLong(), anyLong(), any());
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    /** 当前负责人发起不了撤销请求：他即使同时持有提交人权限，也不是提交人。 */
+    @Test
+    void requestCancelReportsConflictWhenActorIsNotTheRequester() {
+        when(currentRequesterPort.currentUserId()).thenReturn(IT_USER_ID);
+        when(ticketReadPermissionPort.hasAuthority("TICKET_REQUESTER_ACTION")).thenReturn(true);
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+
+        assertApiException(() -> service.requestCancel(TICKET_NO,
+                        new RequestCancelCommand(3L, CANCEL_REQUEST_REASON)),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never()).requestCancel(
+                anyLong(), anyLong(), anyLong(), any(), any(), any());
+    }
+
+    /**
+     * 一张工单同时只能有一个待决请求：重复发起是 409，不静默覆盖前一次的说明。
+     *
+     * <p>与"幂等成功"的差别是刻意的——前一次的说明还在等负责人看，覆盖它等于偷换请求内容。</p>
+     */
+    @Test
+    void requestCancelReportsConflictWhenTicketAlreadyHasAPendingRequest() {
+        stubRequesterActor();
+        stubVisible(detailRowWithCancelRequest(PROCESSING, IT_USER_ID, 3L));
+
+        assertApiException(() -> service.requestCancel(TICKET_NO,
+                        new RequestCancelCommand(3L, "再补一句")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never()).requestCancel(
+                anyLong(), anyLong(), anyLong(), any(), any(), any());
+    }
+
+    @Test
+    void requestCancelReportsConflictWhenCommandVersionIsStale() {
+        stubRequesterActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+
+        ApiException exception = assertApiException(() -> service.requestCancel(TICKET_NO,
+                        new RequestCancelCommand(2L, CANCEL_REQUEST_REASON)),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).isEqualTo(3L);
+        assertThat(exception.resourceStatus()).isEqualTo(PROCESSING);
+    }
+
+    /** 冲突判定先于 400：版本过期 + 空白说明仍然得到 409。 */
+    @Test
+    void requestCancelReportsConflictBeforeValidatingReason() {
+        stubRequesterActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+
+        assertApiException(() -> service.requestCancel(TICKET_NO,
+                        new RequestCancelCommand(2L, "   ")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never()).requestCancel(
+                anyLong(), anyLong(), anyLong(), any(), any(), any());
+    }
+
+    /** 非 HTTP 调用方传 null 与纯空白说明：必须是 400，而不是 NPE 或空白请求入库。 */
+    @ParameterizedTest(name = "request-cancel rejects blank reason [{0}]")
+    @NullSource
+    @ValueSource(strings = {"", "   "})
+    void requestCancelRejectsBlankReason(String reason) {
+        stubRequesterActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+
+        assertApiException(() -> service.requestCancel(TICKET_NO,
+                        new RequestCancelCommand(3L, reason)),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verify(ticketMapper, never()).requestCancel(
+                anyLong(), anyLong(), anyLong(), any(), any(), any());
+    }
+
+    @Test
+    void requestCancelRejectsReasonOverOneThousandCharacters() {
+        stubRequesterActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+
+        assertApiException(() -> service.requestCancel(TICKET_NO,
+                        new RequestCancelCommand(3L, "x".repeat(1001))),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verify(ticketMapper, never()).requestCancel(
+                anyLong(), anyLong(), anyLong(), any(), any(), any());
+    }
+
+    /** 恰好 1000 个字符必须放行，并说明按去空白之后的长度判定。 */
+    @Test
+    void requestCancelAcceptsReasonAtExactLimit() {
+        stubRequesterActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+        String reason = "a".repeat(1000);
+        when(ticketMapper.requestCancel(TICKET_ID, 3L, REQUESTER_ID, reason,
+                NOW_UTC.plusDays(3), NOW_UTC)).thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 5, 4L));
+        when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
+
+        service.requestCancel(TICKET_NO, new RequestCancelCommand(3L, "  " + reason + "  "));
+
+        verify(ticketMapper).requestCancel(TICKET_ID, 3L, REQUESTER_ID, reason,
+                NOW_UTC.plusDays(3), NOW_UTC);
+    }
+
+    /**
+     * 发起成功：请求三列、版本与记录序号写在同一条 UPDATE 内，工单状态、负责人与工单自己的
+     * 期限都不变。
+     *
+     * <p>返回摘要里的期限刻意是工单的 {@code action_deadline_at}，不是撤销请求的响应期限——
+     * 后者只通过详情返回（见 {@code TicketQueryServiceImplTest} 的 {@code cancelRequest} 断言）。</p>
+     */
+    @Test
+    void requestCancelWritesRequestColumnsAndKeepsStatusDeadlineAndAssignee() {
+        stubRequesterActor();
+        TicketDetailRow row = detailRow(WAITING_FOR_REQUESTER, IT_USER_ID, 5L);
+        row.setActionDeadlineAt(SUPPLEMENT_DEADLINE);
+        stubVisible(row);
+        LocalDateTime expectedDeadline = NOW_UTC.plusDays(3);
+        when(ticketMapper.requestCancel(TICKET_ID, 5L, REQUESTER_ID,
+                CANCEL_REQUEST_REASON, expectedDeadline, NOW_UTC)).thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 7, 6L));
+        when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
+
+        TicketActionResult result = service.requestCancel(TICKET_NO,
+                new RequestCancelCommand(5L, "  " + CANCEL_REQUEST_REASON + "  "));
+
+        verify(ticketMapper).requestCancel(TICKET_ID, 5L, REQUESTER_ID,
+                CANCEL_REQUEST_REASON, expectedDeadline, NOW_UTC);
+
+        ArgumentCaptor<TicketRecord> records = ArgumentCaptor.forClass(TicketRecord.class);
+        verify(ticketRecordMapper).insert(records.capture());
+        TicketRecord record = records.getValue();
+        assertThat(record.getRecordType()).isEqualTo("CANCELLATION_REQUEST");
+        assertThat(record.getSequenceNo()).as("序号取递增后的 recordSeq").isEqualTo(7);
+        assertThat(record.getActorType()).isEqualTo("USER");
+        assertThat(record.getActorUserId()).isEqualTo(REQUESTER_ID);
+        assertThat(record.getReason()).as("请求说明去除首尾空白后落库")
+                .isEqualTo(CANCEL_REQUEST_REASON);
+        assertThat(record.getDeadlineAt()).as("请求的响应期限随记录留存")
+                .isEqualTo(expectedDeadline);
+        assertThat(record.getFromStatus()).as("不迁移状态：from 与 to 都是原状态")
+                .isEqualTo(WAITING_FOR_REQUESTER);
+        assertThat(record.getToStatus()).isEqualTo(WAITING_FOR_REQUESTER);
+        assertThat(record.getCreatedAt()).as("落库时间按 UTC 毫秒截断").isEqualTo(NOW_UTC);
+
+        assertThat(result.ticketNo()).isEqualTo(TICKET_NO);
+        assertThat(result.status()).as("请求期间工单状态不变").isEqualTo(WAITING_FOR_REQUESTER);
+        assertThat(result.assignee()).as("负责人不变，摘要取可见快照")
+                .isEqualTo(new TicketUserSummaryResult(IT_USER_ID, IT_DISPLAY_NAME));
+        assertThat(result.actionDeadlineAt()).as("摘要是工单自己的期限，不是请求的响应期限")
+                .isEqualTo(SUPPLEMENT_DEADLINE.atOffset(ZoneOffset.UTC));
+        assertThat(result.version()).isEqualTo(6L);
+        assertThat(result.actionTime()).isEqualTo(NOW.atOffset(ZoneOffset.UTC));
+    }
+
+    /** 响应期限来自 {@code flowdesk.ticket.cancel-request-window}：换配置就换期限。 */
+    @Test
+    void requestCancelUsesConfiguredCancelRequestWindow() {
+        service = service(CLOCK, new TicketProperties(null, null, Duration.ofHours(1)));
+        stubRequesterActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
+        LocalDateTime expectedDeadline = NOW_UTC.plusHours(1);
+        when(ticketMapper.requestCancel(TICKET_ID, 3L, REQUESTER_ID,
+                CANCEL_REQUEST_REASON, expectedDeadline, NOW_UTC)).thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 5, 4L));
+        when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
+
+        TicketActionResult result = service.requestCancel(TICKET_NO,
+                new RequestCancelCommand(3L, CANCEL_REQUEST_REASON));
+
+        verify(ticketMapper).requestCancel(TICKET_ID, 3L, REQUESTER_ID,
+                CANCEL_REQUEST_REASON, expectedDeadline, NOW_UTC);
+        assertThat(result.version()).isEqualTo(4L);
+    }
+
+    @Test
+    void requestCancelReportsConflictWithReloadedSnapshotWhenConditionalUpdateLoses() {
+        stubRequesterActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        when(ticketMapper.requestCancel(TICKET_ID, 5L, REQUESTER_ID,
+                CANCEL_REQUEST_REASON, NOW_UTC.plusDays(3), NOW_UTC)).thenReturn(0);
+        when(ticketMapper.selectClaimConflictSnapshotForUpdate(TICKET_ID))
+                .thenReturn(conflictSnapshot(WAITING_FOR_CONFIRMATION, 6L));
+
+        ApiException exception = assertApiException(() -> service.requestCancel(TICKET_NO,
+                        new RequestCancelCommand(5L, CANCEL_REQUEST_REASON)),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).as("携带读回的最新版本").isEqualTo(6L);
+        assertThat(exception.resourceStatus()).as("携带读回的最新状态")
+                .isEqualTo(WAITING_FOR_CONFIRMATION);
+        verify(ticketMapper, never()).selectById(TICKET_ID);
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    @Test
+    void requestCancelFailsWhenConflictSnapshotCannotBeRead() {
+        stubRequesterActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        when(ticketMapper.requestCancel(TICKET_ID, 5L, REQUESTER_ID,
+                CANCEL_REQUEST_REASON, NOW_UTC.plusDays(3), NOW_UTC)).thenReturn(0);
+        when(ticketMapper.selectClaimConflictSnapshotForUpdate(TICKET_ID)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.requestCancel(TICKET_NO,
+                new RequestCancelCommand(5L, CANCEL_REQUEST_REASON)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("发起撤销请求冲突后无法读取工单快照");
+    }
+
+    @Test
+    void requestCancelFailsWhenUpdatedTicketSnapshotIsMissing() {
+        stubRequesterActor();
+        stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
+        when(ticketMapper.requestCancel(TICKET_ID, 5L, REQUESTER_ID,
+                CANCEL_REQUEST_REASON, NOW_UTC.plusDays(3), NOW_UTC)).thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.requestCancel(TICKET_NO,
+                new RequestCancelCommand(5L, CANCEL_REQUEST_REASON)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("发起撤销请求后无法读取工单快照");
+
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    // ---------- 两阶段撤销：approve-cancel ----------
+
+    /**
+     * 批准撤销请求要处理权限，闸门同样先于可见性。
+     *
+     * <p>刻意<b>不</b>要求 {@code TICKET_CLOSE}：批准让工单进入「已取消」而不是「已关闭」，
+     * 与 {@code close} 的双权限口径是两条不同的线（{@link #approveCancelNeedsNoCloseAuthority()}）。</p>
+     */
+    @Test
+    void approveCancelRejectsActorWithoutProcessAuthority() {
+        when(currentRequesterPort.currentUserId()).thenReturn(IT_USER_ID);
+
+        assertApiException(() -> service.approveCancel(TICKET_NO, new ApproveCancelCommand(5L)),
+                HttpStatus.FORBIDDEN, "TICKET_ACTION_FORBIDDEN");
+
+        verify(ticketMapper, never())
+                .selectVisibleDetail(any(), anyLong(), anyBoolean(), anyBoolean(), anyBoolean());
+    }
+
+    @Test
+    void approveCancelReportsNotFoundWhenTicketIsNotVisible() {
+        stubProcessActor();
+
+        assertApiException(() -> service.approveCancel(TICKET_NO, new ApproveCancelCommand(5L)),
+                HttpStatus.NOT_FOUND, "TICKET_NOT_FOUND");
+
+        verify(ticketMapper, never()).approveCancel(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /**
+     * 没有待决请求时批准是冲突：可能根本没发起过，也可能已经被拒绝或撤回。
+     *
+     * <p>三个允许状态各测一次——状态判定与"请求必须存在"在同一个 {@code if} 里，分开覆盖
+     * 才能证明两个条件都在起作用。</p>
+     */
+    @ParameterizedTest(name = "approve-cancel conflicts on {0} without a pending request")
+    @ValueSource(strings = {PROCESSING, WAITING_FOR_REQUESTER, WAITING_FOR_CONFIRMATION})
+    void approveCancelReportsConflictWhenTicketHasNoPendingRequest(String status) {
+        stubProcessActor();
+        stubVisible(detailRow(status, IT_USER_ID, 5L));
+
+        assertApiException(() -> service.approveCancel(TICKET_NO, new ApproveCancelCommand(5L)),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never()).approveCancel(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void approveCancelReportsConflictWhenActorIsNotTheCurrentAssignee() {
+        when(currentRequesterPort.currentUserId()).thenReturn(OTHER_IT_USER_ID);
+        when(ticketReadPermissionPort.hasAuthority("TICKET_PROCESS")).thenReturn(true);
+        stubVisible(detailRowWithCancelRequest(PROCESSING, IT_USER_ID, 5L));
+
+        assertApiException(() -> service.approveCancel(TICKET_NO, new ApproveCancelCommand(5L)),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never()).approveCancel(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /** 无负责人的行不可能挂着待决请求（库侧约束同款），这里直接钉住判空分支。 */
+    @Test
+    void approveCancelReportsConflictWhenTicketHasNoAssignee() {
+        stubProcessActor();
+        stubVisible(detailRowWithCancelRequest(PENDING, null, 5L));
+
+        assertApiException(() -> service.approveCancel(TICKET_NO, new ApproveCancelCommand(5L)),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never()).approveCancel(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void approveCancelReportsConflictWhenCommandVersionIsStale() {
+        stubProcessActor();
+        stubVisible(detailRowWithCancelRequest(PROCESSING, IT_USER_ID, 5L));
+
+        ApiException exception = assertApiException(
+                () -> service.approveCancel(TICKET_NO, new ApproveCancelCommand(4L)),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).isEqualTo(5L);
+        assertThat(exception.resourceStatus()).isEqualTo(PROCESSING);
+        verify(ticketMapper, never()).approveCancel(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /**
+     * 批准成功：进入终态，请求三列与工单期限由 SQL 一并清空，记录写明状态迁移。
+     *
+     * <p>清空发生在 SQL 里，替身测试只断言返回摘要与记录；列级断言由 {@code TicketServiceIT}
+     * 在真实 MySQL 上负责。</p>
+     */
+    @Test
+    void approveCancelWritesTerminalStateAndApprovedRecord() {
+        stubProcessActor();
+        TicketDetailRow row = detailRowWithCancelRequest(WAITING_FOR_REQUESTER, IT_USER_ID, 5L);
+        row.setActionDeadlineAt(SUPPLEMENT_DEADLINE);
+        stubVisible(row);
+        when(ticketMapper.approveCancel(TICKET_ID, 5L, IT_USER_ID, NOW_UTC)).thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(canceledTicket(6L, IT_USER_ID));
+        when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
+
+        TicketActionResult result = service.approveCancel(TICKET_NO,
+                new ApproveCancelCommand(5L));
+
+        verify(ticketMapper).approveCancel(TICKET_ID, 5L, IT_USER_ID, NOW_UTC);
+
+        ArgumentCaptor<TicketRecord> records = ArgumentCaptor.forClass(TicketRecord.class);
+        verify(ticketRecordMapper).insert(records.capture());
+        TicketRecord record = records.getValue();
+        assertThat(record.getRecordType()).isEqualTo("CANCELLATION_APPROVED");
+        assertThat(record.getSequenceNo()).isEqualTo(6);
+        assertThat(record.getActorType()).isEqualTo("USER");
+        assertThat(record.getActorUserId()).isEqualTo(IT_USER_ID);
+        assertThat(record.getReason()).as("批准不需要理由").isNull();
+        assertThat(record.getFromStatus()).as("记录冻结请求所在的原状态")
+                .isEqualTo(WAITING_FOR_REQUESTER);
+        assertThat(record.getToStatus()).isEqualTo(CANCELED);
+        assertThat(record.getCreatedAt()).isEqualTo(NOW_UTC);
+
+        assertThat(result.status()).isEqualTo(CANCELED);
+        assertThat(result.assignee()).as("撤销保留最后负责人")
+                .isEqualTo(new TicketUserSummaryResult(IT_USER_ID, IT_DISPLAY_NAME));
+        assertThat(result.actionDeadlineAt()).as("终态不再有待办期限").isNull();
+        assertThat(result.version()).isEqualTo(6L);
+        assertThat(result.actionTime()).isEqualTo(NOW.atOffset(ZoneOffset.UTC));
+    }
+
+    /**
+     * 批准只查处理权限，从不查关闭权限——这条断言直接钉住 {@code canApproveCancel} 的单码口径。
+     */
+    @Test
+    void approveCancelNeedsNoCloseAuthority() {
+        when(currentRequesterPort.currentUserId()).thenReturn(IT_USER_ID);
+        when(ticketReadPermissionPort.hasAuthority("TICKET_PROCESS")).thenReturn(true);
+        stubVisible(detailRowWithCancelRequest(PROCESSING, IT_USER_ID, 5L));
+        when(ticketMapper.approveCancel(TICKET_ID, 5L, IT_USER_ID, NOW_UTC)).thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(canceledTicket(6L, IT_USER_ID));
+        when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
+
+        TicketActionResult result = service.approveCancel(TICKET_NO,
+                new ApproveCancelCommand(5L));
+
+        assertThat(result.status()).isEqualTo(CANCELED);
+        verify(ticketReadPermissionPort, never()).hasAuthority("TICKET_CLOSE");
+    }
+
+    @Test
+    void approveCancelReportsConflictWithReloadedSnapshotWhenConditionalUpdateLoses() {
+        stubProcessActor();
+        stubVisible(detailRowWithCancelRequest(PROCESSING, IT_USER_ID, 5L));
+        when(ticketMapper.approveCancel(TICKET_ID, 5L, IT_USER_ID, NOW_UTC)).thenReturn(0);
+        when(ticketMapper.selectClaimConflictSnapshotForUpdate(TICKET_ID))
+                .thenReturn(conflictSnapshot(CANCELED, 6L));
+
+        ApiException exception = assertApiException(
+                () -> service.approveCancel(TICKET_NO, new ApproveCancelCommand(5L)),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).isEqualTo(6L);
+        assertThat(exception.resourceStatus()).isEqualTo(CANCELED);
+        verify(ticketMapper, never()).selectById(TICKET_ID);
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    @Test
+    void approveCancelFailsWhenUpdatedTicketSnapshotIsMissing() {
+        stubProcessActor();
+        stubVisible(detailRowWithCancelRequest(PROCESSING, IT_USER_ID, 5L));
+        when(ticketMapper.approveCancel(TICKET_ID, 5L, IT_USER_ID, NOW_UTC)).thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.approveCancel(TICKET_NO, new ApproveCancelCommand(5L)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("批准撤销请求后无法读取工单快照");
+
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    // ---------- 两阶段撤销：reject-cancel ----------
+
+    /** 拒绝与批准共用处理权限，闸门同样先于可见性。 */
+    @Test
+    void rejectCancelRejectsActorWithoutProcessAuthority() {
+        when(currentRequesterPort.currentUserId()).thenReturn(IT_USER_ID);
+
+        assertApiException(() -> service.rejectCancel(TICKET_NO,
+                        new RejectCancelCommand(5L, "还不能撤销")),
+                HttpStatus.FORBIDDEN, "TICKET_ACTION_FORBIDDEN");
+
+        verify(ticketMapper, never())
+                .selectVisibleDetail(any(), anyLong(), anyBoolean(), anyBoolean(), anyBoolean());
+    }
+
+    @Test
+    void rejectCancelReportsNotFoundWhenTicketIsNotVisible() {
+        stubProcessActor();
+
+        assertApiException(() -> service.rejectCancel(TICKET_NO,
+                        new RejectCancelCommand(5L, "还不能撤销")),
+                HttpStatus.NOT_FOUND, "TICKET_NOT_FOUND");
+
+        verify(ticketMapper, never()).rejectCancel(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    @ParameterizedTest(name = "reject-cancel conflicts on {0} without a pending request")
+    @ValueSource(strings = {PROCESSING, WAITING_FOR_REQUESTER, WAITING_FOR_CONFIRMATION})
+    void rejectCancelReportsConflictWhenTicketHasNoPendingRequest(String status) {
+        stubProcessActor();
+        stubVisible(detailRow(status, IT_USER_ID, 5L));
+
+        assertApiException(() -> service.rejectCancel(TICKET_NO,
+                        new RejectCancelCommand(5L, "还不能撤销")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never()).rejectCancel(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void rejectCancelReportsConflictWhenActorIsNotTheCurrentAssignee() {
+        when(currentRequesterPort.currentUserId()).thenReturn(OTHER_IT_USER_ID);
+        when(ticketReadPermissionPort.hasAuthority("TICKET_PROCESS")).thenReturn(true);
+        stubVisible(detailRowWithCancelRequest(PROCESSING, IT_USER_ID, 5L));
+
+        assertApiException(() -> service.rejectCancel(TICKET_NO,
+                        new RejectCancelCommand(5L, "还不能撤销")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never()).rejectCancel(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void rejectCancelReportsConflictWhenTicketHasNoAssignee() {
+        stubProcessActor();
+        stubVisible(detailRowWithCancelRequest(PENDING, null, 5L));
+
+        assertApiException(() -> service.rejectCancel(TICKET_NO,
+                        new RejectCancelCommand(5L, "还不能撤销")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never()).rejectCancel(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void rejectCancelReportsConflictWhenCommandVersionIsStale() {
+        stubProcessActor();
+        stubVisible(detailRowWithCancelRequest(PROCESSING, IT_USER_ID, 5L));
+
+        ApiException exception = assertApiException(() -> service.rejectCancel(TICKET_NO,
+                        new RejectCancelCommand(4L, "还不能撤销")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).isEqualTo(5L);
+        assertThat(exception.resourceStatus()).isEqualTo(PROCESSING);
+        verify(ticketMapper, never()).rejectCancel(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /** 冲突判定先于 400：版本过期 + 空白原因仍然得到 409。 */
+    @Test
+    void rejectCancelReportsConflictBeforeValidatingReason() {
+        stubProcessActor();
+        stubVisible(detailRowWithCancelRequest(PROCESSING, IT_USER_ID, 5L));
+
+        assertApiException(() -> service.rejectCancel(TICKET_NO,
+                        new RejectCancelCommand(4L, "   ")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never()).rejectCancel(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /** 拒绝原因必填：没有理由，提交人只看到"被拒绝"而无从调整。 */
+    @ParameterizedTest(name = "reject-cancel rejects blank reason [{0}]")
+    @NullSource
+    @ValueSource(strings = {"", "   "})
+    void rejectCancelRejectsBlankReason(String reason) {
+        stubProcessActor();
+        stubVisible(detailRowWithCancelRequest(PROCESSING, IT_USER_ID, 5L));
+
+        assertApiException(() -> service.rejectCancel(TICKET_NO,
+                        new RejectCancelCommand(5L, reason)),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verify(ticketMapper, never()).rejectCancel(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void rejectCancelRejectsReasonOverOneThousandCharacters() {
+        stubProcessActor();
+        stubVisible(detailRowWithCancelRequest(PROCESSING, IT_USER_ID, 5L));
+
+        assertApiException(() -> service.rejectCancel(TICKET_NO,
+                        new RejectCancelCommand(5L, "x".repeat(1001))),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verify(ticketMapper, never()).rejectCancel(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /**
+     * 拒绝成功：状态、期限与负责人全不变，只让请求失效，并把拒绝原因留在时间线上。
+     *
+     * <p>返回摘要里的期限仍是工单自己的期限——拒绝不产生新期限，也不清掉原有的。</p>
+     */
+    @Test
+    void rejectCancelKeepsStatusAndDeadlineAndWritesRejectedRecord() {
+        stubProcessActor();
+        TicketDetailRow row = detailRowWithCancelRequest(WAITING_FOR_CONFIRMATION, IT_USER_ID, 5L);
+        row.setActionDeadlineAt(SUPPLEMENT_DEADLINE);
+        stubVisible(row);
+        when(ticketMapper.rejectCancel(TICKET_ID, 5L, IT_USER_ID, NOW_UTC)).thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 7, 6L));
+        when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
+
+        TicketActionResult result = service.rejectCancel(TICKET_NO,
+                new RejectCancelCommand(5L, "  还有两步就能修好  "));
+
+        verify(ticketMapper).rejectCancel(TICKET_ID, 5L, IT_USER_ID, NOW_UTC);
+
+        ArgumentCaptor<TicketRecord> records = ArgumentCaptor.forClass(TicketRecord.class);
+        verify(ticketRecordMapper).insert(records.capture());
+        TicketRecord record = records.getValue();
+        assertThat(record.getRecordType()).isEqualTo("CANCELLATION_REJECTED");
+        assertThat(record.getSequenceNo()).isEqualTo(7);
+        assertThat(record.getActorUserId()).isEqualTo(IT_USER_ID);
+        assertThat(record.getReason()).as("拒绝原因去除首尾空白后留档")
+                .isEqualTo("还有两步就能修好");
+        assertThat(record.getDeadlineAt()).as("拒绝不产生新的期限").isNull();
+        assertThat(record.getFromStatus()).isEqualTo(WAITING_FOR_CONFIRMATION);
+        assertThat(record.getToStatus()).as("不迁移状态").isEqualTo(WAITING_FOR_CONFIRMATION);
+
+        assertThat(result.status()).as("拒绝后工单留在原状态").isEqualTo(WAITING_FOR_CONFIRMATION);
+        assertThat(result.assignee()).isEqualTo(
+                new TicketUserSummaryResult(IT_USER_ID, IT_DISPLAY_NAME));
+        assertThat(result.actionDeadlineAt()).as("工单自己的期限不受拒绝影响")
+                .isEqualTo(SUPPLEMENT_DEADLINE.atOffset(ZoneOffset.UTC));
+        assertThat(result.version()).isEqualTo(6L);
+    }
+
+    @Test
+    void rejectCancelReportsConflictWithReloadedSnapshotWhenConditionalUpdateLoses() {
+        stubProcessActor();
+        stubVisible(detailRowWithCancelRequest(PROCESSING, IT_USER_ID, 5L));
+        when(ticketMapper.rejectCancel(TICKET_ID, 5L, IT_USER_ID, NOW_UTC)).thenReturn(0);
+        when(ticketMapper.selectClaimConflictSnapshotForUpdate(TICKET_ID))
+                .thenReturn(conflictSnapshot(CANCELED, 6L));
+
+        ApiException exception = assertApiException(() -> service.rejectCancel(TICKET_NO,
+                        new RejectCancelCommand(5L, "还不能撤销")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).isEqualTo(6L);
+        assertThat(exception.resourceStatus()).isEqualTo(CANCELED);
+        verify(ticketMapper, never()).selectById(TICKET_ID);
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    @Test
+    void rejectCancelFailsWhenUpdatedTicketSnapshotIsMissing() {
+        stubProcessActor();
+        stubVisible(detailRowWithCancelRequest(PROCESSING, IT_USER_ID, 5L));
+        when(ticketMapper.rejectCancel(TICKET_ID, 5L, IT_USER_ID, NOW_UTC)).thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.rejectCancel(TICKET_NO,
+                new RejectCancelCommand(5L, "还不能撤销")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("拒绝撤销请求后无法读取工单快照");
+
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    // ---------- 两阶段撤销：withdraw-cancel-request ----------
+
+    /** 撤回自己的请求复用提交人动作权限，闸门同样先于可见性。 */
+    @Test
+    void withdrawCancelRequestRejectsActorWithoutRequesterActionAuthority() {
+        when(currentRequesterPort.currentUserId()).thenReturn(REQUESTER_ID);
+
+        assertApiException(() -> service.withdrawCancelRequest(TICKET_NO,
+                        new WithdrawCancelRequestCommand(5L)),
+                HttpStatus.FORBIDDEN, "TICKET_ACTION_FORBIDDEN");
+
+        verify(ticketMapper, never())
+                .selectVisibleDetail(any(), anyLong(), anyBoolean(), anyBoolean(), anyBoolean());
+    }
+
+    @Test
+    void withdrawCancelRequestReportsNotFoundWhenTicketIsNotVisible() {
+        stubRequesterActor();
+
+        assertApiException(() -> service.withdrawCancelRequest(TICKET_NO,
+                        new WithdrawCancelRequestCommand(5L)),
+                HttpStatus.NOT_FOUND, "TICKET_NOT_FOUND");
+
+        verify(ticketMapper, never())
+                .withdrawCancelRequest(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    @ParameterizedTest(name = "withdraw-cancel-request conflicts on {0} without a pending request")
+    @ValueSource(strings = {PROCESSING, WAITING_FOR_REQUESTER, WAITING_FOR_CONFIRMATION})
+    void withdrawCancelRequestReportsConflictWhenTicketHasNoPendingRequest(String status) {
+        stubRequesterActor();
+        stubVisible(detailRow(status, IT_USER_ID, 5L));
+
+        assertApiException(() -> service.withdrawCancelRequest(TICKET_NO,
+                        new WithdrawCancelRequestCommand(5L)),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never())
+                .withdrawCancelRequest(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /** 只有提交人本人能撤回自己的请求：当前负责人即使持有提交人权限也不行。 */
+    @Test
+    void withdrawCancelRequestReportsConflictWhenActorIsNotTheRequester() {
+        when(currentRequesterPort.currentUserId()).thenReturn(IT_USER_ID);
+        when(ticketReadPermissionPort.hasAuthority("TICKET_REQUESTER_ACTION")).thenReturn(true);
+        stubVisible(detailRowWithCancelRequest(PROCESSING, IT_USER_ID, 5L));
+
+        assertApiException(() -> service.withdrawCancelRequest(TICKET_NO,
+                        new WithdrawCancelRequestCommand(5L)),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never())
+                .withdrawCancelRequest(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void withdrawCancelRequestReportsConflictWhenCommandVersionIsStale() {
+        stubRequesterActor();
+        stubVisible(detailRowWithCancelRequest(PROCESSING, IT_USER_ID, 5L));
+
+        ApiException exception = assertApiException(() -> service.withdrawCancelRequest(TICKET_NO,
+                        new WithdrawCancelRequestCommand(4L)),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).isEqualTo(5L);
+        assertThat(exception.resourceStatus()).isEqualTo(PROCESSING);
+        verify(ticketMapper, never())
+                .withdrawCancelRequest(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /**
+     * 撤回成功：状态与期限都不变，请求三列清空，记录不带原因。
+     *
+     * <p>撤回是"我改主意了"，理由就是撤回本身；请求里原本的说明仍留在
+     * {@code CANCELLATION_REQUEST} 记录上，因此这里断言记录的 {@code reason} 为空。</p>
+     */
+    @Test
+    void withdrawCancelRequestClearsRequestAndWritesWithdrawnRecordWithoutReason() {
+        stubRequesterActor();
+        TicketDetailRow row = detailRowWithCancelRequest(PROCESSING, IT_USER_ID, 5L);
+        row.setActionDeadlineAt(SUPPLEMENT_DEADLINE);
+        stubVisible(row);
+        when(ticketMapper.withdrawCancelRequest(TICKET_ID, 5L, REQUESTER_ID, NOW_UTC)).thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 7, 6L));
+        when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
+
+        TicketActionResult result = service.withdrawCancelRequest(TICKET_NO,
+                new WithdrawCancelRequestCommand(5L));
+
+        verify(ticketMapper).withdrawCancelRequest(TICKET_ID, 5L, REQUESTER_ID, NOW_UTC);
+
+        ArgumentCaptor<TicketRecord> records = ArgumentCaptor.forClass(TicketRecord.class);
+        verify(ticketRecordMapper).insert(records.capture());
+        TicketRecord record = records.getValue();
+        assertThat(record.getRecordType()).isEqualTo("CANCELLATION_REQUEST_WITHDRAWN");
+        assertThat(record.getSequenceNo()).isEqualTo(7);
+        assertThat(record.getActorUserId()).isEqualTo(REQUESTER_ID);
+        assertThat(record.getReason()).as("撤回不写原因，原说明仍在请求记录上").isNull();
+        assertThat(record.getFromStatus()).isEqualTo(PROCESSING);
+        assertThat(record.getToStatus()).as("不迁移状态").isEqualTo(PROCESSING);
+        assertThat(record.getCreatedAt()).isEqualTo(NOW_UTC);
+
+        assertThat(result.status()).as("撤回后工单留在原状态").isEqualTo(PROCESSING);
+        assertThat(result.assignee()).isEqualTo(
+                new TicketUserSummaryResult(IT_USER_ID, IT_DISPLAY_NAME));
+        assertThat(result.actionDeadlineAt()).isEqualTo(SUPPLEMENT_DEADLINE.atOffset(ZoneOffset.UTC));
+        assertThat(result.version()).isEqualTo(6L);
+    }
+
+    @Test
+    void withdrawCancelRequestReportsConflictWithReloadedSnapshotWhenConditionalUpdateLoses() {
+        stubRequesterActor();
+        stubVisible(detailRowWithCancelRequest(PROCESSING, IT_USER_ID, 5L));
+        when(ticketMapper.withdrawCancelRequest(TICKET_ID, 5L, REQUESTER_ID, NOW_UTC)).thenReturn(0);
+        when(ticketMapper.selectClaimConflictSnapshotForUpdate(TICKET_ID))
+                .thenReturn(conflictSnapshot(CANCELED, 6L));
+
+        ApiException exception = assertApiException(() -> service.withdrawCancelRequest(TICKET_NO,
+                        new WithdrawCancelRequestCommand(5L)),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).isEqualTo(6L);
+        assertThat(exception.resourceStatus()).isEqualTo(CANCELED);
+        verify(ticketMapper, never()).selectById(TICKET_ID);
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
+    @Test
+    void withdrawCancelRequestFailsWhenUpdatedTicketSnapshotIsMissing() {
+        stubRequesterActor();
+        stubVisible(detailRowWithCancelRequest(PROCESSING, IT_USER_ID, 5L));
+        when(ticketMapper.withdrawCancelRequest(TICKET_ID, 5L, REQUESTER_ID, NOW_UTC)).thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.withdrawCancelRequest(TICKET_NO,
+                new WithdrawCancelRequestCommand(5L)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("撤回撤销请求后无法读取工单快照");
+
+        verifyNoInteractions(ticketRecordMapper);
+    }
+
     // ---------- TicketProperties ----------
 
     @Test
     void ticketPropertiesDefaultToSevenDaysWhenUnset() {
-        assertThat(new TicketProperties(null, null).confirmationWindow())
+        assertThat(new TicketProperties(null, null, null).confirmationWindow())
                 .as("未配置时使用已确认的 7×24 小时默认值")
                 .isEqualTo(Duration.ofDays(7));
-        assertThat(new TicketProperties(null, null).supplementWindow())
+        assertThat(new TicketProperties(null, null, null).supplementWindow())
                 .as("补充期限与确认期限同口径：缺省也是 7×24 小时")
                 .isEqualTo(Duration.ofDays(7));
+        assertThat(new TicketProperties(null, null, null).cancelRequestWindow())
+                .as("撤销请求约束的是 IT 侧的响应，默认 3 天而不是 7 天")
+                .isEqualTo(Duration.ofDays(3));
     }
 
     @Test
     void ticketPropertiesRejectWindowBelowOneMinute() {
-        assertThatThrownBy(() -> new TicketProperties(Duration.ofSeconds(30), null))
+        assertThatThrownBy(() -> new TicketProperties(Duration.ofSeconds(30), null, null))
                 .as("小于 1 分钟的确认期限会让员工无法在期限内操作")
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("confirmation-window");
 
-        assertThatThrownBy(() -> new TicketProperties(null, Duration.ofSeconds(30)))
+        assertThatThrownBy(() -> new TicketProperties(null, Duration.ofSeconds(30), null))
                 .as("补充期限与确认期限同口径，不能小于 1 分钟")
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("supplement-window");
+
+        assertThatThrownBy(() -> new TicketProperties(null, null, Duration.ofSeconds(30)))
+                .as("撤销请求的响应期限同样不能小于 1 分钟")
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("cancel-request-window");
     }
 
     // ---------- 事务边界 ----------
@@ -3559,6 +4430,28 @@ class TicketServiceImplTest {
                 .getMethod("cancel", String.class, CancelTicketCommand.class)
                 .isAnnotationPresent(Transactional.class))
                 .as("cancel 由声明式事务包住条件更新与时间线写入").isTrue();
+    }
+
+    /** 两阶段撤销的四个方法同样必须由声明式事务包住条件更新与时间线写入。 */
+    @Test
+    void twoPhaseCancelMethodsDeclareTransactionBoundaries() throws NoSuchMethodException {
+        assertThat(TicketServiceImpl.class
+                .getMethod("requestCancel", String.class, RequestCancelCommand.class)
+                .isAnnotationPresent(Transactional.class))
+                .as("requestCancel 由声明式事务包住条件更新与时间线写入").isTrue();
+        assertThat(TicketServiceImpl.class
+                .getMethod("approveCancel", String.class, ApproveCancelCommand.class)
+                .isAnnotationPresent(Transactional.class))
+                .as("approveCancel 由声明式事务包住条件更新与时间线写入").isTrue();
+        assertThat(TicketServiceImpl.class
+                .getMethod("rejectCancel", String.class, RejectCancelCommand.class)
+                .isAnnotationPresent(Transactional.class))
+                .as("rejectCancel 由声明式事务包住条件更新与时间线写入").isTrue();
+        assertThat(TicketServiceImpl.class
+                .getMethod("withdrawCancelRequest", String.class,
+                        WithdrawCancelRequestCommand.class)
+                .isAnnotationPresent(Transactional.class))
+                .as("withdrawCancelRequest 由声明式事务包住条件更新与时间线写入").isTrue();
     }
 
     // ---------- 辅助 ----------
@@ -3636,6 +4529,21 @@ class TicketServiceImplTest {
 
     private static TicketDetailRow detailRow(String status, Long assigneeId, long version) {
         return detailRow(status, assigneeId, version, REQUESTER_ID);
+    }
+
+    /** 带待决撤销请求的可见行：批准、拒绝、撤回都要求 {@code cancel_requested_at} 非空。 */
+    private static TicketDetailRow detailRowWithCancelRequest(
+            String status, Long assigneeId, long version) {
+        return detailRowWithCancelRequest(status, assigneeId, version, REQUESTER_ID);
+    }
+
+    private static TicketDetailRow detailRowWithCancelRequest(
+            String status, Long assigneeId, long version, long requesterId) {
+        TicketDetailRow row = detailRow(status, assigneeId, version, requesterId);
+        row.setCancelRequestedAt(CANCEL_REQUESTED_AT);
+        row.setCancelRequestReason(CANCEL_REQUEST_REASON);
+        row.setCancelRequestDeadlineAt(CANCEL_REQUEST_DEADLINE_AT);
+        return row;
     }
 
     private static TicketDetailRow detailRow(

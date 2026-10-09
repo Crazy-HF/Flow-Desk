@@ -5,22 +5,25 @@ import { resolve } from 'node:path'
 import { expectNoHorizontalOverflow } from './support/overflow'
 
 /**
- * 完整工单状态机片 D：结束路径（`close` 与 `cancel`）。
+ * 完整工单状态机片 D（结束路径）与两阶段撤销（2026-10-08 规则变更）。
  *
- * <p>覆盖三个界面事实，全部从真实点击产生：</p>
- * <p>1. **员工撤销**：提交人在「处理中」撤销自己的工单——即使 IT 已经领取并开始处理。
- * 撤销是业务终止而不是删除：负责人与此前的处理记录都保留，但工单进入终态「已取消」。</p>
+ * <p>覆盖四个界面事实，全部从真实点击产生：</p>
+ * <p>1. **两阶段撤销**（片 D 建立时这里是"员工在「处理中」直接撤销"，2026-10-08 规则变更后改写）：
+ * 提交人只能**申请**撤销，界面出现「撤销申请待处理」块；当前负责人读到申请理由后同意，
+ * 工单才进入终态「已取消」。撤销是业务终止而不是删除：负责人与此前的处理记录都保留。</p>
  * <p>2. **IT 异常关闭**：当前负责人用标准原因（这里是"超出支持范围"）关闭工单，进入「已关闭」，
  * 时间线上留下关闭方式、标准原因与说明。</p>
  * <p>3. **关闭原因为「重复工单」时的条件输入**：只有选中它，重复单号输入框才出现；
  * 改回其他原因时输入框消失——而"消失"与"请求里不带这个字段"是同一件事
  * （服务端对多传的单号返回 `400`，不是忽略）。</p>
+ * <p>4. **一次完整的撤销申请往返**：申请 → 驳回（工单留在「处理中」，申请失效）→ 撤回申请后再申请 →
+ * 同意。它证明"驳回不结束工单"和"提交人可以改主意"这两件事在界面上真的成立。</p>
  *
- * <p><strong>为什么这两个动作不需要临时账号</strong>：`close` 只要求"当前负责人 + 处理中"，
- * `cancel` 只要求"提交人本人"，用演示种子里的 `employee` 与 `it` 就能走完整条链路；
- * 片 C 之所以要临时建第二个 IT，是因为转交的候选人恰好排除提交人与当前负责人。</p>
+ * <p><strong>为什么这些动作不需要临时账号</strong>：`close` 只要求"当前负责人 + 处理中"，
+ * 撤销申请的四个动作只要求"提交人本人"或"当前负责人"，用演示种子里的 `employee` 与 `it`
+ * 就能走完整条链路；片 C 之所以要临时建第二个 IT，是因为转交的候选人恰好排除提交人与当前负责人。</p>
  *
- * <p><strong>这三个用例都会向演示库写入工单</strong>（接口没有删除能力）。清理顺序与
+ * <p><strong>这些用例都会向演示库写入工单</strong>（接口没有删除能力）。清理顺序与
  * `frontend/e2e/tickets.spec.ts` 文件头一致：先删 `ticket_relation` / `ticket_record` /
  * `ticket_participant`，再删 `ticket`：</p>
  *
@@ -47,8 +50,14 @@ const itUsername = process.env.E2E_IT_USERNAME ?? 'it'
  */
 const itDisplayNameOverride = process.env.E2E_IT_DISPLAY_NAME
 
-/** 评审产物目录：与其它视觉评审放在同一处。 */
-const reviewDir = resolve(process.cwd(), '../.ui-craft/reviews/2026-10-08-slice-d-close-cancel')
+/**
+ * 评审产物目录：与其它视觉评审放在同一处。
+ *
+ * <p>用本轮的目录而不是片 D 的目录：片 D 那几张截图与 `runtime-evidence-cancel.json` 记录的是
+ * **规则变更之前**的"处理中直接撤销"，属于历史证据；混在同一目录里会让"哪张是哪条规则"
+ * 说不清。</p>
+ */
+const reviewDir = resolve(process.cwd(), '../.ui-craft/reviews/2026-10-08-slice-e-two-phase-cancel')
 mkdirSync(reviewDir, { recursive: true })
 
 interface StepEvidence {
@@ -181,12 +190,13 @@ function duplicateInput(page: Page) {
   return page.locator('#ticket-action-conditional-text')
 }
 
-test('片 D 场景一：IT 已领取的工单，员工仍然可以撤销，工单进入已取消', async ({ page }) => {
-  test.setTimeout(180_000)
+test('两阶段撤销场景一：员工申请撤销、IT 同意后工单进入已取消', async ({ page }) => {
+  test.setTimeout(240_000)
   const suffix = Date.now().toString().slice(-6)
   const title = `E2E 片D撤销 ${suffix}`
-  const description = 'E2E 片 D 场景一：工单已被 IT 领取（处理中），提交人撤销自己的工单。'
-  const cancelReason = '问题已经自行解决，不需要 IT 再处理了。'
+  const description =
+    'E2E 两阶段撤销场景一：工单已被 IT 领取（处理中），提交人申请撤销，当前负责人同意。'
+  const requestReason = '问题已经自行解决，不需要 IT 再处理了。'
   const steps: StepEvidence[] = []
   const pageErrors: string[] = []
   page.on('pageerror', (error) => pageErrors.push(error.message))
@@ -195,53 +205,113 @@ test('片 D 场景一：IT 已领取的工单，员工仍然可以撤销，工�
   const ticketNo = await createTicketAsEmployee(page, title, description, steps)
   await signOut(page)
 
-  // IT 先领取：撤销要证明的正是"已经有人在处理"时提交人依然能终止请求
+  // IT 先领取：要证明的正是"已经有人在处理"时提交人只能申请，不能单方面终止
   const itDisplayName = await claimAsIt(page, ticketNo, steps)
   await signOut(page)
 
-  // ---------- 员工在「处理中」上撤销 ----------
+  // ---------- 员工在「处理中」上申请撤销 ----------
   await signIn(page, employeeUsername)
   await openTicket(page, ticketNo, title)
-  expect(await actionLabels(page)).toEqual(['撤销工单'])
+  expect(await actionLabels(page)).toEqual(['申请撤销工单'])
+  // 还没有申请时，这一块整块不渲染
+  await expect(page.locator('.ticket-cancel-request')).toHaveCount(0)
 
-  await page.locator('.ticket-action .el-button').filter({ hasText: '撤销工单' }).click()
-  const dialog = page.locator('.el-message-box')
-  await expect(dialog).toBeVisible()
-  // 撤销只写一段原因：没有要选的目标值，也没有条件输入
-  await expect(dialog.locator('.el-select')).toHaveCount(0)
+  await page.locator('.ticket-action .el-button').filter({ hasText: '申请撤销工单' }).click()
+  const requestDialog = page.locator('.el-message-box')
+  await expect(requestDialog).toBeVisible()
+  // 申请只写一段说明：没有要选的目标值，也没有条件输入
+  await expect(requestDialog.locator('.el-select')).toHaveCount(0)
   await expect(duplicateInput(page)).toHaveCount(0)
-  // 终态动作的后果必须写在弹窗里，而不是只靠按钮颜色暗示
-  await expect(dialog).toContainText('已取消')
-  await dialog.locator('textarea').fill(cancelReason)
+  // 必须写明"这一下不会取消工单"，否则用户会以为按下去就结束了
+  await expect(requestDialog).toContainText('不会立刻取消')
+  await requestDialog.locator('textarea').fill(requestReason)
 
-  const cancelling = page.waitForResponse((item) => item.url().includes('/actions/cancel'))
-  await dialog.locator('.el-message-box__btns .el-button--primary').click()
-  const cancelled = await cancelling
-  expect(cancelled.status()).toBe(200)
-  record(steps, 'cancel', cancelled, '提交人在「处理中」撤销成功，工单进入「已取消」')
+  const requesting = page.waitForResponse((item) => item.url().includes('/actions/request-cancel'))
+  await requestDialog.locator('.el-message-box__btns .el-button--primary').click()
+  const requested = await requesting
+  expect(requested.status()).toBe(200)
+  record(steps, 'request-cancel', requested, '提交人在「处理中」发起撤销申请，工单状态不变')
+
+  // 状态与期限都不变，所以"待批准"只能由详情单独返回的 cancelRequest 画出来
+  await expect(page.locator('.ticket-meta')).toContainText('处理中')
+  const pendingPanel = page.locator('.ticket-cancel-request')
+  await expect(pendingPanel).toBeVisible()
+  await expect(pendingPanel).toContainText('你已申请撤销这张工单')
+  await expect(pendingPanel).toContainText(requestReason)
+  // 本版本没有超时任务：期限必须写明"到期不自动处理"
+  await expect(pendingPanel).toContainText('到期不会自动处理')
+  await expect(page.locator('.ticket-action .el-button')).toHaveText(['撤回撤销申请'])
+
+  // 时间线留下申请记录（含理由），与「待受理直接撤销」的撤销工单是两种事实
+  const requestRecord = page.locator('.ticket-timeline__item').filter({ hasText: '申请撤销工单' })
+  await expect(requestRecord).toHaveCount(1)
+  await expect(requestRecord).toContainText(requestReason)
+
+  await page.screenshot({
+    path: resolve(reviewDir, 'cancel-request-pending-1440.png'),
+    fullPage: true,
+  })
+  await page.setViewportSize({ width: 375, height: 812 })
+  await expectNoHorizontalOverflow(page, '待批准撤销提示在 375 下被撑宽')
+  await page.screenshot({
+    path: resolve(reviewDir, 'cancel-request-pending-375.png'),
+    fullPage: true,
+  })
+  // 375 下侧栏收进抽屉，"账号"入口不在可访问树里：还原视口再换账号
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await signOut(page)
+
+  // ---------- IT 读到申请理由后同意 ----------
+  await signIn(page, itUsername)
+  await openTicket(page, ticketNo, title)
+  const decisionPanel = page.locator('.ticket-cancel-request')
+  await expect(decisionPanel).toContainText('正在等你处理')
+  await expect(decisionPanel).toContainText(requestReason)
+  // 申请期间工单不冻结：原有的处理动作一个都没少，末尾多出两个决策入口
+  expect(await actionLabels(page)).toEqual([
+    '记录处理过程',
+    '提交解决结果',
+    '请求补充信息',
+    '调整分类',
+    '调整优先级',
+    '转交工单',
+    '关闭工单',
+    '同意撤销',
+    '驳回撤销申请',
+  ])
+
+  await page.locator('.ticket-action .el-button').filter({ hasText: '同意撤销' }).click()
+  const approveDialog = page.locator('.el-message-box')
+  await expect(approveDialog).toBeVisible()
+  // 同意不需要理由：弹窗里不该出现输入框
+  await expect(approveDialog.locator('textarea')).toHaveCount(0)
+
+  const approving = page.waitForResponse((item) => item.url().includes('/actions/approve-cancel'))
+  await approveDialog.locator('.el-message-box__btns .el-button--primary').click()
+  const approved = await approving
+  expect(approved.status()).toBe(200)
+  record(steps, 'approve-cancel', approved, '当前负责人同意撤销，工单进入「已取消」')
 
   await expect(page.locator('.ticket-meta')).toContainText('已取消')
   // 撤销是业务终止不是删除：负责人保留（这里用的是登录身份读到的显示名），并落下结束时间
   await expect(page.locator('.ticket-facts')).toContainText(itDisplayName)
   await expect(page.locator('.ticket-facts')).toContainText('结束时间')
-
-  // 时间线留下撤销记录（原因可见），并且终态上不再有任何动作
-  const cancelRecord = page.locator('.ticket-timeline__item').filter({ hasText: '撤销工单' })
-  await expect(cancelRecord).toHaveCount(1)
-  await expect(cancelRecord).toContainText(cancelReason)
+  // 终态不允许残留待决申请：这一块随之消失，动作区也不再有按钮
+  await expect(page.locator('.ticket-cancel-request')).toHaveCount(0)
   await expect(page.locator('.ticket-action-panel')).toHaveCount(0)
+  const approveRecord = page.locator('.ticket-timeline__item').filter({ hasText: '同意撤销申请' })
+  await expect(approveRecord).toHaveCount(1)
 
   await page.screenshot({ path: resolve(reviewDir, 'canceled-1440.png'), fullPage: true })
   await page.setViewportSize({ width: 375, height: 812 })
-  await expectNoHorizontalOverflow(page, '片 D 撤销后的详情页在 375 下被撑宽')
+  await expectNoHorizontalOverflow(page, '撤销后的详情页在 375 下被撑宽')
   await page.screenshot({ path: resolve(reviewDir, 'canceled-375.png'), fullPage: true })
-  // 375 下侧栏收进抽屉，"账号"入口不在可访问树里：还原视口再换账号
   await page.setViewportSize({ width: 1440, height: 900 })
   await signOut(page)
 
   expect(pageErrors, '页面上出现了 JavaScript 错误').toEqual([])
 
-  writeEvidence('runtime-evidence-cancel.json', { ticketNo, title, steps })
+  writeEvidence('runtime-evidence-two-phase-cancel.json', { ticketNo, title, steps })
 })
 
 test('片 D 场景二：IT 以「超出支持范围」关闭工单，工单进入已关闭', async ({ page }) => {
@@ -368,4 +438,146 @@ test('片 D 场景三：选到「重复工单」才出现重复单号输入框�
     steps,
     note: '只验证条件输入的出现与消失，未提交关闭动作',
   })
+})
+
+/**
+ * 一次完整的撤销申请往返（2026-10-08 两阶段撤销）。
+ *
+ * <p>它证明三件在界面上容易做错、也最容易返工的事：</p>
+ * <p>1. **驳回不结束工单**：工单留在「处理中」，负责人继续处理，而申请与驳回理由都进了时间线；</p>
+ * <p>2. **提交人可以撤回并再次发起**：撤回后面板消失、按钮回到「申请撤销工单」，不是"用过一次就没了"；</p>
+ * <p>3. **同一张单可以经历多轮申请**：每一轮都是独立记录，最后同意才进入终态。</p>
+ */
+test('两阶段撤销场景四：申请 → 驳回 → 再申请 → 撤回 → 再申请 → 同意', async ({ page }) => {
+  test.setTimeout(300_000)
+  const suffix = Date.now().toString().slice(-6)
+  const title = `E2E 片D往返 ${suffix}`
+  const description = 'E2E 两阶段撤销场景四：一轮完整的申请、驳回、撤回与同意往返。'
+  const firstReason = '这次先问一下能不能撤销。'
+  const rejectReason = '问题尚未定位，正在等供应商回复。'
+  const secondReason = '问题已经自行解决，确实不需要处理了。'
+  const steps: StepEvidence[] = []
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const ticketNo = await createTicketAsEmployee(page, title, description, steps)
+  await signOut(page)
+
+  const itDisplayName = await claimAsIt(page, ticketNo, steps)
+  await signOut(page)
+
+  /** 提交人发起一次申请；返回后停在详情页（申请已生效）。 */
+  async function requestCancelAsEmployee(reason: string): Promise<void> {
+    await page.locator('.ticket-action .el-button').filter({ hasText: '申请撤销工单' }).click()
+    const dialog = page.locator('.el-message-box')
+    await expect(dialog).toBeVisible()
+    await dialog.locator('textarea').fill(reason)
+    const requesting = page.waitForResponse((item) =>
+      item.url().includes('/actions/request-cancel'),
+    )
+    await dialog.locator('.el-message-box__btns .el-button--primary').click()
+    const requested = await requesting
+    expect(requested.status()).toBe(200)
+    record(steps, 'request-cancel', requested, `提交人发起撤销申请：${reason}`)
+    await expect(page.locator('.ticket-cancel-request')).toBeVisible()
+  }
+
+  // ---------- 第一轮：申请 → 驳回 ----------
+  await signIn(page, employeeUsername)
+  await openTicket(page, ticketNo, title)
+  await requestCancelAsEmployee(firstReason)
+  await signOut(page)
+
+  await signIn(page, itUsername)
+  await openTicket(page, ticketNo, title)
+  await expect(page.locator('.ticket-cancel-request')).toContainText(firstReason)
+  await page.locator('.ticket-action .el-button').filter({ hasText: '驳回撤销申请' }).click()
+  const rejectDialog = page.locator('.el-message-box')
+  await expect(rejectDialog).toBeVisible()
+  // 驳回必须写理由：没有理由，提交人只看到"被驳回"而无从调整
+  await rejectDialog.locator('textarea').fill(rejectReason)
+  const rejecting = page.waitForResponse((item) => item.url().includes('/actions/reject-cancel'))
+  await rejectDialog.locator('.el-message-box__btns .el-button--primary').click()
+  const rejected = await rejecting
+  expect(rejected.status()).toBe(200)
+  record(steps, 'reject-cancel', rejected, '当前负责人驳回撤销申请，工单保留原状态')
+
+  // 驳回不结束工单：状态不变、申请块消失、决策按钮也收回，处理动作照旧
+  await expect(page.locator('.ticket-meta')).toContainText('处理中')
+  await expect(page.locator('.ticket-cancel-request')).toHaveCount(0)
+  expect(await actionLabels(page)).toEqual([
+    '记录处理过程',
+    '提交解决结果',
+    '请求补充信息',
+    '调整分类',
+    '调整优先级',
+    '转交工单',
+    '关闭工单',
+  ])
+  const rejectRecord = page.locator('.ticket-timeline__item').filter({ hasText: '驳回撤销申请' })
+  await expect(rejectRecord).toHaveCount(1)
+  await expect(rejectRecord).toContainText(rejectReason)
+  await signOut(page)
+
+  // ---------- 第二轮：再申请 → 撤回 ----------
+  await signIn(page, employeeUsername)
+  await openTicket(page, ticketNo, title)
+  await requestCancelAsEmployee(secondReason)
+
+  await page.locator('.ticket-action .el-button').filter({ hasText: '撤回撤销申请' }).click()
+  const withdrawDialog = page.locator('.el-message-box')
+  await expect(withdrawDialog).toBeVisible()
+  // 撤回不需要理由（申请里那段说明仍然留在时间线上）
+  await expect(withdrawDialog.locator('textarea')).toHaveCount(0)
+  const withdrawing = page.waitForResponse((item) =>
+    item.url().includes('/actions/withdraw-cancel-request'),
+  )
+  await withdrawDialog.locator('.el-message-box__btns .el-button--primary').click()
+  const withdrawn = await withdrawing
+  expect(withdrawn.status()).toBe(200)
+  record(steps, 'withdraw-cancel-request', withdrawn, '提交人撤回自己的撤销申请')
+
+  await expect(page.locator('.ticket-meta')).toContainText('处理中')
+  await expect(page.locator('.ticket-cancel-request')).toHaveCount(0)
+  // 撤回之后不是"用过一次就没了"：还能重新发起
+  expect(await actionLabels(page)).toEqual(['申请撤销工单'])
+  const withdrawnRecord = page
+    .locator('.ticket-timeline__item')
+    .filter({ hasText: '撤回撤销申请' })
+  await expect(withdrawnRecord).toHaveCount(1)
+
+  // ---------- 第三轮：再申请 → 同意 ----------
+  await requestCancelAsEmployee(secondReason)
+  await signOut(page)
+
+  await signIn(page, itUsername)
+  await openTicket(page, ticketNo, title)
+  await expect(page.locator('.ticket-cancel-request')).toContainText(secondReason)
+  await page.locator('.ticket-action .el-button').filter({ hasText: '同意撤销' }).click()
+  const approveDialog = page.locator('.el-message-box')
+  await expect(approveDialog).toBeVisible()
+  const approving = page.waitForResponse((item) => item.url().includes('/actions/approve-cancel'))
+  await approveDialog.locator('.el-message-box__btns .el-button--primary').click()
+  const approved = await approving
+  expect(approved.status()).toBe(200)
+  record(steps, 'approve-cancel', approved, '当前负责人同意撤销，工单进入「已取消」')
+
+  await expect(page.locator('.ticket-meta')).toContainText('已取消')
+  await expect(page.locator('.ticket-facts')).toContainText(itDisplayName)
+  // 三轮申请各留一条记录：时间线是业务事实，不能被后来的动作抹平
+  await expect(
+    page.locator('.ticket-timeline__item').filter({ hasText: '申请撤销工单' }),
+  ).toHaveCount(3)
+  await expect(
+    page.locator('.ticket-timeline__item').filter({ hasText: '撤回撤销申请' }),
+  ).toHaveCount(1)
+  await expect(
+    page.locator('.ticket-timeline__item').filter({ hasText: '驳回撤销申请' }),
+  ).toHaveCount(1)
+  await signOut(page)
+
+  expect(pageErrors, '页面上出现了 JavaScript 错误').toEqual([])
+
+  writeEvidence('runtime-evidence-cancel-roundtrip.json', { ticketNo, title, steps })
 })

@@ -86,7 +86,7 @@ class TicketSupplementServiceImplTest {
     private static final String HIGH = "HIGH";
 
     private static final TicketProperties DEFAULT_PROPERTIES =
-            new TicketProperties(Duration.ofDays(7), Duration.ofDays(7));
+            new TicketProperties(Duration.ofDays(7), Duration.ofDays(7), Duration.ofDays(3));
 
     @Mock
     private TicketMapper ticketMapper;

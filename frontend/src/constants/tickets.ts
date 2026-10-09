@@ -162,7 +162,13 @@ export const TICKET_SORT_OPTIONS: readonly { value: TicketSortChoice; label: str
   { value: 'PRIORITY_DESC_CREATED_ASC', label: '优先级从高到低' },
 ]
 
-/** 记录类型中文名，与 `V1__create_schema.sql` 的 `ck_ticket_record_type` 一一对应。 */
+/**
+ * 记录类型中文名，与 `ck_ticket_record_type` 一一对应。
+ *
+ * <p>取值域跨两个迁移：`V1__create_schema.sql` 的 15 种，加 `V7__add_cancel_request.sql` 追加的
+ * 4 种两阶段撤销记录。少一个键不会报错，只会让时间线里那一行显示成英文编码——
+ * 所以这张表必须与迁移同步维护。</p>
+ */
 export const ticketRecordTypeLabels: Record<string, string> = {
   CREATE: '创建工单',
   CLAIM: '领取工单',
@@ -179,6 +185,12 @@ export const ticketRecordTypeLabels: Record<string, string> = {
   COMPLETION: '完成工单',
   CANCELLATION: '撤销工单',
   CLOSURE: '关闭工单',
+  // V7（2026-10-08 两阶段撤销）：发起、同意、驳回、撤回各是一种独立事实，
+  // 与「待受理直接撤销」的 CANCELLATION 分开显示
+  CANCELLATION_REQUEST: '申请撤销工单',
+  CANCELLATION_APPROVED: '同意撤销申请',
+  CANCELLATION_REJECTED: '驳回撤销申请',
+  CANCELLATION_REQUEST_WITHDRAWN: '撤回撤销申请',
 }
 
 export function ticketRecordTypeLabel(recordType: string): string {
@@ -252,6 +264,10 @@ export type TicketActionName =
   | 'transfer'
   | 'close'
   | 'supplement'
+  | 'request-cancel'
+  | 'withdraw-cancel-request'
+  | 'approve-cancel'
+  | 'reject-cancel'
   | 'cancel'
 
 export interface TicketActionMeta {
@@ -520,12 +536,79 @@ export const TICKET_ACTIONS: Record<TicketActionName, TicketActionMeta> = {
     destructive: false,
   },
   /**
+   * 两阶段撤销（2026-10-08 规则变更，`docs/kickoff.md` 4.7）：提交人**申请**撤销。
+   *
+   * <p>只有「处理中 / 待补充 / 待确认」会出现这一格——这三个状态已经有人负责，单方面终止
+   * 需要当前负责人同意；「待受理」没有负责人，仍由下面的 `cancel` 直接撤销。</p>
+   *
+   * <p>它不是终态动作：申请期间工单状态与期限都不变，提交人随时可以撤回（`withdraw-cancel-request`），
+   * 负责人也可以驳回（工单继续处理）。`destructive = false` 就是这层意思——一次点击不结束任何东西。
+   * 位置在 `supplement` 之后：两者会在「待补充」上同时出现，仍按"先把事情做完，再谈终止"排。</p>
+   */
+  'request-cancel': {
+    label: '申请撤销工单',
+    description:
+      '提交后不会立刻取消：工单继续按当前状态流转，由当前负责人决定是否同意。在对方处理之前，你随时可以撤回这次申请。',
+    permission: 'TICKET_REQUESTER_ACTION',
+    reason: {
+      label: '申请撤销的原因',
+      placeholder: '请输入为什么要终止这张工单，例如问题已自行解决、或这是一次重复提交',
+      maxLength: ACTION_REASON_MAX_LENGTH,
+    },
+    destructive: false,
+  },
+  /**
+   * 提交人撤回自己刚发起的撤销申请：工单回到"没有被申请撤销"，可以再次发起。
+   *
+   * <p>没有 `reason` 槽——撤回不需要理由，而且申请里原本那段说明仍然留在时间线上，
+   * 再写一遍只会多一条重复信息。</p>
+   */
+  'withdraw-cancel-request': {
+    label: '撤回撤销申请',
+    description:
+      '撤回后工单恢复为「没有被申请撤销」，你可以稍后重新发起；申请里写过的说明会保留在时间线上。',
+    permission: 'TICKET_REQUESTER_ACTION',
+    destructive: false,
+  },
+  /**
+   * 当前负责人同意撤销申请：一次点击把工单推进终态「已取消」，因此 `destructive = true`。
+   *
+   * <p>权限只要 `TICKET_PROCESS`，**不要求 `TICKET_CLOSE`**：同意撤销让工单进入"已取消"而不是
+   * "已关闭"，与 `close` 的双权限口径是两条不同的线，不要互相看齐。</p>
+   */
+  'approve-cancel': {
+    label: '同意撤销',
+    description:
+      '同意后工单进入终态「已取消」，不会再有人处理它；负责人与此前的处理记录都会保留。本版本不支持恢复。',
+    permission: 'TICKET_PROCESS',
+    destructive: true,
+  },
+  /**
+   * 当前负责人驳回撤销申请：工单留在原状态继续处理，这次申请失效。
+   *
+   * <p>`destructive = false`：它**不结束**工单，只是不同意这一次申请（提交人还可以再发起），
+   * 因此按钮不该用警示色。但驳回理由必填——没有理由，提交人只看到"被驳回"而无从调整。</p>
+   */
+  'reject-cancel': {
+    label: '驳回撤销申请',
+    description:
+      '驳回后工单保持当前状态继续处理，这次申请失效；提交人能看到你写的理由，也可以稍后再次发起申请。',
+    permission: 'TICKET_PROCESS',
+    reason: {
+      label: '驳回理由',
+      placeholder: '请输入为什么还需要继续处理，例如问题尚未定位、正在等待供应商回复',
+      maxLength: ACTION_REASON_MAX_LENGTH,
+    },
+    destructive: false,
+  },
+  /**
    * 完整状态机片 D：结束路径的第二半——提交人撤销。
    *
-   * <p>四种非终态（待受理 / 处理中 / 待补充 / 待确认）都能撤销，所以它和 `supplement` 会同时出现，
-   * 也和 IT 侧的 `close` 一样是终态动作。`destructive = true` 的理由同 `close`：一次点击结束
-   * 这张工单，v1 不支持恢复（`docs/kickoff.md` 4.7），而且它不需要 IT 同意——确认框必须写明
-   * "处理记录与负责人会保留、但工单不会再被处理"。</p>
+   * <p>**2026-10-08 规则变更后只剩「待受理」**：那个状态没有负责人，不需要谁批准。
+   * 处理中 / 待补充 / 待确认改走上面的 `request-cancel` → `approve-cancel`，所以它与
+   * `request-cancel` 在同一张单上不会同时出现。`destructive = true` 的理由不变：一次点击结束
+   * 这张工单，v1 不支持恢复（`docs/kickoff.md` 4.7），确认框必须写明"处理记录与负责人会保留、
+   * 但工单不会再被处理"。</p>
    */
   cancel: {
     label: '撤销工单',

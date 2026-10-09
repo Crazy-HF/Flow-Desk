@@ -296,7 +296,7 @@ MVP 最终完成定义：
 
 完整版在 MVP 通过验收后再排期，建议顺序如下：
 
-1. **完整工单状态机**：请求补充、员工补充、撤回请求、未解决退回、员工撤销、IT 转交和异常关闭。
+1. **完整工单状态机**：请求补充、员工补充、撤回请求、未解决退回、员工撤销、IT 转交和异常关闭。**2026-10-08 追加规则变更**：员工撤销由「四种非终态直接撤销」改为**两阶段**（待受理直接撤销；处理中/待补充/待确认由提交人发起、当前负责人批准或拒绝，提交人可撤回），见 9.3 末的交付记录。
 2. **附件与关联**：受控上传/下载、类型与大小限制、临时文件原子移动、失败补偿、孤儿对账、后续/重复工单关系。
 3. **自动化**：待确认自动完成、待补充自动关闭、停机恢复和幂等扫描。
 4. **系统管理**：~~用户与固定角色分配、账号启停、管理员重置密码~~、活动工单管理性交接、~~分类管理~~。**其中用户管理（列表、详情、创建、改资料、启停、替换角色、重置密码）已于 2026-09-24 随第 3 步提前实施并计入 MVP 演示范围（`TASK-061` 后端 / `TASK-062` 管理端页面）；分类管理已于 2026-09-28 经用户当轮指示提前实施（`TASK-063` 后端 / `TASK-064` 管理端页面，见 9.2）；管理性交接仍留完整版。**
@@ -383,7 +383,7 @@ MVP 最终完成定义：
 
 ### 9.3 完整工单状态机（完整版 backlog 第 1 项；2026-10-06 用户确认切片）
 
-**来源与现状**：9 个动作的契约（`docs/api-design.md` 6.3/6.4）与业务规则（`docs/kickoff.md` 4.5～4.12）早已确认，数据库与权限码也已预置——`V1` 的 7 状态、15 种记录类型与 8 条 CHECK 约束齐备，`V2` 已给 `IT_SUPPORT` 授予 `TICKET_TRANSFER`/`TICKET_CLOSE`、给 `EMPLOYEE` 授予 `TICKET_REQUESTER_ACTION`，因此**本项不需要新增迁移、不需要新增权限码**。阶段 3 已实现 4 个动作（`claim`、`add-processing-record`、`submit-resolution`、`confirm-resolution`），本项补完剩余 9 个。
+**来源与现状**：9 个动作的契约（`docs/api-design.md` 6.3/6.4）与业务规则（`docs/kickoff.md` 4.5～4.12）早已确认，数据库与权限码也已预置——`V1` 的 7 状态、15 种记录类型与 8 条 CHECK 约束齐备，`V2` 已给 `IT_SUPPORT` 授予 `TICKET_TRANSFER`/`TICKET_CLOSE`、给 `EMPLOYEE` 授予 `TICKET_REQUESTER_ACTION`，因此**本项不需要新增迁移、不需要新增权限码**（2026-10-08 的两阶段撤销是其后的一次**业务规则变更**，另需迁移 `V7`，见本节末的交付记录）。阶段 3 已实现 4 个动作（`claim`、`add-processing-record`、`submit-resolution`、`confirm-resolution`），本项补完剩余 9 个。
 
 **用户 2026-10-06 的四项裁决**：
 
@@ -436,14 +436,30 @@ MVP 最终完成定义：
 
 **明确不在本项范围**：附件（backlog 2）、超时自动任务（backlog 3）、管理性交接（backlog 4，`IamUserServiceImpl` 两处 `//TODO 工单模块未实现`）、数据概览（backlog 5）。
 
-**决策记录：撤销的「两阶段」方向（2026-10-08 用户裁决，尚未实施）**
+**决策记录：撤销的「两阶段」方向（2026-10-08 登记；同日经用户确认五个设计点后实施，交付记录见本节末）**
 
-v1 保持 `docs/kickoff.md` 4.7 已确认的口径不变：四种非终态下提交人可以直接撤销（片 D 实现）。提出该问题的理由是治理层——IT 已经领取并投入处理的工单可以被提交人单方面终止，IT 没有否决权。经分析这不影响正确性与数据：撤销是业务终止而不是删除，负责人、参与关系与全部处理记录都保留，且 4.7 已明确"已取消**不代表问题由 IT 成功解决**"，因此它不会被计入 IT 的解决成果；收窄它反而会让"处理中"的提交人失去唯一出口（误报、问题自行消失、重复提交都只能线下找 IT）。因此本轮只登记方向、不改状态机：
+登记时的口径是 v1 保持 `docs/kickoff.md` 4.7 已确认的「四种非终态下提交人可以直接撤销」（片 D 实现）。提出该问题的理由是治理层——IT 已经领取并投入处理的工单可以被提交人单方面终止，IT 没有否决权。经分析这不影响正确性与数据：撤销是业务终止而不是删除，负责人、参与关系与全部处理记录都保留，且 4.7 已明确"已取消**不代表问题由 IT 成功解决**"，因此它不会被计入 IT 的解决成果；收窄它反而会让"处理中"的提交人失去唯一出口（误报、问题自行消失、重复提交都只能线下找 IT）。因此登记时只记录方向、未改状态机；用户随后在同一天确认了下列五个设计点并授权实施：
 
 - **目标形态**：`PENDING`（无人负责）仍直接取消；`PROCESSING` / `WAITING_FOR_REQUESTER` / `WAITING_FOR_CONFIRMATION` 下提交人只能**发起**撤销请求，由当前负责人批准或拒绝；批准后进入 `CANCELED`，拒绝则保留原状态并记录原因。
-- **实施前需要一次性确认的设计点**：① 中间态建模——给 `ticket` 加"待批准撤销请求"的列（状态机保持 7 个状态），还是新增第 8 个状态（`CANCEL_REQUESTED`）；② 批准/拒绝用哪个权限码（`TICKET_PROCESS` 还是 `TICKET_CLOSE`）；③ 撤销请求是否设有效期与超时处置（依赖 backlog 第 3 项的自动任务）；④ 请求待批准期间 IT 的其它动作是否照常可用；⑤ 提交人能否自行撤回撤销请求。
+- **五个设计点的确认结果（2026-10-08 用户确认，均已落地）**：① 中间态建模取**给 `ticket` 加"待批准撤销请求"的三列**，状态机保持 7 个状态，不新增第 8 个状态；② 批准与拒绝共用 **`TICKET_PROCESS`**，**不要求** `TICKET_CLOSE`（撤销不是关闭）；发起与撤回用 **`TICKET_REQUESTER_ACTION`**，与补充、确认、未解决、直接撤销同码；③ 请求设响应期限（新增配置 `flowdesk.ticket.cancel-request-window`，默认 `3d`、下限 `1m`），但**只写库与展示，到期不自动处置**——超时处理仍属 backlog 第 3 项；④ 请求待批准期间 IT 的其它动作**照常可用**，不冻结工单，竞态继续由条件更新裁决唯一胜者；⑤ 提交人**可以自行撤回**撤销请求，撤回不需要理由。
 - **实施时要一并改的影响面**：`docs/kickoff.md` 4.7 的表格/状态图/并发清单、`docs/api-design.md` 6.4 与权限表、新迁移（新列或新状态，以及 `ticket_record` 的 `ck_ticket_record_type` 追加 `CANCELLATION_REQUEST` / `CANCELLATION_REJECTED`）、`allowedActions`、前端动作区与文案、真实栈验收脚本、`PROJECT_STATUS.md`。
 - **代价提示**：这是一次业务规则变更而不是补实现，必须与 4.7 的既有条款一起改，不能只改代码；验收标准里"三条终态可区分"仍然成立，但"撤销"的动作名会从一个变成三个（`request-cancel` 与 `approve-cancel` / `reject-cancel`，`cancel` 只剩"待受理直接取消"）。
+
+**两阶段撤销交付记录（2026-10-08，分支 `flow-desk/ticket-two-phase-cancel`，基点 `95eee90`）**
+
+- **范围**：业务规则变更，不是补实现。`docs/kickoff.md` 4.7 的表格、规则清单与状态图，以及 4.8/4.9/4.11/4.12/5.2 的交叉引用一并与代码同步（"撤销"从一个动作名变成四个，`cancel` 收窄到待受理）。
+- **数据变更**：`V7__add_cancel_request.sql`——`ticket` 三个可空列（发起时间、说明、响应期限）+ `ck_ticket_cancel_request_pair` + `ck_ticket_cancel_request_status`；`ticket_record` 的 `ck_ticket_record_type` 在同一条 `ALTER` 里重建，追加 `CANCELLATION_REQUEST` / `CANCELLATION_APPROVED` / `CANCELLATION_REJECTED` / `CANCELLATION_REQUEST_WITHDRAWN`。**不新增权限码、不新增索引**；详见 `docs/database-design.md` 的 `V7` 变更说明。
+- **基础件（Agent 写入，用户编写 ServiceImpl 期间暂停）**：`Ticket` 三个字段、`TicketProperties` 第三分量 `cancelRequestWindow`（默认 `3d`、下限 `1m`）与 `application.yml`、四个 Command、`TicketCancelRequestResult`（详情新增 `cancelRequest`）、`TicketDetailRow` 三列、`TicketService` 四个方法签名、`TicketController` 四个端点、`TicketMapper` 四条条件更新、`TicketQueryServiceImpl` 的四格 `allowedActions` 与三个判定、`toRecordContext` 的四个 `case`。
+- **业务实现（用户编写，Agent 复核并修正）**：`TicketServiceImpl` 的 `requestCancel` / `approveCancel` / `rejectCancel` / `withdrawCancelRequest`；门禁顺序与既有动作逐字对齐（认证 → 权限 403 → 可见性 404 → 状态/身份/版本 409 → 字段 400 → 条件更新）。复核时发现并修正：`requestCancel` 的权限判断写反（有权限反而 403、无权限反而放行）、`approveCancel` 引用了不存在的权限码 `TICKET_CLAIMANT_ACTION`、`TicketMapper` 两条 SQL 的 `update_at` 列名与 `SET status = #{CANCELED}` 占位符错误及多余逗号。
+- **三条约束驱动的陷阱（本轮的主要设计内容）**：① `approveCancel` 必须在同一条 UPDATE 里清 `action_deadline_at`——待补充与待确认本身带着期限，只改 `status` 会撞 `ck_ticket_status_deadline`；② `closeManually` 与 `confirmResolution` 必须一并清空请求三列，否则终态残留待决请求会撞 `ck_ticket_cancel_request_status`；③ `toRecordContext` 的 `default` 分支会抛异常，四个新记录类型都必须有 `case`，否则整条时间线 `500`。
+- **验证（实跑）**：`.\mvnw.cmd -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → surefire **1070** + failsafe **158**，`Failures 0 / Errors 0`，`BUILD SUCCESS`（本分支早期基线为 967 + 155，收口轮净增 +103 / +3）。`DatabaseMigrationIT` 在**空库**上通过 `flyway.migrate()` + `validate()`（迁移基线含 `7`）；两条新 CHECK、收窄后 `cancel` 的 `WHERE` 与四个新记录类型由 `TicketServiceIT` 在真实 MySQL 上实际撞过；新增 `approveCancelClearsDeadlineAndKeepsTerminalStatesDistinguishable`、`rejectAndWithdrawCancelRequestKeepTicketUntouched`、`confirmResolutionClearsThePendingCancelRequestAndCompletesTheTicket`，并把原 `cancelClearsDeadline…` 改写为两阶段、原「关闭 vs 撤销」并发用例改写为「关闭 vs 批准撤销」（仍断言唯一胜者 + 败者必为 `409`）。
+- **测试补强（收口轮，65 个方法 / +106 项执行）**：`TicketServiceImplTest` 217 → **279**（四个方法的"权限 403 先于可见性"、404、状态与终态 409、身份 409、版本 409、**409 先于 400**、reason 的 null / 空白 / 1001 / 恰好 1000、成功路径的 mapper 入参与记录逐字段、配置窗口 1h 的精确期限、`approveCancelNeedsNoCloseAuthority`，以及新增的 `cancelReportsConflictOnEveryStatusThatRequiresApproval`）；`TicketQueryServiceImplTest` 78 → **87**（三种状态下"有待决申请 / 没有"的 `allowedActions` 逐格与完整顺序）；`TicketControllerWebTest` 146 → **178**（四端点 401/403/404/409 参数化 + 12 例字段校验 + 四个成功信封与命令去空白）；`TicketQueryServiceIT` 9 → **10**（真库三状态 × 两角色，`cancelRequest` 三字段含 UTC 转换）；`TicketServiceIT` 51 → **54**。
+- **为让全量构建可说清而就地修正的既有测试**：`TicketServiceImplTest` 的 `cancel` 用例样本由四种非终态改为 `PENDING`（其中两条原本"因为状态被拒"而**碰巧通过**的用例改回用版本门触发，否则名不副实）、8 处 `TicketProperties` 构造补第三参数；`TicketQueryServiceImplTest` / `TicketQueryServiceIT` 的 `allowedActions` 期望按新规则更新；`TicketControllerWebTest` 的详情构造补 `cancelRequest`；`DatabaseMigrationIT` 迁移基线补 `7`。
+- **真实栈验收（实跑）**：`scripts/slice-e-two-phase-cancel-acceptance.ps1`（3104 行、UTF-8 with BOM）在**并行后端 8092**（用户自己的 8081 全程未被触碰）上执行 **178 项断言、178 通过、退出码 0**（28.8 秒），证据 `docs/acceptance/2026-10-08-slice-e-two-phase-cancel.json`（295,387 字节、无 BOM、可 `ConvertFrom-Json` 回读；`invocation` 含 `-BaseUrl`、`evidencePath` 为仓库根相对路径、全文 0 处机器绝对路径）。覆盖：主链（待补充 → 申请 → 批准）、期限来自配置（`3d` ±5 秒）与"到期不自动处置"、驳回后再发起、撤回、`cancel` 收窄的正反两面、403/404/409 三类权限与身份、**三组真并发**（approve vs reject / approve vs withdraw / close vs approve，全部"唯一胜者 + 败者 409 + 0 个 5xx"）、库层约束探针（两条新 CHECK 与重建后的记录类型白名单）、幂等与版本。脚本自建 11 张工单与 2 个临时主体，收尾按主键删除，八项计数与七组逐行指纹运行前后逐字一致。**未发现产品缺陷。**
+- **验收首轮的一处红与"不补造证据"的处置**：第一次运行 1 红，原因是**脚本自己的快照锚点取宽**（拿的是权限组之后的快照，而那之后还有一次成功的 `request-cancel`，于是这次合法写入被算成"被拒请求改动过"）；把锚点改为"成功请求之后、拒绝组之前"后连跑两次全绿。失败那次写在默认证据路径并被后续绿色运行覆盖，**按"不伪造证据"的原则没有补造 `-pre-fix-fail` 归档**——片 C/片 D 的归档是原始首跑文件，人为复现出来的不算，本次失败明细与修正理由以 `PROJECT_STATUS.md` 的当前结论段为准。
+- **一处已知的实测覆盖缺口（如实记录）**：`close vs approve`（`a11c`）在 4 次运行中**全部由「关闭」获胜**，"批准赢"那一支只有对称断言、没有实测样本；另两组三次运行赢家各不相同，两个分支都被覆盖过。该竞争在集成层由 `TicketServiceIT.concurrentCloseAndApproveCancelOnSameTicketHaveExactlyOneWinner` 稳定覆盖（断言不要求特定赢家），故未额外加压重跑。
+- **前端与 E2E（同轮收口）**：动作登记表四格（`request-cancel` / `withdraw-cancel-request` / `approve-cancel` / `reject-cancel`，位置在 `supplement` 与 `cancel` 之间）+ 详情页「撤销申请待处理」块（按角色给决策人 / 发起人 / 旁观者三种文案）+ `ticketRecordTypeLabels` 补 4 个记录类型（漏了时间线会显示英文编码）；前端单测 186 → **200 项**，`typecheck` / `lint` / `build` 退出码 0；E2E 的 5 处旧精确集断言改为「申请撤销工单」，`ticket-close-cancel.spec.ts` 场景一改写为两阶段，新增场景四「申请 → 驳回 → 再申请 → 撤回 → 再申请 → 同意」，全量 **24 项通过（1.8 分钟）**（`FLOWDESK_API_TARGET` 指向 8092 上的新构建后端）。**真实 E2E 抓到的唯一一处红是我自己写错的期望值**：场景一里我以为负责人在申请期间只剩两个决策按钮，实际他仍有全部处理动作（收到的顺序正是 7 + 2 格），已修正后复跑通过。
+- **有意保留的未覆盖格**：`reject-cancel` 对未知编号的 404 未单独断言（另三个端点各有一格）；"期限已过"只在**批准**路径上正向验证（该列不进拒绝 / 撤回的 `WHERE`）；`cancel` 的 409 覆盖 `PROCESSING` 与终态，未覆盖两个等待态；并发只做任务要求的三组（approve vs reject、approve vs withdraw、close vs approve）。
 
 ## 10. 全局完成与范围控制
 

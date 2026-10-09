@@ -6,6 +6,7 @@ import com.flowdesk.common.exception.ApiException;
 import com.flowdesk.common.web.PageResult;
 import com.flowdesk.support.MockedPersistenceConfiguration;
 import com.flowdesk.ticket.application.command.AddProcessingRecordCommand;
+import com.flowdesk.ticket.application.command.ApproveCancelCommand;
 import com.flowdesk.ticket.application.command.CancelTicketCommand;
 import com.flowdesk.ticket.application.command.ChangeCategoryCommand;
 import com.flowdesk.ticket.application.command.ChangePriorityCommand;
@@ -13,11 +14,14 @@ import com.flowdesk.ticket.application.command.ClaimTicketCommand;
 import com.flowdesk.ticket.application.command.CloseTicketCommand;
 import com.flowdesk.ticket.application.command.ConfirmResolutionCommand;
 import com.flowdesk.ticket.application.command.CreateTicketCommand;
+import com.flowdesk.ticket.application.command.RejectCancelCommand;
 import com.flowdesk.ticket.application.command.ReportUnresolvedCommand;
+import com.flowdesk.ticket.application.command.RequestCancelCommand;
 import com.flowdesk.ticket.application.command.RequestSupplementCommand;
 import com.flowdesk.ticket.application.command.SubmitResolutionCommand;
 import com.flowdesk.ticket.application.command.SupplementCommand;
 import com.flowdesk.ticket.application.command.TransferCommand;
+import com.flowdesk.ticket.application.command.WithdrawCancelRequestCommand;
 import com.flowdesk.ticket.application.command.WithdrawSupplementRequestCommand;
 import com.flowdesk.ticket.application.query.TicketQuery;
 import com.flowdesk.ticket.application.query.TicketRecordQuery;
@@ -117,6 +121,11 @@ class TicketControllerWebTest {
     /** 片 D：结束路径的两个动作。 */
     private static final String CLOSE = "close";
     private static final String CANCEL = "cancel";
+    /** 两阶段撤销（2026-10-08 规则变更）：提交人两个入口 + 当前负责人两个决策入口。 */
+    private static final String REQUEST_CANCEL = "request-cancel";
+    private static final String WITHDRAW_CANCEL_REQUEST = "withdraw-cancel-request";
+    private static final String APPROVE_CANCEL = "approve-cancel";
+    private static final String REJECT_CANCEL = "reject-cancel";
     private static final long NEW_ASSIGNEE_ID = 11L;
     private static final String SUBMISSION_KEY = "3f1c2b7e-1d4a-4f2b-9c6e-8a7d5b0c1e2f";
     private static final long CATEGORY_ID = 7L;
@@ -1795,6 +1804,238 @@ class TicketControllerWebTest {
                 .andExpect(jsonPath("$.data.traceId").exists());
     }
 
+    // ---------- 两阶段撤销：四个端点 ----------
+
+    /**
+     * 四个两阶段撤销端点与其他动作端点同一口径：都没有方法级 {@code @PreAuthorize}，
+     * 无令牌在过滤器链就被拦下，不进入服务。
+     */
+    @ParameterizedTest(name = "{0} without authentication returns 401")
+    @MethodSource("cancelRequestActionCases")
+    void cancelRequestActionsRequireAuthentication(String action, String requestBody)
+            throws Exception {
+        mockMvc.perform(actionRequest(action, requestBody))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_REQUIRED"));
+
+        verifyNoInteractions(ticketService, ticketQueryService);
+    }
+
+    /** 四个端点的代表性合法请求体：两个提交人入口带说明/只带版本，两个决策入口同理。 */
+    static Stream<Arguments> cancelRequestActionCases() {
+        return Stream.of(
+                Arguments.of(REQUEST_CANCEL, """
+                        {"version": 5, "reason": "问题已自行解决"}
+                        """),
+                Arguments.of(APPROVE_CANCEL, """
+                        {"version": 5}
+                        """),
+                Arguments.of(REJECT_CANCEL, """
+                        {"version": 5, "reason": "还有两步就能修好"}
+                        """),
+                Arguments.of(WITHDRAW_CANCEL_REQUEST, """
+                        {"version": 5}
+                        """));
+    }
+
+    /** 版本与说明/原因两类字段校验：都没到服务层就被 Bean Validation 拦下。 */
+    @ParameterizedTest(name = "{0} rejects {1}")
+    @MethodSource("invalidCancelRequestBodies")
+    void cancelRequestActionsRejectInvalidBody(
+            String action, String caseName, String requestBody, String expectedField)
+            throws Exception {
+        mockMvc.perform(actionRequest(action, requestBody)
+                        .with(ticketUser("TICKET_PROCESS", "TICKET_REQUESTER_ACTION")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.data.fieldErrors[*].field", hasItem(expectedField)));
+
+        verifyNoInteractions(ticketService);
+    }
+
+    static Stream<Arguments> invalidCancelRequestBodies() {
+        String reasonOverLimit = "x".repeat(1001);
+        return Stream.of(
+                Arguments.of(REQUEST_CANCEL, "a missing version", """
+                        {"reason": "问题已自行解决"}
+                        """, "version"),
+                Arguments.of(REQUEST_CANCEL, "a missing reason", """
+                        {"version": 5}
+                        """, "reason"),
+                Arguments.of(REQUEST_CANCEL, "a blank reason", """
+                        {"version": 5, "reason": "   "}
+                        """, "reason"),
+                Arguments.of(REQUEST_CANCEL, "a reason over 1000 characters", """
+                        {"version": 5, "reason": "%s"}
+                        """.formatted(reasonOverLimit), "reason"),
+                Arguments.of(REJECT_CANCEL, "a missing version", """
+                        {"reason": "还有两步就能修好"}
+                        """, "version"),
+                Arguments.of(REJECT_CANCEL, "a missing reason", """
+                        {"version": 5}
+                        """, "reason"),
+                Arguments.of(REJECT_CANCEL, "a blank reason", """
+                        {"version": 5, "reason": ""}
+                        """, "reason"),
+                Arguments.of(REJECT_CANCEL, "a reason over 1000 characters", """
+                        {"version": 5, "reason": "%s"}
+                        """.formatted(reasonOverLimit), "reason"),
+                Arguments.of(APPROVE_CANCEL, "a missing version", "{}", "version"),
+                Arguments.of(APPROVE_CANCEL, "a negative version", """
+                        {"version": -1}
+                        """, "version"),
+                Arguments.of(WITHDRAW_CANCEL_REQUEST, "a missing version", "{}", "version"),
+                Arguments.of(WITHDRAW_CANCEL_REQUEST, "a negative version", """
+                        {"version": -1}
+                        """, "version")
+        );
+    }
+
+    /**
+     * 四个端点的 403 都由服务层给出：提交人侧是"无提交人操作权限"、负责人侧是"无处理工单权限"，
+     * 但对外都是动作级 {@code TICKET_ACTION_FORBIDDEN}，与过滤器链的 {@code ACCESS_DENIED} 区分开。
+     */
+    @ParameterizedTest(name = "{0} is forbidden without its authority")
+    @MethodSource("cancelRequestActionCases")
+    void cancelRequestActionsAreForbiddenWithoutTheirAuthority(String action, String requestBody)
+            throws Exception {
+        stubCancelRequestActionFailure(action,
+                new ApiException(HttpStatus.FORBIDDEN, "TICKET_ACTION_FORBIDDEN",
+                        "无提交人操作权限"));
+
+        mockMvc.perform(actionRequest(action, requestBody)
+                        .with(ticketUser("TICKET_VIEW_OWN", "TICKET_VIEW_QUEUE")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("TICKET_ACTION_FORBIDDEN"));
+    }
+
+    /** 无权查看与编号不存在共用 404，四个端点一致。 */
+    @ParameterizedTest(name = "{0} reports not found when the ticket is invisible")
+    @MethodSource("cancelRequestActionCases")
+    void cancelRequestActionsReportNotFoundWhenTicketIsInvisible(
+            String action, String requestBody) throws Exception {
+        stubCancelRequestActionFailure(action,
+                new ApiException(HttpStatus.NOT_FOUND, "TICKET_NOT_FOUND", "工单不存在"));
+
+        mockMvc.perform(actionRequest(action, requestBody)
+                        .with(ticketUser("TICKET_PROCESS", "TICKET_REQUESTER_ACTION")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("TICKET_NOT_FOUND"))
+                .andExpect(jsonPath("$.data.traceId").exists());
+    }
+
+    /** 版本或状态冲突时 {@code data} 必须带当前快照，前端据此刷新而不是盲目重放。 */
+    @ParameterizedTest(name = "{0} conflict carries the current snapshot")
+    @MethodSource("cancelRequestActionCases")
+    void cancelRequestActionsConflictCarryCurrentSnapshot(String action, String requestBody)
+            throws Exception {
+        stubCancelRequestActionFailure(action,
+                new ApiException(HttpStatus.CONFLICT, "TICKET_CONFLICT",
+                        "工单状态或版本已变化，请刷新后重试", 6L, "PROCESSING"));
+
+        mockMvc.perform(actionRequest(action, requestBody)
+                        .with(ticketUser("TICKET_PROCESS", "TICKET_REQUESTER_ACTION")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("TICKET_CONFLICT"))
+                .andExpect(jsonPath("$.data.traceId").exists())
+                .andExpect(jsonPath("$.data.version").value(6))
+                .andExpect(jsonPath("$.data.status").value("PROCESSING"))
+                .andExpect(jsonPath("$.data.fieldErrors").doesNotExist());
+    }
+
+    /**
+     * 发起撤销请求的成功信封：工单状态不变、期限仍是工单自己的期限，说明去空白后进命令。
+     *
+     * <p>请求自身的响应期限不在动作摘要里——它通过详情返回，因此这里刻意不给它留字段。</p>
+     */
+    @Test
+    void requestCancelReturnsTicketActionEnvelope() throws Exception {
+        when(ticketService.requestCancel(eq(TICKET_NO), any())).thenReturn(sampleAction());
+
+        mockMvc.perform(actionRequest(REQUEST_CANCEL, """
+                        {"version": 5, "reason": "  问题已自行解决  "}
+                        """).with(ticketUser("TICKET_REQUESTER_ACTION")))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.ticketNo").value(TICKET_NO))
+                .andExpect(jsonPath("$.data.status").value("PROCESSING"))
+                .andExpect(jsonPath("$.data.assignee.id").value(ASSIGNEE_ID))
+                .andExpect(jsonPath("$.data.actionDeadlineAt").value("2026-10-13T08:00:00Z"))
+                .andExpect(jsonPath("$.data.version").value(4));
+
+        ArgumentCaptor<RequestCancelCommand> captor =
+                ArgumentCaptor.forClass(RequestCancelCommand.class);
+        verify(ticketService).requestCancel(eq(TICKET_NO), captor.capture());
+        assertThat(captor.getValue().version()).isEqualTo(5L);
+        assertThat(captor.getValue().reason()).as("说明在命令构造器中去除了首尾空白")
+                .isEqualTo("问题已自行解决");
+    }
+
+    /** 批准的成功信封：进入终态、期限消失；请求体只有版本。 */
+    @Test
+    void approveCancelReturnsTicketActionEnvelope() throws Exception {
+        when(ticketService.approveCancel(eq(TICKET_NO), any())).thenReturn(canceledAction());
+
+        mockMvc.perform(actionRequest(APPROVE_CANCEL, """
+                        {"version": 5}
+                        """).with(ticketUser("TICKET_PROCESS")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.status").value("CANCELED"))
+                .andExpect(jsonPath("$.data.assignee.id").value(ASSIGNEE_ID))
+                .andExpect(jsonPath("$.data.actionDeadlineAt").doesNotExist())
+                .andExpect(jsonPath("$.data.version").value(5));
+
+        ArgumentCaptor<ApproveCancelCommand> captor =
+                ArgumentCaptor.forClass(ApproveCancelCommand.class);
+        verify(ticketService).approveCancel(eq(TICKET_NO), captor.capture());
+        assertThat(captor.getValue().version()).isEqualTo(5L);
+    }
+
+    /** 拒绝的成功信封：状态与期限都不变，拒绝原因去空白后进命令。 */
+    @Test
+    void rejectCancelReturnsTicketActionEnvelope() throws Exception {
+        when(ticketService.rejectCancel(eq(TICKET_NO), any())).thenReturn(sampleAction());
+
+        mockMvc.perform(actionRequest(REJECT_CANCEL, """
+                        {"version": 5, "reason": "  还有两步就能修好  "}
+                        """).with(ticketUser("TICKET_PROCESS")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.status").value("PROCESSING"))
+                .andExpect(jsonPath("$.data.actionDeadlineAt").value("2026-10-13T08:00:00Z"))
+                .andExpect(jsonPath("$.data.version").value(4));
+
+        ArgumentCaptor<RejectCancelCommand> captor =
+                ArgumentCaptor.forClass(RejectCancelCommand.class);
+        verify(ticketService).rejectCancel(eq(TICKET_NO), captor.capture());
+        assertThat(captor.getValue().version()).isEqualTo(5L);
+        assertThat(captor.getValue().reason()).as("拒绝原因在命令构造器中去除了首尾空白")
+                .isEqualTo("还有两步就能修好");
+    }
+
+    /** 撤回自己请求的成功信封：状态与期限都不变，请求体只有版本。 */
+    @Test
+    void withdrawCancelRequestReturnsTicketActionEnvelope() throws Exception {
+        when(ticketService.withdrawCancelRequest(eq(TICKET_NO), any()))
+                .thenReturn(sampleAction());
+
+        mockMvc.perform(actionRequest(WITHDRAW_CANCEL_REQUEST, """
+                        {"version": 5}
+                        """).with(ticketUser("TICKET_REQUESTER_ACTION")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.status").value("PROCESSING"))
+                .andExpect(jsonPath("$.data.actionDeadlineAt").value("2026-10-13T08:00:00Z"))
+                .andExpect(jsonPath("$.data.version").value(4));
+
+        ArgumentCaptor<WithdrawCancelRequestCommand> captor =
+                ArgumentCaptor.forClass(WithdrawCancelRequestCommand.class);
+        verify(ticketService).withdrawCancelRequest(eq(TICKET_NO), captor.capture());
+        assertThat(captor.getValue().version()).isEqualTo(5L);
+    }
+
     // ---------- 辅助 ----------
 
     /** 片 B 两个动作的成功信封：请求补充进入「待补充」，提交补充回到「处理中」。 */
@@ -1902,6 +2143,22 @@ class TicketControllerWebTest {
         }
     }
 
+    /** 两阶段撤销四个端点的服务替身分派：与 {@link #stubReturnActionFailure} 同一写法。 */
+    private void stubCancelRequestActionFailure(String action, RuntimeException failure) {
+        switch (action) {
+            case REQUEST_CANCEL -> when(ticketService.requestCancel(eq(TICKET_NO), any()))
+                    .thenThrow(failure);
+            case APPROVE_CANCEL -> when(ticketService.approveCancel(eq(TICKET_NO), any()))
+                    .thenThrow(failure);
+            case REJECT_CANCEL -> when(ticketService.rejectCancel(eq(TICKET_NO), any()))
+                    .thenThrow(failure);
+            case WITHDRAW_CANCEL_REQUEST -> when(
+                    ticketService.withdrawCancelRequest(eq(TICKET_NO), any()))
+                    .thenThrow(failure);
+            default -> throw new IllegalArgumentException("未知动作：" + action);
+        }
+    }
+
     private void assertActionEnvelope(ResultActions result) throws Exception {
         result.andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
@@ -1984,6 +2241,7 @@ class TicketControllerWebTest {
                 "HIGH",
                 "PENDING",
                 new TicketUserSummaryResult(REQUESTER_ID, "演示员工"),
+                null,
                 null,
                 null,
                 1L,

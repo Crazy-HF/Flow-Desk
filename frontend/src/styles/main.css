@@ -2008,6 +2008,43 @@ h1 {
   font-size: var(--fd-font-size-sm);
 }
 
+/* 待批准的撤销申请：它是这张工单当前的一个状态提示，不是一个可操作的集合。
+   所以不抢动作区的强调色，只用背景微差把它从普通面板里抬出来——不用彩色粗边框，
+   那是装饰而不是层级。 */
+.ticket-cancel-request {
+  background: var(--fd-color-warning-soft);
+}
+
+/* 这块里唯一的"结论"：谁在等谁。其余信息都退一档。 */
+.ticket-cancel-request__lead {
+  margin: 0;
+  color: var(--fd-color-text-strong);
+  font-size: var(--fd-font-size-base);
+}
+
+/* 提交人写的理由原样保留换行：它是原始陈述，与问题描述同一性质，不能重排。 */
+.ticket-cancel-request__reason {
+  margin: var(--fd-space-3) 0 0;
+  padding: var(--fd-space-3) var(--fd-space-4);
+  border: thin solid var(--fd-color-border-subtle);
+  border-radius: var(--fd-radius-sm);
+  background: var(--fd-color-surface);
+  color: var(--fd-color-text);
+  line-height: var(--fd-line-height-relaxed);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.ticket-cancel-request__facts {
+  margin-top: var(--fd-space-4);
+}
+
+.ticket-cancel-request__hint {
+  margin: var(--fd-space-4) 0 0;
+  color: var(--fd-color-text-subtle);
+  font-size: var(--fd-font-size-sm);
+}
+
 @media (max-width: 52rem) {
   /* 详情在窄屏改为上下排列：属性栏跟到正文后面，而不是挤在右侧变成一条窄缝。 */
   /* 日期范围的固有宽度不能撑开筛选网格的自动轨道。 */

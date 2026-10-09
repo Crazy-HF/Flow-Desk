@@ -9,6 +9,7 @@ import type { AuthUser } from '@/api/auth'
 import { listCategoryOptions } from '@/api/categories'
 import {
   addProcessingRecord,
+  approveCancel,
   cancelTicket,
   changeTicketCategory,
   changeTicketPriority,
@@ -18,10 +19,13 @@ import {
   getTicket,
   listTicketRecords,
   listTransferCandidates,
+  rejectCancel,
+  requestCancelTicket,
   requestSupplementTicket,
   submitResolution,
   supplementTicket,
   transferTicket,
+  withdrawCancelRequest,
 } from '@/api/tickets'
 import type { TicketAssigneeOption, TicketDetail, TicketRecord } from '@/api/tickets'
 import { useAuthStore } from '@/stores/auth'
@@ -44,6 +48,10 @@ vi.mock('@/api/tickets', () => ({
   transferTicket: vi.fn(),
   closeTicket: vi.fn(),
   cancelTicket: vi.fn(),
+  requestCancelTicket: vi.fn(),
+  withdrawCancelRequest: vi.fn(),
+  approveCancel: vi.fn(),
+  rejectCancel: vi.fn(),
   listTransferCandidates: vi.fn(),
 }))
 
@@ -159,6 +167,16 @@ function buttonByText(wrapper: VueWrapper, text: string) {
 /** 动作按钮的文案，用来断言"这一屏摆出了哪几个动作"。 */
 function actionLabels(wrapper: VueWrapper): string[] {
   return wrapper.findAll('.ticket-action .el-button').map((item) => item.text())
+}
+
+/**
+ * 待批准的撤销申请那一块（2026-10-08 两阶段撤销）。
+ *
+ * <p>它只在详情返回 `cancelRequest` 时渲染——申请期间工单状态不变，所以这块是界面上
+ * 唯一能看出"这张单正卡在一次撤销申请上"的地方。</p>
+ */
+function cancelRequestPanel(wrapper: VueWrapper) {
+  return wrapper.find('.ticket-cancel-request')
 }
 
 /** 点开动作按钮，等着确认框被打开。 */
@@ -1260,25 +1278,23 @@ describe('TicketDetailView', () => {
   })
 
   /**
-   * 撤销工单：提交人的终态动作，「处理中」也能做（IT 已经领了也算）。
+   * 撤销工单：提交人的终态动作，**规则变更后只剩「待受理」**（2026-10-08 两阶段撤销）。
    *
-   * <p>它不需要 IT 同意，所以界面必须把后果写清楚：进入终态「已取消」，此前的处理记录与负责人
-   * 都保留，但不会再有人处理它，而且本版本不支持恢复。</p>
+   * <p>待受理没有负责人，不需要谁批准，所以这一格仍然一步到位。界面必须把后果写清楚：
+   * 进入终态「已取消」，此前的处理记录与负责人（如果有）都保留，但不会再有人处理它，
+   * 而且本版本不支持恢复。</p>
    */
-  it('撤销工单：带版本号与原因提交，成功后进入已取消且不再有动作', async () => {
+  it('撤销工单（待受理）：带版本号与原因提交，成功后进入已取消且不再有动作', async () => {
     useAuthStore().user = requester
     vi.mocked(getTicket)
       .mockResolvedValueOnce({
         ...detail,
-        status: 'PROCESSING',
-        assignee: { id: 2, displayName: '演示 IT 支持人员' },
         version: 5,
         allowedActions: ['cancel'],
       })
       .mockResolvedValue({
         ...detail,
         status: 'CANCELED',
-        assignee: { id: 2, displayName: '演示 IT 支持人员' },
         endedAt: '2026-10-08T04:00:00Z',
         version: 6,
         allowedActions: [],
@@ -1286,7 +1302,6 @@ describe('TicketDetailView', () => {
     vi.mocked(cancelTicket).mockResolvedValue({
       ticketNo: detail.ticketNo,
       status: 'CANCELED',
-      assignee: { id: 2, displayName: '演示 IT 支持人员' },
       actionDeadlineAt: undefined,
       version: 6,
       actionTime: '2026-10-08T04:00:00Z',
@@ -1311,5 +1326,261 @@ describe('TicketDetailView', () => {
     // 终态要能看到结束时间：否则用户只知道"不动了"，不知道什么时候结束的
     expect(wrapper.get('.ticket-facts').text()).toContain('结束时间')
     expect(actionLabels(wrapper)).toEqual([])
+  })
+
+  /**
+   * 申请撤销（提交人视角，2026-10-08 两阶段撤销）。
+   *
+   * <p>「处理中」的提交人只能**申请**：这一格同时证明两件事——申请不需要 IT 先同意就能发出去
+   * （否则提交人没有出口），以及申请之后工单**状态不变**。后者意味着界面不能靠 `status` 判断，
+   * 只能读详情单独返回的 `cancelRequest`，否则用户点完按钮看不到任何变化。</p>
+   */
+  it('申请撤销工单：写申请理由提交，刷新后出现待批准提示且状态仍是处理中', async () => {
+    useAuthStore().user = requester
+    vi.mocked(getTicket)
+      .mockResolvedValueOnce({
+        ...detail,
+        status: 'PROCESSING',
+        assignee: { id: 2, displayName: '演示 IT 支持人员' },
+        version: 5,
+        allowedActions: ['request-cancel'],
+      })
+      .mockResolvedValue({
+        ...detail,
+        status: 'PROCESSING',
+        assignee: { id: 2, displayName: '演示 IT 支持人员' },
+        version: 6,
+        allowedActions: ['withdraw-cancel-request'],
+        cancelRequest: {
+          requestedAt: '2026-10-08T08:00:00Z',
+          deadlineAt: '2026-10-11T08:00:00Z',
+          reason: '问题已经自行解决',
+        },
+      })
+    vi.mocked(requestCancelTicket).mockResolvedValue({
+      ticketNo: detail.ticketNo,
+      status: 'PROCESSING',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      actionDeadlineAt: undefined,
+      version: 6,
+      actionTime: '2026-10-08T08:00:00Z',
+    })
+
+    const { wrapper } = await mountPage()
+    expect(cancelRequestPanel(wrapper).exists()).toBe(false)
+    expect(actionLabels(wrapper)).toEqual(['申请撤销工单'])
+
+    await openActionBox(wrapper, '申请撤销工单')
+    // 申请要写一段说明给负责人看：有文本框，没有要选的目标值
+    expect(messageBox.current()?.select()).toBeNull()
+    expect(actionBoxTextarea()).not.toBeNull()
+
+    await typeIntoActionBox('  问题已经自行解决  ')
+    await acceptActionBox()
+
+    expect(requestCancelTicket).toHaveBeenCalledWith('FD-20260929-001', {
+      version: 5,
+      reason: '问题已经自行解决',
+    })
+
+    // 状态与期限都没变：待批准只能靠 cancelRequest 讲出来
+    expect(wrapper.get('.ticket-meta').text()).toContain('处理中')
+    const panel = cancelRequestPanel(wrapper)
+    expect(panel.text()).toContain('你已申请撤销这张工单')
+    expect(panel.text()).toContain('问题已经自行解决')
+    // 本版本没有超时任务：期限必须写明"到期不自动处理"
+    expect(panel.text()).toContain('到期不会自动处理')
+    // 提交人还能撤回自己刚发出去的申请
+    expect(actionLabels(wrapper)).toEqual(['撤回撤销申请'])
+  })
+
+  /**
+   * 负责人视角（2026-10-08 两阶段撤销）：他先要读到**提交人写的理由**，才谈得上同意或驳回。
+   *
+   * <p>这一格同时钉住"申请期间工单不冻结"：关闭与同意/驳回同时摆着，谁先提交由版本条件更新裁决
+   * （`docs/kickoff.md` 4.7 的既定设计）。</p>
+   */
+  it('负责人视角：读到提交人的理由，同意撤销只发版本号并进入已取消', async () => {
+    useAuthStore().user = support
+    vi.mocked(getTicket)
+      .mockResolvedValueOnce({
+        ...detail,
+        status: 'PROCESSING',
+        assignee: { id: 2, displayName: '演示 IT 支持人员' },
+        version: 7,
+        allowedActions: ['close', 'approve-cancel', 'reject-cancel'],
+        cancelRequest: {
+          requestedAt: '2026-10-08T08:00:00Z',
+          deadlineAt: '2026-10-11T08:00:00Z',
+          reason: '这是一次重复提交',
+        },
+      })
+      .mockResolvedValue({
+        ...detail,
+        status: 'CANCELED',
+        assignee: { id: 2, displayName: '演示 IT 支持人员' },
+        endedAt: '2026-10-08T09:00:00Z',
+        version: 8,
+        allowedActions: [],
+      })
+    vi.mocked(approveCancel).mockResolvedValue({
+      ticketNo: detail.ticketNo,
+      status: 'CANCELED',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      actionDeadlineAt: undefined,
+      version: 8,
+      actionTime: '2026-10-08T09:00:00Z',
+    })
+
+    const { wrapper } = await mountPage()
+    const panel = cancelRequestPanel(wrapper)
+    expect(panel.exists()).toBe(true)
+    expect(panel.text()).toContain('演示员工申请撤销这张工单，正在等你处理。')
+    expect(panel.text()).toContain('这是一次重复提交')
+
+    // 申请期间工单不冻结：关闭与两个决策动作同时摆着
+    expect(actionLabels(wrapper)).toEqual(['关闭工单', '同意撤销', '驳回撤销申请'])
+
+    await openActionBox(wrapper, '同意撤销')
+    // 同意不需要理由：确认框里不该出现输入框
+    expect(actionBoxTextarea()).toBeNull()
+    await acceptActionBox()
+
+    expect(approveCancel).toHaveBeenCalledWith('FD-20260929-001', { version: 7 })
+    expect(wrapper.get('.ticket-meta').text()).toContain('已取消')
+    // 终态不可能挂待决请求（数据库约束），界面这一块随之消失
+    expect(cancelRequestPanel(wrapper).exists()).toBe(false)
+  })
+
+  /**
+   * 驳回必须写理由（2026-10-08 两阶段撤销）：没有理由，提交人只看到"被驳回"而无从调整。
+   *
+   * <p>驳回**不结束工单**，所以它不该和同意撤销一样用警示色；这也正是登记表里
+   * `destructive: false` 的含义。</p>
+   */
+  it('驳回撤销申请必须写理由：空白不放行，写好后带版本号与理由提交', async () => {
+    useAuthStore().user = support
+    vi.mocked(getTicket).mockResolvedValue({
+      ...detail,
+      status: 'WAITING_FOR_REQUESTER',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      actionDeadlineAt: '2026-10-15T08:00:00Z',
+      version: 9,
+      allowedActions: ['reject-cancel'],
+      cancelRequest: {
+        requestedAt: '2026-10-08T08:00:00Z',
+        deadlineAt: '2026-10-11T08:00:00Z',
+        reason: '不需要了',
+      },
+    })
+    vi.mocked(rejectCancel).mockResolvedValue({
+      ticketNo: detail.ticketNo,
+      status: 'WAITING_FOR_REQUESTER',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      actionDeadlineAt: '2026-10-15T08:00:00Z',
+      version: 10,
+      actionTime: '2026-10-08T09:30:00Z',
+    })
+
+    const { wrapper } = await mountPage()
+    await openActionBox(wrapper, '驳回撤销申请')
+    expect(actionBoxTextarea()).not.toBeNull()
+
+    await typeIntoActionBox('   ')
+    await acceptActionBox()
+
+    expect(rejectCancel).not.toHaveBeenCalled()
+    // 关掉再提示的话，用户得重新点按钮、重写一遍
+    expect(messageBox.current()).not.toBeNull()
+
+    await typeIntoActionBox('  问题尚未定位，正在等供应商回复  ')
+    await acceptActionBox()
+
+    expect(rejectCancel).toHaveBeenCalledWith('FD-20260929-001', {
+      version: 9,
+      reason: '问题尚未定位，正在等供应商回复',
+    })
+    // 工单留在原状态：申请失效，处理继续
+    expect(wrapper.get('.ticket-meta').text()).toContain('待员工补充')
+  })
+
+  /**
+   * 撤回自己的申请（2026-10-08 两阶段撤销）：不需要理由，工单回到"没有被申请撤销"。
+   *
+   * <p>撤回后仍能重新发起——界面重新按服务端返回的 `allowedActions` 渲染，不缓存上一次的结论。</p>
+   */
+  it('撤回撤销申请：只发版本号，工单回到没有被申请撤销', async () => {
+    useAuthStore().user = requester
+    vi.mocked(getTicket)
+      .mockResolvedValueOnce({
+        ...detail,
+        status: 'PROCESSING',
+        assignee: { id: 2, displayName: '演示 IT 支持人员' },
+        version: 6,
+        allowedActions: ['withdraw-cancel-request'],
+        cancelRequest: {
+          requestedAt: '2026-10-08T08:00:00Z',
+          deadlineAt: '2026-10-11T08:00:00Z',
+          reason: '问题已经自行解决',
+        },
+      })
+      .mockResolvedValue({
+        ...detail,
+        status: 'PROCESSING',
+        assignee: { id: 2, displayName: '演示 IT 支持人员' },
+        version: 7,
+        allowedActions: ['request-cancel'],
+      })
+    vi.mocked(withdrawCancelRequest).mockResolvedValue({
+      ticketNo: detail.ticketNo,
+      status: 'PROCESSING',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      actionDeadlineAt: undefined,
+      version: 7,
+      actionTime: '2026-10-08T10:00:00Z',
+    })
+
+    const { wrapper } = await mountPage()
+    expect(actionLabels(wrapper)).toEqual(['撤回撤销申请'])
+
+    await openActionBox(wrapper, '撤回撤销申请')
+    // 撤回不需要理由：申请里那段说明仍然留在时间线上
+    expect(actionBoxTextarea()).toBeNull()
+    await acceptActionBox()
+
+    expect(withdrawCancelRequest).toHaveBeenCalledWith('FD-20260929-001', { version: 6 })
+    expect(cancelRequestPanel(wrapper).exists()).toBe(false)
+    expect(actionLabels(wrapper)).toEqual(['申请撤销工单'])
+  })
+
+  /**
+   * 旁观者也要看得到（2026-10-08 两阶段撤销）。
+   *
+   * <p>没有决策权限的人（例如已经交接走的历史负责人、或刚好被撤掉处理权限的账号）
+   * 动作区是空的，但"这张单正卡在一次撤销申请上"仍是事实，不能连同动作区一起消失；
+   * 同时也不该指使他做任何事——所以只陈述状态，不给行动指引。</p>
+   */
+  it('没有决策权限的旁观者：动作区为空，待批准状态仍然可见且不指引操作', async () => {
+    useAuthStore().user = support
+    vi.mocked(getTicket).mockResolvedValue({
+      ...detail,
+      status: 'PROCESSING',
+      assignee: { id: 9, displayName: '另一位同事' },
+      version: 4,
+      allowedActions: [],
+      cancelRequest: {
+        requestedAt: '2026-10-08T08:00:00Z',
+        deadlineAt: '2026-10-11T08:00:00Z',
+        reason: '不需要了',
+      },
+    })
+
+    const { wrapper } = await mountPage()
+    expect(wrapper.find('.ticket-action-panel').exists()).toBe(false)
+
+    const panel = cancelRequestPanel(wrapper)
+    expect(panel.exists()).toBe(true)
+    expect(panel.text()).toContain('演示员工已申请撤销这张工单，正在等待当前负责人处理。')
+    expect(panel.text()).toContain('在负责人同意或驳回之前，工单仍按当前状态继续流转。')
   })
 })

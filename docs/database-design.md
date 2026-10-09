@@ -107,6 +107,7 @@
 - 待补充只有补充截止时间有效。
 - 待确认只有确认截止时间有效。
 - 其他状态没有有效的补充或确认截止时间。
+- 待批准撤销请求另有一组请求列（发起时间、说明、响应期限），三列同生同灭，且只允许出现在处理中、待补充或待确认（`V7`）；它与补充/确认截止时间是两组独立的期限，互不影响。
 
 ### 6.2 工单记录
 
@@ -131,7 +132,11 @@
 | 解决结果 | 处理结论和确认截止时间 |
 | 未解决反馈 | 员工反馈原因 |
 | 完成 | 员工确认或系统超时完成方式 |
-| 取消 | 员工撤销原因 |
+| 取消 | 员工撤销原因（待受理直接撤销，或撤销请求被批准） |
+| 撤销请求 | 发起人、撤销说明和请求响应期限（工单状态不变） |
+| 撤销请求批准 | 决定人和状态迁移 |
+| 撤销请求拒绝 | 决定人和拒绝原因 |
+| 撤销请求撤回 | 撤回人（请求失效） |
 | 关闭 | 手动或自动关闭方式、标准原因和具体说明 |
 
 工单快照变化与对应记录必须共同成功或共同失败，不能出现状态已改变但记录缺失，或记录已生成但状态未改变。
@@ -406,6 +411,9 @@ v1 暂不建立以下实体：
 | `status` | `VARCHAR(32)` | 否 | 七种工单状态编码 |
 | `assignee_id` | `BIGINT UNSIGNED` | 是 | 当前负责人；终态时作为最后负责人保留 |
 | `action_deadline_at` | `DATETIME(3)` | 是 | 待补充或待确认的当前有效截止时间 |
+| `cancel_requested_at` | `DATETIME(3)` | 是 | 待批准撤销请求的发起时间；为空表示没有待决请求（`V7`） |
+| `cancel_request_reason` | `VARCHAR(1000)` | 是 | 待批准撤销请求的说明；进入终态时随请求一并清空（`V7`） |
+| `cancel_request_deadline_at` | `DATETIME(3)` | 是 | 待批准撤销请求的响应期限；只写库与展示，到期不自动处置（`V7`） |
 | `completion_method` | `VARCHAR(32)` | 是 | 员工确认或系统超时完成 |
 | `close_method` | `VARCHAR(16)` | 是 | 手动关闭或系统自动关闭 |
 | `close_reason` | `VARCHAR(32)` | 是 | 关闭标准原因 |
@@ -438,8 +446,11 @@ v1 暂不建立以下实体：
 - 非终态的 `ended_at` 为空，三个终态的 `ended_at` 非空。
 - 仅已完成状态允许且要求完成方式；仅已关闭状态允许且要求关闭方式和关闭原因。
 - 系统自动关闭只能使用“逾期未补充信息”，IT 手动关闭只能使用重复、不属于 IT 范围或无效三种原因。
+- 待批准撤销请求的三列同生同灭（全空或全非空），且非空时状态只能是处理中、待补充或待确认（`V7` 的 `ck_ticket_cancel_request_pair` / `ck_ticket_cancel_request_status`）。
 
 负责人是否具有有效 IT 角色、分类是否启用、重复工单目标是否合法等跨表规则由事务用例校验，不能仅靠单表 `CHECK` 完成。
+
+**`V7` 变更说明（2026-10-08 两阶段撤销，`V7__add_cancel_request.sql`）**：`ticket` 新增 `cancel_requested_at` / `cancel_request_reason` / `cancel_request_deadline_at` 三个可空列，用"当前快照上的请求字段"表达待批准撤销请求，**不新增第 8 个状态**（与 `close_reason` / `completion_method` 同一模式：当前态字段留在 `ticket`，事件本身进 `ticket_record`）。同时新增两条 CHECK：`ck_ticket_cancel_request_pair`（三列同生同灭，半截请求在库层面进不去）与 `ck_ticket_cancel_request_status`（请求非空时状态只能落在有人负责且未终结的三个状态）。`ticket_record` 的 `ck_ticket_record_type` 在**同一条 `ALTER`** 里 `DROP CHECK` 后重建，追加 `CANCELLATION_REQUEST`、`CANCELLATION_APPROVED`、`CANCELLATION_REJECTED`、`CANCELLATION_REQUEST_WITHDRAWN` 四个类型（`CANCELLATION` 保留给待受理的直接撤销）；不拆成两条语句是为了避免半执行状态，历史迁移一律不回改。**不新增索引**：待决请求不是查询维度，只在按主键读详情时随行取出；因此 `close`（清空请求三列）与 `confirmResolution`（同）都必须在同一条 `UPDATE` 内完成清空，否则会撞 `ck_ticket_cancel_request_status`。
 
 ### 19.2 `ticket_record`
 

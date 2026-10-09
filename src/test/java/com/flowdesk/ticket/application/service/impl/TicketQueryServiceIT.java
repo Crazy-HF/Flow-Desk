@@ -96,6 +96,9 @@ class TicketQueryServiceIT {
     /** 造数基准时刻：UTC，毫秒精度与 DATETIME(3) 对齐。 */
     private static final LocalDateTime BASE_TIME = LocalDateTime.of(2026, 1, 15, 8, 0, 0, 0);
 
+    /** 待决撤销请求的说明：三列同生同灭，说明必须与另外两列一起写。 */
+    private static final String CANCEL_REQUEST_REASON = "问题已自行解决";
+
     private static final AtomicInteger FIXTURE_SEQUENCE = new AtomicInteger(900);
 
     @Container
@@ -592,25 +595,100 @@ class TicketQueryServiceIT {
 
         // 待确认 + 提交人：确认与「问题仍未解决」两个动作的前置条件完全相同，
         // 顺序由装配顺序决定（片 A 起从一格变成两格，旧断言只写了 confirm-resolution）；
-        // 片 D 起提交人在四种非终态上都还有一格撤销，因此这里再多一项
+        // 两阶段撤销之后第三格是 request-cancel 而不是 cancel——待确认已经有人负责
         authenticateAs(requesterId);
         assertThat(ticketQueryService.detail(waitingNo).allowedActions())
-                .as("待确认时提交人同时拿到确认、反馈未解决与撤销，顺序固定")
-                .containsExactly("confirm-resolution", "report-unresolved", "cancel");
+                .as("待确认时提交人同时拿到确认、反馈未解决与撤销请求，顺序固定")
+                .containsExactly("confirm-resolution", "report-unresolved", "request-cancel");
         assertThat(ticketQueryService.detail(supplementNo).allowedActions())
-                .as("待补充时提交人只能补充信息（片 B）并撤销（片 D），拿不到负责人的撤回入口")
-                .containsExactly("supplement", "cancel");
+                .as("待补充时提交人只能补充信息（片 B）并发起撤销请求，拿不到负责人的撤回入口")
+                .containsExactly("supplement", "request-cancel");
         assertThat(ticketQueryService.detail(processingNo).allowedActions())
-                .as("提交人没有处理权限，看不到处理动作；能撤销但不是负责人")
-                .containsExactly("cancel");
+                .as("提交人没有处理权限，看不到处理动作；能发起撤销请求但不是负责人")
+                .containsExactly("request-cancel");
         assertThat(ticketQueryService.detail(pendingNo).allowedActions())
-                .as("不能领取自己提交的工单，但待受理同样可以撤销")
+                .as("不能领取自己提交的工单，但待受理没有负责人，仍然可以直接撤销")
                 .containsExactly("cancel");
 
         // 待受理 + 具备队列/领取权限的 IT（非提交人）：只允许领取
         authenticateAs(queueItId);
         assertThat(ticketQueryService.detail(pendingNo).allowedActions())
                 .containsExactly("claim");
+    }
+
+    /**
+     * 两阶段撤销在真实行上的表现：待决请求存在时提交人换成"撤回"、负责人多出"批准/拒绝"，
+     * 详情同时返回请求本身（说明与响应期限）。
+     *
+     * <p>请求期间工单状态不变，因此界面只能靠 {@code cancelRequest} 判断"IT 正在等批准"；
+     * 这里直接用 SQL 置位三列，顺带证明 {@code ck_ticket_cancel_request_status}
+     * 允许这三个状态挂请求。</p>
+     */
+    @Test
+    void pendingCancelRequestSwapsRequesterActionAndOffersDecisionToAssignee() {
+        long requesterId = insertUser("cancel-requester", EMPLOYEE);
+        long assigneeId = insertUser("cancel-assignee", IT_SUPPORT);
+        long categoryId = insertCategory("待批准撤销");
+
+        String processingNo = insertTicket(requesterId, categoryId,
+                "处理中待批准", PROCESSING, assigneeId, MEDIUM, BASE_TIME, BASE_TIME);
+        String supplementNo = insertTicket(requesterId, categoryId,
+                "待补充待批准", WAITING_FOR_REQUESTER, assigneeId, MEDIUM, BASE_TIME, BASE_TIME);
+        String waitingNo = insertTicket(requesterId, categoryId,
+                "待确认无请求", WAITING_FOR_CONFIRMATION, assigneeId, MEDIUM, BASE_TIME, BASE_TIME);
+        String waitingRequestedNo = insertTicket(requesterId, categoryId,
+                "待确认待批准", WAITING_FOR_CONFIRMATION, assigneeId, MEDIUM, BASE_TIME, BASE_TIME);
+        LocalDateTime requestedAt = BASE_TIME.plusHours(1);
+        LocalDateTime requestDeadline = BASE_TIME.plusDays(3);
+        insertPendingCancelRequest(processingNo, requestedAt, requestDeadline);
+        insertPendingCancelRequest(supplementNo, requestedAt, requestDeadline);
+        insertPendingCancelRequest(waitingRequestedNo, requestedAt, requestDeadline);
+
+        authenticateAs(requesterId);
+        TicketDetailResult requested = ticketQueryService.detail(processingNo);
+        assertThat(requested.allowedActions())
+                .as("已经有待决请求，提交人只能撤回，不能再发起")
+                .containsExactly("withdraw-cancel-request");
+        assertThat(requested.status()).as("请求期间工单状态不变").isEqualTo(PROCESSING);
+        assertThat(requested.actionDeadlineAt()).as("工单自己的期限也不变").isNull();
+        assertThat(requested.cancelRequest()).as("详情必须把请求本身带出来").isNotNull();
+        assertThat(requested.cancelRequest().requestedAt())
+                .isEqualTo(requestedAt.atOffset(ZoneOffset.UTC));
+        assertThat(requested.cancelRequest().deadlineAt())
+                .as("撤销请求的响应期限与工单期限是两组独立的期限")
+                .isEqualTo(requestDeadline.atOffset(ZoneOffset.UTC));
+        assertThat(requested.cancelRequest().reason()).isEqualTo(CANCEL_REQUEST_REASON);
+
+        assertThat(ticketQueryService.detail(supplementNo).allowedActions())
+                .as("待补充上的提交人仍然先补充信息，撤销那一格换成撤回")
+                .containsExactly("supplement", "withdraw-cancel-request");
+        assertThat(ticketQueryService.detail(waitingRequestedNo).allowedActions())
+                .as("待确认上的提交人确认、反馈未解决与撤回并存")
+                .containsExactly("confirm-resolution", "report-unresolved",
+                        "withdraw-cancel-request");
+
+        assertThat(ticketQueryService.detail(waitingNo).cancelRequest())
+                .as("没有待决请求时该字段为空").isNull();
+        assertThat(ticketQueryService.detail(waitingNo).allowedActions())
+                .as("同一个提交人在没有请求的待确认上仍然是 request-cancel")
+                .containsExactly("confirm-resolution", "report-unresolved", "request-cancel");
+
+        authenticateAs(assigneeId);
+        assertThat(ticketQueryService.detail(processingNo).allowedActions())
+                .as("负责人拿到批准与拒绝，且不挤掉该状态原有的处理动作")
+                .containsExactly("add-processing-record", "submit-resolution",
+                        "request-supplement", "change-category", "change-priority",
+                        "transfer", "close", "approve-cancel", "reject-cancel");
+        assertThat(ticketQueryService.detail(supplementNo).allowedActions())
+                .as("待补充上的负责人同样多出批准与拒绝两格")
+                .containsExactly("withdraw-supplement-request", "change-category",
+                        "change-priority", "transfer", "approve-cancel", "reject-cancel");
+        assertThat(ticketQueryService.detail(waitingRequestedNo).allowedActions())
+                .as("待确认上的负责人本来没有动作，有待决请求时才多出两格")
+                .containsExactly("approve-cancel", "reject-cancel");
+        assertThat(ticketQueryService.detail(waitingNo).allowedActions())
+                .as("同一个负责人在没有请求的待确认上没有任何动作")
+                .isEmpty();
     }
 
     // ---------- 查询辅助 ----------
@@ -744,6 +822,21 @@ class TicketQueryServiceIT {
                 categoryId, priority, status, assigneeId, actionDeadlineAt, completionMethod,
                 endedAt, createdAt, updatedAt);
         return ticketNo;
+    }
+
+    /**
+     * 直接置位待决撤销请求的三列：说明与两个时间必须一起写（{@code ck_ticket_cancel_request_pair}），
+     * 状态白名单由 {@code ck_ticket_cancel_request_status} 兜底。
+     */
+    private void insertPendingCancelRequest(String ticketNo, LocalDateTime requestedAt,
+                                            LocalDateTime deadlineAt) {
+        jdbc.update("""
+                UPDATE ticket
+                SET cancel_requested_at = ?,
+                    cancel_request_reason = ?,
+                    cancel_request_deadline_at = ?
+                WHERE ticket_no = ?
+                """, requestedAt, CANCEL_REQUEST_REASON, deadlineAt, ticketNo);
     }
 
     private void insertParticipant(String ticketNo, long userId) {
