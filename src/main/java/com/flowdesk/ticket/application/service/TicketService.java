@@ -1,6 +1,7 @@
 package com.flowdesk.ticket.application.service;
 
 import com.flowdesk.ticket.application.command.AddProcessingRecordCommand;
+import com.flowdesk.ticket.application.command.ApproveCancelCommand;
 import com.flowdesk.ticket.application.command.CancelTicketCommand;
 import com.flowdesk.ticket.application.command.ChangeCategoryCommand;
 import com.flowdesk.ticket.application.command.ChangePriorityCommand;
@@ -8,11 +9,14 @@ import com.flowdesk.ticket.application.command.ClaimTicketCommand;
 import com.flowdesk.ticket.application.command.CloseTicketCommand;
 import com.flowdesk.ticket.application.command.ConfirmResolutionCommand;
 import com.flowdesk.ticket.application.command.CreateTicketCommand;
+import com.flowdesk.ticket.application.command.RejectCancelCommand;
 import com.flowdesk.ticket.application.command.ReportUnresolvedCommand;
+import com.flowdesk.ticket.application.command.RequestCancelCommand;
 import com.flowdesk.ticket.application.command.RequestSupplementCommand;
 import com.flowdesk.ticket.application.command.SubmitResolutionCommand;
 import com.flowdesk.ticket.application.command.SupplementCommand;
 import com.flowdesk.ticket.application.command.TransferCommand;
+import com.flowdesk.ticket.application.command.WithdrawCancelRequestCommand;
 import com.flowdesk.ticket.application.command.WithdrawSupplementRequestCommand;
 import com.flowdesk.ticket.application.result.TicketActionResult;
 import com.flowdesk.ticket.application.result.TicketCreatedResult;
@@ -67,7 +71,23 @@ public interface TicketService {
     TicketActionResult close(
             String ticketNo, CloseTicketCommand command);
 
-    /** 提交人撤销自己的工单；四种非终态都可以撤销，进入终态「已取消」。 */
+    /** 提交人发起撤销请求；工单状态不变，请求进入待批准。 */
+    TicketActionResult requestCancel(
+            String ticketNo, RequestCancelCommand command);
+
+    /** 当前负责人批准撤销请求；进入终态「已取消」。 */
+    TicketActionResult approveCancel(
+            String ticketNo, ApproveCancelCommand command);
+
+    /** 当前负责人拒绝撤销请求；状态与期限不变，请求失效。 */
+    TicketActionResult rejectCancel(
+            String ticketNo, RejectCancelCommand command);
+
+    /** 提交人撤回自己的撤销请求；状态与期限不变，请求失效。 */
+    TicketActionResult withdrawCancelRequest(
+            String ticketNo, WithdrawCancelRequestCommand command);
+
+    /** 提交人撤销自己的工单；只剩「待受理」可以这样撤销，其余非终态走两阶段 */
     TicketActionResult cancel(
             String ticketNo, CancelTicketCommand command);
 }

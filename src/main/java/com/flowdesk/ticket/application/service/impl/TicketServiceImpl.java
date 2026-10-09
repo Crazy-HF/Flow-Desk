@@ -1624,7 +1624,445 @@ public class TicketServiceImpl implements TicketService {
     }
 
     /**
-     * 提交人撤销自己的工单：四种非终态都可以撤销，进入终态「已取消」
+     * 提交人发起撤销请求：三种「有人负责且未终结」的状态都可以发起，工单状态不变
+     * （`docs/kickoff.md` 4.7 未来方向、`docs/implementation-plan.md` 9.3 决策记录）。
+     *
+     * <p>只发起不迁移状态：待受理本来就可以直接取消，那里没有负责人需要同意；
+     * 一旦有人负责，单方面终止就要先取得当前负责人同意，因此工单停在原状态等待批准。</p>
+     */
+    @Override
+    @Transactional
+    public TicketActionResult requestCancel(String ticketNo, RequestCancelCommand command) {
+        // 1. 身份与提交人动作权限：与补充、确认、未解决反馈、直接撤销共用 TICKET_REQUESTER_ACTION
+        long actorId = currentRequesterPort.currentUserId();
+
+        if (!ticketReadPermissionPort.hasAuthority(TICKET_REQUESTER_ACTION)) {
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN,
+                    "TICKET_ACTION_FORBIDDEN",
+                    "无提交人操作权限");
+        }
+
+        // 2. 可见性：无权查看与编号不存在统一 404
+        TicketDetailRow visible = ticketMapper.selectVisibleDetail(
+                ticketNo,
+                actorId,
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_OWN"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_QUEUE"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_PARTICIPATED"));
+
+        if(visible == null){
+            throw new ApiException(
+                    HttpStatus.NOT_FOUND,
+                    "TICKET_NOT_FOUND",
+                    "工单不存在");
+        }
+
+        // 3. 三个"有人负责"的状态 + 本人是提交人；已有待决请求也按冲突返回——
+        //    重复发起不是幂等成功：前一次的说明还在，不能被静默覆盖
+        if (!isCancelRequestableStatus(visible.getStatus())
+                || visible.getRequesterId() == null
+                || visible.getRequesterId() != actorId
+                || visible.getCancelRequestedAt() != null) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        // 4. 版本必须与客户端读到的一致
+        if (!Objects.equals(command.version(), visible.getVersion())) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        // 5. 必须写清为什么撤销；null 必须在 isEmpty 之前判掉（非 HTTP 调用方不走 Bean Validation）
+        String reason = command.reason();
+        if (reason == null || reason.isEmpty() || reason.length() > MAX_REASON_LENGTH) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_FAILED",
+                    "撤销请求说明长度必须在 1 到 1000 之间");
+        }
+
+        Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
+        LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+
+        // 6. 响应期限从发起时刻起算；只落库展示，到期不自动处置（与补充期限同口径）
+        LocalDateTime deadlineAt = now.plus(ticketProperties.cancelRequestWindow());
+
+        // 7. 条件更新是唯一胜者判定：版本、提交人、三种状态与"当前没有待决请求"都在 WHERE 里
+        int updatedRows = ticketMapper.requestCancel(
+                visible.getId(),
+                command.version(),
+                actorId,
+                reason,
+                deadlineAt,
+                now);
+
+        if (updatedRows != 1) {
+            Ticket current = ticketMapper.selectClaimConflictSnapshotForUpdate(visible.getId());
+            if (current == null) {
+                throw new IllegalStateException("发起撤销请求冲突后无法读取工单快照");
+            }
+            throw conflict(current.getVersion(), current.getStatus());
+        }
+
+        Ticket updated = ticketMapper.selectById(visible.getId());
+        if (updated == null
+                || updated.getRecordSeq() == null
+                || updated.getVersion() == null) {
+            throw new IllegalStateException("发起撤销请求后无法读取工单快照");
+        }
+
+        // 8. 不可变时间线：请求说明与响应期限随记录留存；状态没有变化，from 与 to 相同
+        //    （既有 PROCESS / CATEGORY_CHANGE / TRANSFER 等不改变状态的动作也是这么写的）
+        TicketRecord record = new TicketRecord();
+        record.setTicketId(updated.getId());
+        record.setSequenceNo(updated.getRecordSeq());
+        record.setRecordType("CANCELLATION_REQUEST");
+        record.setActorType("USER");
+        record.setActorUserId(actorId);
+        record.setReason(reason);
+        record.setDeadlineAt(deadlineAt);
+        record.setFromStatus(visible.getStatus());
+        record.setToStatus(visible.getStatus());
+        record.setCreatedAt(now);
+
+        if (ticketRecordMapper.insert(record) != 1) {
+            throw new IllegalStateException("撤销请求记录插入失败");
+        }
+
+        // 9. 状态、负责人与工单自身的期限都不变；摘要里的期限仍是工单的期限，
+        //    不是撤销请求的响应期限（后者只通过详情返回）
+        TicketUserSummaryResult assignee = visible.getAssigneeId() == null
+                ? null
+                : new TicketUserSummaryResult(
+                visible.getAssigneeId(),
+                visible.getAssigneeDisplayName());
+
+        return new TicketActionResult(
+                updated.getTicketNo(),
+                visible.getStatus(),
+                assignee,
+                toOffsetDateTime(visible.getActionDeadlineAt()),
+                updated.getVersion(),
+                instant.atOffset(ZoneOffset.UTC));
+    }
+
+    /**
+     * 当前负责人批准撤销请求：工单进入终态「已取消」。
+     */
+    @Override
+    @Transactional
+    public TicketActionResult approveCancel(String ticketNo, ApproveCancelCommand command) {
+        // 1. 身份与处理权限：批准与拒绝撤销请求共用 TICKET_PROCESS。
+        //    刻意不要求 TICKET_CLOSE——撤销不是关闭，两者的语义与后果都不同
+        long actorId = currentRequesterPort.currentUserId();
+
+        if (!ticketReadPermissionPort.hasAuthority(TICKET_PROCESS)) {
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN,
+                    "TICKET_ACTION_FORBIDDEN",
+                    "无处理工单权限");
+        }
+
+        // 2. 可见性：无权查看与编号不存在统一 404
+        TicketDetailRow visible = ticketMapper.selectVisibleDetail(
+                ticketNo,
+                actorId,
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_OWN"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_QUEUE"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_PARTICIPATED"));
+
+        if(visible == null){
+            throw new ApiException(
+                    HttpStatus.NOT_FOUND,
+                    "TICKET_NOT_FOUND",
+                    "工单不存在");
+        }
+
+        // 3. 必须是当前负责人，且工单上确实挂着一个待决请求。
+        //    "没有请求"与"请求已经被别人处理掉"都落到这里，统一 409 带快照
+        if (!isCancelRequestableStatus(visible.getStatus())
+                || visible.getAssigneeId() == null
+                || visible.getAssigneeId() != actorId
+                || visible.getCancelRequestedAt() == null) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        // 4. 版本必须与客户端读到的一致
+        if (!Objects.equals(command.version(), visible.getVersion())) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
+        LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+
+        // 5. 条件更新是唯一胜者判定。注意这条 SQL 里同时处理了三件事：
+        //    进入终态要写 ended_at、要清 action_deadline_at（待补充/待确认带着期限）、
+        //    还要清请求三列（终态不允许挂待决请求）——三者必须在同一条 UPDATE 内
+        int updatedRows = ticketMapper.approveCancel(
+                visible.getId(),
+                command.version(),
+                actorId,
+                now);
+
+        if (updatedRows != 1) {
+            Ticket current = ticketMapper.selectClaimConflictSnapshotForUpdate(visible.getId());
+            if (current == null) {
+                throw new IllegalStateException("批准撤销请求冲突后无法读取工单快照");
+            }
+            throw conflict(current.getVersion(), current.getStatus());
+        }
+
+        Ticket updated = ticketMapper.selectById(visible.getId());
+        if (updated == null
+                || updated.getRecordSeq() == null
+                || updated.getVersion() == null) {
+            throw new IllegalStateException("批准撤销请求后无法读取工单快照");
+        }
+
+        // 6. 时间线用独立的记录类型：批准、拒绝、撤回、直接取消四者可区分
+        TicketRecord record = new TicketRecord();
+        record.setTicketId(updated.getId());
+        record.setSequenceNo(updated.getRecordSeq());
+        record.setRecordType("CANCELLATION_APPROVED");
+        record.setActorType("USER");
+        record.setActorUserId(actorId);
+        record.setFromStatus(visible.getStatus());
+        record.setToStatus("CANCELED");
+        record.setCreatedAt(now);
+
+        if (ticketRecordMapper.insert(record) != 1) {
+            throw new IllegalStateException("批准撤销记录插入失败");
+        }
+
+        // 7. 终态期限已失效；负责人按快照保留（ck_ticket_status_assignee 允许「已取消」带负责人）
+        TicketUserSummaryResult assignee = new TicketUserSummaryResult(
+                visible.getAssigneeId(),
+                visible.getAssigneeDisplayName());
+
+        return new TicketActionResult(
+                updated.getTicketNo(),
+                "CANCELED",
+                assignee,
+                null,
+                updated.getVersion(),
+                instant.atOffset(ZoneOffset.UTC));
+    }
+
+    /**
+     * 当前负责人拒绝撤销请求：工单保留原状态与期限，请求失效。
+     */
+    @Override
+    @Transactional
+    public TicketActionResult rejectCancel(String ticketNo, RejectCancelCommand command) {
+        // 1. 身份与处理权限：与批准同一条判定
+        long actorId = currentRequesterPort.currentUserId();
+
+        if (!ticketReadPermissionPort.hasAuthority(TICKET_PROCESS)) {
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN,
+                    "TICKET_ACTION_FORBIDDEN",
+                    "无处理工单权限");
+        }
+
+        // 2. 可见性
+        TicketDetailRow visible = ticketMapper.selectVisibleDetail(
+                ticketNo,
+                actorId,
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_OWN"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_QUEUE"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_PARTICIPATED"));
+
+        if (visible == null) {
+            throw new ApiException(
+                    HttpStatus.NOT_FOUND,
+                    "TICKET_NOT_FOUND",
+                    "工单不存在");
+        }
+
+        // 3. 必须是当前负责人，且确实有请求可以拒绝
+        if (!isCancelRequestableStatus(visible.getStatus())
+                || visible.getAssigneeId() == null
+                || visible.getAssigneeId() != actorId
+                || visible.getCancelRequestedAt() == null) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        // 4. 版本必须一致
+        if (!Objects.equals(command.version(), visible.getVersion())) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        // 5. 拒绝必须说明理由；长度上限与其它原因类动作一致
+        String reason = command.reason();
+        if (reason == null || reason.isEmpty() || reason.length() > MAX_REASON_LENGTH) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_FAILED",
+                    "拒绝原因长度必须在 1 到 1000 之间");
+        }
+
+        Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
+        LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+
+        // 6. 条件更新是唯一胜者判定：状态与期限都不变，只让请求失效
+        int updatedRows = ticketMapper.rejectCancel(
+                visible.getId(),
+                command.version(),
+                actorId,
+                now);
+
+        if (updatedRows != 1) {
+            Ticket current = ticketMapper.selectClaimConflictSnapshotForUpdate(visible.getId());
+            if (current == null) {
+                throw new IllegalStateException("拒绝撤销请求冲突后无法读取工单快照");
+            }
+            throw conflict(current.getVersion(), current.getStatus());
+        }
+
+        Ticket updated = ticketMapper.selectById(visible.getId());
+        if (updated == null
+                || updated.getRecordSeq() == null
+                || updated.getVersion() == null) {
+            throw new IllegalStateException("拒绝撤销请求后无法读取工单快照");
+        }
+
+        // 7. 时间线：拒绝原因必须留存，否则提交人只看到"被拒绝"而无从调整
+        TicketRecord record = new TicketRecord();
+        record.setTicketId(updated.getId());
+        record.setSequenceNo(updated.getRecordSeq());
+        record.setRecordType("CANCELLATION_REJECTED");
+        record.setActorType("USER");
+        record.setActorUserId(actorId);
+        record.setReason(reason);
+        record.setFromStatus(visible.getStatus());
+        record.setToStatus(visible.getStatus());
+        record.setCreatedAt(now);
+
+        if (ticketRecordMapper.insert(record) != 1) {
+            throw new IllegalStateException("拒绝撤销记录插入失败");
+        }
+
+        // 8. 状态与期限都不变，摘要原样返回工单当前快照
+        TicketUserSummaryResult assignee = new TicketUserSummaryResult(
+                visible.getAssigneeId(),
+                visible.getAssigneeDisplayName());
+
+        return new TicketActionResult(
+                updated.getTicketNo(),
+                visible.getStatus(),
+                assignee,
+                toOffsetDateTime(visible.getActionDeadlineAt()),
+                updated.getVersion(),
+                instant.atOffset(ZoneOffset.UTC));
+    }
+
+    /**
+     * 提交人撤回自己的撤销请求：工单保留原状态与期限，请求失效（设计点⑤）。
+     */
+    @Override
+    @Transactional
+    public TicketActionResult withdrawCancelRequest(
+            String ticketNo, WithdrawCancelRequestCommand command) {
+        // 1. 身份与提交人动作权限
+        long actorId = currentRequesterPort.currentUserId();
+
+        if (!ticketReadPermissionPort.hasAuthority(TICKET_REQUESTER_ACTION)) {
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN,
+                    "TICKET_ACTION_FORBIDDEN",
+                    "无提交人操作权限");
+        }
+
+        // 2. 可见性
+        TicketDetailRow visible = ticketMapper.selectVisibleDetail(
+                ticketNo,
+                actorId,
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_OWN"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_QUEUE"),
+                ticketReadPermissionPort.hasAuthority("TICKET_VIEW_PARTICIPATED"));
+
+        if (visible == null) {
+            throw new ApiException(
+                    HttpStatus.NOT_FOUND,
+                    "TICKET_NOT_FOUND",
+                    "工单不存在");
+        }
+
+        // 3. 只有提交人本人能撤回自己的请求；负责人撤不掉（即使他同时持有提交人权限）
+        if (!isCancelRequestableStatus(visible.getStatus())
+                || visible.getRequesterId() == null
+                || visible.getRequesterId() != actorId
+                || visible.getCancelRequestedAt() == null) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        // 4. 版本必须一致
+        if (!Objects.equals(command.version(), visible.getVersion())) {
+            throw conflict(visible.getVersion(), visible.getStatus());
+        }
+
+        Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
+        LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+
+        // 5. 条件更新是唯一胜者判定
+        int updatedRows = ticketMapper.withdrawCancelRequest(
+                visible.getId(),
+                command.version(),
+                actorId,
+                now);
+
+        if (updatedRows != 1) {
+            Ticket current = ticketMapper.selectClaimConflictSnapshotForUpdate(visible.getId());
+            if (current == null) {
+                throw new IllegalStateException("撤回撤销请求冲突后无法读取工单快照");
+            }
+            throw conflict(current.getVersion(), current.getStatus());
+        }
+
+        Ticket updated = ticketMapper.selectById(visible.getId());
+        if (updated == null
+                || updated.getRecordSeq() == null
+                || updated.getVersion() == null) {
+            throw new IllegalStateException("撤回撤销请求后无法读取工单快照");
+        }
+
+        // 6. 时间线不写原因：撤回是"我改主意了"，请求里原本的说明仍在 CANCELLATION_REQUEST 上
+        TicketRecord record = new TicketRecord();
+        record.setTicketId(updated.getId());
+        record.setSequenceNo(updated.getRecordSeq());
+        record.setRecordType("CANCELLATION_REQUEST_WITHDRAWN");
+        record.setActorType("USER");
+        record.setActorUserId(actorId);
+        record.setFromStatus(visible.getStatus());
+        record.setToStatus(visible.getStatus());
+        record.setCreatedAt(now);
+
+        if (ticketRecordMapper.insert(record) != 1) {
+            throw new IllegalStateException("撤回撤销请求记录插入失败");
+        }
+
+        // 7. 状态与期限都不变
+        TicketUserSummaryResult assignee = visible.getAssigneeId() == null
+                ? null
+                : new TicketUserSummaryResult(
+                visible.getAssigneeId(),
+                visible.getAssigneeDisplayName());
+
+        return new TicketActionResult(
+                updated.getTicketNo(),
+                visible.getStatus(),
+                assignee,
+                toOffsetDateTime(visible.getActionDeadlineAt()),
+                updated.getVersion(),
+                instant.atOffset(ZoneOffset.UTC));
+    }
+
+    /**
+     * 提交人直接撤销自己的工单，进入终态「已取消」（`docs/kickoff.md` 4.7）。
+     *
+     * <p><b>2026-10-08 规则变更</b>：只剩「待受理」可以这样撤销——那里没有负责人，
+     * 没有人需要批准。处理中、待补充、待确认三种状态改走两阶段：提交人
+     * {@link #requestCancel}，当前负责人 {@link #approveCancel} / {@link #rejectCancel}。</p>
      */
     @Override
     @Transactional
@@ -1654,8 +2092,9 @@ public class TicketServiceImpl implements TicketService {
                     "工单不存在");
         }
 
-        // 3. 只有提交人能在四种非终态上撤销；终态与「不是提交人」都按冲突返回
-        if (!isCancelableStatus(visible.getStatus())
+        // 3. 只剩「待受理」能直接撤销（2026-10-08 规则变更）：那里没有负责人，没有人需要批准；
+        //    其余非终态改走两阶段，终态与「不是提交人」都按冲突返回
+        if (!isDirectCancelableStatus(visible.getStatus())
                 || visible.getRequesterId() == null
                 || visible.getRequesterId() != actorId) {
             throw conflict(visible.getVersion(), visible.getStatus());
@@ -1678,7 +2117,7 @@ public class TicketServiceImpl implements TicketService {
         Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
         LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
 
-        // 6. 条件更新是唯一胜者判定：版本、提交人与四种非终态都在 WHERE 里
+        // 6. 条件更新是唯一胜者判定：版本、提交人与「待受理」这个状态都在 WHERE 里
         int updatedRows = ticketMapper.cancel(
                 visible.getId(),
                 command.version(),
@@ -1700,7 +2139,8 @@ public class TicketServiceImpl implements TicketService {
             throw new IllegalStateException("撤销后无法读取工单快照");
         }
 
-        // 7. 不可变时间线：撤销原因只存在于记录里（ticket 表没有撤销原因列）
+        // 7. 不可变时间线：撤销原因只存在于记录里（ticket 表没有撤销原因列）。
+        //    记录类型仍是 CANCELLATION——它与 CANCELLATION_APPROVED 的区别正是"没有负责人需要批准"
         TicketRecord record = new TicketRecord();
         record.setTicketId(updated.getId());
         record.setSequenceNo(updated.getRecordSeq());
@@ -1827,10 +2267,18 @@ public class TicketServiceImpl implements TicketService {
         return PROCESSING.equals(status) || WAITING_FOR_REQUESTER.equals(status);
     }
 
-    /** 四种非终态：提交人在这些状态下可以撤销自己的工单（`docs/kickoff.md` 4.7）。 */
-    private boolean isCancelableStatus(String status) {
-        return PENDING.equals(status)
-                || PROCESSING.equals(status)
+    /** 「待受理」：没有人负责，撤销不需要任何人批准，提交人可以直接取消。 */
+    private boolean isDirectCancelableStatus(String status) {
+        return PENDING.equals(status);
+    }
+
+    /**
+     * 三种「有人负责且未终结」的状态：撤销必须走两阶段，提交人只能发起请求。
+     *
+     * <p>与 ck_ticket_cancel_request_status 的状态白名单逐字一致——两边不同步时数据库会直接拒绝写入。</p>
+     */
+    private boolean isCancelRequestableStatus(String status) {
+        return PROCESSING.equals(status)
                 || WAITING_FOR_REQUESTER.equals(status)
                 || WAITING_FOR_CONFIRMATION.equals(status);
     }

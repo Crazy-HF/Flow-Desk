@@ -4,6 +4,7 @@ import com.flowdesk.common.exception.ApiException;
 import com.flowdesk.common.web.R;
 import com.flowdesk.common.web.PageResult;
 import com.flowdesk.ticket.application.command.AddProcessingRecordCommand;
+import com.flowdesk.ticket.application.command.ApproveCancelCommand;
 import com.flowdesk.ticket.application.command.CancelTicketCommand;
 import com.flowdesk.ticket.application.command.ChangeCategoryCommand;
 import com.flowdesk.ticket.application.command.ChangePriorityCommand;
@@ -11,11 +12,14 @@ import com.flowdesk.ticket.application.command.ClaimTicketCommand;
 import com.flowdesk.ticket.application.command.CloseTicketCommand;
 import com.flowdesk.ticket.application.command.ConfirmResolutionCommand;
 import com.flowdesk.ticket.application.command.CreateTicketCommand;
+import com.flowdesk.ticket.application.command.RejectCancelCommand;
 import com.flowdesk.ticket.application.command.ReportUnresolvedCommand;
+import com.flowdesk.ticket.application.command.RequestCancelCommand;
 import com.flowdesk.ticket.application.command.RequestSupplementCommand;
 import com.flowdesk.ticket.application.command.SubmitResolutionCommand;
 import com.flowdesk.ticket.application.command.SupplementCommand;
 import com.flowdesk.ticket.application.command.TransferCommand;
+import com.flowdesk.ticket.application.command.WithdrawCancelRequestCommand;
 import com.flowdesk.ticket.application.command.WithdrawSupplementRequestCommand;
 import com.flowdesk.ticket.application.query.TicketQuery;
 import com.flowdesk.ticket.application.query.TicketRecordQuery;
@@ -196,7 +200,39 @@ public class TicketController {
         return R.success(ticketService.close(ticketNo, command));
     }
 
-    /** 提交人撤销自己的工单；四种非终态都可以撤销，进入终态 CANCELED。 */
+    /** 提交人发起撤销请求；工单状态不变，等待当前负责人批准或拒绝。 */
+    @PostMapping("/{ticketNo}/actions/request-cancel")
+    public R<TicketActionResult> requestCancel(
+            @PathVariable String ticketNo,
+            @Valid @RequestBody RequestCancelCommand command) {
+        return R.success(ticketService.requestCancel(ticketNo, command));
+    }
+
+    /** 当前负责人批准撤销请求；工单进入终态 CANCELED。 */
+    @PostMapping("/{ticketNo}/actions/approve-cancel")
+    public R<TicketActionResult> approveCancel(
+            @PathVariable String ticketNo,
+            @Valid @RequestBody ApproveCancelCommand command) {
+        return R.success(ticketService.approveCancel(ticketNo, command));
+    }
+
+    /** 当前负责人拒绝撤销请求；工单保留原状态。 */
+    @PostMapping("/{ticketNo}/actions/reject-cancel")
+    public R<TicketActionResult> rejectCancel(
+            @PathVariable String ticketNo,
+            @Valid @RequestBody RejectCancelCommand command) {
+        return R.success(ticketService.rejectCancel(ticketNo, command));
+    }
+
+    /** 提交人撤回自己的撤销请求；工单保留原状态。 */
+    @PostMapping("/{ticketNo}/actions/withdraw-cancel-request")
+    public R<TicketActionResult> withdrawCancelRequest(
+            @PathVariable String ticketNo,
+            @Valid @RequestBody WithdrawCancelRequestCommand command) {
+        return R.success(ticketService.withdrawCancelRequest(ticketNo, command));
+    }
+
+    /** 提交人撤销自己的工单；只剩「待受理」可以这样撤销，进入终态 CANCELED。 */
     @PostMapping("/{ticketNo}/actions/cancel")
     public R<TicketActionResult> cancel(
             @PathVariable String ticketNo,

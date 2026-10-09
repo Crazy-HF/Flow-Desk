@@ -13,6 +13,7 @@ public record TicketDetailResult(
         TicketUserSummaryResult requester,
         TicketUserSummaryResult assignee,
         OffsetDateTime actionDeadlineAt,
+        TicketCancelRequestResult cancelRequest,
         Long version,
         String completionMethod,
         String closeMethod,

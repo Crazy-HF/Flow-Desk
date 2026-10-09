@@ -412,13 +412,52 @@ public class TicketQueryServiceImpl implements TicketQueryService {
         boolean canClose = canProcess
                 && ticketReadPermissionPort.hasAuthority(TICKET_CLOSE);
 
-        // 撤销：四种非终态都是提交人的动作，权限与补充、确认、未解决反馈共用 TICKET_REQUESTER_ACTION
-        boolean canCancel = (STATUS_PENDING.equals(row.getStatus())
-                || STATUS_PROCESSING.equals(row.getStatus())
-                || STATUS_WAITING_FOR_REQUESTER.equals(row.getStatus())
-                || STATUS_WAITING_FOR_CONFIRMATION.equals(row.getStatus()))
-                && row.getRequesterId() != null
-                && row.getRequesterId() == currentUserId
+        // 待批准的撤销请求：只存在于「有人负责且未终结」的三个状态上，且**状态不变**，
+        // 因此无法从 status 推出来——必须看请求列，界面也靠它渲染待批准提示与决策按钮
+        boolean hasCancelRequest = row.getCancelRequestedAt() != null;
+
+        boolean isCancelRequestStatus =
+                STATUS_PROCESSING.equals(row.getStatus())
+                        || STATUS_WAITING_FOR_REQUESTER.equals(row.getStatus())
+                        || STATUS_WAITING_FOR_CONFIRMATION.equals(row.getStatus());
+
+        boolean isRequester = row.getRequesterId() != null
+                && row.getRequesterId() == currentUserId;
+
+        boolean isAssignee = row.getAssigneeId() != null
+                && row.getAssigneeId() == currentUserId;
+
+        // 提交人在两阶段里有两个互斥动作：没有待决请求时可以发起，已有待决请求时可以撤回自己那一个。
+        // 权限与补充、确认、未解决反馈、直接撤销共用 TICKET_REQUESTER_ACTION
+        boolean canRequestCancel = isCancelRequestStatus
+                && isRequester
+                && !hasCancelRequest
+                && ticketReadPermissionPort.hasAuthority(TICKET_REQUESTER_ACTION);
+
+        boolean canWithdrawCancelRequest = isCancelRequestStatus
+                && isRequester
+                && hasCancelRequest
+                && ticketReadPermissionPort.hasAuthority(TICKET_REQUESTER_ACTION);
+
+        /**
+         * 负责人在有待决请求时可以批准或拒绝：两者前置条件完全相同，共用一条判定
+         * （阶段 3 的 {@code submit-resolution} 就是因为复制表达式而漏掉过一格）。
+         *
+         * <p>权限只要 {@code TICKET_PROCESS}，不要 {@code TICKET_CLOSE}：批准撤销让工单进入「已取消」，
+         * 不是「已关闭」，与 {@code canClose} 的双权限口径是两条不同的线。</p>
+         */
+        boolean canDecideCancelRequest = isCancelRequestStatus
+                && isAssignee
+                && hasCancelRequest
+                && ticketReadPermissionPort.hasAuthority(TICKET_PROCESS);
+
+        boolean canApproveCancel = canDecideCancelRequest;
+        boolean canRejectCancel = canDecideCancelRequest;
+
+        // 直接撤销只剩「待受理」（2026-10-08 规则变更）：那里没有负责人，没有人需要批准；
+        // 其余三种非终态改走 request-cancel → approve-cancel，不再直接返回 cancel
+        boolean canCancel = STATUS_PENDING.equals(row.getStatus())
+                && isRequester
                 && ticketReadPermissionPort.hasAuthority(TICKET_REQUESTER_ACTION);
 
         // 一个动作一个条件，动作名与接口路径末段逐字一致。
@@ -472,9 +511,34 @@ public class TicketQueryServiceImpl implements TicketQueryService {
             allowedActions.add("close");
         }
 
+        if (canRequestCancel) {
+            allowedActions.add("request-cancel");
+        }
+
+        if (canWithdrawCancelRequest) {
+            allowedActions.add("withdraw-cancel-request");
+        }
+
+        if (canApproveCancel) {
+            allowedActions.add("approve-cancel");
+        }
+
+        if (canRejectCancel) {
+            allowedActions.add("reject-cancel");
+        }
+
         if (canCancel) {
             allowedActions.add("cancel");
         }
+
+        // 待批准的撤销请求：状态不变，所以详情必须单独返回它，否则界面渲染不出待批准提示
+        TicketCancelRequestResult cancelRequest = hasCancelRequest
+                ? new TicketCancelRequestResult(
+                        toOffsetDateTime(row.getCancelRequestedAt()),
+                        toOffsetDateTime(row.getCancelRequestDeadlineAt()),
+                        row.getCancelRequestReason())
+                : null;
+
         return new TicketDetailResult(
                 row.getTicketNo(),
                 row.getTitle(),
@@ -485,6 +549,7 @@ public class TicketQueryServiceImpl implements TicketQueryService {
                 requester,
                 assignee,
                 toOffsetDateTime(row.getActionDeadlineAt()),
+                cancelRequest,
                 row.getVersion(),
                 row.getCompletionMethod(),
                 row.getCloseMethod(),
@@ -569,6 +634,21 @@ public class TicketQueryServiceImpl implements TicketQueryService {
             case "CLOSURE" -> {
                 putContext(context, "closeMethod", row.getCloseMethod());
                 putContext(context, "closeReason", row.getCloseReason());
+                putContext(context, "reason", row.getReason());
+                putStatusContext(context, row);
+            }
+            // 两阶段撤销：发起时状态不变但带响应期限；批准、拒绝、撤回三者状态与期限的变化
+            // 分别体现在 toStatus 与是否有 reason 上，因此与"撤回补充请求"一族共用同一个上下文形状
+            case "CANCELLATION_REQUEST" -> {
+                putContext(context, "reason", row.getReason());
+                putContext(
+                        context, "deadlineAt",
+                        toOffsetDateTime(row.getDeadlineAt()));
+                putStatusContext(context, row);
+            }
+            case "CANCELLATION_APPROVED",
+                 "CANCELLATION_REJECTED",
+                 "CANCELLATION_REQUEST_WITHDRAWN" -> {
                 putContext(context, "reason", row.getReason());
                 putStatusContext(context, row);
             }

@@ -14,4 +14,7 @@ public class TicketDetailRow extends TicketListRow {
     private String closeMethod;
     private String closeReason;
     private LocalDateTime endedAt;
+    private LocalDateTime cancelRequestedAt;
+    private String cancelRequestReason;
+    private LocalDateTime cancelRequestDeadlineAt;
 }

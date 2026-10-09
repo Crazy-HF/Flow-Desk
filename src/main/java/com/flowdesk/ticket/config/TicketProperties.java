@@ -18,7 +18,10 @@ import java.time.Duration;
  * 待确认超时自动完成与待补充超时自动关闭按完整版 backlog 第 3 项单独设计。</p>
  */
 @ConfigurationProperties(prefix = "flowdesk.ticket")
-public record TicketProperties(Duration confirmationWindow, Duration supplementWindow) {
+public record TicketProperties(
+        Duration confirmationWindow,
+        Duration supplementWindow,
+        Duration cancelRequestWindow) {
 
     /** 员工确认期限：IT 最近一次提交解决结果后 7×24 小时（docs/kickoff.md 已确认规则）。 */
     private static final Duration DEFAULT_CONFIRMATION_WINDOW = Duration.ofDays(7);
@@ -27,6 +30,15 @@ public record TicketProperties(Duration confirmationWindow, Duration supplementW
     /** 员工补充期限：IT 最近一次请求补充后 7×24 小时（docs/kickoff.md 4.12 已确认规则）。 */
     private static final Duration DEFAULT_SUPPLEMENT_WINDOW = Duration.ofDays(7);
     private static final Duration MIN_SUPPLEMENT_WINDOW = Duration.ofMinutes(1);
+
+    /**
+     * 撤销请求的响应期限：提交人发起后 IT 需在此期限内批准或拒绝（docs/kickoff.md 4.7 未来方向）。
+     *
+     * <p>默认取 3 天而不是与上面两个一致的 7 天：这个窗口约束的是 IT 侧的响应，
+     * 与"工单已被领取却被挂起"的容忍度不同。它是配置项，改 {@code cancel-request-window} 即可。</p>
+     */
+    private static final Duration DEFAULT_CANCEL_REQUEST_WINDOW = Duration.ofDays(3);
+    private static final Duration MIN_CANCEL_REQUEST_WINDOW = Duration.ofMinutes(1);
 
     public TicketProperties {
         if (confirmationWindow == null) {
@@ -43,6 +55,14 @@ public record TicketProperties(Duration confirmationWindow, Duration supplementW
         if (supplementWindow.compareTo(MIN_SUPPLEMENT_WINDOW) < 0) {
             throw new IllegalStateException(
                     "flowdesk.ticket.supplement-window 必须是不小于 1m 的时长，例如 7d");
+        }
+
+        if (cancelRequestWindow == null) {
+            cancelRequestWindow = DEFAULT_CANCEL_REQUEST_WINDOW;
+        }
+        if (cancelRequestWindow.compareTo(MIN_CANCEL_REQUEST_WINDOW) < 0) {
+            throw new IllegalStateException(
+                    "flowdesk.ticket.cancel-request-window 必须是不小于 1m 的时长，例如 3d");
         }
     }
 }
