@@ -183,6 +183,7 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 - 适用时的完成方式、关闭方式、关闭原因和结束时间。
 - 创建时间和最近更新时间。
 - **已确认**：返回后端根据当前用户、角色、工单关系和状态计算的 `allowedActions`，用于前端正确展示可用按钮；它不能替代操作接口再次鉴权。
+- **2026-10-08 补充（两阶段撤销）**：待批准的撤销请求通过 `cancelRequest` 返回（`requestedAt`、`deadlineAt`、`reason`；没有待决请求时该字段不出现）。请求存在期间工单状态不变，只看 `status` 判断不出"IT 正在等批准"，因此这份数据必须单独返回，界面才能渲染待批准提示与批准 / 拒绝 / 撤回三个入口。
 
 无查看权限时统一返回 `404` 和 `TICKET_NOT_FOUND`，不向调用方确认该编号对应的工单是否存在。系统管理员仅有管理员角色时同样不能调用普通详情接口。
 
@@ -257,10 +258,12 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 | `withdraw-supplement-request` | `WAITING_FOR_REQUESTER` | `version`、`reason` | 回到 `PROCESSING`，原期限失效 |
 | `submit-resolution` | `PROCESSING` | `version`、`content` | 进入 `WAITING_FOR_CONFIRMATION`，期限由服务端计算 |
 | `close` | `PROCESSING` | `version`、`reasonCode`、`description`、条件必填的 `duplicateTicketNo` | 进入 `CLOSED` |
+| `approve-cancel` | `PROCESSING`、`WAITING_FOR_REQUESTER`、`WAITING_FOR_CONFIRMATION` | `version` | 工单上确有待决撤销请求时进入 `CANCELED`，请求三列清空 |
+| `reject-cancel` | 同上 | `version`、`reason` | 状态与期限不变，待决撤销请求失效 |
 
 以上动作都要求当前用户是当前负责人；`claim` 例外，它要求当前用户是有效 IT 支持人员，工单仍无人负责且不能由其本人提交。
 
-**实现状态（截至 2026-10-08）**：本表 9 个 IT 动作**全部实现**——`claim`、`add-processing-record`、`submit-resolution`、`withdraw-supplement-request`（片 A）、`report-unresolved`（片 A）、`request-supplement`（片 B）、`change-category`、`change-priority`、`transfer`（片 C）、`close`（片 D）；6.4 的四个员工动作（`confirm-resolution`、`report-unresolved`、`supplement`、`cancel`（片 D））同样全部实现。**完整工单状态机的四条切片（A～D）至此交付完毕。**
+**实现状态（截至 2026-10-08）**：本表 9 个 IT 动作**全部实现**——`claim`、`add-processing-record`、`submit-resolution`、`withdraw-supplement-request`（片 A）、`report-unresolved`（片 A）、`request-supplement`（片 B）、`change-category`、`change-priority`、`transfer`（片 C）、`close`（片 D）；6.4 的四个员工动作（`confirm-resolution`、`report-unresolved`、`supplement`、`cancel`（片 D））同样全部实现。**完整工单状态机的四条切片（A～D）至此交付完毕。** 同日的**两阶段撤销**规则变更（`docs/kickoff.md` 4.7）在此基础上再加四个动作——本表的 `approve-cancel` / `reject-cancel` 与 6.4 的 `request-cancel` / `withdraw-cancel-request`——并把 `cancel` 收窄为「只有待受理可以这样撤销」。**后端与前端均已实现**：动作登记表四格见 `frontend/src/constants/tickets.ts`，详情页的「撤销申请待处理」块见 `frontend/src/views/work/TicketDetailView.vue`（按角色给决策人 / 发起人 / 旁观者三种文案）；真实栈验收与分支交接见 `PROJECT_STATUS.md` 的当前结论。
 - `claim`：`POST /fd/v1/tickets/{ticketNo}/actions/claim`、`ClaimTicketCommand`、`TicketServiceImpl.claim`、`TicketMapper.claimPending`、`TicketParticipantMapper.recordAssignment`。
 - `add-processing-record`：`POST /fd/v1/tickets/{ticketNo}/actions/add-processing-record`、`AddProcessingRecordCommand`、`TicketServiceImpl.addProcessingRecord`、`TicketMapper.advanceAssigneeAction`（状态与负责人不变，只递增 `version` 与 `record_seq` 并追加不可变 `PROCESS` 记录）。
 - `submit-resolution`：`POST /fd/v1/tickets/{ticketNo}/actions/submit-resolution`、`SubmitResolutionCommand`、`TicketServiceImpl.submitResolution`、`TicketMapper.submitResolution`（进入 `WAITING_FOR_CONFIRMATION`，期限按 `flowdesk.ticket.confirmation-window`（默认 `7d`）由服务端计算，追加 `RESOLUTION` 记录）。
@@ -275,8 +278,12 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
   - **同时要求 `TICKET_PROCESS` 与 `TICKET_CLOSE`**（2026-10-08 用户裁决：关闭是结束整张工单的处置动作，必须建立在处理权限之上；与片 C 的 `transfer` 只要求 `TICKET_TRANSFER` 是两条不同的口径），且只有「处理中」的当前负责人可关闭。
   - `DUPLICATE` 时目标必须存在、属于**同一提交人**、不是自身、状态不是 `CANCELED`/`CLOSED`（`COMPLETED` 与仍在流转的工单都可以）；命中后写一条 `ticket_relation`（`source` = 被关闭的本单，`target` = 解析到的目标，受唯一键 `uk_ticket_relation_source_type` 约束）。目标属于他人与目标不存在都不回显，统一 `400/VALIDATION_FAILED`。其他原因**禁止**传 `duplicateTicketNo`（跨字段规则在服务层判定）。
   - `reasonCode` 刻意**不含** `REQUESTER_NO_RESPONSE`：那是员工逾期未补充时的系统自动关闭（`close_method = AUTO_SUPPLEMENT_TIMEOUT`，操作人记为系统），属 backlog 第 3 项，不走这个人工接口。三种人工原因由 `V1` 的 `ck_ticket_close_semantics` 直接约束，**不需要新迁移**。
+- `approve-cancel` / `reject-cancel`（**2026-10-08 完成，两阶段撤销规则变更**）：`POST .../actions/approve-cancel`、`.../actions/reject-cancel`、`ApproveCancelCommand`（只有 `version`）、`RejectCancelCommand`（`version` + `reason` 1～1000）、`TicketServiceImpl.approveCancel` / `rejectCancel`、`TicketMapper.approveCancel` / `rejectCancel`。两条 SQL 形状相同，只有状态迁移那一行不同，都要求 `assignee_id = actor`、状态落在三个「有人负责且未终结」的状态、且 `cancel_requested_at IS NOT NULL`（版本与"确有待决请求"一起进 `WHERE`，因此批准、拒绝、提交人撤回三者并发时只有一条能命中）。
+  - **批准**进入终态 `CANCELED`，并在**同一条 UPDATE** 内清空 `action_deadline_at`、清空请求三列、写入 `ended_at`：待补充与待确认本身带着期限（`ck_ticket_status_deadline` 要求其它状态期限为空），终态又不允许残留待决请求（`ck_ticket_cancel_request_status`），三者只能一起写；负责人按快照保留，追加 `CANCELLATION_APPROVED` 记录。
+  - **拒绝**不改状态、不改期限，只让请求失效，拒绝原因写入 `CANCELLATION_REJECTED` 记录——没有原因，提交人只看到"被拒绝"而无从调整。
+  - 权限只要 **`TICKET_PROCESS`**，**不要 `TICKET_CLOSE`**：批准撤销让工单进入"已取消"而不是"已关闭"，与上面 `close` 的双权限口径是两条不同的线。
 
-**本表契约自 2026-10-06 起未修改**（片 A～片 D 都是按本表实现，未回头改口径）。动作结果统一为 `TicketActionResult`（`ticketNo`、最新 `status`、负责人摘要、当前期限、最新 `version`、动作时间）。详情 `allowedActions` 按条件返回，装配顺序固定为 `claim` → `add-processing-record` → `submit-resolution` → `request-supplement` → `confirm-resolution` → `withdraw-supplement-request` → `report-unresolved` → `supplement` → `change-category` → `change-priority` → `transfer` → `close` → `cancel`：`claim`（待受理、非提交人、具备领取资格）；**处理中与待补充的当前负责人**：`add-processing-record`、`submit-resolution`、`request-supplement`、`change-category`、`change-priority`（以上需 `TICKET_PROCESS`）与 `transfer`（需 `TICKET_TRANSFER`）；待补充的当前负责人：`withdraw-supplement-request`；待确认的提交人：`confirm-resolution`、`report-unresolved`；待补充的提交人：`supplement`；**处理中的当前负责人**：`close`（需 `TICKET_PROCESS` **与** `TICKET_CLOSE` 同时成立）；**四种非终态上的提交人**：`cancel`（需 `TICKET_REQUESTER_ACTION`）。同一张工单上 `close` 与 `cancel` 永远不会同时出现——前者要求"本人是负责人"，后者要求"本人是提交人"，而 `ck_ticket_assignee_not_requester` 禁止两者是同一人。逐条 `traceId` 的验收证据：阶段 3 见 `docs/acceptance/2026-10-06-stage3-claim-process-resolution-confirm.json`（**77/77 通过**）与汇总 `docs/acceptance/2026-10-06-stage3-step3-summary.json`；片 A 见 `docs/acceptance/2026-10-06-slice-a-return-actions.json`（78/78）；片 B 见 `docs/acceptance/2026-10-07-slice-b-supplement-roundtrip.json`（67/67）；片 C 见 `docs/acceptance/2026-10-07-slice-c-adjust-transfer.json`（127/127）；片 D 见 `docs/acceptance/2026-10-08-slice-d-close-cancel.json`；阶段进度见 `docs/implementation-plan.md` 7.1。
+**本表契约自 2026-10-06 起未修改**（片 A～片 D 都是按本表实现，未回头改口径）。动作结果统一为 `TicketActionResult`（`ticketNo`、最新 `status`、负责人摘要、当前期限、最新 `version`、动作时间）。详情 `allowedActions` 按条件返回，装配顺序固定为 `claim` → `add-processing-record` → `submit-resolution` → `request-supplement` → `confirm-resolution` → `withdraw-supplement-request` → `report-unresolved` → `supplement` → `change-category` → `change-priority` → `transfer` → `close` → `request-cancel` → `withdraw-cancel-request` → `approve-cancel` → `reject-cancel` → `cancel`（共 **17** 格，与 `TicketQueryServiceImpl` 的 `allowedActions.add` 调用顺序逐字一致）：`claim`（待受理、非提交人、具备领取资格）；**处理中与待补充的当前负责人**：`add-processing-record`、`submit-resolution`、`request-supplement`、`change-category`、`change-priority`（以上需 `TICKET_PROCESS`）与 `transfer`（需 `TICKET_TRANSFER`）；待补充的当前负责人：`withdraw-supplement-request`；待确认的提交人：`confirm-resolution`、`report-unresolved`；待补充的提交人：`supplement`；**处理中的当前负责人**：`close`（需 `TICKET_PROCESS` **与** `TICKET_CLOSE` 同时成立）；**三个「有人负责且未终结」状态上的提交人**：`request-cancel`（需 `TICKET_REQUESTER_ACTION`，且当前**没有**待决请求）与 `withdraw-cancel-request`（需 `TICKET_REQUESTER_ACTION`，且当前**有**待决请求）；同三个状态上的当前负责人：`approve-cancel`、`reject-cancel`（需 `TICKET_PROCESS`，且当前有待决请求；两条共用同一判定，与 `close` 的双权限口径不同）；**只有待受理的提交人**：`cancel`（需 `TICKET_REQUESTER_ACTION`）。同一张工单上 `close` 与 `cancel` 永远不会同时出现——前者要求"本人是负责人"，后者要求"本人是提交人"，而 `ck_ticket_assignee_not_requester` 禁止两者是同一人。**`close` 与 `approve-cancel` 则可以同时出现**：撤销请求待批准期间工单不冻结，负责人本来就同时持有处理权限与关闭权限，两者与其它处理动作一样照常可用，谁先提交由 `version` 条件更新裁决（两阶段撤销的既定设计：请求期间不改变工单状态，也不改变谁能动它）。逐条 `traceId` 的验收证据：阶段 3 见 `docs/acceptance/2026-10-06-stage3-claim-process-resolution-confirm.json`（**77/77 通过**）与汇总 `docs/acceptance/2026-10-06-stage3-step3-summary.json`；片 A 见 `docs/acceptance/2026-10-06-slice-a-return-actions.json`（78/78）；片 B 见 `docs/acceptance/2026-10-07-slice-b-supplement-roundtrip.json`（67/67）；片 C 见 `docs/acceptance/2026-10-07-slice-c-adjust-transfer.json`（127/127）；片 D 见 `docs/acceptance/2026-10-08-slice-d-close-cancel.json`；阶段进度见 `docs/implementation-plan.md` 7.1。
 
 **`submit-resolution` 从 `allowedActions` 缺失的修正（2026-10-06，用户当场授权）**：`TicketQueryServiceImpl.toDetail` 原先只构造 `claim`、`add-processing-record`、`confirm-resolution` 三个动作，接口虽已实现并验收，详情却不返回该动作名。界面按 `allowedActions` 渲染按钮，因此负责人能写处理记录却交不出解决结果——阶段 3 端到端主链（`frontend/e2e/ticket-it-flow.spec.ts`）在"提交解决结果"这一步实测暴露。现在 `canSubmitResolution` 复用 `canProcess` 的同一条判定（处理中 + 本人是负责人 + `TICKET_PROCESS`），两者前置条件完全相同，不复制表达式。
 
@@ -293,16 +300,22 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 | `supplement` | `WAITING_FOR_REQUESTER` | `version`、正文和/或附件 | 回到 `PROCESSING`，原期限失效 |
 | `confirm-resolution` | `WAITING_FOR_CONFIRMATION` | `version` | 进入 `COMPLETED`，完成方式为员工确认 |
 | `report-unresolved` | `WAITING_FOR_CONFIRMATION` | `version`、`reason` | 回到 `PROCESSING`，原负责人保留 |
-| `cancel` | 四种非终态 | `version`、`reason` | 进入 `CANCELED` |
+| `request-cancel` | `PROCESSING`、`WAITING_FOR_REQUESTER`、`WAITING_FOR_CONFIRMATION` | `version`、`reason` | 状态与期限不变，工单上写入待批准撤销请求（含响应期限） |
+| `withdraw-cancel-request` | 同上 | `version` | 状态与期限不变，待决撤销请求失效 |
+| `cancel` | 仅 `PENDING` | `version`、`reason` | 进入 `CANCELED` |
 
 这些动作都要求当前用户是工单提交人。`supplement` 使用 `multipart/form-data`，正文和附件至少存在一项；其他动作使用 JSON。
 
-**实现状态（截至 2026-10-08）**：`confirm-resolution`（阶段 3）、`report-unresolved`（片 A）、`supplement`（片 B）、`request-supplement`（片 B，IT 侧）与 `cancel`（**片 D**）均已实现。`supplement` 的实现见 6.3 的状态清单。
+**实现状态（截至 2026-10-08）**：`confirm-resolution`（阶段 3）、`report-unresolved`（片 A）、`supplement`（片 B）、`request-supplement`（片 B，IT 侧）与 `cancel`（**片 D**）均已实现；同日的两阶段撤销规则变更再加 `request-cancel` 与 `withdraw-cancel-request`，并把 `cancel` 收窄为「只有 `PENDING`」。`supplement` 的实现见 6.3 的状态清单。
 
-- `cancel`（**2026-10-08 完成，完整状态机片 D**）：`POST .../actions/cancel`、`CancelTicketCommand`（`version` + `reason` 1～1000）、`TicketServiceImpl.cancel`、`TicketMapper.cancel`（进入终态 `CANCELED`；**状态与 `action_deadline_at` 写在同一条 UPDATE 内**，因此不会出现 `ck_ticket_status_deadline` 不允许的中间态；`ended_at` 一并写入，`version` 与 `record_seq` 各 +1，追加 `CANCELLATION` 记录）。
-  - 权限是 `TICKET_REQUESTER_ACTION`，身份要求**本人是提交人**，状态要求属于**四种非终态**（待受理、处理中、待补充、待确认）。三个终态（已完成、已关闭、已取消）一律 `409/TICKET_CONFLICT`；**当前负责人撤不掉别人的工单**——他即使同时持有 `TICKET_REQUESTER_ACTION`，只要不是提交人就是 `409`。
-  - 负责人不写：待受理本来没有负责人，其余状态保留最后负责人，`ck_ticket_status_assignee` 对「已取消」两种都允许。撤销**不写** `completion_method` / `close_method` / `close_reason`，因此「已取消」与「已完成」「已关闭」在库层面可区分（`docs/kickoff.md` 4.7：已取消不等于 IT 解决了问题）。
-  - 撤销原因只存在于不可变时间线的 `CANCELLATION` 记录里，`ticket` 表没有独立的撤销原因列。**v1 不支持恢复**，员工仍需处理时应新建工单。
+- `request-cancel` / `withdraw-cancel-request`（**2026-10-08 完成，两阶段撤销规则变更**）：`POST .../actions/request-cancel`、`.../actions/withdraw-cancel-request`、`RequestCancelCommand`（`version` + `reason` 1～1000）、`WithdrawCancelRequestCommand`（只有 `version`）、`TicketServiceImpl.requestCancel` / `withdrawCancelRequest`、`TicketMapper.requestCancel` / `withdrawCancelRequest`。
+  - **发起**：工单状态、负责人与工单自身的期限都不变，只把 `cancel_requested_at` / `cancel_request_reason` / `cancel_request_deadline_at` 三列**写在同一条 UPDATE 内**（`ck_ticket_cancel_request_pair` 要求三列同生同灭），响应期限按 `flowdesk.ticket.cancel-request-window`（默认 `3d`，下限 `1m`）由服务端计算；追加 `CANCELLATION_REQUEST` 记录（`from_status` 与 `to_status` 相同，与 `PROCESS` / `TRANSFER` 等不迁移状态的动作同一写法）。`cancel_requested_at IS NULL` 也在 `WHERE` 里：**一张工单同时只能有一个待决请求**，重复发起是 `409/TICKET_CONFLICT`，不静默覆盖前一次的说明。
+  - **撤回**：只有提交人本人能撤回自己的请求（当前负责人即使同时持有 `TICKET_REQUESTER_ACTION` 也不行），状态与期限不变，请求三列清空，追加 `CANCELLATION_REQUEST_WITHDRAWN` 记录。撤回**不写原因**——请求里原本的说明仍然留在 `CANCELLATION_REQUEST` 记录上。
+  - 两个动作的权限都是 `TICKET_REQUESTER_ACTION`，身份都要求**本人是提交人**，状态都要求属于三个「有人负责且未终结」的状态。
+- `cancel`（**2026-10-08 完成，完整状态机片 D；同日随两阶段撤销收窄到「待受理」**）：`POST .../actions/cancel`、`CancelTicketCommand`（`version` + `reason` 1～1000）、`TicketServiceImpl.cancel`、`TicketMapper.cancel`（进入终态 `CANCELED`；**状态与 `action_deadline_at` 写在同一条 UPDATE 内**，因此不会出现 `ck_ticket_status_deadline` 不允许的中间态；`ended_at` 一并写入，`version` 与 `record_seq` 各 +1，追加 `CANCELLATION` 记录）。
+  - 权限是 `TICKET_REQUESTER_ACTION`，身份要求**本人是提交人**，状态**只允许 `PENDING`**——待受理没有负责人，不需要谁批准。处理中、待补充、待确认改走 `request-cancel` → `approve-cancel`；三个终态同样 `409/TICKET_CONFLICT`；**当前负责人撤不掉别人的工单**——他即使同时持有 `TICKET_REQUESTER_ACTION`，只要不是提交人就是 `409`。
+  - 待受理本来没有负责人，`ck_ticket_status_assignee` 对「已取消」带不带负责人都允许。撤销**不写** `completion_method` / `close_method` / `close_reason`，因此「已取消」与「已完成」「已关闭」在库层面可区分（`docs/kickoff.md` 4.7：已取消不等于 IT 解决了问题）。
+  - 直接撤销的原因只存在于不可变时间线的 `CANCELLATION` 记录里；两阶段路径的说明存在 `ticket.cancel_request_reason`，批准进入终态时随请求三列一并清空，说明本身仍留在 `CANCELLATION_REQUEST` 记录上。**v1 不支持恢复**，员工仍需处理时应新建工单。
 
 **范围裁决（2026-10-06，用户确认）**：附件上传/下载、文件与数据库提交顺序、失败补偿与孤儿对账属完整版 backlog 第 2 项，尚未设计落地。因此 `supplement` **先按"正文版"实现**：请求形状不变（`multipart/form-data`，`ticket` part 携带 JSON），但只接受正文；请求里出现文件 part 时返回 `400/VALIDATION_FAILED` 并说明本版本不支持附件，**不静默忽略**。附件落地后本条随之失效。
 
@@ -312,7 +325,7 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 
 ### 6.6 并发、幂等与错误
 
-- 领取、转交、补充、解决、确认、撤销和关闭等状态动作依靠 `version`、预期状态及预期负责人共同防止重复执行。
+- 领取、转交、补充、解决、确认、撤销和关闭等状态动作依靠 `version`、预期状态及预期负责人共同防止重复执行。撤销请求的**批准、拒绝、撤回**三者共用同一组条件（版本 + 应当事人 + 三个允许状态 + `cancel_requested_at IS NOT NULL`），并发时只有一条 SQL 能命中，另外两路得到 `409` 而不是互相覆盖；撤销请求期间 IT 的其它动作照常可用，由同一套条件更新裁决唯一胜者。
 - 动作响应丢失后，客户端重新读取详情；若版本已变化，不用旧版本盲目重放动作。
 - 创建工单使用 `submissionKey` 单独防重，因为创建前不存在可校验的工单版本。
 - 无权查看目标工单返回 `404/TICKET_NOT_FOUND`；能够查看但无权执行动作返回 `403/TICKET_ACTION_FORBIDDEN`。
@@ -553,11 +566,11 @@ MySQL 与 Redis 之间不存在天然原子事务。工程准备阶段必须明�
 | --- | --- | --- |
 | `TICKET_CREATE` | 创建工单、读取分类选项 | 启用分类、原工单可见性、提交幂等键 |
 | `TICKET_VIEW_OWN` | `REQUESTED_BY_ME`、本人工单详情和时间线 | 当前用户必须是提交人 |
-| `TICKET_REQUESTER_ACTION` | 补充、确认、未解决、撤销 | 提交人、状态和版本 |
+| `TICKET_REQUESTER_ACTION` | 补充、确认、未解决、发起或撤回撤销请求、直接撤销待受理工单 | 提交人、状态和版本 |
 | `TICKET_VIEW_QUEUE` | `PENDING_QUEUE`、待受理详情 | 工单仍为待受理 |
 | `TICKET_CLAIM` | `claim` | 有效 IT、非提交人、待受理、版本 |
 | `TICKET_VIEW_PARTICIPATED` | 负责或参与列表、详情和时间线 | 当前或历史参与关系 |
-| `TICKET_PROCESS` | 处理记录、分类与优先级调整、补充请求、解决结果 | 当前负责人、允许状态和版本 |
+| `TICKET_PROCESS` | 处理记录、分类与优先级调整、补充请求、解决结果、批准或拒绝撤销请求 | 当前负责人、允许状态和版本 |
 | `TICKET_TRANSFER` | 转交及候选人 | 当前负责人、允许状态、接收人资格和版本 |
 | `TICKET_CLOSE` | 手动关闭 | 当前负责人、处理中、关闭原因及版本 |
 | `TICKET_ADMIN_HANDOFF` | 最小交接元数据、候选人和管理性交接 | 不授予工单正文访问 |
@@ -576,7 +589,7 @@ MySQL 与 Redis 之间不存在天然原子事务。工程准备阶段必须明�
 
 - `traceId`：服务端请求追踪标识。
 - `fieldErrors`：字段名与校验错误编码，不包含请求中的密码或文件内容。
-- `currentVersion`、`currentStatus`：调用者有权查看工单时的最小冲突信息。
+- `version`、`status`：调用者有权查看工单时的最小冲突信息（`409/TICKET_CONFLICT` 才有）。**字段名以 `ErrorDetails` 为准**——早些时候这里写作 `currentVersion` / `currentStatus`，与实现不符；2026-10-08 的两阶段撤销验收脚本按实际字段核对后改正，§6.6 的措辞本来就是对的。
 
 生产响应不得包含异常类名、堆栈、SQL、磁盘路径、Token、密码或内部数据库主键。
 
