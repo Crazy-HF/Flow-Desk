@@ -93,7 +93,9 @@
 - `TASK-010` 五个后端接口与 `TASK-011` Vue 登录外壳、身份恢复均已完成并通过验收；后端 `verify` 共 53 项单元/Web 测试与 17 项集成测试全绿，前端 22 项单元测试及类型检查、Lint、构建、7 项 E2E 全绿。阶段 1 已通过 PR #5 合并进入 `main`。
 - 公共安全基线归 `common/config/FoundationSecurityConfiguration`，Auth 专用链负责 JWT 请求认证、Refresh 轮换与重用检测、退出、`/auth/me` 和本人改密。第 3 步（动态 RBAC）先于阶段 2 实施；阶段 2 只推进 `TASK-020`～`TASK-023-MVP` 的员工工单创建与查询闭环。
 
-## 当前分支提交边界（2026-10-08 片 A～片 D 已全部合并 main，**当前分支 `flow-desk/ticket-two-phase-cancel`，两阶段撤销的后端与前端均已落地，验收与交接进行中**）
+## 当前分支提交边界（2026-10-08 片 A～片 E 全部合并 main，**当前分支 `flow-desk/attachments-and-relations`，主题：附件与关联（完整版 backlog 2）**）
+
+- **片 E（两阶段撤销）已交接完成（2026-10-08）**：四条提交 `ed419de`（后端实现与 V7）/ `c695133`（测试补齐）/ `9a984f6`（前端与 E2E）/ `d0c224c`（验收脚本与证据、契约与状态文档）经 **[PR #18](https://github.com/Crazy-HF/Flow-Desk/pull/18)** 以 merge commit 合并 `main`（合并提交 **`2cf1bc1`**，基线 `95eee90`）；CI 运行 `37902111061` 三个 job 首轮全绿（`frontend-verify` 46s、`core-e2e` 2m50s、`backend-verify` 2m50s）。本地 `main` 已仅快进到 `2cf1bc1`，随后从最新 `main` 创建 **`flow-desk/attachments-and-relations`**。片 E 的完整交付记录见 `PROJECT_STATUS.md`「交付记录：片 E（两阶段撤销）」段。**用户 2026-10-08 指定的方向顺序**：本分支先做**附件与关联**（受控上传/下载、暂存与最终目录同卷 + 原子移动、失败补偿与孤儿对账、后续/重复工单关系；`FLOWDESK_ATTACHMENT_ROOT` 与 `ticket_attachment` 已就位），之后再做**撤销请求到期语义**（到期前提醒 + 到期自动失效并写记录）与 **IT 列表「待我批准」筛选**（需要连索引一起设计）。
 
 - **完整版第 1 项「完整工单状态机」分 4 片推进**（用户 2026-10-06 确认，逐条见 `docs/implementation-plan.md` 9.3）：**片 A 退回处理中**（`report-unresolved` + `withdraw-supplement-request`）已实现并通过真实栈验收（78/78、退出码 0），经 **[PR #14](https://github.com/Crazy-HF/Flow-Desk/pull/14) 合并 main**（合并提交 **`5f4026f`**）；**片 B 补充往返**（`request-supplement` + `supplement` + `supplement-window`）经 **[PR #15](https://github.com/Crazy-HF/Flow-Desk/pull/15) 合并 main**（合并提交 **`aa0417b`**，真实栈 67/67）。
 - **片 C（调整与转交）已交接完成（2026-10-07）**：`change-category`、`change-priority`、`transfer` 与 `GET /transfer-candidates` 经 **PR #16** 以 merge commit 合并 `main`（合并提交 **`9f07a0f`**，CI 运行 `37603743588` 三个 job 首轮全绿）；真实栈验收 **127/127、退出码 0**（`docs/acceptance/2026-10-07-slice-c-adjust-transfer.json`）。期间修掉 `TicketServiceImpl.changeCategory` 缺 `visible == null` 判空导致的 `500`（用户 2026-10-07 授权「需要我写入的直接写入」，由 Agent 直接补入）。

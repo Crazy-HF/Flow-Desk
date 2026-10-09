@@ -1,6 +1,11 @@
 # FlowDesk 项目状态
 
-## 当前结论：两阶段撤销**已收口并通过真实栈验收**（178/178、退出码 0），等待分支交接（2026-10-08，分支 `flow-desk/ticket-two-phase-cancel`）
+## 片 E（两阶段撤销）**已交接完成**：PR #18 → `2cf1bc1`，CI 三个 job 全绿；当前分支 `flow-desk/attachments-and-relations`（主题：附件与关联，2026-10-08）
+
+- **交接结果（2026-10-08）**：四条提交 `ed419de`（后端实现与 V7）、`c695133`（测试补齐）、`9a984f6`（前端与 E2E）、`d0c224c`（验收脚本与证据、契约与状态文档）经 **[PR #18](https://github.com/Crazy-HF/Flow-Desk/pull/18)** 以 merge commit 合并 `main`（合并提交 **`2cf1bc1`**，基线 `95eee90`）；CI 运行 **[37902111061](https://github.com/Crazy-HF/Flow-Desk/actions/runs/37902111061)** 三个 job 首轮全绿（`frontend-verify` 46s、`core-e2e` 2m50s、`backend-verify` 2m50s）。本地 `main` 已仅快进到 `2cf1bc1`，随后从最新 `main` 创建 **`flow-desk/attachments-and-relations`**（用户 2026-10-08 指定的下一方向：先做**附件与关联**，之后再做**撤销请求到期语义（到期前提醒 + 到期自动失效并写记录）与 IT 列表「待我批准」筛选**）。
+- **以下为该片 E 的交付记录**（标题里的"等待交接"写在合并之前，按项目惯例保留原样不追改）。
+
+## 交付记录：片 E（两阶段撤销）
 
 - **本轮主题**：**两阶段撤销**（`docs/kickoff.md` 4.7 的规则变更，替换片 D 的「四种非终态直接撤销」）——待受理仍由提交人直接撤销；处理中、待补充、待确认下提交人只能**发起撤销请求**，由**当前负责人批准或拒绝**，提交人可自行撤回。用户 2026-10-08 一次性确认五个设计点（中间态用 `ticket` 三列表达、状态机保持 7 个状态；批准/拒绝用 `TICKET_PROCESS`，发起/撤回用 `TICKET_REQUESTER_ACTION`；请求期限默认 `3d` 但**到期不自动处置**；请求期间 IT 其它动作照常可用；提交人可撤回），随后由用户编写 `TicketServiceImpl` 的四个方法，Agent 写入基础件并在复核中修正三处会直接出错的实现。
 - **改动清单（23 个文件修改：16 个生产代码 + 7 个测试；外加 1 个新迁移）**：`V7__add_cancel_request.sql`（三列 + `ck_ticket_cancel_request_pair` / `ck_ticket_cancel_request_status` + 同一条 `ALTER` 重建 `ck_ticket_record_type` 扩 4 个记录类型）；`Ticket` 三字段、`TicketProperties.cancelRequestWindow`（默认 `3d`、下限 `1m`）与 `application.yml`；四个 Command 与 `TicketCancelRequestResult`；`TicketService` 四个方法、`TicketController` 四个端点、`TicketMapper` 四条条件更新；`TicketQueryServiceImpl` 的四格 `allowedActions`、三项判定、详情 `cancelRequest` 与 `toRecordContext` 四个 `case`；`cancel` 收窄到 `PENDING`；`closeManually` / `confirmResolution` 一并清空请求三列。
@@ -12,7 +17,7 @@
 - **一处已知的实测覆盖缺口（如实记录）**：三组并发里 `close vs approve`（`a11c`）在 4 次运行中**全部由「关闭」获胜**，"批准赢"那一支只有对称的断言、没有实测样本；另两组（`approve vs reject`、`approve vs withdraw`）三次运行赢家各不相同，两个分支都被实测覆盖过。该竞争的"唯一胜者 + 败者 409"由 `TicketServiceIT.concurrentCloseAndApproveCancelOnSameTicketHaveExactlyOneWinner` 在集成层稳定覆盖，故未额外加压重跑。
 - **文档已同步（本轮）**：`docs/kickoff.md` 4.7（表格 / 规则 / 状态图）与 4.8/4.9/4.11/4.12/5.2 的交叉引用、`docs/business-model.md`（角色职责、状态说明、记录类型）、`docs/database-design.md`（记录类型、`ticket` 三列、CHECK 约束与 `V7` 变更说明）、`docs/api-design.md`（5.4 的 `cancelRequest`、6.3/6.4 动作表与实现条目、17 格 `allowedActions`、6.6 并发、第 9 节权限表、**10.1 的冲突字段名改正为 `version` / `status`**）、`docs/implementation-plan.md`（backlog 备注、9.3 的五个设计点确认结果与交付记录）、`README.md`（Flyway 版本与"已知限制"两条）、`docs/project-highlights.md` HL-013、`AGENTS.md`、本文件。
 - **收尾清理（已执行）**：本轮 E2E 与验收在演示库留下的行已按主键删除（工单 id 242–267 及其记录/参与/关联、用户 id 69–72 及其用户角色），演示库回到基线 **工单 0 / 记录 0 / 参与者 0 / 关联 0 / 用户 6 / 用户角色 8 / 角色 3 / 角色权限 14 / 分类 5**；E2E 覆写过的 43 个已跟踪评审产物已 `git checkout` 还原。**未删任何非本轮创建的行**（3 个历史 `E2E_ticket_isolation_*` 账号保留）。
-- **下一步**：分支交接（提交 / 推送 / PR / CI / 合并 / 同步 `main` / 从最新 `main` 建下一分支）——用户 2026-10-08 已授权本次交接，并指定后续方向为**附件与关联（backlog 2）**，之后再做**撤销请求到期语义（到期前提醒 + 到期自动失效并写记录）与 IT 列表「待我批准」筛选**。
+- **下一步（本片已交接，方向按用户 2026-10-08 指定）**：① **附件与关联（完整版 backlog 2）**——受控上传/下载、类型与大小限制、暂存与最终目录同卷 + 原子移动、失败补偿与孤儿对账、后续/重复工单关系；`FLOWDESK_ATTACHMENT_ROOT` 与 `ticket_attachment`（`V1`）已就位，片 B 的 `supplement` 目前只接受正文，正是它的落点。② 之后做**撤销请求到期语义**：到期前提醒 + **到期自动失效并写记录**，并给 IT 列表加「待我批准」筛选（需要连索引一起设计——`V7` 的"不新增索引"正基于当时"待决请求不是查询维度"这个前提）。③ 超时自动任务（待确认自动完成、待补充自动关闭）与 ① 的落点相邻，可一并评估。
 - **演示库版本**：已升到 **V7**（本轮启动 8092 后端时应用，迁移只增列与约束，不回滚），8081 上用户自己的后端全程未被触碰（本轮 8081 全程无进程监听）。
 
 ## 片 D 交接结果与工作树现状（历史，2026-10-08）
