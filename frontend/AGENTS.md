@@ -179,7 +179,11 @@
 ## 工作流
 
 1. 先读现有代码与 `docs/` 相关契约，follow 项目已有约定，不要贴通用示例或重新发明目录结构。
+   **新增页面前先读 `frontend/PAGE-TEMPLATE.md`**：它给出页面分类、四区骨架、六态落点、新增页面的 10 步与提交前自检清单。页面结构冲突时以它为准。
 2. 新增或重做页面前，先说明它对应的接口、权限和六种状态的落点。
+   **列表页优先用脚手架生成骨架**，不要手抄别的页面：
+   `node scripts/scaffold.mjs --layer admin --page NoticeListView --title 通知管理 --api notices --permission RBAC_MANAGE`
+   生成的页面自带四区结构、六态、权限收口与同目录单测。路由与 `constants/authorization.ts` 由脚本打印片段、人工粘贴（那两处需要判断权限语义，不适合自动改）。
 3. 改完必须跑：`pnpm typecheck`、`pnpm lint`、`pnpm build`；涉及接口或身份流程时补 `pnpm test:unit --run`、`pnpm test:e2e`。
 4. 涉及视觉的改动，必须用浏览器打开改后的页面截图自查（登录用例见 `PROJECT_STATUS.md` 的演示账号），
    确认无溢出、无错位、无默认蓝色残留后再报告完成，并在报告里说明截图看到的结果。
