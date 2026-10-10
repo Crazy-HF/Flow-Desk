@@ -212,6 +212,11 @@ const runningAction = ref<TicketActionName | null>(null)
  * **提示按状态与角色给，不按可做动作的多寡给**——负责人只有「撤回补充请求」这一件事可做，
  * 若用"有没有动作"判断，负责人在待补充时反而看不到这句提示，而界面恰恰就在暗示
  * "到点系统会处理"。</p>
+ *
+ * <p><b>2026-10-10 裁决已改口径、实现待落地</b>：待确认自动完成与待补充自动关闭将与通知 / 通信
+ * 通道一并落地（②），届时下面四条 hint 文案与组件 / E2E 里对应的断言都要改写。撤销块那句
+ * 「这次申请也不会自动失效」属另一条（①）——文案必须与判定同批，见
+ * `docs/implementation-plan.md` 9.3 待改清单。</p>
  */
 const deadlineFact = computed<{ label: string; hint?: string } | null>(() => {
   if (!detail.value?.actionDeadlineAt) {
@@ -262,6 +267,10 @@ const deadlineFact = computed<{ label: string; hint?: string } | null>(() => {
  *
  * <p>与 `deadlineFact` 一样，提示按**角色**给而不是按"有没有按钮"给：负责人若刚好没有
  * `TICKET_PROCESS`，他也应该看到"有人在申请撤销"，而不是看到一块空的动作区。</p>
+ *
+ * <p>第四种情况（2026-10-10 用户裁决）：工单处于「待补充」时**没有人**在裁决这份申请——
+ * 待补充的当前负责人（由 `withdraw-supplement-request` 认出来）读到的是"等提交人补充、
+ * 补充回来再由你决定"，而不是对着他自己说的"正在等待当前负责人处理"。</p>
  */
 const cancelRequestNotice = computed<{ lead: string; actionHint: string } | null>(() => {
   const current = detail.value
@@ -286,6 +295,22 @@ const cancelRequestNotice = computed<{ lead: string; actionHint: string } | null
       actionHint: assignee
         ? `在${assignee}处理之前，你可以在下面撤回这次申请。`
         : '在负责人处理之前，你可以在下面撤回这次申请。',
+    }
+  }
+
+  /**
+   * 工单在「待补充」且申请还挂着：此刻**没有人**在处理这份申请（2026-10-10 用户裁决）。
+   * 只有当前负责人会走到这里——`withdraw-supplement-request` 只发给待补充的负责人，
+   * 提交人上一段已经命中。不写这一格的话，负责人会读到"正在等待当前负责人处理"这句
+   * 对着他自己说的话，而按钮一个都没有。
+   */
+  if (
+    current.status === 'WAITING_FOR_REQUESTER' &&
+    availableActions.value.includes('withdraw-supplement-request')
+  ) {
+    return {
+      lead: `${requester}申请撤销这张工单；工单正在等提交人补充信息，补充回来后由你决定。`,
+      actionHint: '待补充期间不能同意或驳回撤销申请；提交人补充后工单回到处理中，这两个入口会重新出现。',
     }
   }
 

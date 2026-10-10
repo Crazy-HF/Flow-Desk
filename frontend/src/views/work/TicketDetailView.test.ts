@@ -1453,6 +1453,42 @@ describe('TicketDetailView', () => {
   })
 
   /**
+   * 待补充期间没有人在裁决（2026-10-10 用户裁决）：申请还挂在工单上，但同意与驳回两格都不在。
+   *
+   * <p>这一格专门防"对着负责人说'正在等待当前负责人处理'"——那句旁观者文案对提交人成立，
+   * 对此刻的负责人是错的：他手上没有决策入口，能做的只有等提交人补充、或转交出去。</p>
+   */
+  it('负责人视角：待补充期间的申请不出现裁决入口，文案指向等提交人补充', async () => {
+    useAuthStore().user = support
+    vi.mocked(getTicket).mockResolvedValue({
+      ...detail,
+      status: 'WAITING_FOR_REQUESTER',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      actionDeadlineAt: '2026-10-15T08:00:00Z',
+      version: 9,
+      allowedActions: ['withdraw-supplement-request', 'transfer'],
+      cancelRequest: {
+        requestedAt: '2026-10-08T08:00:00Z',
+        deadlineAt: '2026-10-11T08:00:00Z',
+        reason: '不需要了',
+      },
+    })
+
+    const { wrapper } = await mountPage()
+    const panel = cancelRequestPanel(wrapper)
+    expect(panel.exists()).toBe(true)
+    expect(panel.text()).toContain('补充回来后由你决定')
+    expect(panel.text()).not.toContain('正在等你处理')
+    expect(panel.text()).not.toContain('正在等待当前负责人处理')
+
+    const labels = actionLabels(wrapper)
+    expect(labels).not.toContain('同意撤销')
+    expect(labels).not.toContain('驳回撤销申请')
+    // 冻结的只是裁决：转交与撤回补充请求这两条 4.11 的能力照常摆着
+    expect(labels).toContain('撤回补充请求')
+  })
+
+  /**
    * 驳回必须写理由（2026-10-08 两阶段撤销）：没有理由，提交人只看到"被驳回"而无从调整。
    *
    * <p>驳回**不结束工单**，所以它不该和同意撤销一样用警示色；这也正是登记表里
@@ -1462,9 +1498,8 @@ describe('TicketDetailView', () => {
     useAuthStore().user = support
     vi.mocked(getTicket).mockResolvedValue({
       ...detail,
-      status: 'WAITING_FOR_REQUESTER',
+      status: 'PROCESSING',
       assignee: { id: 2, displayName: '演示 IT 支持人员' },
-      actionDeadlineAt: '2026-10-15T08:00:00Z',
       version: 9,
       allowedActions: ['reject-cancel'],
       cancelRequest: {
@@ -1475,9 +1510,8 @@ describe('TicketDetailView', () => {
     })
     vi.mocked(rejectCancel).mockResolvedValue({
       ticketNo: detail.ticketNo,
-      status: 'WAITING_FOR_REQUESTER',
+      status: 'PROCESSING',
       assignee: { id: 2, displayName: '演示 IT 支持人员' },
-      actionDeadlineAt: '2026-10-15T08:00:00Z',
       version: 10,
       actionTime: '2026-10-08T09:30:00Z',
     })
@@ -1501,7 +1535,7 @@ describe('TicketDetailView', () => {
       reason: '问题尚未定位，正在等供应商回复',
     })
     // 工单留在原状态：申请失效，处理继续
-    expect(wrapper.get('.ticket-meta').text()).toContain('待员工补充')
+    expect(wrapper.get('.ticket-meta').text()).toContain('处理中')
   })
 
   /**
