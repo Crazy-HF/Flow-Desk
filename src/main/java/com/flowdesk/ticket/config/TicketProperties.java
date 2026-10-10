@@ -16,6 +16,10 @@ import java.time.Duration;
  * <p><b>两个期限都没有定时任务</b>：本版本只写入期限并在界面展示，到期不会自动改变工单状态
  * （用户 2026-10-06 裁决，见 {@code docs/implementation-plan.md} 9.3 第 4 条）。
  * 待确认超时自动完成与待补充超时自动关闭按完整版 backlog 第 3 项单独设计。</p>
+ *
+ * <p><b>2026-10-10 裁决已改口径、实现待落地</b>（{@code docs/implementation-plan.md} 9.3 待改清单）：
+ * 第三个期限不再只是展示——撤销请求的响应期限届满后请求即失效，批准 / 拒绝 / 撤回三条路一起关闭
+ * （①；工单状态仍不自动改变）；两个超时自动任务（②）与通知通道一并落地，届时上面那句要一并改写。</p>
  */
 @ConfigurationProperties(prefix = "flowdesk.ticket")
 public record TicketProperties(
@@ -32,10 +36,13 @@ public record TicketProperties(
     private static final Duration MIN_SUPPLEMENT_WINDOW = Duration.ofMinutes(1);
 
     /**
-     * 撤销请求的响应期限：提交人发起后 IT 需在此期限内批准或拒绝（docs/kickoff.md 4.7 未来方向）。
+     * 撤销请求的响应期限：提交人发起后 IT 需在此期限内批准或拒绝（{@code docs/kickoff.md} 4.7）。
      *
      * <p>默认取 3 天而不是与上面两个一致的 7 天：这个窗口约束的是 IT 侧的响应，
      * 与"工单已被领取却被挂起"的容忍度不同。它是配置项，改 {@code cancel-request-window} 即可。</p>
+     *
+     * <p>期限届满即失效（<b>2026-10-10 裁决已改口径、实现待落地</b>）：届时本窗口不再只用于展示，
+     * 而是进入三条条件更新的判定，见上面类注释与 {@code docs/implementation-plan.md} 9.3 待改清单 ①。</p>
      */
     private static final Duration DEFAULT_CANCEL_REQUEST_WINDOW = Duration.ofDays(3);
     private static final Duration MIN_CANCEL_REQUEST_WINDOW = Duration.ofMinutes(1);

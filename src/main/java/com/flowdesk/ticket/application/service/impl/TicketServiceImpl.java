@@ -1625,7 +1625,7 @@ public class TicketServiceImpl implements TicketService {
 
     /**
      * 提交人发起撤销请求：三种「有人负责且未终结」的状态都可以发起，工单状态不变
-     * （`docs/kickoff.md` 4.7 未来方向、`docs/implementation-plan.md` 9.3 决策记录）。
+     * （`docs/kickoff.md` 4.7、`docs/implementation-plan.md` 9.3 决策记录）。
      *
      * <p>只发起不迁移状态：待受理本来就可以直接取消，那里没有负责人需要同意；
      * 一旦有人负责，单方面终止就要先取得当前负责人同意，因此工单停在原状态等待批准。</p>
@@ -1660,6 +1660,7 @@ public class TicketServiceImpl implements TicketService {
 
         // 3. 三个"有人负责"的状态 + 本人是提交人；已有待决请求也按冲突返回——
         //    重复发起不是幂等成功：前一次的说明还在，不能被静默覆盖
+        //    （2026-10-10 裁决已改口径、实现待落地：请求已过期时届时可直接覆盖，见 9.3 待改清单 ①）
         if (!isCancelRequestableStatus(visible.getStatus())
                 || visible.getRequesterId() == null
                 || visible.getRequesterId() != actorId
@@ -1685,6 +1686,7 @@ public class TicketServiceImpl implements TicketService {
         LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
 
         // 6. 响应期限从发起时刻起算；只落库展示，到期不自动处置（与补充期限同口径）
+        //    （2026-10-10 裁决已改口径、实现待落地：届满即失效，这一列届时进三条条件更新的 WHERE）
         LocalDateTime deadlineAt = now.plus(ticketProperties.cancelRequestWindow());
 
         // 7. 条件更新是唯一胜者判定：版本、提交人、三种状态与"当前没有待决请求"都在 WHERE 里
@@ -1779,8 +1781,9 @@ public class TicketServiceImpl implements TicketService {
         }
 
         // 3. 必须是当前负责人，且工单上确实挂着一个待决请求。
-        //    "没有请求"与"请求已经被别人处理掉"都落到这里，统一 409 带快照
-        if (!isCancelRequestableStatus(visible.getStatus())
+        //    "没有请求"、"请求已经被别人处理掉"与"工单正在待补充（此时不裁决）"都落到这里，
+        //    统一 409 带快照
+        if (!isCancelDecidableStatus(visible.getStatus())
                 || visible.getAssigneeId() == null
                 || visible.getAssigneeId() != actorId
                 || visible.getCancelRequestedAt() == null) {
@@ -1879,8 +1882,8 @@ public class TicketServiceImpl implements TicketService {
                     "工单不存在");
         }
 
-        // 3. 必须是当前负责人，且确实有请求可以拒绝
-        if (!isCancelRequestableStatus(visible.getStatus())
+        // 3. 必须是当前负责人，且确实有请求可以拒绝；「待补充」不在可裁决状态里（2026-10-10 用户裁决）
+        if (!isCancelDecidableStatus(visible.getStatus())
                 || visible.getAssigneeId() == null
                 || visible.getAssigneeId() != actorId
                 || visible.getCancelRequestedAt() == null) {
@@ -2281,6 +2284,22 @@ public class TicketServiceImpl implements TicketService {
         return PROCESSING.equals(status)
                 || WAITING_FOR_REQUESTER.equals(status)
                 || WAITING_FOR_CONFIRMATION.equals(status);
+    }
+
+    /**
+     * 能裁决撤销请求的两个状态：「处理中」与「待确认」。
+     *
+     * <p><b>刻意比 {@link #isCancelRequestableStatus} 少一个「待补充」</b>（2026-10-10 用户裁决）：
+     * 工单处于待补充时，负责人刚把球交给员工，不允许在信息不全的时候终止整张工单。请求仍然合法地
+     * 留在工单上（数据库的 {@code ck_ticket_cancel_request_status} 三态白名单不变），等员工补充完、
+     * 工单回到「处理中」即可批准或拒绝，响应期限不重算。发起与撤回请求仍按三态判定——那两个动作
+     * 属于提交人，不受本条限制。</p>
+     *
+     * <p>必须与 {@code TicketMapper.approveCancel} / {@code rejectCancel} 的 {@code WHERE status}
+     * 逐字同步：两处不一致时，详情页会给出一个注定 409 的按钮。</p>
+     */
+    private boolean isCancelDecidableStatus(String status) {
+        return PROCESSING.equals(status) || WAITING_FOR_CONFIRMATION.equals(status);
     }
 
     /** 优先级取值以 {@link TicketPriority} 为准，避免再抄一份正则；null 视为非法。 */

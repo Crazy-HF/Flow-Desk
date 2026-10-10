@@ -414,6 +414,8 @@ public class TicketQueryServiceImpl implements TicketQueryService {
 
         // 待批准的撤销请求：只存在于「有人负责且未终结」的三个状态上，且**状态不变**，
         // 因此无法从 status 推出来——必须看请求列，界面也靠它渲染待批准提示与决策按钮
+        // （2026-10-10 裁决已改口径、实现待落地：届时"有待决请求"要再分未过期 / 已过期两种，
+        //   已过期时不返回批准 / 拒绝 / 撤回三格、详情显示「已过期」，见 9.3 待改清单 ①④）
         boolean hasCancelRequest = row.getCancelRequestedAt() != null;
 
         boolean isCancelRequestStatus =
@@ -439,6 +441,14 @@ public class TicketQueryServiceImpl implements TicketQueryService {
                 && hasCancelRequest
                 && ticketReadPermissionPort.hasAuthority(TICKET_REQUESTER_ACTION);
 
+        // 裁决只发生在「处理中」与「待确认」：待补充期间 IT 刚把球交给员工，不允许在信息不全的时候
+        // 终止整张工单（2026-10-10 用户裁决）。它仍是「可发起 / 可撤回请求」的状态（上面那条三态判定
+        // 不变），只是不返回批准与拒绝；员工补充完、工单回到处理中，这两格自动回来。
+        // 与 TicketServiceImpl.isCancelDecidableStatus、两条 SQL 的状态白名单必须逐字同步
+        boolean isCancelDecidableStatus =
+                STATUS_PROCESSING.equals(row.getStatus())
+                        || STATUS_WAITING_FOR_CONFIRMATION.equals(row.getStatus());
+
         /**
          * 负责人在有待决请求时可以批准或拒绝：两者前置条件完全相同，共用一条判定
          * （阶段 3 的 {@code submit-resolution} 就是因为复制表达式而漏掉过一格）。
@@ -446,7 +456,7 @@ public class TicketQueryServiceImpl implements TicketQueryService {
          * <p>权限只要 {@code TICKET_PROCESS}，不要 {@code TICKET_CLOSE}：批准撤销让工单进入「已取消」，
          * 不是「已关闭」，与 {@code canClose} 的双权限口径是两条不同的线。</p>
          */
-        boolean canDecideCancelRequest = isCancelRequestStatus
+        boolean canDecideCancelRequest = isCancelDecidableStatus
                 && isAssignee
                 && hasCancelRequest
                 && ticketReadPermissionPort.hasAuthority(TICKET_PROCESS);

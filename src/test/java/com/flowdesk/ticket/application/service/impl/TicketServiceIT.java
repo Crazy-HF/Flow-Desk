@@ -1816,29 +1816,31 @@ class TicketServiceIT {
     }
 
     /**
-     * 两阶段撤销的真实写入：提交人在「待补充」发起请求，负责人批准后进入「已取消」，
+     * 两阶段撤销的真实写入：提交人在「待确认」发起请求，负责人批准后进入「已取消」，
      * 期限在同一条 UPDATE 里被清空，且撤销出来的终态不带任何完成/关闭字段——
      * 「已取消」「已完成」「已关闭」三态可区分。
      *
-     * <p>「待补充」是三个可发起撤销请求的状态里唯一带期限的入口，因此它同时验证两条 CHECK
-     * 都不会被撞破：请求期间状态与期限原样保留（{@code ck_ticket_status_deadline}），
-     * 批准时请求三列与期限一起清空（{@code ck_ticket_cancel_request_pair}、
-     * {@code ck_ticket_cancel_request_status}、{@code ck_ticket_status_ended}）。</p>
+     * <p>入口取「待确认」：它是能裁决的两个状态里唯一带着自己期限的那一个（「待补充」自
+     * 2026-10-10 起不裁决，真实链路见 {@code approveCancelWaitsUntilTheRequesterSupplements}），
+     * 因此它同时验证两条 CHECK 都不会被撞破：请求期间状态与期限原样保留
+     * （{@code ck_ticket_status_deadline}），批准时请求三列与期限一起清空
+     * （{@code ck_ticket_cancel_request_pair}、{@code ck_ticket_cancel_request_status}、
+     * {@code ck_ticket_status_ended}）。</p>
      */
     @Test
     void approveCancelClearsDeadlineAndKeepsTerminalStatesDistinguishable() {
-        long ticketId = insertWaitingForRequesterTicket(employeeId, itUserId);
+        long ticketId = insertWaitingForConfirmationTicket(employeeId, itUserId);
         String ticketNo = ticketNoOf(ticketId);
         long versionBefore = versionOf(ticketId);
         LocalDateTime deadlineBefore = actionDeadlineOf(ticketId);
-        assertThat(deadlineBefore).as("「待补充」本来带着期限").isNotNull();
+        assertThat(deadlineBefore).as("「待确认」本来带着期限").isNotNull();
 
         authenticateAs(employeeId, EMPLOYEE);
         TicketActionResult requested = ticketService.requestCancel(ticketNo,
                 new RequestCancelCommand(versionBefore, "  问题已自行解决  "));
 
-        assertThat(requested.status()).as("请求期间工单状态不变").isEqualTo(WAITING_FOR_REQUESTER);
-        assertThat(statusOf(ticketId)).isEqualTo(WAITING_FOR_REQUESTER);
+        assertThat(requested.status()).as("请求期间工单状态不变").isEqualTo(WAITING_FOR_CONFIRMATION);
+        assertThat(statusOf(ticketId)).isEqualTo(WAITING_FOR_CONFIRMATION);
         assertThat(actionDeadlineOf(ticketId)).as("请求期间工单自己的期限原样保留")
                 .isEqualTo(deadlineBefore);
         assertThat(cancelRequestedAtOf(ticketId)).isNotNull();
@@ -1868,37 +1870,40 @@ class TicketServiceIT {
 
         Map<String, Object> record = lastRecordOf(ticketId);
         assertThat(record.get("record_type")).isEqualTo("CANCELLATION_APPROVED");
-        assertThat(record.get("from_status")).isEqualTo(WAITING_FOR_REQUESTER);
+        assertThat(record.get("from_status")).isEqualTo(WAITING_FOR_CONFIRMATION);
         assertThat(record.get("to_status")).isEqualTo(CANCELED);
         assertThat(record.get("completion_method")).isNull();
         assertThat(record.get("close_method")).isNull();
     }
 
     /**
-     * 拒绝与撤回都只让请求失效：状态、期限、负责人与终态字段全不变，且两条路径之后
-     * 提交人都能重新发起——拒绝不等于封死。
+     * 拒绝只让请求失效：状态、负责人与终态字段全不变，之后提交人还能重新发起——拒绝不等于封死。
      *
-     * <p>这两条 SQL 与批准形状相同、只有 SET 与身份列不同，因此真库执行一次是必要的：
-     * 批准那条已经由上面的用例覆盖，这里补上拒绝与撤回两条。</p>
+     * <p>入口取「处理中」：拒绝与批准同源，两个可裁决状态里的另一个（「待确认」）已由批准那条
+     * 用例走过真库；「待补充」自 2026-10-10 起不允许裁决，它的真实链路见
+     * {@code approveCancelWaitsUntilTheRequesterSupplements}。</p>
      */
     @Test
-    void rejectAndWithdrawCancelRequestKeepTicketUntouched() {
-        long ticketId = insertWaitingForRequesterTicket(employeeId, itUserId);
+    void rejectCancelOnProcessingKeepsTicketUntouched() {
+        long ticketId = insertProcessingTicket(employeeId, itUserId);
         String ticketNo = ticketNoOf(ticketId);
-        LocalDateTime deadlineBefore = actionDeadlineOf(ticketId);
+        long versionBefore = versionOf(ticketId);
 
         authenticateAs(employeeId, EMPLOYEE);
         TicketActionResult first = ticketService.requestCancel(ticketNo,
-                new RequestCancelCommand(versionOf(ticketId), "先试一次"));
+                new RequestCancelCommand(versionBefore, "先试一次"));
+
+        assertThat(cancelRequestedAtOf(ticketId)).isNotNull();
 
         authenticateAs(itUserId, IT_SUPPORT);
         TicketActionResult rejected = ticketService.rejectCancel(ticketNo,
                 new RejectCancelCommand(first.version(), "还有两步就能修好"));
 
-        assertThat(rejected.status()).as("拒绝不改变状态").isEqualTo(WAITING_FOR_REQUESTER);
-        assertThat(statusOf(ticketId)).isEqualTo(WAITING_FOR_REQUESTER);
-        assertThat(actionDeadlineOf(ticketId)).as("拒绝不改变期限").isEqualTo(deadlineBefore);
+        assertThat(rejected.status()).as("拒绝不改变状态").isEqualTo(PROCESSING);
+        assertThat(statusOf(ticketId)).isEqualTo(PROCESSING);
+        assertThat(actionDeadlineOf(ticketId)).as("「处理中」本来就没有期限").isNull();
         assertThat(endedAtOf(ticketId)).isNull();
+        assertThat(assigneeOf(ticketId)).as("拒绝不换人").isEqualTo(itUserId);
         assertThat(cancelRequestedAtOf(ticketId)).isNull();
         assertThat(cancelRequestReasonOf(ticketId)).isNull();
         assertThat(cancelRequestDeadlineAtOf(ticketId)).isNull();
@@ -1908,27 +1913,92 @@ class TicketServiceIT {
         assertThat(rejectedRecord.get("record_type")).isEqualTo("CANCELLATION_REJECTED");
         assertThat(rejectedRecord.get("reason")).as("拒绝原因必须留在时间线上")
                 .isEqualTo("还有两步就能修好");
-        assertThat(rejectedRecord.get("from_status")).isEqualTo(WAITING_FOR_REQUESTER);
-        assertThat(rejectedRecord.get("to_status")).isEqualTo(WAITING_FOR_REQUESTER);
+        assertThat(rejectedRecord.get("from_status")).isEqualTo(PROCESSING);
+        assertThat(rejectedRecord.get("to_status")).isEqualTo(PROCESSING);
 
         authenticateAs(employeeId, EMPLOYEE);
-        TicketActionResult second = ticketService.requestCancel(ticketNo,
+        ticketService.requestCancel(ticketNo,
                 new RequestCancelCommand(rejected.version(), "还是想撤销"));
-
-        TicketActionResult withdrawn = ticketService.withdrawCancelRequest(ticketNo,
-                new WithdrawCancelRequestCommand(second.version()));
-
-        assertThat(withdrawn.status()).as("撤回不改变状态").isEqualTo(WAITING_FOR_REQUESTER);
-        assertThat(statusOf(ticketId)).isEqualTo(WAITING_FOR_REQUESTER);
-        assertThat(actionDeadlineOf(ticketId)).as("撤回不改变期限").isEqualTo(deadlineBefore);
-        assertThat(endedAtOf(ticketId)).isNull();
-        assertThat(cancelRequestedAtOf(ticketId)).isNull();
-        assertThat(withdrawn.version()).isEqualTo(second.version() + 1L);
 
         assertThat(countRecords(ticketId, "CANCELLATION_REQUEST"))
                 .as("被拒绝之后还能再发起一次").isEqualTo(2);
         assertThat(countRecords(ticketId, "CANCELLATION_REJECTED")).isEqualTo(1);
+    }
+
+    /**
+     * 撤回同样只让请求失效，并且**不动「待补充」自己的期限**——两组期限彼此独立。
+     *
+     * <p>撤回是提交人的动作，三个状态都能做，「待补充」这一格因此仍由它覆盖。</p>
+     */
+    @Test
+    void withdrawCancelRequestOnWaitingForRequesterKeepsTheSupplementDeadline() {
+        long ticketId = insertWaitingForRequesterTicket(employeeId, itUserId);
+        String ticketNo = ticketNoOf(ticketId);
+        LocalDateTime deadlineBefore = actionDeadlineOf(ticketId);
+
+        authenticateAs(employeeId, EMPLOYEE);
+        TicketActionResult requested = ticketService.requestCancel(ticketNo,
+                new RequestCancelCommand(versionOf(ticketId), "先试一次"));
+        TicketActionResult withdrawn = ticketService.withdrawCancelRequest(ticketNo,
+                new WithdrawCancelRequestCommand(requested.version()));
+
+        assertThat(withdrawn.status()).as("撤回不改变状态").isEqualTo(WAITING_FOR_REQUESTER);
+        assertThat(statusOf(ticketId)).isEqualTo(WAITING_FOR_REQUESTER);
+        assertThat(actionDeadlineOf(ticketId)).as("撤回不改变补充期限").isEqualTo(deadlineBefore);
+        assertThat(endedAtOf(ticketId)).isNull();
+        assertThat(cancelRequestedAtOf(ticketId)).isNull();
+        assertThat(cancelRequestReasonOf(ticketId)).isNull();
+        assertThat(cancelRequestDeadlineAtOf(ticketId)).isNull();
+        assertThat(withdrawn.version()).isEqualTo(requested.version() + 1L);
+
+        assertThat(lastRecordOf(ticketId).get("record_type"))
+                .isEqualTo("CANCELLATION_REQUEST_WITHDRAWN");
+        assertThat(countRecords(ticketId, "CANCELLATION_REQUEST")).isEqualTo(1);
         assertThat(countRecords(ticketId, "CANCELLATION_REQUEST_WITHDRAWN")).isEqualTo(1);
+    }
+
+    /**
+     * 待补充期间不裁决（2026-10-10 用户裁决）的真实链路：请求挂着、身份与版本都对，批准仍然 409；
+     * 提交人补充完、工单回到「处理中」以后，同一份请求立刻可以批准。
+     *
+     * <p>这条同时证明"冻结的只是裁决"：待补充期间请求本身、工单期限与负责人都没被动过。</p>
+     */
+    @Test
+    void approveCancelWaitsUntilTheRequesterSupplements() {
+        long ticketId = insertWaitingForRequesterTicket(employeeId, itUserId);
+        String ticketNo = ticketNoOf(ticketId);
+        LocalDateTime deadlineBefore = actionDeadlineOf(ticketId);
+
+        authenticateAs(employeeId, EMPLOYEE);
+        TicketActionResult requested = ticketService.requestCancel(ticketNo,
+                new RequestCancelCommand(versionOf(ticketId), "问题已自行解决"));
+
+        authenticateAs(itUserId, IT_SUPPORT);
+        ApiException blocked = catchApiError(() -> ticketService.approveCancel(ticketNo,
+                new ApproveCancelCommand(requested.version())));
+
+        assertThat(blocked.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(blocked.code()).isEqualTo("TICKET_CONFLICT");
+        assertThat(statusOf(ticketId)).as("被挡下的批准不改动工单").isEqualTo(WAITING_FOR_REQUESTER);
+        assertThat(cancelRequestedAtOf(ticketId)).as("请求仍然留在工单上").isNotNull();
+        assertThat(actionDeadlineOf(ticketId)).as("补充期限也没被改动").isEqualTo(deadlineBefore);
+        assertThat(countRecords(ticketId, "CANCELLATION_APPROVED")).isZero();
+
+        authenticateAs(employeeId, EMPLOYEE);
+        TicketActionResult supplemented = ticketService.supplement(ticketNo,
+                new SupplementCommand(requested.version(), "型号是 L3153，报错见附件说明"));
+
+        assertThat(supplemented.status()).isEqualTo(PROCESSING);
+        assertThat(cancelRequestedAtOf(ticketId)).as("补充只推进工单，不动撤销请求").isNotNull();
+
+        authenticateAs(itUserId, IT_SUPPORT);
+        TicketActionResult canceled = ticketService.approveCancel(ticketNo,
+                new ApproveCancelCommand(supplemented.version()));
+
+        assertThat(canceled.status()).isEqualTo(CANCELED);
+        assertThat(statusOf(ticketId)).isEqualTo(CANCELED);
+        assertThat(lastRecordOf(ticketId).get("from_status"))
+                .as("回到处理中之后批准，记录里的原状态是处理中").isEqualTo(PROCESSING);
     }
 
     /**

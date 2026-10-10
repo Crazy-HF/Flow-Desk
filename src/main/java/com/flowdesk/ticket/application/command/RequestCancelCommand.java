@@ -6,7 +6,7 @@ import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 
 /**
- * 提交人发起撤销请求（{@code docs/kickoff.md} 4.7 未来方向、{@code docs/implementation-plan.md} 9.3 决策记录）。
+ * 提交人发起撤销请求（{@code docs/kickoff.md} 4.7、{@code docs/implementation-plan.md} 9.3 决策记录）。
  *
  * <p>只允许在「处理中」「待补充」「待确认」发起——这三个状态都已经有人负责，
  * 单方面终止要先取得当前负责人同意。待受理没有负责人，走 {@code CancelTicketCommand} 直接取消。</p>

@@ -148,6 +148,10 @@ class TicketServiceImplTest {
     private static final LocalDateTime SUPPLEMENT_DEADLINE =
             LocalDateTime.of(2026, 10, 13, 8, 15, 30);
 
+    /** 「待确认」工单的有效期限：批准撤销必须在同一条 UPDATE 里把它清空。 */
+    private static final LocalDateTime CONFIRMATION_DEADLINE =
+            LocalDateTime.of(2026, 10, 14, 9, 45, 15);
+
     /**
      * 待决撤销请求的三列：请求期间它们挂在工单上，与工单自己的期限是两组独立的期限。
      *
@@ -3847,11 +3851,11 @@ class TicketServiceImplTest {
     /**
      * 没有待决请求时批准是冲突：可能根本没发起过，也可能已经被拒绝或撤回。
      *
-     * <p>三个允许状态各测一次——状态判定与"请求必须存在"在同一个 {@code if} 里，分开覆盖
-     * 才能证明两个条件都在起作用。</p>
+     * <p>两个可裁决状态各测一次——状态判定与"请求必须存在"在同一个 {@code if} 里，分开覆盖
+     * 才能证明两个条件都在起作用。（「待补充」不在这里：它在状态那一项就被挡住，见下一条。）</p>
      */
     @ParameterizedTest(name = "approve-cancel conflicts on {0} without a pending request")
-    @ValueSource(strings = {PROCESSING, WAITING_FOR_REQUESTER, WAITING_FOR_CONFIRMATION})
+    @ValueSource(strings = {PROCESSING, WAITING_FOR_CONFIRMATION})
     void approveCancelReportsConflictWhenTicketHasNoPendingRequest(String status) {
         stubProcessActor();
         stubVisible(detailRow(status, IT_USER_ID, 5L));
@@ -3860,6 +3864,26 @@ class TicketServiceImplTest {
                 HttpStatus.CONFLICT, "TICKET_CONFLICT");
 
         verify(ticketMapper, never()).approveCancel(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /**
+     * 「待补充」期间不裁决（2026-10-10 用户裁决）：请求确实挂着、身份与版本都对，仍然 409。
+     *
+     * <p>与上一条的区别是冲突来自<b>状态</b>而不是"没有请求"——员工补充完、工单回到处理中以后，
+     * 同一份请求照样可以批准，所以这一格只该被挡住，不该改动工单、也不该写任何记录。</p>
+     */
+    @Test
+    void approveCancelReportsConflictWhileTicketWaitsForTheRequester() {
+        stubProcessActor();
+        stubVisible(detailRowWithCancelRequest(WAITING_FOR_REQUESTER, IT_USER_ID, 5L));
+
+        ApiException exception = assertApiException(
+                () -> service.approveCancel(TICKET_NO, new ApproveCancelCommand(5L)),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceStatus()).isEqualTo(WAITING_FOR_REQUESTER);
+        verify(ticketMapper, never()).approveCancel(anyLong(), anyLong(), anyLong(), any());
+        verifyNoInteractions(ticketRecordMapper);
     }
 
     @Test
@@ -3903,14 +3927,15 @@ class TicketServiceImplTest {
     /**
      * 批准成功：进入终态，请求三列与工单期限由 SQL 一并清空，记录写明状态迁移。
      *
-     * <p>清空发生在 SQL 里，替身测试只断言返回摘要与记录；列级断言由 {@code TicketServiceIT}
-     * 在真实 MySQL 上负责。</p>
+     * <p>入口取「待确认」——它是能裁决的两个状态里唯一带着自己期限的那一个（「待补充」自
+     * 2026-10-10 起不裁决，见上面那条用例）。清空发生在 SQL 里，替身测试只断言返回摘要与记录；
+     * 列级断言由 {@code TicketServiceIT} 在真实 MySQL 上负责。</p>
      */
     @Test
     void approveCancelWritesTerminalStateAndApprovedRecord() {
         stubProcessActor();
-        TicketDetailRow row = detailRowWithCancelRequest(WAITING_FOR_REQUESTER, IT_USER_ID, 5L);
-        row.setActionDeadlineAt(SUPPLEMENT_DEADLINE);
+        TicketDetailRow row = detailRowWithCancelRequest(WAITING_FOR_CONFIRMATION, IT_USER_ID, 5L);
+        row.setActionDeadlineAt(CONFIRMATION_DEADLINE);
         stubVisible(row);
         when(ticketMapper.approveCancel(TICKET_ID, 5L, IT_USER_ID, NOW_UTC)).thenReturn(1);
         when(ticketMapper.selectById(TICKET_ID)).thenReturn(canceledTicket(6L, IT_USER_ID));
@@ -3930,7 +3955,7 @@ class TicketServiceImplTest {
         assertThat(record.getActorUserId()).isEqualTo(IT_USER_ID);
         assertThat(record.getReason()).as("批准不需要理由").isNull();
         assertThat(record.getFromStatus()).as("记录冻结请求所在的原状态")
-                .isEqualTo(WAITING_FOR_REQUESTER);
+                .isEqualTo(WAITING_FOR_CONFIRMATION);
         assertThat(record.getToStatus()).isEqualTo(CANCELED);
         assertThat(record.getCreatedAt()).isEqualTo(NOW_UTC);
 
@@ -4019,8 +4044,9 @@ class TicketServiceImplTest {
         verify(ticketMapper, never()).rejectCancel(anyLong(), anyLong(), anyLong(), any());
     }
 
+    /** 与批准同源：可裁决的两个状态上，没有请求就是冲突；「待补充」另见下一条。 */
     @ParameterizedTest(name = "reject-cancel conflicts on {0} without a pending request")
-    @ValueSource(strings = {PROCESSING, WAITING_FOR_REQUESTER, WAITING_FOR_CONFIRMATION})
+    @ValueSource(strings = {PROCESSING, WAITING_FOR_CONFIRMATION})
     void rejectCancelReportsConflictWhenTicketHasNoPendingRequest(String status) {
         stubProcessActor();
         stubVisible(detailRow(status, IT_USER_ID, 5L));
@@ -4030,6 +4056,26 @@ class TicketServiceImplTest {
                 HttpStatus.CONFLICT, "TICKET_CONFLICT");
 
         verify(ticketMapper, never()).rejectCancel(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /**
+     * 「待补充」期间同样不能拒绝（2026-10-10 用户裁决）：两格共用一条判定，必须一起挡住。
+     *
+     * <p>拒绝比批准轻（不改状态），但口径一致——待补充期间 IT 不做任何裁决，员工补充完、
+     * 工单回到处理中之后再决定。</p>
+     */
+    @Test
+    void rejectCancelReportsConflictWhileTicketWaitsForTheRequester() {
+        stubProcessActor();
+        stubVisible(detailRowWithCancelRequest(WAITING_FOR_REQUESTER, IT_USER_ID, 5L));
+
+        ApiException exception = assertApiException(() -> service.rejectCancel(TICKET_NO,
+                        new RejectCancelCommand(5L, "还不能撤销")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceStatus()).isEqualTo(WAITING_FOR_REQUESTER);
+        verify(ticketMapper, never()).rejectCancel(anyLong(), anyLong(), anyLong(), any());
+        verifyNoInteractions(ticketRecordMapper);
     }
 
     @Test
