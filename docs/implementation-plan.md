@@ -4,14 +4,15 @@
 
 本文把 FlowDesk 拆成两个交付层级：先完成可演示、可测试、可讲清楚的**求职 MVP**，再按需要扩展为**完整版**。当前只执行 MVP 路线；完整版是后续 backlog，不得因为数据库结构已经预留就提前实现。
 
-截至 2026-09-28（阶段 3 收口并合并 `main` 后）：
+截至 2026-10-10（完整版 backlog 第 1 项与两阶段撤销交付后）：
 
 - `M0` 工程底座已完成并合并（PR #4）。
 - P0 编译、测试、安全基线和端口问题已修复，当前无前置阻塞。
 - **阶段 1 Auth 身份入口**（`TASK-010`、`TASK-011`）已完成，经 PR #5 合并 `main`。
 - **前端外壳与页面骨架**已完成，经 PR #6 合并 `main`。
 - **第 3 步 完整动态 RBAC**（`TASK-055`～`TASK-062`，本文件 9.1）已完成：后端四组接口与用户管理八个端点、`V5` 迁移、管理端五页（角色 / 权限 / 用户角色授权 / 角色权限授权 / 用户管理）、`frontend/src/views/admin/` 页面与真实闭环 E2E 全部交付；验收标准第 4 条的四条手工真实栈链路已于 2026-09-28 在 `local` profile 真实栈上执行并通过（逐条 `traceId` 见 `docs/modules/rbac.md` 11.2），经 PR #8 合并 `main`（合并提交 `f15468c`）。
-- **当前阶段：阶段 3 IT 处理闭环已完成**，工作分支 `flow-desk/ticket-it-flow`。步骤① IT 领取、步骤② 追加处理记录、步骤③ 提交解决结果与员工确认均已实现并**通过真实栈验收（77/77，2026-10-06）**，验收证据 `docs/acceptance/2026-10-06-stage3-claim-process-resolution-confirm.json`；步骤④ IT/员工页面与端到端主链**已于 2026-10-06 完成并在真实栈跑通**（`frontend/e2e/ticket-it-flow.spec.ts`，报告与截图见 `.ui-craft/reviews/2026-10-06-ticket-it-flow/`），阶段 3 四步全部完成，等待交接授权。阶段 2（`TASK-020`～`TASK-023-MVP`）已验收并经 PR #9 合并 `main`（最终证据 `docs/acceptance/stage2-closeout-20260929.json`）。
+- **阶段 3 IT 处理闭环已完成**（已经 [PR #10](https://github.com/Crazy-HF/Flow-Desk/pull/10) 合并 `main`；工作分支 `flow-desk/ticket-it-flow`）。步骤① IT 领取、步骤② 追加处理记录、步骤③ 提交解决结果与员工确认均已实现并**通过真实栈验收（77/77，2026-10-06）**，验收证据 `docs/acceptance/2026-10-06-stage3-claim-process-resolution-confirm.json`；步骤④ IT/员工页面与端到端主链**已于 2026-10-06 完成并在真实栈跑通**（`frontend/e2e/ticket-it-flow.spec.ts`，报告与截图见 `.ui-craft/reviews/2026-10-06-ticket-it-flow/`），阶段 3 四步全部完成并已合并。阶段 2（`TASK-020`～`TASK-023-MVP`）已验收并经 PR #9 合并 `main`（最终证据 `docs/acceptance/stage2-closeout-20260929.json`）。
+- **完整版 backlog 第 1 项「完整工单状态机」已交付**：片 A～片 D 经 [PR #14](https://github.com/Crazy-HF/Flow-Desk/pull/14)～[PR #17](https://github.com/Crazy-HF/Flow-Desk/pull/17)，两阶段撤销规则变更经 [PR #18](https://github.com/Crazy-HF/Flow-Desk/pull/18)；前端**页模板与页面契约**经 [PR #19](https://github.com/Crazy-HF/Flow-Desk/pull/19) 合并 `main`。当前分支 `flow-desk/attachments-and-relations` 推进 backlog 第 2 项「附件与关联」。
 - 第 1 节原先"不提供角色、权限及授权关系的在线 CRUD"这一表述已被 2026-09-21 的确认取代：三种内置角色仍是权限基线，同时在 9.1 范围内开放了动态 RBAC 与用户管理的在线维护。
 
 ## 2. 两个版本的边界
@@ -23,7 +24,7 @@
 | 工单核心链路 | 创建、列表、详情、领取、处理、提交解决、员工确认 | 补充、退回、撤销、转交、异常关闭、超时等完整状态机 |
 | 时间线与并发 | 必须；关键动作有记录，领取和状态变更防并发覆盖 | 覆盖全部动作和更完整故障矩阵 |
 | 附件和工单关联 | 不做 | 本地受控附件、后续/重复工单关联、文件对账 |
-| 管理端 | 在线 RBAC 已于 2026-09-21 确认实施并已完成交付（先于阶段 2），含用户管理页（2026-09-24 登记）；分类管理与管理性交接仍不做 | 用户、分类、管理性交接 |
+| 管理端 | 在线 RBAC 已于 2026-09-21 确认实施并已完成交付（先于阶段 2），含用户管理页（2026-09-24 登记）；分类管理已于 2026-09-28 提前实施（见 9.2）；管理性交接仍不做 | 用户、分类、管理性交接 |
 | 数据概览 | 不做 | 权限范围内 dashboard |
 | 自动任务 | 不做 | 待确认/待补充超时和附件清理 |
 | AI、消息队列、微服务 | 不做 | 仍非默认范围，必须另行确认 |
@@ -70,9 +71,11 @@ M0 工程底座（已完成，PR #4）
   → 阶段 1 Auth 身份入口（已完成，PR #5）
   → 前端外壳与页面骨架（已完成，PR #6）
   → 第 3 步 完整动态 RBAC（2026-09-21 确认提前实施，见 9.1；已完成，PR #8）
-  → 阶段 2 员工创建与查询（当前阶段，分支 flow-desk/ticket-employee-flow）
-  → 阶段 3 IT 处理闭环
-  → 阶段 4 MVP 验收与求职展示收口
+  → 阶段 2 员工创建与查询（已完成，PR #9）
+  → 阶段 3 IT 处理闭环（已完成，PR #10）
+  → 阶段 4 MVP 验收与求职展示收口（已完成，PR #11～#13）
+  → 完整版 backlog 第 1 项「完整工单状态机」（已交付，PR #14～#18）
+  → 完整版 backlog 第 2 项「附件与关联」（进行中，分支 flow-desk/attachments-and-relations）
 ```
 
 每个阶段必须先完成后端业务规则和自动化测试，再接页面。阶段完成后同步 `PROJECT_STATUS.md`，经用户确认才执行提交、推送或 PR。
@@ -268,7 +271,7 @@ PENDING → PROCESSING → WAITING_FOR_CONFIRMATION → COMPLETED
 
 ## 8. 阶段 4：MVP 验收与求职展示收口
 
-**当前阶段（2026-10-06 起，分支 `flow-desk/mvp-closeout`）**。进度：
+**已完成（2026-10-06 起，分支 `flow-desk/mvp-closeout`；经 PR #11 合并，收口两批经 PR #12/#13）**。以下为当时的收口清单：
 
 - [x] **工单与分类模块的自动化测试补齐（本阶段核心实现）**：已完成（2026-10-06）——新增 10 个测试类 / 275 项用例，`clean verify` 由 394 + 88 升到 **638 + 119**，`Failures 0 / Errors 0`；覆盖认证、权限、幂等、事务（含 `@Transactional` 边界断言）、真并发（2/6/8 线程）与时间线（含 context 白名单与未知类型）。测试类由 Agent 负责设计与执行（`AGENTS.md`「测试代码职责」），覆盖率不作为构建失败条件。
 - [x] 从空库执行 Flyway、启动 MySQL/Redis、启动前后端并完成主链演示（2026-10-06：临时库 `flowdesk_stage4_clean` + 后端 8091，66/66 断言通过，证据 `docs/acceptance/2026-10-06-stage4-clean-db-demo.json`；演示库与 8081 上的既有后端未被触碰）。
@@ -297,11 +300,12 @@ MVP 最终完成定义：
 完整版在 MVP 通过验收后再排期，建议顺序如下：
 
 1. **完整工单状态机**：请求补充、员工补充、撤回请求、未解决退回、员工撤销、IT 转交和异常关闭。**2026-10-08 追加规则变更**：员工撤销由「四种非终态直接撤销」改为**两阶段**（待受理直接撤销；处理中/待补充/待确认由提交人发起、当前负责人批准或拒绝，提交人可撤回），见 9.3 末的交付记录。
-2. **附件与关联**：受控上传/下载、类型与大小限制、临时文件原子移动、失败补偿、孤儿对账、后续/重复工单关系。
-3. **自动化**：待确认自动完成、待补充自动关闭、停机恢复和幂等扫描。
-4. **系统管理**：~~用户与固定角色分配、账号启停、管理员重置密码~~、活动工单管理性交接、~~分类管理~~。**其中用户管理（列表、详情、创建、改资料、启停、替换角色、重置密码）已于 2026-09-24 随第 3 步提前实施并计入 MVP 演示范围（`TASK-061` 后端 / `TASK-062` 管理端页面）；分类管理已于 2026-09-28 经用户当轮指示提前实施（`TASK-063` 后端 / `TASK-064` 管理端页面，见 9.2）；管理性交接仍留完整版。**
+2. **附件与关联**（**当前进行中**）：受控上传/下载、类型与大小限制、临时文件原子移动、失败补偿、孤儿对账、后续/重复工单关系。**2026-10-10 用户裁决：先做关联（轻）、再做附件（重）**——`ticket_relation` 与 `ticket_attachment` 两张表都已在 `V1` 就位，关系一侧不涉及文件存储、暂存目录与失败补偿，先做可以把「新建工单引用原工单」与关系读写打通，附件随后按 `docs/engineering-readiness.md` 7.2 的本地受控目录方案落地。
+3. **自动化**：待确认自动完成、待补充自动关闭、停机恢复和幂等扫描。**2026-10-10 用户裁决**：本项的**扫描与自动处置部分与通知 / 通信通道一并落地**（通道是其前置，见 9.4 第 1 项），不单独排期；在此之前期限只用于展示，界面必须写明"到期不会自动处理"。**同日另一条裁决**：原先记在本项的**撤销请求到期即失效移出本项**，与第 7 项合成同一批——它不需要定时扫描就能落地（三条条件更新加期限条件、覆盖过期请求时补写记录）；只有「到期前提醒」依赖通道，仍随本项的通道一起做。
+4. **系统管理**：~~用户与固定角色分配、账号启停、管理员重置密码~~、活动工单管理性交接（**2026-10-10 补充**：撤销请求只由当前负责人批准，负责人账号被停用或失去 `IT_SUPPORT` 后请求会悬置在「待批准」，管理性交接是该场景的既有出口）、~~分类管理~~。**其中用户管理（列表、详情、创建、改资料、启停、替换角色、重置密码）已于 2026-09-24 随第 3 步提前实施并计入 MVP 演示范围（`TASK-061` 后端 / `TASK-062` 管理端页面）；分类管理已于 2026-09-28 经用户当轮指示提前实施（`TASK-063` 后端 / `TASK-064` 管理端页面，见 9.2）；管理性交接仍留完整版，**2026-10-10 用户裁决：排在撤销语义收口（第 7 项那一批）之后**。**
 5. **数据概览**：IT 权限范围内的状态、优先级、分类和负责人统计。
 6. **动态 RBAC（已于 2026-09-21 确认实施，先于阶段 2）**：**已完成并合并**（PR #8，合并提交 `f15468c`）；任务拆分、切片顺序与验收标准见第 9.1 节。
+7. **撤销请求的待办发现与到期语义收口（2026-10-10 登记，同日裁决为同一批）**：IT 列表新增「待我批准」筛选，**语义固定为「本人是当前负责人、且工单上有未过期的待决撤销请求」**，与详情里的批准 / 拒绝决定权**共用同一判定**（再叠加 `TICKET_PROCESS` 与「待补充期间不裁决」），并做到期前提醒。**需要连同索引一起设计**——`V7` 的「不新增索引」以「待决请求不是查询维度」为前提（`docs/database-design.md` 的 `V7` 变更说明），本项让该前提失效。**用户 2026-10-10 裁决**：本项与**撤销请求到期即失效**（原记在第 3 项）合成**同一批**落地，理由是两者共用上面那一个判定，拆开做会出现「列表说可批准、详情说已过期」的分叉；同时要按契约扩展列表的**筛选参数**（`docs/api-design.md` 5.3/5.4；列表项响应暂不增加待决请求字段）。**批次顺序**：附件与关联（第 2 项）→ **本批** → 管理性交接（第 4 项）→ 通知通道与两个超时自动任务（第 3 项）。
 
 ### 9.1 完整动态 RBAC（2026-09-21 阶段设计确认，先于阶段 2；**2026-09-28 已完成并合并**）
 
@@ -440,7 +444,7 @@ MVP 最终完成定义：
 
 登记时的口径是 v1 保持 `docs/kickoff.md` 4.7 已确认的「四种非终态下提交人可以直接撤销」（片 D 实现）。提出该问题的理由是治理层——IT 已经领取并投入处理的工单可以被提交人单方面终止，IT 没有否决权。经分析这不影响正确性与数据：撤销是业务终止而不是删除，负责人、参与关系与全部处理记录都保留，且 4.7 已明确"已取消**不代表问题由 IT 成功解决**"，因此它不会被计入 IT 的解决成果；收窄它反而会让"处理中"的提交人失去唯一出口（误报、问题自行消失、重复提交都只能线下找 IT）。因此登记时只记录方向、未改状态机；用户随后在同一天确认了下列五个设计点并授权实施：
 
-- **目标形态**：`PENDING`（无人负责）仍直接取消；`PROCESSING` / `WAITING_FOR_REQUESTER` / `WAITING_FOR_CONFIRMATION` 下提交人只能**发起**撤销请求，由当前负责人批准或拒绝；批准后进入 `CANCELED`，拒绝则保留原状态并记录原因。
+- **目标形态**：`PENDING`（无人负责）仍直接取消；`PROCESSING` / `WAITING_FOR_REQUESTER` / `WAITING_FOR_CONFIRMATION` 下提交人只能**发起**撤销请求，由当前负责人批准或拒绝；批准后进入 `CANCELED`，拒绝则保留原状态并记录原因。（**2026-10-10 变更**：待补充期间不再裁决撤销请求，见本节末「规则变更登记」的 ⑦；本行保留 2026-10-08 的原始记录，不追改。）
 - **五个设计点的确认结果（2026-10-08 用户确认，均已落地）**：① 中间态建模取**给 `ticket` 加"待批准撤销请求"的三列**，状态机保持 7 个状态，不新增第 8 个状态；② 批准与拒绝共用 **`TICKET_PROCESS`**，**不要求** `TICKET_CLOSE`（撤销不是关闭）；发起与撤回用 **`TICKET_REQUESTER_ACTION`**，与补充、确认、未解决、直接撤销同码；③ 请求设响应期限（新增配置 `flowdesk.ticket.cancel-request-window`，默认 `3d`、下限 `1m`），但**只写库与展示，到期不自动处置**——超时处理仍属 backlog 第 3 项；④ 请求待批准期间 IT 的其它动作**照常可用**，不冻结工单，竞态继续由条件更新裁决唯一胜者；⑤ 提交人**可以自行撤回**撤销请求，撤回不需要理由。
 - **实施时要一并改的影响面**：`docs/kickoff.md` 4.7 的表格/状态图/并发清单、`docs/api-design.md` 6.4 与权限表、新迁移（新列或新状态，以及 `ticket_record` 的 `ck_ticket_record_type` 追加 `CANCELLATION_REQUEST` / `CANCELLATION_REJECTED`）、`allowedActions`、前端动作区与文案、真实栈验收脚本、`PROJECT_STATUS.md`。
 - **代价提示**：这是一次业务规则变更而不是补实现，必须与 4.7 的既有条款一起改，不能只改代码；验收标准里"三条终态可区分"仍然成立，但"撤销"的动作名会从一个变成三个（`request-cancel` 与 `approve-cancel` / `reject-cancel`，`cancel` 只剩"待受理直接取消"）。
@@ -459,7 +463,34 @@ MVP 最终完成定义：
 - **验收首轮的一处红与"不补造证据"的处置**：第一次运行 1 红，原因是**脚本自己的快照锚点取宽**（拿的是权限组之后的快照，而那之后还有一次成功的 `request-cancel`，于是这次合法写入被算成"被拒请求改动过"）；把锚点改为"成功请求之后、拒绝组之前"后连跑两次全绿。失败那次写在默认证据路径并被后续绿色运行覆盖，**按"不伪造证据"的原则没有补造 `-pre-fix-fail` 归档**——片 C/片 D 的归档是原始首跑文件，人为复现出来的不算，本次失败明细与修正理由以 `PROJECT_STATUS.md` 的当前结论段为准。
 - **一处已知的实测覆盖缺口（如实记录）**：`close vs approve`（`a11c`）在 4 次运行中**全部由「关闭」获胜**，"批准赢"那一支只有对称断言、没有实测样本；另两组三次运行赢家各不相同，两个分支都被覆盖过。该竞争在集成层由 `TicketServiceIT.concurrentCloseAndApproveCancelOnSameTicketHaveExactlyOneWinner` 稳定覆盖（断言不要求特定赢家），故未额外加压重跑。
 - **前端与 E2E（同轮收口）**：动作登记表四格（`request-cancel` / `withdraw-cancel-request` / `approve-cancel` / `reject-cancel`，位置在 `supplement` 与 `cancel` 之间）+ 详情页「撤销申请待处理」块（按角色给决策人 / 发起人 / 旁观者三种文案）+ `ticketRecordTypeLabels` 补 4 个记录类型（漏了时间线会显示英文编码）；前端单测 186 → **200 项**，`typecheck` / `lint` / `build` 退出码 0；E2E 的 5 处旧精确集断言改为「申请撤销工单」，`ticket-close-cancel.spec.ts` 场景一改写为两阶段，新增场景四「申请 → 驳回 → 再申请 → 撤回 → 再申请 → 同意」，全量 **24 项通过（1.8 分钟）**（`FLOWDESK_API_TARGET` 指向 8092 上的新构建后端）。**真实 E2E 抓到的唯一一处红是我自己写错的期望值**：场景一里我以为负责人在申请期间只剩两个决策按钮，实际他仍有全部处理动作（收到的顺序正是 7 + 2 格），已修正后复跑通过。
-- **有意保留的未覆盖格**：`reject-cancel` 对未知编号的 404 未单独断言（另三个端点各有一格）；"期限已过"只在**批准**路径上正向验证（该列不进拒绝 / 撤回的 `WHERE`）；`cancel` 的 409 覆盖 `PROCESSING` 与终态，未覆盖两个等待态；并发只做任务要求的三组（approve vs reject、approve vs withdraw、close vs approve）。
+- **有意保留的未覆盖格**：`reject-cancel` 对未知编号的 404 未单独断言（另三个端点各有一格）；"期限已过"只在**批准**路径上正向验证（该列不进拒绝 / 撤回的 `WHERE`（**已被 2026-10-10 的到期即失效裁决推翻**：三条 `WHERE` 都要加期限条件，该探针改为反向断言，见下方待改清单 ⑤））；`cancel` 的 409 覆盖 `PROCESSING` 与终态，未覆盖两个等待态；并发只做任务要求的三组（approve vs reject、approve vs withdraw、close vs approve）。
+
+- **2026-10-10 补充登记（文档同步，未改代码）**：把已实现但规则未写的四条交互边界补进 `docs/kickoff.md` 4.7 的规则正文（期限过期后请求仍有效；请求不因工单被推进而失效；转交后决策权随当前负责人转移、期限不重算；终态失效不写时间线事件），并新增「负责人失效后请求悬置」的能力缺口说明。其中**转交后决策权转移**与**请求跨状态存活**这两条目前**只有实现层面的事实、没有用例**（本片验收脚本不含 `transfer` 组合），用例待补；另两条分别有集成断言与真实栈探针。（**注意**：这里的第一条「期限过期后请求仍有效」已被同日的裁决取代——见下条的到期即失效与第 ⑦ 条的待补充不裁决；本行保留当时的补充登记原文。）
+- **规则变更登记（2026-10-10 用户裁决，待实现）：撤销请求到期即失效**。用户裁决「过期不可批准」，取代 2026-10-08 五个设计点里 ③ 的后半句（工单仍**不**因到期自动取消，这一点不变；变的是请求到期即失效、不再可批）。**待改清单（2026-10-10 集中裁决后固定，实现落地前不变；①～⑥ 与 ⑧ 为待实现，⑦ 已于同日落地）**：① `approveCancel` / `rejectCancel` / `withdrawCancelRequest` 三条条件更新加入期限条件（请求未过期，即 `cancel_request_deadline_at > now`），过期一律 `409` 并带最新快照；② `requestCancel` 放开「已过期即可覆盖」（`cancel_requested_at IS NULL OR cancel_request_deadline_at <= now`），不需要先人工清理，**且不设终身次数上限**（同一时刻只允许一个有效请求，每次到期后都可再发起一次）；③ 覆盖时先写一条新的时间线记录（**裁决确定采用** `CANCELLATION_REQUEST_EXPIRED`，需一条迁移重建 `ck_ticket_record_type`），保存原发起时间、说明与期限——在定时任务（第 3 项）出现之前，这一步是「已过期」唯一会落库留痕的时机；④ `allowedActions` 与详情 `cancelRequest` 增加「已过期」判定，前端详情块显示「已过期」并隐藏批准 / 拒绝 / 撤回三个入口，同时改掉该块里按旧口径写的文案（`frontend/src/views/work/TicketDetailView.vue` 的"到期不会自动处理：工单不会因此自动取消，这次申请也不会自动失效"）；⑤ 用例与验收脚本：现有「期限回填到过去后仍可批准」的探针必须**反向断言**，`docs/acceptance/2026-10-08-slice-e-two-phase-cancel.json` 的 178/178 需重跑出新证据；⑥ 规则文本已在 2026-10-10 的文档同步里改为新口径并标注「待改」，实现落地后去掉该标记；顺带核实两处按旧口径写的代码注释：`frontend/src/api/tickets.ts`（"申请也不会自动失效""只展示，到期不自动处置"两处）与 `TicketServiceImpl` 响应期限落库处的注释（"只落库展示，到期不自动处置"）；`V7` 迁移里的同类 `COMMENT` 属已发布历史迁移，按惯例不改。**代码侧注释落地（2026-10-10，用户授权「代码侧进行注释、文案落地」；只改注释与引用，未动任何判定）**：ⓐ 失效引用「`docs/kickoff.md` 4.7 未来方向」共 4 处已改指 4.7（`TicketProperties`、`TicketServiceImpl.requestCancel`、`RequestCancelCommand`、`TicketCancelRequestResult`）——4.7 早已是正式规则节，该子节名不存在，`V7` 迁移与 `PROJECT_STATUS.md` 里的同类字样属历史记录，按惯例保留；ⓑ 在按旧口径断言的位置加「2026-10-10 裁决已改口径、实现待落地」指针共 **11 处 / 7 个文件**（`TicketProperties` 2、`TicketCancelRequestResult` 1、`TicketServiceImpl` 2、`TicketMapper` 2、`TicketQueryServiceImpl` 1、`frontend/src/api/tickets.ts` 2、`frontend/src/views/work/TicketDetailView.vue` 的 `deadlineFact` 注释 1），每处都指回本条 ①④（`TicketProperties` 类注释与 `deadlineFact` 注释另提 ②）；ⓒ `TicketDetailView.vue` 撤销块的**界面文案**与其组件 / E2E 断言**保持原样**——它们描述的是当前实现，改文案必须与 ① 的判定同批，否则界面会承诺一个还不存在的「重新发起」入口（用户 2026-10-10 选择「现在只落注释、文案随 ①③」）。⑦ **待补充期间不裁决撤销请求（同日按推荐方案裁决，独立于到期语义）**：`TicketMapper.approveCancel` / `rejectCancel` 的状态白名单去掉 `WAITING_FOR_REQUESTER`，`TicketQueryServiceImpl.canApproveCancel` / `canRejectCancel`（共用同一判定）收窄为处理中与待确认；前端只渲染服务端返回的 `allowedActions`，动作登记表无需改动。受影响的既有验证是 `TicketQueryServiceImplTest` / `TicketQueryServiceIT` 里「待补充 + 有待决请求」的两格期望（当前期望为返回）、`slice-e` 验收脚本里「待补充 → 申请 → 批准」的主链（第一步要改成「待补充发起 → 员工补充 → 回到处理中 → 批准」），以及 `ticket-supplement-roundtrip` 等 E2E 里负责人动作集合的精确断言。**转交、撤回补充请求、提交人撤回撤销请求三条路径不变**（用户在裁决时明确保留 4.11 的既有能力）。**⑦ 已落地（2026-10-10，用户授权「直接修改」）**：`TicketMapper` 两条 SQL 的状态白名单、`TicketQueryServiceImpl.canDecideCancelRequest`（新引入 `isCancelDecidableStatus`）与 `TicketServiceImpl.isCancelDecidableStatus`（`approveCancel` / `rejectCancel` 的服务层闸门）三处同步收窄；用例侧把两个"没有待决请求"的参数化从三态收到两态、各加一条"待补充 + 有待决请求 → 409 且不打 SQL"的用例，`TicketQueryServiceImplTest` 的负责人期望拆成"可裁决两态"与"待补充少两格"两条，`TicketServiceIT.approveCancelClearsDeadlineAndKeepsTerminalStatesDistinguishable` 的入口改到「待确认」（保住"批准必须清期限"的真库证据），新增 `approveCancelWaitsUntilTheRequesterSupplements` 与 `withdrawCancelRequestOnWaitingForRequesterKeepsTheSupplementDeadline`；前端详情块的「撤销申请待处理」块补第四种文案（待补充的负责人读到"等提交人补充、补充回来再由你决定"）。**验证**：`.\mvnw.cmd -B test "-Dtest=TicketServiceImplTest,TicketQueryServiceImplTest,TicketControllerWebTest"` → **544 项全绿**；`.\mvnw.cmd -B verify "-Dit.test=TicketServiceIT,TicketQueryServiceIT" ...` → **66 项全绿**（Testcontainers 真库）；前端 `pnpm test:unit`（该组件 42 项）+ `typecheck` + `lint` 退出码 0。**未跑**：全量 `clean verify`、全量前端 E2E 与 8092 真实栈验收（用户明确要求跳过）。`scripts/slice-e-two-phase-cancel-acceptance.ps1` 的主链已改为「待补充发起 → 两次裁决被 409 挡住 → 员工补充 → 回到处理中 → 批准」，因此 `docs/acceptance/2026-10-08-slice-e-two-phase-cancel.json`（178/178）**已不是当前脚本的证据，需重跑后再引用**。
+
+- **规则变更登记（2026-10-10 用户集中裁决，与上条同一批；待实现）⑧：IT 列表「待我批准」筛选与到期语义同批**——列表筛选语义固定为「本人是当前负责人 且 工单上有未过期的待决请求」，与详情里的 `approve-cancel` / `reject-cancel` 两格**共用同一判定**（其上再叠加 `TICKET_PROCESS` 与「待补充期间不裁决」两条既有条件），不允许列表与详情各写一份判定。实现时要连**索引**一起设计（`ticket(assignee_id, cancel_request_deadline_at, id)` 一类，是否带 `status` 与列顺序按真实执行计划确定——`V7` 的「不新增索引」前提就此失效），并按 `docs/api-design.md` 5.3 扩展列表的筛选参数（列表项响应**不**增加待决请求字段）。**验证口径**：因为与到期语义同批，「详情不返回两格」与「列表不返回该工单」必须同时断言，另加一条「请求过期后不再出现在筛选结果里、员工补充回到处理中后重新出现」。**批次顺序**：关联 → 附件 → 本批（①～⑧）→ 管理性交接 → 通知通道 + 两个超时自动任务。
+
+### 9.4 对标成熟工单系统的差距与候选方向（2026-10-10 分析登记，待用户裁决）
+
+用户 2026-10-10 要求"搜索 GitHub 成熟工单项目，对比当前已实现的功能还有哪些不足"。本轮以 11 个知名开源项目核对官方功能页后登记如下（star 为 2026-10-10 检索值：Chatwoot ~37.7k、GLPI ~6.4k、Redmine ~6.0k、Zammad ~6.0k、FreeScout ~4.6k、osTicket ~4.0k、Frappe Helpdesk ~3.4k、MantisBT ~1.8k、iTop ~1.2k、Znuny ~0.6k、OTOBO ~0.3k）。**全部只是候选方向：不改变 MVP 与完整版的既有边界，未确认前不实施。**
+
+对照结论：成熟系统在"外部协同面"普遍领先——**通知、SLA、知识库、报表、自动化、多渠道接入**；本项目已实现的能力（认证与会话、动态 RBAC、用户/分类管理、工单全状态机与时间线、列表多维筛选、乐观锁与 409 契约）在成熟系统中同样普遍，不构成差距；本项目的优势在核心链路深度（状态机、并发唯一胜者、库层约束、验收证据纪律）。**最关键的单一差距是"没有任何通知通道"**——backlog 第 3、7 项的"到期前提醒"正建立其上。
+
+| # | 候选方向 | 对标落差（普遍具备的项目） | 现状与依赖 | 建议 |
+| --- | --- | --- | --- | --- |
+| 1 | 通知与提醒通道（站内 / 邮件；Webhook 可选） | osTicket、Zammad、GLPI、FreeScout、MantisBT | 本项目无任何通知通道；backlog 第 3、7 项的"到期前提醒"依赖本项 | **优先裁决**——第 3/7 项的共同前置 |
+| 2 | 邮件 / 多渠道接入（收信建单、回信出站） | osTicket、Zammad、FreeScout、Chatwoot | 只有站内提交；引入邮件服务属新基础设施，须按 `AGENTS.md` 另行确认 | 评估（展示价值高、成本高） |
+| 3 | SLA 与升级提醒 | osTicket（SLA 计划与超时提醒）、Zammad、GLPI、iTop | 现只有"期限展示"；依赖通知通道 | 评估 |
+| 4 | 报表与统计仪表盘 | GLPI、Zammad、FreeScout、Chatwoot | 与 backlog 第 5 项「数据概览」重合 | 并入第 5 项一并定范围 |
+| 5 | 知识库 / FAQ | osTicket、Zammad、GLPI、OTOBO、FreeScout | 无 | 候选（独立模块，成本中） |
+| 6 | 自动化规则 / 触发器 | osTicket（Ticket Filters）、Zammad（Automation）、GLPI（规则引擎） | 现只有计划中的三个固定超时规则（backlog 3） | 与第 3 项一并评估 |
+| 7 | 保存筛选与自定义视图 | osTicket（Custom Queues）、Zammad（Overviews）、GLPI（Saved search） | 有即时筛选，无保存视图 | 低成本候选 |
+| 8 | 满意度（CSAT） | GLPI、FreeScout | 无 | 低成本候选 |
+| 9 | 快捷回复 / 模板 | osTicket、Zammad、Frappe Helpdesk、FreeScout | 无 | 低成本候选 |
+| 10 | 批量操作 / 标签 / 自定义字段 / 时间记录 / i18n / 实时刷新 / 对外 API 令牌与 Webhook | 成熟系统普遍具备 | 各有成本、演示收益递减 | 低优先，暂不单独立项 |
+| — | 多品牌 / 多租户、SSO、CMDB/资产、语音与社交渠道 | GLPI / iTop / Chatwoot 的另一半方向 | 超出求职 MVP 与既定技术边界 | 明确不考虑 |
+
+**顺序（2026-10-10 用户裁决，取代本节原先的建议顺序）**：backlog 第 2 项（**关联 → 附件**）→ backlog 第 7 项与撤销请求到期语义（**同一批**，含索引）→ backlog 第 4 项管理性交接 → **通知 / 通信通道（本表第 1 项）+ backlog 第 3 项的两个超时自动任务**（通道是它们的共同前置）→ 在 backlog 第 5 项内一并决定报表范围 → 其余逐个裁决（本表第 2、5～9 项仍未裁决）。**完整对比数据、文档一致性清单与本轮修正记录见 `PROJECT_STATUS.md` 的 2026-10-10「对标分析与一致性修正」与「五项集中裁决」两段；本表未裁决项在确认前不进入任何实现。**
 
 ## 10. 全局完成与范围控制
 
@@ -473,17 +504,17 @@ MVP 最终完成定义：
 
 遇到以下情况必须暂停确认：修改已执行的历史迁移、改变 MVP 四状态主链或固定三角色边界、引入新基础设施、扩大管理员数据权限，或发现安全/跨存储方案无法成立。
 
-## 11. 当前会话开工入口（阶段 4）
+## 11. 当前会话开工入口（完整版 backlog）
 
 新会话只需依次阅读：
 
 1. `AGENTS.md`
 2. `PROJECT_STATUS.md`
-3. 本文第 8 节（阶段 4 收口清单与当前进度）与第 2、4 节（MVP 边界）
+3. 本文第 9 节（完整版 backlog 与各片交付记录）与第 2、4 节（MVP 边界）
 4. `docs/api-design.md` 的工单与分类章节（6.3/6.4 动作契约、5.3～5.5 查询、8.4 分类管理）
 5. `docs/business-model.md` 的工单状态与角色职责、`docs/database-design.md` 的工单相关表与 CHECK 约束
 6. `docs/technical-architecture.md` 5.1（应用层分层硬约束）与涉及事务/并发的部分
 7. 现有测试形态参照：`src/test/java/com/flowdesk/iam/application/service/impl/IamUserServiceIT.java`（Testcontainers 真并发）与 `src/test/java/com/flowdesk/iam/controller/IamUserControllerWebTest.java`（Web 契约 + `MockedPersistenceConfiguration`）
 8. `frontend/AGENTS.md`（若本阶段要动前端页面）
 
-接续第一步不是直接写业务代码，而是按 `PROJECT_STATUS.md` 与本文第 8 节确认本阶段的收口清单与测试覆盖矩阵，再分片实施。`ServiceImpl` 业务逻辑仍按 `AGENTS.md`「分工补充」由用户编写，**测试类由 Agent 负责**；补齐测试时若发现生产代码缺陷，先报告证据与影响，取得授权后再改。历史入口：阶段 2 的工单切片见本文 6.1，阶段 3 见 7.1，Auth 会话开工卡见 `docs/modules/auth.md` 第 9 节（均已完成，仅供参考）。
+接续第一步不是直接写业务代码，而是按 `PROJECT_STATUS.md` 与本文第 9 节（或当前主题对应章节）确认范围、交付记录与测试覆盖矩阵，再分片实施。`ServiceImpl` 业务逻辑仍按 `AGENTS.md`「分工补充」由用户编写，**测试类由 Agent 负责**；补齐测试时若发现生产代码缺陷，先报告证据与影响，取得授权后再改。历史入口：阶段 2 的工单切片见本文 6.1，阶段 3 见 7.1，Auth 会话开工卡见 `docs/modules/auth.md` 第 9 节（均已完成，仅供参考）。

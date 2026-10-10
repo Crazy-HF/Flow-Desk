@@ -58,7 +58,7 @@
 
 ### 4.4 用户角色
 
-用户角色表达用户与角色的多对多关系。一个用户至少拥有一个角色，可以同时拥有多个角色；同一用户不能重复拥有同一角色。
+用户角色表达用户与角色的多对多关系。一个用户可以拥有零个或多个角色（2026-09-22 调整，原为"至少一个角色"）；同一用户不能重复拥有同一角色。
 
 角色分配变化必须触发现有登录会话失效。移除 IT 支持人员角色或停用账号前，必须先完成其活动工单的管理性交接。
 
@@ -137,6 +137,7 @@
 | 撤销请求批准 | 决定人和状态迁移 |
 | 撤销请求拒绝 | 决定人和拒绝原因 |
 | 撤销请求撤回 | 撤回人（请求失效） |
+| 撤销请求过期 | 原发起时间、说明与响应期限（**待实现**：请求失效，工单状态不变；被新请求替换时先补写这条记录） |
 | 关闭 | 手动或自动关闭方式、标准原因和具体说明 |
 
 工单快照变化与对应记录必须共同成功或共同失败，不能出现状态已改变但记录缺失，或记录已生成但状态未改变。
@@ -230,7 +231,7 @@ v1 暂不建立以下实体：
 
 ## 12. 逻辑完整性约束
 
-1. 用户账号不物理删除，且始终至少拥有一个角色。
+1. 用户账号不物理删除；用户允许零角色（2026-09-22 调整）。
 2. 系统中始终至少存在一个启用的系统管理员。
 3. 用户、角色和权限编码在各自范围内唯一。
 4. 分类名称唯一；已被工单引用的分类不能删除。
@@ -298,6 +299,7 @@ v1 暂不建立以下实体：
 | `ticket_attachment` | 工单附件 | 附件元数据和存储定位 |
 | `ticket_relation` | 工单关联 | 后续引用和重复指向 |
 | `ticket_participant` | 工单参与者 | 历史负责人访问关系 |
+| `ticket_daily_sequence` | 工单日序号 | 按业务日原子递增的工单编号序号（`V6`） |
 
 ## 17. 身份与访问表
 
@@ -413,7 +415,7 @@ v1 暂不建立以下实体：
 | `action_deadline_at` | `DATETIME(3)` | 是 | 待补充或待确认的当前有效截止时间 |
 | `cancel_requested_at` | `DATETIME(3)` | 是 | 待批准撤销请求的发起时间；为空表示没有待决请求（`V7`） |
 | `cancel_request_reason` | `VARCHAR(1000)` | 是 | 待批准撤销请求的说明；进入终态时随请求一并清空（`V7`） |
-| `cancel_request_deadline_at` | `DATETIME(3)` | 是 | 待批准撤销请求的响应期限；只写库与展示，到期不自动处置（`V7`） |
+| `cancel_request_deadline_at` | `DATETIME(3)` | 是 | 待批准撤销请求的响应期限；**2026-10-10 规则变更（待实现）后该列进入判定**——过期即请求失效，批准 / 拒绝 / 撤回三条条件更新都加期限条件（`cancel_request_deadline_at > now`），未过期的请求才是「待我批准」筛选与批准 / 拒绝权的来源；员工可重新发起并覆盖（覆盖条件由 `cancel_requested_at IS NULL` 放宽为 `cancel_requested_at IS NULL OR cancel_request_deadline_at <= now`，不设终身次数上限）（现行代码仍只写库与展示）（`V7`） |
 | `completion_method` | `VARCHAR(32)` | 是 | 员工确认或系统超时完成 |
 | `close_method` | `VARCHAR(16)` | 是 | 手动关闭或系统自动关闭 |
 | `close_reason` | `VARCHAR(32)` | 是 | 关闭标准原因 |
@@ -446,11 +448,11 @@ v1 暂不建立以下实体：
 - 非终态的 `ended_at` 为空，三个终态的 `ended_at` 非空。
 - 仅已完成状态允许且要求完成方式；仅已关闭状态允许且要求关闭方式和关闭原因。
 - 系统自动关闭只能使用“逾期未补充信息”，IT 手动关闭只能使用重复、不属于 IT 范围或无效三种原因。
-- 待批准撤销请求的三列同生同灭（全空或全非空），且非空时状态只能是处理中、待补充或待确认（`V7` 的 `ck_ticket_cancel_request_pair` / `ck_ticket_cancel_request_status`）。
+- 待批准撤销请求的三列同生同灭（全空或全非空），且非空时状态只能是处理中、待补充或待确认（`V7` 的 `ck_ticket_cancel_request_pair` / `ck_ticket_cancel_request_status`）。**「待补充不可裁决」不写进 CHECK**（2026-10-10 规则变更，已实现）：请求在待补充期间仍然合法地留在工单上，只是服务层的动作白名单在待补充上不返回 `approve-cancel` / `reject-cancel`，等员工补充完、工单回到处理中再裁决。**「请求是否已过期」同样不写进 CHECK**（2026-10-10 裁决，待实现）：过期是随时间变化的状态，而 `CHECK` 只能看行内数据，写进去会在过期瞬间让原本合法的行变成非法行；它由三条条件更新的 `WHERE` 与服务层判定承担（见 19.1 的列说明）。
 
 负责人是否具有有效 IT 角色、分类是否启用、重复工单目标是否合法等跨表规则由事务用例校验，不能仅靠单表 `CHECK` 完成。
 
-**`V7` 变更说明（2026-10-08 两阶段撤销，`V7__add_cancel_request.sql`）**：`ticket` 新增 `cancel_requested_at` / `cancel_request_reason` / `cancel_request_deadline_at` 三个可空列，用"当前快照上的请求字段"表达待批准撤销请求，**不新增第 8 个状态**（与 `close_reason` / `completion_method` 同一模式：当前态字段留在 `ticket`，事件本身进 `ticket_record`）。同时新增两条 CHECK：`ck_ticket_cancel_request_pair`（三列同生同灭，半截请求在库层面进不去）与 `ck_ticket_cancel_request_status`（请求非空时状态只能落在有人负责且未终结的三个状态）。`ticket_record` 的 `ck_ticket_record_type` 在**同一条 `ALTER`** 里 `DROP CHECK` 后重建，追加 `CANCELLATION_REQUEST`、`CANCELLATION_APPROVED`、`CANCELLATION_REJECTED`、`CANCELLATION_REQUEST_WITHDRAWN` 四个类型（`CANCELLATION` 保留给待受理的直接撤销）；不拆成两条语句是为了避免半执行状态，历史迁移一律不回改。**不新增索引**：待决请求不是查询维度，只在按主键读详情时随行取出；因此 `close`（清空请求三列）与 `confirmResolution`（同）都必须在同一条 `UPDATE` 内完成清空，否则会撞 `ck_ticket_cancel_request_status`。
+**`V7` 变更说明（2026-10-08 两阶段撤销，`V7__add_cancel_request.sql`）**：`ticket` 新增 `cancel_requested_at` / `cancel_request_reason` / `cancel_request_deadline_at` 三个可空列，用"当前快照上的请求字段"表达待批准撤销请求，**不新增第 8 个状态**（与 `close_reason` / `completion_method` 同一模式：当前态字段留在 `ticket`，事件本身进 `ticket_record`）。同时新增两条 CHECK：`ck_ticket_cancel_request_pair`（三列同生同灭，半截请求在库层面进不去）与 `ck_ticket_cancel_request_status`（请求非空时状态只能落在有人负责且未终结的三个状态）。`ticket_record` 的 `ck_ticket_record_type` 在**同一条 `ALTER`** 里 `DROP CHECK` 后重建，追加 `CANCELLATION_REQUEST`、`CANCELLATION_APPROVED`、`CANCELLATION_REJECTED`、`CANCELLATION_REQUEST_WITHDRAWN` 四个类型（`CANCELLATION` 保留给待受理的直接撤销）；不拆成两条语句是为了避免半执行状态，历史迁移一律不回改。**不新增索引**：待决请求不是查询维度，只在按主键读详情时随行取出；因此 `close`（清空请求三列）与 `confirmResolution`（同）都必须在同一条 `UPDATE` 内完成清空，否则会撞 `ck_ticket_cancel_request_status`。**后续影响（2026-10-10 补记并裁决）**：给 IT 列表加「待我批准」筛选（`docs/implementation-plan.md` 第 9 节第 7 项）会让「待决请求不是查询维度」这条前提失效；用户 2026-10-10 裁决该筛选与**撤销请求到期语义同批实施**，因此本项落地时要一起新增覆盖「负责人 + 未过期待决请求」的索引（是否带 `status`、列顺序如何，按第 23 节用真实执行计划验证后确定）。**本段上方「不新增索引」保留为 `V7` 当时的判断原文，不再是结论。**
 
 ### 19.2 `ticket_record`
 
@@ -616,6 +618,7 @@ v1 暂不建立以下实体：
 | 员工查看自己的工单 | `ticket(requester_id, created_at, id)` |
 | IT 查看待受理队列 | `ticket(status, priority, created_at, id)` |
 | IT 查看当前负责工单 | `ticket(assignee_id, status, updated_at, id)` |
+| IT 查看「待我批准」（**待实现**，backlog 第 7 项，与到期语义同批） | `ticket(assignee_id, cancel_request_deadline_at, id)`——具体列顺序与是否带 `status` 在实现时按真实执行计划确定 |
 | 扫描待确认或待补充超时 | `ticket(status, action_deadline_at, id)` |
 | 按分类和状态概览 | `ticket(category_id, status)` |
 | 按状态和优先级概览 | `ticket(status, priority, created_at, id)` |
@@ -630,7 +633,7 @@ v1 暂不建立以下实体：
 
 以下规则不能只靠单条外键或检查约束，需要由应用事务和条件更新共同保证：
 
-1. 用户始终至少拥有一个角色，系统始终至少有一个启用的系统管理员。
+1. 用户允许零角色，系统始终至少有一个启用的系统管理员。
 2. 停用账号或移除 IT 角色前，所有活动工单完成原子管理性交接。
 3. 当前负责人是启用的 IT 用户，且不是工单提交人。
 4. 领取、转交、处理、结束和超时操作同时校验预期状态、负责人和版本。
@@ -640,6 +643,7 @@ v1 暂不建立以下实体：
 8. 附件所属记录类型、上传人和工单权限必须在保存元数据前校验。
 9. 定时扫描可以重复运行，但只有状态、截止时间和版本仍匹配的工单能够更新成功。
 10. 同一提交人使用相同 `submission_key` 重试创建时返回首次创建结果，不生成第二张工单。
+11. 撤销请求的期限判定必须在写入侧与读取侧一致（**待实现**）：批准、拒绝、撤回三条条件更新都要求请求未过期，覆盖已过期请求时必须先补写「已过期」记录，「待我批准」筛选与批准 / 拒绝入口共用同一判定——不允许出现「列表说可批准、点下去 409」或「详情说已过期、列表仍显示」的分叉。
 
 ## 25. 物理模型验收结论
 

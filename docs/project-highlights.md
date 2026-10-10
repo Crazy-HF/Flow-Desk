@@ -25,7 +25,7 @@
 | HL-010 | 演示数据与生产环境的隔离边界 | **已实现，并有自动化证据** | `DemoSeedProfileTest`（`db/demo` 只由 `demo` 位置加载，基础配置与 `prod`/`test` 都不含）；`src/main/resources/application-demo.yml` |
 | HL-011 | 跨模块不变量：条件更新之外为何还要固定顺序的行锁 | **已实现，并有自动化与真实栈证据**；其覆盖不到的边界（跨路径交叉死锁）已独立为 HL-012 | `TicketServiceIT`（互转并发不死锁、锁后资格复核、同版本「转交 vs 撤回」并发）；`TicketServiceImplTest` 的锁顺序与资格复核用例；真实栈 `docs/acceptance/2026-10-07-slice-c-adjust-transfer.json`（127/127） |
 | HL-012 | 跨路径交叉死锁：从一次偶发并发失败到统一全模块的加锁起点 | **已实现，并有自动化与真实栈证据**（2026-10-07 发现、2026-10-08 片 D 修复；原先只作为 HL-011 的「已知边界」记录） | `TicketServiceIT`（转交 vs 撤回 / 转交 vs 关闭 / 领取 vs 撤销，**败者必为 409**）；`TicketServiceImplTest` 的加锁顺序与锁后版本复核用例；真实栈 `docs/acceptance/2026-10-08-slice-d-close-cancel.json`（182/182，含两组真并发） |
-| HL-013 | 两阶段撤销：不新增第 8 个状态，用三列请求表达「待批准」 | **已实现，并有自动化与真实栈双重证据**（2026-10-08；分支尚未合并 `main`） | `DatabaseMigrationIT`（空库 `V7` 迁移与两条新 CHECK）；`TicketServiceIT`（真实 MySQL：发起 → 批准 / 拒绝 / 撤回、期限与请求三列同一条 UPDATE 清空、「关闭 vs 批准撤销」唯一胜者、`confirmResolution` 挂待决申请的组合）；`TicketQueryServiceImplTest` / `TicketQueryServiceIT`（`allowedActions` 三状态 × 两角色与 `cancelRequest`）；前端 4 格动作与详情「待批准」块的单测；E2E 两阶段两个场景；真实栈 `docs/acceptance/2026-10-08-slice-e-two-phase-cancel.json`（**178/178、退出码 0**）；全量 `clean verify` surefire 1070 + failsafe 158、前端单测 200 项、E2E 24 项 |
+| HL-013 | 两阶段撤销：不新增第 8 个状态，用三列请求表达「待批准」 | **已实现，并有自动化与真实栈双重证据**（2026-10-08；已随 [PR #18](https://github.com/Crazy-HF/Flow-Desk/pull/18) 合并 `main`，合并提交 `2cf1bc1`） | `DatabaseMigrationIT`（空库 `V7` 迁移与两条新 CHECK）；`TicketServiceIT`（真实 MySQL：发起 → 批准 / 拒绝 / 撤回、期限与请求三列同一条 UPDATE 清空、「关闭 vs 批准撤销」唯一胜者、`confirmResolution` 挂待决申请的组合）；`TicketQueryServiceImplTest` / `TicketQueryServiceIT`（`allowedActions` 三状态 × 两角色与 `cancelRequest`）；前端 4 格动作与详情「待批准」块的单测；E2E 两阶段两个场景；真实栈 `docs/acceptance/2026-10-08-slice-e-two-phase-cancel.json`（**178/178、退出码 0**）；全量 `clean verify` surefire 1070 + failsafe 158、前端单测 200 项、E2E 24 项 |
 
 **对外表述口径**：HL-001～HL-010 全部可以作为“已实现并验证”的成果写入简历或面试讲解；其中 HL-007～HL-010 是 2026-10-06 阶段 3 收口与阶段 4 补测试后新增的证据，表述时必须带上对应的测试类名，不得只说“设计过”。
 
@@ -473,7 +473,7 @@ Spring 默认代理模式下，从 Controller 等外部对象调用 Spring Servi
 
 ### 后续实现与测试重点
 
-自动超时完成（`AUTO_CONFIRM_TIMEOUT`）与超时关闭属完整版的定时任务，MVP 未实现；期限到期后的行为目前只有"到期不自动改变状态"这一隐含事实。
+自动超时完成（`AUTO_CONFIRM_TIMEOUT`）与超时关闭属完整版的定时任务，MVP 未实现；期限到期后的行为目前只有“到期不自动改变状态”这一隐含事实。**2026-10-10 用户裁决**：这两个自动任务与**通知 / 通信通道**一并落地（扫描结果要先有通知能力才有意义），在此之前期限只用于展示。工单撤销请求的响应期限是另一条线，同日裁决为**到期即失效**（**待实现**），与本节的自动完成 / 自动关闭不是同一条规则。
 
 ### 简历或面试表达参考
 
@@ -503,6 +503,8 @@ Spring 默认代理模式下，从 Controller 等外部对象调用 Spring Servi
 ### 后续实现与测试重点
 
 其余 6 个 IT 动作与 3 个员工动作未实现，`allowedActions` 里也不会出现它们——新增动作时必须同时补上"动作名、路径、判定、界面登记表"四处，任一处漏掉都会被这条端到端用例抓到。
+
+> **补充说明（2026-10-10）**：该句是 HL-009 写入当时（阶段 3）的事实。其余动作随后经片 A～片 E 全部交付（片 D 起为"九条 IT 动作与四条员工动作"，2026-10-08 两阶段撤销另加四格），见 `docs/implementation-plan.md` 9.3；本条正文按「使用规则」不逐句改写。
 
 ### 简历或面试表达参考
 
@@ -656,7 +658,7 @@ ticket 行写锁  →  [version 复核]  →  iam_user 行锁（升序）  →  
 
 ### 当前状态
 
-**已实现，并有自动化与真实栈双重证据（2026-10-08，分支 `flow-desk/ticket-two-phase-cancel`；分支尚未合并 `main`）**：迁移 `V7` 在空库上通过 `flyway.migrate()` + `validate()`（`DatabaseMigrationIT`，基线 `1,2,4,5,6,7`）；`TicketServiceIT` 在真实 MySQL 上跑通「待补充 → 发起撤销请求 → 批准 → 已取消」（期限与请求三列在同一条 UPDATE 内清空）、「拒绝 / 撤回不动工单」、「关闭 vs 批准撤销」的唯一胜者，以及「`confirmResolution` 时工单上挂着待决申请」；服务层单测覆盖四个新动作的 403/404/409/400 与**409 先于 400**、`allowedActions` 三状态 × 两角色的逐格与 `cancelRequest` 的三字段；前端四格动作与详情「撤销申请待处理」块有单测与两个 E2E 场景。全量 `clean verify` → surefire **1070** + failsafe **158**，`Failures 0 / Errors 0`；前端单测 **200 项**、E2E **24 项全绿**；真实栈 `scripts/slice-e-two-phase-cancel-acceptance.ps1` **178/178、退出码 0**（证据 `docs/acceptance/2026-10-08-slice-e-two-phase-cancel.json`），**未发现产品缺陷**。
+**已实现，并有自动化与真实栈双重证据（2026-10-08，分支 `flow-desk/ticket-two-phase-cancel`；已随 [PR #18](https://github.com/Crazy-HF/Flow-Desk/pull/18) 合并 `main`，合并提交 `2cf1bc1`）**：迁移 `V7` 在空库上通过 `flyway.migrate()` + `validate()`（`DatabaseMigrationIT`，基线 `1,2,4,5,6,7`）；`TicketServiceIT` 在真实 MySQL 上跑通「待补充 → 发起撤销请求 → 批准 → 已取消」（期限与请求三列在同一条 UPDATE 内清空）、「拒绝 / 撤回不动工单」、「关闭 vs 批准撤销」的唯一胜者，以及「`confirmResolution` 时工单上挂着待决申请」；服务层单测覆盖四个新动作的 403/404/409/400 与**409 先于 400**、`allowedActions` 三状态 × 两角色的逐格与 `cancelRequest` 的三字段；前端四格动作与详情「撤销申请待处理」块有单测与两个 E2E 场景。全量 `clean verify` → surefire **1070** + failsafe **158**，`Failures 0 / Errors 0`；前端单测 **200 项**、E2E **24 项全绿**；真实栈 `scripts/slice-e-two-phase-cancel-acceptance.ps1` **178/178、退出码 0**（证据 `docs/acceptance/2026-10-08-slice-e-two-phase-cancel.json`），**未发现产品缺陷**。
 
 **讲解时要说清的一处覆盖缺口**：三组并发里 `close vs approve` 的四次运行全部由「关闭」获胜，"批准赢"那一支只有对称断言、没有实测样本（另两组的两个分支都被实测覆盖过）；集成层那条并发用例不要求特定赢家，所以这个竞争仍然是被覆盖的。
 
@@ -669,7 +671,8 @@ ticket 行写锁  →  [version 复核]  →  iam_user 行锁（升序）  →  
 | 状态 | 提交人 | 当前负责人 |
 | --- | --- | --- |
 | 待受理（无人负责） | 直接撤销 | —— |
-| 处理中 / 待补充 / 待确认 | 发起撤销请求，可撤回 | 批准（进入已取消）或拒绝（保持原状态） |
+| 处理中 / 待确认 | 发起撤销请求，可撤回 | 批准（进入已取消）或拒绝（保持原状态） |
+| 待补充 | 发起撤销请求，可撤回 | **不裁决**：批准与拒绝都等员工补充完、工单回到处理中（2026-10-10 裁决，已实现） |
 | 三个终态 | 不允许 | 不允许 |
 
 关键判断是：**需要征求同意的不是"撤销"这个动作，而是"终止一个已经有人投入的责任"**。待受理没有投入，因此不需要批准。
@@ -704,13 +707,13 @@ ticket 行写锁  →  [version 复核]  →  iam_user 行锁（升序）  →  
 
 ### 期限：写库，但不自动处置
 
-请求带响应期限（新增配置 `flowdesk.ticket.cancel-request-window`，默认 `3d`、下限 `1m`），由服务端计算并落库展示，**到期不自动改变任何东西**。理由与 4.9 / 4.12 的超时任务同一个：本版本没有定时任务，若在读取时判定"过期即失效"，同一个请求会在不同接口里得到"有效 / 无效"两种结论——多出一条真相来源。超时处置属完整版 backlog 第 3 项，届时与其它两个超时规则一起设计扫描与幂等。
+请求带响应期限（新增配置 `flowdesk.ticket.cancel-request-window`，默认 `3d`、下限 `1m`），由服务端计算并落库展示，**到期不自动改变任何东西**。理由与 4.9 / 4.12 的超时任务同一个：本版本没有定时任务，若在读取时判定"过期即失效"，同一个请求会在不同接口里得到"有效 / 无效"两种结论——多出一条真相来源。超时处置属完整版 backlog 第 3 项，届时与其它两个超时规则一起设计扫描与幂等。**2026-10-10 用户裁决（待实现）**：期限届满后请求即失效——批准、拒绝、撤回三个动作都不再允许，员工可以重新发起并覆盖已过期的那一份（覆盖时补写「已过期」记录）。这条取代原先「过期仍可批准」的口径，落地时现有那条「回填期限已过再批准」的验收探针要**反向断言**。**2026-10-10 集中裁决补完口径（仍未实现）**：「重新发起」不设终身次数上限（同一时刻只允许一个有效请求），过期请求保留在工单上、显示为「已过期」，直到被新请求替换或工单进入终态；IT 列表「待我批准」筛选与本条**同批实施**，并与详情里的批准 / 拒绝**共用同一判定**（本人是当前负责人 + 有未过期待决请求）。另外 v1 **目前没有 IT 侧发现路径**——列表不返回待决请求、也没有「待我批准」筛选，IT 只能在自己的工单详情里看到待批准提示（该筛选的批次见上一句，与到期语义同批）；「到期前提醒」依赖通知通道，属 backlog 第 3 项。同日还有第二条裁决：**待补充期间不裁决**——工单处于待补充时批准与拒绝都不开放，员工补充完、回到处理中再裁决（请求与期限保留），转交与撤回补充请求这两条 4.11 已确认的能力不变。**这条已于同日实现**（`TicketServiceIT.approveCancelWaitsUntilTheRequesterSupplements` 在真实 MySQL 上跑通「待补充批准 409 → 员工补充 → 回到处理中 → 批准 200」；`slice-e` 验收脚本的 a3b 组补了 HTTP 与库两层证据，脚本改动**尚未重跑**）。
 
 ### 后续实现与测试重点
 
 - **前端必须一起改**：服务端不再在三种非终态返回 `cancel`，前端动作表若不同步登记四个新动作，员工会**看不到任何动作**（动作区整块隐藏）。这正是"按钮来自服务端 `allowedActions`"这条设计的反面证明：契约改了而界面没跟上时，缺的是入口而不是权限。
-- 待批准提示与三个决策入口需要详情新增的 `cancelRequest`（`requestedAt` / `deadlineAt` / `reason`）——请求期间状态不变，界面无法从 `status` 推出"IT 正在等批准"。
-- 仍需补的测试：四个端点的 Web 层用例、`canApproveCancel` / `canRejectCancel` / `canWithdrawCancelRequest` 与 `cancelRequest` 的详情断言、"`confirmResolution` 时挂着待决请求"这条组合（`close` 那条已被"关闭 vs 批准"并发用例覆盖）。
+- **已实现**：待批准提示与三个决策入口需要的详情 `cancelRequest`（`requestedAt` / `deadlineAt` / `reason`）——请求期间状态不变，界面无法从 `status` 推出"IT 正在等批准"。
+- **当时登记、2026-10-10 核对后已补齐**：四个端点的 Web 层用例（`TicketControllerWebTest`）、`canApproveCancel` / `canRejectCancel` / `canWithdrawCancelRequest` 与 `cancelRequest` 的详情断言、"`confirmResolution` 时挂着待决请求"这条组合（`close` 那条已被"关闭 vs 批准"并发用例覆盖，其余分别由 `TicketQueryServiceImplTest` / `TicketQueryServiceIT`（`cancelRequest` 三字段含 UTC 转换）与 `TicketServiceIT.confirmResolutionClearsThePendingCancelRequestAndCompletesTheTicket` 覆盖）。**仍未覆盖的两处交互边界**：① 撤销请求在工单被推进（补充、退回、提交解决结果、调整）后仍然有效；② 转交后由新负责人批准或拒绝——两者只有实现层面的事实、没有用例。
 - 新增动作时**不要**把 SQL 参数化成一个 `cancel`：批准与拒绝形状几乎相同，但"批准还是拒绝"就是业务判定本身，参数化会让它从 SQL 里消失（与 `withdrawSupplementRequest` / `supplement` 同一理由）。
 
 ### 简历或面试表达参考

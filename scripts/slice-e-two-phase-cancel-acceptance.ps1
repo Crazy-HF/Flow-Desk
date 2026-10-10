@@ -418,6 +418,58 @@ function Send-CreateTicket {
     }
 }
 
+# 员工补充是 multipart/form-data（`ticket` part 携 JSON，与建单同形，片 B 起的契约）：
+# 这里单开一个函数而不是复用 Send-Req，因为后者只发 application/json。补充请求在
+# `TicketController` 里是 multipart 端点，用 JSON 发会被判成缺 part。
+function Send-SupplementAction {
+    param(
+        [System.Net.Http.HttpClient]$Client,
+        [string]$Token,
+        [string]$TicketNo,
+        [long]$Version,
+        [string]$Content,
+        [string]$Step = '-',
+        [string]$Actor = 'employee',
+        [string]$Note = 'supplement'
+    )
+    $payload = @{ version = $Version; content = $Content } | ConvertTo-Json -Compress
+    $path = "/fd/v1/tickets/$TicketNo/actions/supplement"
+    $form = New-Object System.Net.Http.MultipartFormDataContent
+    $form.Add((New-Object System.Net.Http.StringContent(
+                $payload, [System.Text.Encoding]::UTF8, 'application/json')), 'ticket')
+    $request = New-Object System.Net.Http.HttpRequestMessage(
+        [System.Net.Http.HttpMethod]::Post, $path)
+    $requestTraceId = New-TraceId
+    try {
+        $request.Headers.Add('Origin', $originHeader)
+        $request.Headers.Add('X-Trace-Id', $requestTraceId)
+        $request.Headers.Authorization =
+        New-Object System.Net.Http.Headers.AuthenticationHeaderValue('Bearer', $Token)
+        $request.Content = $form
+        $response = $Client.SendAsync($request).GetAwaiter().GetResult()
+        $text = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        $result = [pscustomobject]@{
+            Status  = [int]$response.StatusCode
+            Body    = $text
+            TraceId = (Get-TraceId $response)
+        }
+        $script:httpLog.Add([pscustomobject]@{
+                step           = $Step
+                actor          = $Actor
+                note           = $Note
+                method         = 'POST'
+                path           = $path
+                status         = $result.Status
+                traceId        = $result.TraceId
+                requestTraceId = $requestTraceId
+                detail         = ("actor=" + $Actor + "；" + $Note + "；contentType=multipart/form-data（ticket part 携 JSON）")
+            })
+        return $result
+    } finally {
+        $request.Dispose()
+    }
+}
+
 function Get-Data {
     param($Result)
     if ($null -eq $Result) { return $null }
@@ -1421,15 +1473,16 @@ try {
         -Result $detailEmployee
 
     $detailIt = Send-Req -Client $itClient -Method Get -Path "/fd/v1/tickets/$ticketMain" `
-        -Token $itToken -Step 'a2.detail.it' -Actor 'it' -Note '负责人视角详情：应看到批准/拒绝两个决策入口'
+        -Token $itToken -Step 'a2.detail.it' -Actor 'it' -Note '负责人视角详情：待补充期间不应出现批准/拒绝两格'
     $detailItData = Get-Data $detailIt
     $itActions = @($detailItData.allowedActions)
-    Add-Assertion -Name 'a2.detail.it.allowedActions' `
-        -Condition (($itActions -contains 'approve-cancel') -and ($itActions -contains 'reject-cancel') -and
+    Add-Assertion -Name 'a2.detail.it.allowedActionsWhileWaiting' `
+        -Condition (($itActions -notcontains 'approve-cancel') -and ($itActions -notcontains 'reject-cancel') -and
+        ($itActions -contains 'withdraw-supplement-request') -and ($itActions -contains 'transfer') -and
         ($itActions -notcontains 'request-cancel') -and ($itActions -notcontains 'withdraw-cancel-request')) `
-        -Expected '负责人视角含 approve-cancel 与 reject-cancel，不含提交人侧两格' `
+        -Expected '待补充期间不裁决：不含 approve-cancel / reject-cancel，但保留 withdraw-supplement-request 与 transfer' `
         -Actual "allowedActions=$($itActions -join ',')" `
-        -Why '批准与拒绝共用同一判定（canDecideCancelRequest）；缺任一格界面就会少一条决策路径' `
+        -Why '2026-10-10 用户裁决：IT 把球交给员工后不允许在信息不全时终止工单；冻结的只是裁决，4.11 已确认的转交与撤回补充请求必须照旧（缺任何一格都说明收窄收过头了）' `
         -Result $detailIt
     $null = Assert-CancelRequestPresent -Name 'a2.detail.it.cancelRequest' -Result $detailIt `
         -ExpectedRequestedAt $rowMainAfterRequest.cancelRequestedAt `
@@ -1537,6 +1590,77 @@ try {
         -Why '四个请求分别落在 400 与 409 上，两种失败都不允许留下任何写入；基线取在成功请求之后，才能把这次合法写入排除在比较之外' `
         -Result $null
 
+    # ── 6b. 断言组 a3b：待补充期间不裁决 → 员工补充 → 回到处理中（2026-10-10 裁决） ──
+    # 这一组是把"到期语义以外"的第二条规则变更钉在 HTTP 与库两层：工单在待补充时，
+    # 负责人既不能批准也不能拒绝；请求仍留在工单上；员工补充完、工单回到处理中，两格回来。
+    $sigBeforeFrozen = Get-TicketStateSignature -TicketNo $ticketMain
+    $approveWhileWaiting = Send-CancelAction -Client $itClient -Token $itToken -TicketNo $ticketMain `
+        -Action 'approve-cancel' -Body (New-VersionOnlyBody -Version $verMainAfterRequest) `
+        -Step 'a3b.frozen.approveWhileWaiting' -Actor 'it' -Note '待补充期间尝试批准撤销请求'
+    Add-Assertion -Name 'a3b.frozen.approveWhileWaiting.409' `
+        -Condition (($approveWhileWaiting.Status -eq 409) -and ((Get-Code $approveWhileWaiting) -eq 'TICKET_CONFLICT') -and
+        ([int](Get-ErrData $approveWhileWaiting).version -eq $rowMainAfterRequest.version) -and
+        ((Get-ErrData $approveWhileWaiting).status -eq 'WAITING_FOR_REQUESTER')) `
+        -Expected '409 + TICKET_CONFLICT，且带回当前快照（version 与 status 都是待补充）' `
+        -Actual "status=$($approveWhileWaiting.Status) code=$(Get-Code $approveWhileWaiting) data.version=$((Get-ErrData $approveWhileWaiting).version) data.status=$((Get-ErrData $approveWhileWaiting).status)" `
+        -Why '2026-10-10 用户裁决：待补充期间不裁决。状态判定必须发生在条件更新之前——若 SQL 先跑，版本就会被推着走，员工补充时反而撞上 409' `
+        -Result $approveWhileWaiting
+    $rejectWhileWaiting = Send-CancelAction -Client $itClient -Token $itToken -TicketNo $ticketMain `
+        -Action 'reject-cancel' -Body (New-RejectCancelBody -Version $verMainAfterRequest -Reason '待补充期间试图驳回') `
+        -Step 'a3b.frozen.rejectWhileWaiting' -Actor 'it' -Note '待补充期间尝试驳回撤销请求'
+    Add-Assertion -Name 'a3b.frozen.rejectWhileWaiting.409' `
+        -Condition (($rejectWhileWaiting.Status -eq 409) -and ((Get-Code $rejectWhileWaiting) -eq 'TICKET_CONFLICT')) `
+        -Expected '409 + TICKET_CONFLICT（批准与拒绝共用一条判定，必须一起挡住）' `
+        -Actual "status=$($rejectWhileWaiting.Status) code=$(Get-Code $rejectWhileWaiting)" `
+        -Why '只挡批准不挡拒绝会留下更难解释的口子：IT 不能在待补充时终止工单，却能在待补充时否掉提交人的请求' `
+        -Result $rejectWhileWaiting
+    $sigAfterFrozen = Get-TicketStateSignature -TicketNo $ticketMain
+    Add-Assertion -Name 'a3b.frozen.rejectedDecisionsChangedNothing' -Condition ($sigBeforeFrozen -eq $sigAfterFrozen) `
+        -Expected '两次被挡下的裁决前后，工单快照串逐字相同' `
+        -Actual "before=[$sigBeforeFrozen]；after=[$sigAfterFrozen]" `
+        -Why '被挡下的裁决不允许改版本、记录序号或请求三列；否则"冻结"就成了"半执行"，员工补充时会拿到一个已经变过的版本' `
+        -Result $null
+
+    $supplementBackContent = '型号是 L3153，完整报错见补充说明。'
+    $supplementBack = Send-SupplementAction -Client $employeeClient -Token $employeeToken -TicketNo $ticketMain `
+        -Version $verMainAfterRequest -Content $supplementBackContent `
+        -Step 'a3b.main.supplement' -Actor 'employee' -Note '提交人补充信息：工单回到处理中，撤销请求仍挂在工单上'
+    $supplementBackData = Get-Data $supplementBack
+    $supplementBackOk = (($supplementBack.Status -eq 200) -and ($null -ne $supplementBackData) -and
+        ($supplementBackData.status -eq 'PROCESSING'))
+    Add-Assertion -Name 'a3b.main.supplement.200' -Condition $supplementBackOk `
+        -Expected '200 且 status=PROCESSING（补充后回到处理中）' `
+        -Actual "status=$($supplementBack.Status) code=$(Get-Code $supplementBack) businessStatus=$($supplementBackData.status) version=$($supplementBackData.version)" `
+        -Why '待补充期间不裁决，所以主链必须由提交人先把工单推回处理中；这一步同时是"请求不因工单被推进而失效"的接口层证据' `
+        -Result $supplementBack
+    if (-not $supplementBackOk) { throw "主链工单未能通过补充回到处理中（status=$($supplementBack.Status)）" }
+    $verMainAfterSupplement = [long]$supplementBackData.version
+    $script:observed.Add("a3b.main.supplement=status=$($supplementBackData.status),version=$verMainAfterSupplement")
+
+    $rowAfterSupplement = Get-TicketDbRow -TicketNo $ticketMain
+    $supplementKeepsRequestOk = ($null -ne $rowAfterSupplement) -and
+    ($rowAfterSupplement.status -eq 'PROCESSING') -and
+    ($rowAfterSupplement.actionDeadlineAt -eq 'NULL') -and
+    ($rowAfterSupplement.cancelRequestState -eq 'HAS_REQUEST') -and
+    ($rowAfterSupplement.cancelRequestReason -eq $mainReason) -and
+    ($rowAfterSupplement.cancelRequestedAt -ne 'NULL')
+    Add-Assertion -Name 'a3b.db.requestSurvivesAdvancement' -Condition $supplementKeepsRequestOk `
+        -Expected 'status=PROCESSING、action_deadline_at 清空，但请求三列（发起时间 / 说明 / 响应期限）原样保留' `
+        -Actual "row=[$($rowAfterSupplement.raw)]" `
+        -Why '补充只让工单版本 +1；请求不因工单被推进而失效，这正是"待补充不裁决"之后仍然能裁决的前提' `
+        -Result $null
+
+    $detailItAfterSupplement = Send-Req -Client $itClient -Method Get -Path "/fd/v1/tickets/$ticketMain" `
+        -Token $itToken -Step 'a3b.detail.it' -Actor 'it' -Note '回到处理中之后：批准与拒绝两格必须回来'
+    $itActionsAfterSupplement = @((Get-Data $detailItAfterSupplement).allowedActions)
+    Add-Assertion -Name 'a3b.detail.it.allowedActionsAfterSupplement' `
+        -Condition (($itActionsAfterSupplement -contains 'approve-cancel') -and
+        ($itActionsAfterSupplement -contains 'reject-cancel')) `
+        -Expected '含 approve-cancel 与 reject-cancel（回到处理中后裁决权恢复）' `
+        -Actual "allowedActions=$($itActionsAfterSupplement -join ',')" `
+        -Why '冻结的只是待补充那一段；若补充之后两格不回来，请求就永远无法被裁决，提交人的出口也被堵死了' `
+        -Result $detailItAfterSupplement
+
     # ── 7. 断言组 a4：期限到点不自动处置（唯一一条非接口写库 SQL） ──────────
     $rowBeforeDeadlineProbe = Get-TicketDbRow -TicketNo $ticketMain
     $beforeExpired = $false
@@ -1570,11 +1694,11 @@ try {
         $probeExpired = ($probeOffset -lt [datetimeoffset]::UtcNow)
     }
     $probeStateOk = $probeExpired -and ($null -ne $rowAfterDeadlineProbe) -and
-    ($rowAfterDeadlineProbe.status -eq 'WAITING_FOR_REQUESTER') -and
+    ($rowAfterDeadlineProbe.status -eq 'PROCESSING') -and
     ($rowAfterDeadlineProbe.cancelRequestState -eq 'HAS_REQUEST') -and
     ($rowAfterDeadlineProbe.version -eq $rowBeforeDeadlineProbe.version)
     Add-Assertion -Name 'a4.afterProbe.expiredButNothingElseChanged' -Condition $probeStateOk `
-        -Expected '期限已过：状态仍是 WAITING_FOR_REQUESTER、请求仍挂在这张单上、version 未变' `
+        -Expected '期限已过：状态仍是 PROCESSING（主链此刻在处理中）、请求仍挂在这张单上、version 未变' `
         -Actual "expired=$probeExpired status=$($rowAfterDeadlineProbe.status) cancelRequestState=$($rowAfterDeadlineProbe.cancelRequestState) version=$($rowAfterDeadlineProbe.version)" `
         -Why '本版本没有定时任务，"到期"不改变任何库里的事实；如果这里状态或请求被自动改了，说明有人偷偷加了第二套真相' `
         -Result $null
@@ -1583,13 +1707,13 @@ try {
         sql                      = $deadlineProbeSql
         deadlineBefore           = $rowBeforeDeadlineProbe.cancelRequestDeadlineAt
         deadlineAfter            = $rowAfterDeadlineProbe.cancelRequestDeadlineAt
-        expectedBehaviourOnExpiry = '到期不自动处置：不自动取消、请求也不自动失效，负责人仍可批准（docs/kickoff.md 4.7）'
+        expectedBehaviourOnExpiry = '到期不自动处置：不自动取消、请求也不自动失效，回到处理中之后负责人仍可批准（docs/kickoff.md 4.7；待补充期间不裁决是 2026-10-10 的另一条裁决，主链因此先由员工补充把工单推回处理中）'
     }
 
     # ── 8. 断言组 a5：批准（在"期限已过"的请求上批准，同时证明不自动处置） ──
     $approveMain = Send-CancelAction -Client $itClient -Token $itToken -TicketNo $ticketMain `
-        -Action 'approve-cancel' -Body (New-VersionOnlyBody -Version $verMainAfterRequest) `
-        -Step 'a5.approve' -Actor 'it' -Note '当前负责人批准撤销请求（请求期限已被探针改成过去时间）'
+        -Action 'approve-cancel' -Body (New-VersionOnlyBody -Version $verMainAfterSupplement) `
+        -Step 'a5.approve' -Actor 'it' -Note '当前负责人批准撤销请求（工单已被员工补充推回处理中；请求期限已被探针改成过去时间）'
     $approveMainData = Get-Data $approveMain
     $approveOk = (($approveMain.Status -eq 200) -and ($null -ne $approveMainData) -and
         ($approveMainData.status -eq 'CANCELED'))
@@ -1606,7 +1730,7 @@ try {
     Add-Assertion -Name 'a5.approve.deadlineFieldAbsent' -Condition (Test-DeadlineAbsent $approveMain) `
         -Expected '成功响应里没有 actionDeadlineAt 字段（终态没有有效期限）' `
         -Actual "rawBodyHasDeadlineKey=$(([string]$approveMain.Body).Contains('"actionDeadlineAt"'))" `
-        -Why '批准要同时清 action_deadline_at；字段还在说明期限没被清掉（待补充/待确认来源状态本身就带期限）' `
+        -Why '终态不允许有期限。注意主链此刻的来源状态是"处理中"（待补充期间不裁决，员工以补充把工单推回处理中），本来就没有期限可清；"批准必须在同一条 UPDATE 里清掉待补充/待确认的期限"由 TicketServiceIT.approveCancelClearsDeadlineAndKeepsTerminalStatesDistinguishable 在真实 MySQL 上覆盖' `
         -Result $approveMain
     $verMainApproved = -1
     if ($approveOk) { $verMainApproved = [long]$approveMainData.version }
@@ -1643,7 +1767,7 @@ try {
         -Check { param($c) $c[0] -eq '-|-|-' }
     $script:terminalInfo['main'] = [ordered]@{
         ticketNo         = $ticketMain
-        fromStatus       = 'WAITING_FOR_REQUESTER'
+        fromStatus       = 'PROCESSING'
         toStatus         = 'CANCELED'
         version          = $rowMainFinal.version
         assigneeKept     = $rowMainFinal.assigneeId
@@ -1654,10 +1778,10 @@ try {
     $mainApprovedRecord = Get-LastRecordRow -TicketNo $ticketMain
     $mainApprovedRecordOk = ($null -ne $mainApprovedRecord) -and
     ($mainApprovedRecord.recordType -eq 'CANCELLATION_APPROVED') -and
-    ($mainApprovedRecord.fromStatus -eq 'WAITING_FOR_REQUESTER') -and
+    ($mainApprovedRecord.fromStatus -eq 'PROCESSING') -and
     ($mainApprovedRecord.toStatus -eq 'CANCELED') -and ($mainApprovedRecord.reason -eq '-')
     Add-Assertion -Name 'a5.db.recordIsCancellationApproved' -Condition $mainApprovedRecordOk `
-        -Expected '时间线最后一条是 CANCELLATION_APPROVED：from=WAITING_FOR_REQUESTER → to=CANCELED、无原因' `
+        -Expected '时间线最后一条是 CANCELLATION_APPROVED：from=PROCESSING → to=CANCELED、无原因（批准发生在员工补充之后）' `
         -Actual "row=[$($mainApprovedRecord.raw)]" `
         -Why '批准不写原因（批准本身就是决定）；与 CANCELLATION_REJECTED 必须可区分，否则时间线读不出"谁不同意、为什么"' `
         -Result $null
