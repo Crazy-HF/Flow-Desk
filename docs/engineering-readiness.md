@@ -4,7 +4,7 @@
 
 本文把已经确认的架构、数据库和 API 设计转换为可执行的工程基线，使后续工程初始化、开发、测试和 CI 不需要临时发明环境与一致性规则。
 
-当前状态：工程准备方案已形成，尚未创建 Spring Boot、Vue、Docker Compose 或数据库迁移文件，也未安装项目依赖。
+当前状态（M0 之前的历史记录）：工程准备方案已形成，尚未创建 Spring Boot、Vue、Docker Compose 或数据库迁移文件，也未安装项目依赖。**（2026-10-10 补注：上述工程文件自 M0（PR #4）起已全部创建并持续演进；本文其余"预期/建议"类条目的实际落地状态以仓库为准。）**
 
 本阶段只确定：
 
@@ -289,7 +289,7 @@ MySQL 是业务事实权威来源。Redis 和文件系统不参与 MySQL 事务�
 - `*Test` 由 Surefire 在 `test` 阶段运行。
 - `*IT` 由 Failsafe 在 `integration-test`/`verify` 阶段运行。
 - `./mvnw verify` 是本地提交前和 CI 的唯一完整后端入口。
-- JaCoCo 在 `verify` 检查后端整体行覆盖率至少 70%、分支覆盖率至少 60%。不得通过排除业务包或空洞测试满足数字。
+- JaCoCo 在 `verify` 检查后端整体行覆盖率至少 70%、分支覆盖率至少 60%。不得通过排除业务包或空洞测试满足数字。**（2026-10-10 补注：实际落地改为「只生成报告、不设阈值」，以行为断言为准——见 `pom.xml` 的 JaCoCo 配置与 `README.md`「已知限制」。）**
 
 ### 8.2 前端测试分层
 
@@ -324,7 +324,7 @@ GitHub Actions 在 Pull Request 和 `main` 推送时运行，使用干净检出�
    - 执行 `pnpm install --frozen-lockfile`。
    - 依次执行 lint、typecheck、unit test 和 build。
 3. `core-e2e`
-   - 在前两个 Job 成功后启动 MySQL、Redis、后端和前端预览服务。
+   - 在前两个 Job 成功后启动 MySQL、Redis、后端和前端预览服务。**（2026-10-10 补注：实际 CI 的三个 Job **并行**、不设 `needs`，`core-e2e` 自行安装依赖、构建前端并启动前后端——见 `.github/workflows/ci.yml` 的 `core-e2e` 注释。）**
    - 从空库执行 Flyway，再加载仅限 E2E 的确定性夹具。
    - 安装固定 Playwright 浏览器并运行核心 E2E。
    - 无论成功失败都上传 Playwright 报告；失败时保留必要日志但先脱敏。
@@ -332,7 +332,7 @@ GitHub Actions 在 Pull Request 和 `main` 推送时运行，使用干净检出�
 合并门禁：
 
 - Maven `verify` 成功，所有 Flyway 空库与故障测试通过。
-- 后端整体行覆盖率不低于 70%，分支覆盖率不低于 60%。
+- 后端整体行覆盖率不低于 70%，分支覆盖率不低于 60%。**（2026-10-10 补注：该项门禁未启用，理由同上——只出报告、不设阈值。）**
 - 前端 lint、类型检查、单元测试和构建全部成功。
 - 核心 Playwright E2E 全部成功；不允许通过自动重试长期掩盖不稳定测试。
 - lockfile 无未提交变化，构建不得依赖开发机缓存。
@@ -435,7 +435,7 @@ pnpm --dir frontend dev
 | --- | --- | --- |
 | 依赖版本明确且一致 | 通过 | 第 3 节；非 BOM 与前端直接依赖需锁定 |
 | 敏感配置边界清晰 | 通过 | 第 5 节；仓库只保留 `.env.example` |
-| 空数据库可完整迁移 | 通过 | `DatabaseMigrationIT` 在 MySQL 8.4.11 Testcontainers 空库执行 V1/V2、`validate`、关键约束与 demo 数据幂等性 |
+| 空数据库可完整迁移 | 通过 | `DatabaseMigrationIT` 在 MySQL 8.4.11 Testcontainers 空库执行全部迁移（当前基线 `1,2,4,5,6,7`）、`validate`、关键约束与 demo 数据幂等性 |
 | 测试工具与关键场景明确 | 通过 | 第 7、8 节 |
 | CI 可从干净检出运行 | 通过 | `.github/workflows/ci.yml` 固定 JDK 21、Node 24.20.0、pnpm 12.3.4，并分为 backend、frontend、core E2E 三个 Job；同等本地命令已通过，且 PR #5、#6、#7、#8 上三个 job 均全绿 |
 | 前端样式闸门可执行 | 通过 | `frontend/stylelint.config.js` 已挂进 `pnpm lint`（2026-09-23），设计 token 六轴从书面约定变为可执行规则；CI 的 `frontend-verify` job 未改动即获得覆盖 |
@@ -443,7 +443,7 @@ pnpm --dir frontend dev
 | 跨存储失败顺序明确 | 通过 | 第 7 节；故障测试列明 |
 | API 映射到页面或后台任务 | 通过 | 第 11 节 |
 
-工程准备状态：**Ready，且 M0 工程底座已完成并合并**。工程、迁移、公共契约和 CI Workflow 已创建并实际运行（PR #5、#6、#7、#8 上 `backend-verify`、`frontend-verify`、`core-e2e` 三个 job 均全绿）。进度：阶段 1 Auth 身份入口（PR #5）、前端外壳与页面骨架（PR #6）、第 3 步完整动态 RBAC 含管理端五页（PR #8，合并提交 `f15468c`）均已完成；**当前按 `docs/implementation-plan.md` 进入阶段 2 员工创建与查询**（`TASK-020`～`TASK-023-MVP`，分支 `flow-desk/ticket-employee-flow`）。
+工程准备状态：**Ready，且 M0 工程底座已完成并合并**。工程、迁移、公共契约和 CI Workflow 已创建并实际运行（PR #5、#6、#7、#8 上 `backend-verify`、`frontend-verify`、`core-e2e` 三个 job 均全绿）。进度：阶段 1 Auth 身份入口（PR #5）、前端外壳与页面骨架（PR #6）、第 3 步完整动态 RBAC 含管理端五页（PR #8，合并提交 `f15468c`）均已完成；阶段 2 员工创建与查询（PR #9）、阶段 3 IT 处理闭环（PR #10）、阶段 4 收口（PR #11～#13）与完整版 backlog 第 1 项「完整工单状态机」（PR #14～#18）均已完成；前端**页模板与页面契约**经 PR #19 合并 `main`；当前分支 `flow-desk/attachments-and-relations` 推进 backlog 第 2 项「附件与关联」。
 
 ## 13. 版本核验来源
 

@@ -523,6 +523,10 @@ public interface TicketMapper extends BaseMapper<Ticket> {
      * <p>三列必须**在同一条 UPDATE 里**写入：{@code ck_ticket_cancel_request_pair} 要求三列同生同灭。
      * 状态不在 SET 里，因此不必动 {@code action_deadline_at}，也就不会撞期限约束——
      * 这一点与 {@link #cancel} 恰好相反（那条必须清期限）。</p>
+     *
+     * <p><b>2026-10-10 裁决已改口径、实现待落地</b>：{@code cancel_requested_at IS NULL} 届时放宽为
+     * 「没有未过期的请求」（{@code cancel_requested_at IS NULL OR cancel_request_deadline_at <= now}），
+     * 已过期的请求由新请求直接替换、不再返回 409，见 {@code docs/implementation-plan.md} 9.3 待改清单 ①。</p>
      */
     @Update("""
     UPDATE ticket
@@ -558,6 +562,15 @@ public interface TicketMapper extends BaseMapper<Ticket> {
      *
      * <p>{@code cancel_requested_at IS NOT NULL} 与版本一起进 WHERE：批准、拒绝、提交人撤回
      * 三者并发时只有一条能命中，另外两路拿到 409 而不是互相覆盖。</p>
+     *
+     * <p><b>状态白名单不含「待补充」</b>（2026-10-10 用户裁决）：负责人刚把球交给员工，
+     * 不允许在信息不全的时候终止整张工单——批准与拒绝只在「处理中」与「待确认」开放。
+     * 请求本身仍合法地留在工单上（{@code ck_ticket_cancel_request_status} 允许它停在待补充），
+     * 员工补充完、工单回到「处理中」即可裁决，响应期限不重算。</p>
+     *
+     * <p><b>2026-10-10 裁决已改口径、实现待落地</b>：这条 UPDATE 届时还要加「请求未过期」的条件，
+     * {@link #rejectCancel} 与 {@link #withdrawCancelRequest} 同样要加——期限届满后三条路一起关闭，
+     * 见 {@code docs/implementation-plan.md} 9.3 待改清单 ①。</p>
      */
     @Update("""
     UPDATE ticket
@@ -573,7 +586,7 @@ public interface TicketMapper extends BaseMapper<Ticket> {
     WHERE id = #{ticketId}
       AND version = #{expectedVersion}
       AND assignee_id = #{actorId}
-      AND status IN ('PROCESSING', 'WAITING_FOR_REQUESTER', 'WAITING_FOR_CONFIRMATION')
+      AND status IN ('PROCESSING', 'WAITING_FOR_CONFIRMATION')
       AND cancel_requested_at IS NOT NULL
     """)
     int approveCancel(
@@ -588,6 +601,9 @@ public interface TicketMapper extends BaseMapper<Ticket> {
      * <p>与 {@link #approveCancel} 形状相同、只有状态迁移那一行不同。刻意写成两条独立的 SQL，
      * 与 {@link #withdrawSupplementRequest} / {@link #supplement} 同一理由：
      * "批准还是拒绝"是业务判定本身，参数化会让它从 SQL 里消失。</p>
+     *
+     * <p>状态白名单与 {@link #approveCancel} 一样不含「待补充」（2026-10-10 用户裁决）：
+     * 待补充期间不裁决，员工补充完、工单回到「处理中」再拒绝。</p>
      */
     @Update("""
     UPDATE ticket
@@ -600,7 +616,7 @@ public interface TicketMapper extends BaseMapper<Ticket> {
     WHERE id = #{ticketId}
       AND version = #{expectedVersion}
       AND assignee_id = #{actorId}
-      AND status IN ('PROCESSING', 'WAITING_FOR_REQUESTER', 'WAITING_FOR_CONFIRMATION')
+      AND status IN ('PROCESSING', 'WAITING_FOR_CONFIRMATION')
       AND cancel_requested_at IS NOT NULL
     """)
     int rejectCancel(

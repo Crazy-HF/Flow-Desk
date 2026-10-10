@@ -617,12 +617,12 @@ class TicketQueryServiceIT {
     }
 
     /**
-     * 两阶段撤销在真实行上的表现：待决请求存在时提交人换成"撤回"、负责人多出"批准/拒绝"，
-     * 详情同时返回请求本身（说明与响应期限）。
+     * 两阶段撤销在真实行上的表现：待决请求存在时提交人换成"撤回"、负责人在可裁决状态上多出
+     * "批准/拒绝"，详情同时返回请求本身（说明与响应期限）。
      *
      * <p>请求期间工单状态不变，因此界面只能靠 {@code cancelRequest} 判断"IT 正在等批准"；
      * 这里直接用 SQL 置位三列，顺带证明 {@code ck_ticket_cancel_request_status}
-     * 允许这三个状态挂请求。</p>
+     * 允许这三个状态挂请求——包括自 2026-10-10 起**不裁决**的「待补充」。</p>
      */
     @Test
     void pendingCancelRequestSwapsRequesterActionAndOffersDecisionToAssignee() {
@@ -680,9 +680,11 @@ class TicketQueryServiceIT {
                         "request-supplement", "change-category", "change-priority",
                         "transfer", "close", "approve-cancel", "reject-cancel");
         assertThat(ticketQueryService.detail(supplementNo).allowedActions())
-                .as("待补充上的负责人同样多出批准与拒绝两格")
+                .as("待补充期间不裁决（2026-10-10 裁决）：请求还在，两格不出现，"
+                        + "但转交与撤回补充请求照常")
                 .containsExactly("withdraw-supplement-request", "change-category",
-                        "change-priority", "transfer", "approve-cancel", "reject-cancel");
+                        "change-priority", "transfer")
+                .doesNotContain("approve-cancel", "reject-cancel");
         assertThat(ticketQueryService.detail(waitingRequestedNo).allowedActions())
                 .as("待确认上的负责人本来没有动作，有待决请求时才多出两格")
                 .containsExactly("approve-cancel", "reject-cancel");

@@ -1120,9 +1120,13 @@ class TicketQueryServiceImplTest {
      *
      * <p>两格共用同一条判定，因此必须成对出现——只给一格会让人以为另一种选择不存在；
      * 位置由装配顺序决定，排在所有处理动作之后。</p>
+     *
+     * <p><b>「待补充」刻意不在这个参数化里</b>（2026-10-10 用户裁决）：那时不裁决，
+     * 两格都不出现，由下面 {@code detailWithholdsApproveAndRejectWhileTheTicketWaitsForTheRequester}
+     * 单独钉住。</p>
      */
     @ParameterizedTest(name = "assignee decides the pending request on {0}")
-    @MethodSource("cancelRequestableStatusesWithActionsForAssignee")
+    @MethodSource("decidableStatusesWithActionsForAssignee")
     void detailOffersApproveAndRejectToTheAssigneeHoldingAPendingRequest(
             String status, List<String> expectedActions) {
         stubCurrentUser(IT_USER_ID);
@@ -1134,15 +1138,31 @@ class TicketQueryServiceImplTest {
                 .containsExactlyElementsOf(expectedActions);
     }
 
-    static Stream<Arguments> cancelRequestableStatusesWithActionsForAssignee() {
+    static Stream<Arguments> decidableStatusesWithActionsForAssignee() {
         return Stream.of(
                 Arguments.of(PROCESSING, List.of("add-processing-record", "submit-resolution",
                         "request-supplement", "change-category", "change-priority",
                         "transfer", "close", "approve-cancel", "reject-cancel")),
-                Arguments.of(WAITING_FOR_REQUESTER, List.of("withdraw-supplement-request",
-                        "change-category", "change-priority", "transfer",
-                        "approve-cancel", "reject-cancel")),
                 Arguments.of(WAITING_FOR_CONFIRMATION, List.of("approve-cancel", "reject-cancel")));
+    }
+
+    /**
+     * 待补充期间不裁决（2026-10-10 用户裁决）：请求还在工单上，但批准与拒绝两格都不出现。
+     *
+     * <p>与上面那条分开写而不是塞进参数化：这里期望的恰恰是"少两格"，而 4.11 已确认的
+     * 转交与撤回补充请求必须原样保留——一起断言才能证明冻结的只是裁决，不是整个动作区。</p>
+     */
+    @Test
+    void detailWithholdsApproveAndRejectWhileTheTicketWaitsForTheRequester() {
+        stubCurrentUser(IT_USER_ID);
+        grant("TICKET_PROCESS", "TICKET_CLOSE", "TICKET_TRANSFER");
+        stubVisible(detailRowWithCancelRequest(WAITING_FOR_REQUESTER, IT_USER_ID, 3L));
+
+        assertThat(service.detail(TICKET_NO).allowedActions())
+                .as("待补充期间只冻结裁决：转交与撤回补充请求照常")
+                .containsExactly("withdraw-supplement-request", "change-category",
+                        "change-priority", "transfer")
+                .doesNotContain("approve-cancel", "reject-cancel");
     }
 
     /**

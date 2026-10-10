@@ -1,6 +1,25 @@
 # FlowDesk 项目状态
 
-## 当前结论：两阶段撤销**已收口并通过真实栈验收**（178/178、退出码 0），等待分支交接（2026-10-08，分支 `flow-desk/ticket-two-phase-cancel`）
+## 片 E（两阶段撤销）**已交接完成**：PR #18 → `2cf1bc1`，CI 三个 job 全绿；当前分支 `flow-desk/attachments-and-relations`（主题：附件与关联，2026-10-08）
+
+- **交接结果（2026-10-08）**：四条提交 `ed419de`（后端实现与 V7）、`c695133`（测试补齐）、`9a984f6`（前端与 E2E）、`d0c224c`（验收脚本与证据、契约与状态文档）经 **[PR #18](https://github.com/Crazy-HF/Flow-Desk/pull/18)** 以 merge commit 合并 `main`（合并提交 **`2cf1bc1`**，基线 `95eee90`）；CI 运行 **[37902111061](https://github.com/Crazy-HF/Flow-Desk/actions/runs/37902111061)** 三个 job 首轮全绿（`frontend-verify` 46s、`core-e2e` 2m50s、`backend-verify` 2m50s）。本地 `main` 已仅快进到 `2cf1bc1`，随后从最新 `main` 创建 **`flow-desk/attachments-and-relations`**（用户 2026-10-08 指定的下一方向：先做**附件与关联**，之后再做**撤销请求到期语义（到期前提醒 + 到期自动失效并写记录）与 IT 列表「待我批准」筛选**）。
+- **2026-10-10 事实更新**：`main` 已前进到 **`95633f0`**（[PR #19](https://github.com/Crazy-HF/Flow-Desk/pull/19)「页模板与页面契约」在另一工作树完成并合并）；本分支基点为 `2cf1bc1`，**落后 `main` 3 个提交**——继续开发或交接前需先把 `main` 合并进本分支；工作树里被取代的旧草稿 `frontend/PAGE-TEMPLATE.md`（未跟踪）会挡住合并，需先删除或改名。
+- **以下为该片 E 的交付记录**（标题里的"等待交接"写在合并之前，按项目惯例保留原样不追改）。
+
+## 2026-10-10 用户五项集中裁决：撤销语义收口、推进顺序与超时归属（**只改文档，未改代码**）
+
+- **范围**：只改文档（`docs/kickoff.md`、`docs/business-model.md`、`docs/api-design.md`、`docs/database-design.md`、`docs/implementation-plan.md`、`docs/project-highlights.md`、`README.md`、`AGENTS.md` 与本文件）；**未动任何生产代码、测试与验收脚本，未提交、未推送**（提交需用户明确授权）。与同日另两节（规则正文补齐、对标分析与一致性修正）是并列的三项文档工作，互不覆盖。
+- **五项裁决（2026-10-10 用户集中确认）**：
+  1. **撤销请求到期语义按建议执行**：期限届满后批准 / 拒绝 / 撤回三个动作一起关闭（`409`），工单保持原状态、不自动取消；**「重新发起」不设终身次数上限**（同一时刻只允许一个有效请求，每次到期后都可以再发起一次），过期请求**保留在工单上并以「已过期」呈现**，直到被新请求替换（替换时补写 `CANCELLATION_REQUEST_EXPIRED` 记录）或工单进入终态；「先撤回再重新发起」这条路径不存在（撤回同样被关闭）。**实现状态：待改**，清单见 `docs/implementation-plan.md` 9.3 的 ①～⑧。
+  2. **超时自动任务的归属**：待确认自动完成（`docs/kickoff.md` 4.9）与待补充自动关闭（4.12）与**通知 / 通信通道**一并落地——通道是它们的共同前置（`docs/implementation-plan.md` 9.4 第 1 项）。在此之前期限只用于展示，界面必须写明"到期不会自动处理"。**待实现**。
+  3. **IT 侧发现路径与本批同批**：IT 列表「待我批准」筛选与到期语义**同一批**实施，两者**共用同一判定**——「本人是当前负责人 且 工单上有未过期的待决请求」（其上再叠加 `TICKET_PROCESS` 与「待补充期间不裁决」两条既有条件），不允许列表与详情各写一份判定；落地时连带补索引，`V7` 的「不新增索引」不再是结论。**待实现**。
+  4. **附件与关联的顺序**：先做**关联**（轻——`ticket_relation` 已在 `V1`，不涉及文件存储与失败补偿），再做**附件**（重）。
+  5. **管理性交接的位置**：排在撤销语义收口（第 3 条那一批）**之后**。
+- **由此确定的推进顺序（取代此前表述里的模糊处）**：**关联 → 附件 → ①③ 撤销语义收口（含 IT「待我批准」筛选与索引）→ 管理性交接（backlog 4）→ 通知 / 通信通道 + 两个超时自动任务（backlog 3）**。本文件、`AGENTS.md` 与 `docs/implementation-plan.md` 第 9 节三处同日一致。
+- **一处派生细节（由已确认内容推导，已写入契约）**：列表的「可批准」判定必须叠加 4.11 的「待补充期间不裁决」，否则会出现「列表显示可批准、点进去只有 `409`」——因此处于「待补充」的工单不出现在「待我批准」里，员工补充完、工单回到处理中后自动恢复；列表项响应**不**增加待决请求字段（该判定只用于筛选），待决请求仍只在详情返回。
+- **下一步（供交接使用）**：① 分支接手前先把 `main`（`95633f0`）合并进 `flow-desk/attachments-and-relations`（先删除或改名被取代的旧草稿 `frontend/PAGE-TEMPLATE.md`）；② 按第 4 条先做**关联**；③ ①③ 批次落地时的完整待改清单、探针反向断言要求与验收证据重跑口径见 `docs/implementation-plan.md` 9.3 的规则变更登记。
+
+## 交付记录：片 E（两阶段撤销）
 
 - **本轮主题**：**两阶段撤销**（`docs/kickoff.md` 4.7 的规则变更，替换片 D 的「四种非终态直接撤销」）——待受理仍由提交人直接撤销；处理中、待补充、待确认下提交人只能**发起撤销请求**，由**当前负责人批准或拒绝**，提交人可自行撤回。用户 2026-10-08 一次性确认五个设计点（中间态用 `ticket` 三列表达、状态机保持 7 个状态；批准/拒绝用 `TICKET_PROCESS`，发起/撤回用 `TICKET_REQUESTER_ACTION`；请求期限默认 `3d` 但**到期不自动处置**；请求期间 IT 其它动作照常可用；提交人可撤回），随后由用户编写 `TicketServiceImpl` 的四个方法，Agent 写入基础件并在复核中修正三处会直接出错的实现。
 - **改动清单（23 个文件修改：16 个生产代码 + 7 个测试；外加 1 个新迁移）**：`V7__add_cancel_request.sql`（三列 + `ck_ticket_cancel_request_pair` / `ck_ticket_cancel_request_status` + 同一条 `ALTER` 重建 `ck_ticket_record_type` 扩 4 个记录类型）；`Ticket` 三字段、`TicketProperties.cancelRequestWindow`（默认 `3d`、下限 `1m`）与 `application.yml`；四个 Command 与 `TicketCancelRequestResult`；`TicketService` 四个方法、`TicketController` 四个端点、`TicketMapper` 四条条件更新；`TicketQueryServiceImpl` 的四格 `allowedActions`、三项判定、详情 `cancelRequest` 与 `toRecordContext` 四个 `case`；`cancel` 收窄到 `PENDING`；`closeManually` / `confirmResolution` 一并清空请求三列。
@@ -12,8 +31,26 @@
 - **一处已知的实测覆盖缺口（如实记录）**：三组并发里 `close vs approve`（`a11c`）在 4 次运行中**全部由「关闭」获胜**，"批准赢"那一支只有对称的断言、没有实测样本；另两组（`approve vs reject`、`approve vs withdraw`）三次运行赢家各不相同，两个分支都被实测覆盖过。该竞争的"唯一胜者 + 败者 409"由 `TicketServiceIT.concurrentCloseAndApproveCancelOnSameTicketHaveExactlyOneWinner` 在集成层稳定覆盖，故未额外加压重跑。
 - **文档已同步（本轮）**：`docs/kickoff.md` 4.7（表格 / 规则 / 状态图）与 4.8/4.9/4.11/4.12/5.2 的交叉引用、`docs/business-model.md`（角色职责、状态说明、记录类型）、`docs/database-design.md`（记录类型、`ticket` 三列、CHECK 约束与 `V7` 变更说明）、`docs/api-design.md`（5.4 的 `cancelRequest`、6.3/6.4 动作表与实现条目、17 格 `allowedActions`、6.6 并发、第 9 节权限表、**10.1 的冲突字段名改正为 `version` / `status`**）、`docs/implementation-plan.md`（backlog 备注、9.3 的五个设计点确认结果与交付记录）、`README.md`（Flyway 版本与"已知限制"两条）、`docs/project-highlights.md` HL-013、`AGENTS.md`、本文件。
 - **收尾清理（已执行）**：本轮 E2E 与验收在演示库留下的行已按主键删除（工单 id 242–267 及其记录/参与/关联、用户 id 69–72 及其用户角色），演示库回到基线 **工单 0 / 记录 0 / 参与者 0 / 关联 0 / 用户 6 / 用户角色 8 / 角色 3 / 角色权限 14 / 分类 5**；E2E 覆写过的 43 个已跟踪评审产物已 `git checkout` 还原。**未删任何非本轮创建的行**（3 个历史 `E2E_ticket_isolation_*` 账号保留）。
-- **下一步**：分支交接（提交 / 推送 / PR / CI / 合并 / 同步 `main` / 从最新 `main` 建下一分支）——用户 2026-10-08 已授权本次交接，并指定后续方向为**附件与关联（backlog 2）**，之后再做**撤销请求到期语义（到期前提醒 + 到期自动失效并写记录）与 IT 列表「待我批准」筛选**。
+- **下一步（本片已交接，方向按用户 2026-10-08 指定）**：① **附件与关联（完整版 backlog 2）**——受控上传/下载、类型与大小限制、暂存与最终目录同卷 + 原子移动、失败补偿与孤儿对账、后续/重复工单关系；`FLOWDESK_ATTACHMENT_ROOT` 与 `ticket_attachment`（`V1`）已就位，片 B 的 `supplement` 目前只接受正文，正是它的落点。② 之后做**撤销请求到期语义**：到期前提醒 + **到期自动失效并写记录**，并给 IT 列表加「待我批准」筛选（需要连索引一起设计——`V7` 的"不新增索引"正基于当时"待决请求不是查询维度"这个前提）。③ 超时自动任务（待确认自动完成、待补充自动关闭）与 ① 的落点相邻，可一并评估。
 - **演示库版本**：已升到 **V7**（本轮启动 8092 后端时应用，迁移只增列与约束，不回滚），8081 上用户自己的后端全程未被触碰（本轮 8081 全程无进程监听）。
+
+## 文档同步：撤销功能的规则正文补齐（2026-10-10，当前分支 `flow-desk/attachments-and-relations`）
+
+- **范围**：只改文档，未动任何生产代码、测试与验收证据；未提交、未推送（提交需用户明确授权）。
+- **规则正文补齐（`docs/kickoff.md` 4.7 的规则清单 + 同节末「规则补记」）**：① 期限不进任何判定——请求过期后仍可批准、拒绝或撤回；② 待决请求不因工单被推进（补充信息、反馈未解决、提交解决结果、调整分类或优先级）而失效，负责人用最新版本即可批准；③ 转交后批准或拒绝的权利**随当前负责人转移**、响应期限不重算；④ 终态失效**不单独写时间线事件**（人工关闭只写 `CLOSURE`、员工确认只写 `COMPLETION`）。另有「负责人被停用或失去 `IT_SUPPORT` 后请求悬置在待批准、出口是尚未实现的管理性交接」这条能力缺口的说明。同一口径落到 `docs/business-model.md`（4.2 末）、`docs/api-design.md`（5.4 与 6.3 的期限口径）、`docs/database-design.md`（期限列与 `V7` 索引前提）。
+- **backlog 登记（`docs/implementation-plan.md` 第 9 节）**：第 3 项补入**撤销请求到期语义**（到期前提醒 + 到期自动失效并写记录）；新增**第 7 项「撤销请求的待办发现」**（IT 列表「待我批准」筛选 + 到期前提醒，需连同索引一起设计，届时 `V7` 的「不新增索引」前提失效）；第 4 项补注管理性交接是该场景的既有出口。两项正是用户 2026-10-08 指定的后续方向。
+- **修正的陈旧表述**：`docs/kickoff.md` 4.7 实施记录里「前端动作区、真实栈验收与状态文档在后续轮次完成」已改为已完成（PR #18 → `2cf1bc1`）；`docs/project-highlights.md` HL-013 的「分支尚未合并 `main`」与「仍需补的测试」列表（该列表已由 `TicketControllerWebTest`、`TicketQueryServiceImplTest` / `TicketQueryServiceIT`、`TicketServiceIT` 满足）；`README.md`「已知限制」补入到期语义与 IT 侧发现路径两条。
+- **仍然存在的覆盖缺口（未补，如实记录）**：转交后决策权转移、请求跨状态存活这两条交互边界**只有实现层面的事实、没有用例**——片 E 验收脚本里没有任何 `transfer` / 转交组合（本次核对确认 0 处命中），`docs/implementation-plan.md` 9.3 已加 2026-10-10 的补充登记。
+- **2026-10-10 用户裁决（规则变更，待实现）：撤销请求到期即失效**——期限届满后批准、拒绝、撤回三个动作**全部不允许**，员工可以**重新发起**并覆盖已过期的那一份，覆盖时先补写一条「已过期」的时间线记录（需新增一个记录类型与一条迁移）。该裁决取代本节上方「规则正文补齐」① 里「过期仍可批准」的口径以及 2026-10-08 设计点 ③ 的后半句（工单仍**不**因到期自动取消，这一点不变）。规则文本已按新口径改到 `docs/kickoff.md` 4.7、`docs/api-design.md` 5.4/6.3、`docs/database-design.md`、`docs/project-highlights.md`、`README.md`，并统一标注**待实现**；`docs/implementation-plan.md` 9.3 登记了 7 条待改清单（含把现有「回填期限到过去仍可批准」的验收探针**反向断言**、`slice-e` 证据重跑）。**代码、测试、验收脚本一律未动。**
+- **2026-10-10 用户裁决（规则变更，已实现）：待补充期间不裁决撤销请求**——用户选择推荐方案 **A**：工单处于 `WAITING_FOR_REQUESTER` 时，批准 / 拒绝撤销申请**不再开放**（员工补充完、工单回到处理中后裁决权恢复，请求与响应期限保留、不重算）；**保留** 4.11 已确认的「可转交」「可撤回补充请求」，也保留提交人自己撤回撤销请求的能力。方案 B 未采用，4.11 的两条规则不改。**实现（用户授权「直接修改即可，不用跑全量测试 + 8092 验收」）**：`TicketMapper.approveCancel` / `rejectCancel` 的 `WHERE status` 去掉 `WAITING_FOR_REQUESTER`；`TicketServiceImpl` 新增 `isCancelDecidableStatus`（处理中 + 待确认）用于批准 / 拒绝的服务层闸门（发起与撤回仍按三态 `isCancelRequestableStatus`）；`TicketQueryServiceImpl` 新增同名判定并收窄 `canDecideCancelRequest`（批准与拒绝共用）；前端 `TicketDetailView.vue` 的「撤销申请待处理」块补第四种文案——待补充的负责人读到"等提交人补充、补充回来再由你决定"，不再对他说"正在等待当前负责人处理"。**验证（实跑）**：`.\mvnw.cmd -B test "-Dtest=TicketServiceImplTest,TicketQueryServiceImplTest,TicketControllerWebTest"` → **544 项全绿**；`.\mvnw.cmd -B verify "-Dit.test=TicketServiceIT,TicketQueryServiceIT" "-Dtest=NoSuchTestClass" "-Dsurefire.failIfNoSpecifiedTests=false"` → **66 项全绿**（Testcontainers 真实 MySQL 8.4.11，空库 Flyway 到 `V7`）；前端 `pnpm test:unit --run src/views/work/TicketDetailView.test.ts` → **42 项通过**，`typecheck` / `lint` 退出码 0。**未跑（按用户要求）**：全量 `clean verify`、全量前端 E2E、`slice-e` 真实栈验收。`scripts/slice-e-two-phase-cancel-acceptance.ps1` 已同步改主链（新增 `Send-SupplementAction`；新增 a3b 组：待补充上两次裁决 409 + 快照逐字不变 → 员工补充 → 两格恢复；a4/a5 的状态期望随之改为处理中，`CANCELLATION_APPROVED` 的 `from_status` 改 `PROCESSING`；实测 5.1 语法解析零错误、文件 BOM 保留），**但没有执行**——因此 `docs/acceptance/2026-10-08-slice-e-two-phase-cancel.json`（178/178）不再是当前脚本的证据，重跑后才能引用。规则文本已由「待实现」改为「已实现」：`docs/kickoff.md` 4.7（规则条 + 规则补记）、`docs/api-design.md` 6.3 动作表 / 17 格说明 / 6.4、`docs/database-design.md`（该限制不写进 CHECK）、`docs/business-model.md`、`docs/project-highlights.md`、`README.md`、`docs/implementation-plan.md` 9.3 第 ⑦ 条（含完整验证口径）。**仍未实现**：同日的「撤销请求到期即失效」（待改清单 ①～⑥ 不变）。
+
+## 对标分析与一致性修正（2026-10-10，当前分支 `flow-desk/attachments-and-relations`）
+
+- **范围**：按用户 2026-10-10 指示完成三件事并**只改文档**——① 用 agent-reach 检索 GitHub 成熟工单项目做功能对照；② 审计文档与实现的不一致；③ 把结论写入文档。**未动任何生产代码、测试与验收证据；未提交、未推送**（提交需用户明确授权）。与上节（规则正文补齐与两条新裁决）是同日两项独立的文档工作，互不覆盖。
+- **外部对标（11 个项目、官方功能页核对；star 为 2026-10-10 检索值）**：Chatwoot ~37.7k、GLPI ~6.4k、Redmine ~6.0k、Zammad ~6.0k、FreeScout ~4.6k、osTicket ~4.0k、Frappe Helpdesk ~3.4k、MantisBT ~1.8k、iTop ~1.2k、Znuny、OTOBO。结论：成熟系统在"通知—SLA—知识库—报表—自动化—多渠道"上普遍领先；本项目核心链路（状态机、并发、约束与验收证据纪律）深度不低。**候选方向与建议顺序已登记为 `docs/implementation-plan.md` 9.4 节**（全部为候选，待用户裁决，不改变现有边界）。
+- **一致性修正（本轮已改，全部为陈旧/冲突表述）**：① 零角色残留（`docs/database-design.md` 第 61/233/633 行、`docs/business-model.md` 第 185 行"至少一个角色"旧不变量）；② 记录类型补缺（`business-model.md` 5.2 增「分类调整」「优先级调整」两行）；③ 状态集合口径（`docs/kickoff.md` 4.2 补"完整集合为七个"）；④ 契约计数与归属（`docs/api-design.md` 6.3 实现状态段：11 个 IT 动作 / 6 个员工动作、`report-unresolved` 归 6.4、片 E 已随 PR #18 合并）；⑤ 错误码补登（`api-design.md` 10.2 增 `RESOURCE_NOT_FOUND` 兜底行）；⑥ 物理表总览补 `ticket_daily_sequence`（`database-design.md` §16）；⑦ 工程准备文档与实现冲突的补注（覆盖率门禁未启用、CI 三 Job 并行、迁移基线 V1～V7）与阶段陈述更新（`docs/engineering-readiness.md`）；⑧ 当前状态陈旧修正（`README.md` 两处、`docs/implementation-plan.md` 多处"当前阶段"、`AGENTS.md` 的 `V5` 旧注与页模板事实）；⑨ `docs/project-highlights.md` HL-009 按"追加补充说明"惯例标注动作已全量交付。
+- **未修项（按惯例保留）**：历史交付记录与冻结口径（各片交付记录、`project-highlights.md` 各 HL 正文）不逐句改写；`frontend/PAGE-TEMPLATE.md`（未跟踪旧草稿）与 `.trae/specs/`（附件分析规格）的去留待用户决定。
+- **下一步建议**：分支接手前先把 `main`（`95633f0`）合并进本分支（先处理上述两个未跟踪文件）；随后按用户 2026-10-08 的方向顺序推进 backlog 第 2 项「附件与关联」。（**本节已被本文件顶部「2026-10-10 用户五项集中裁决」段取代**，那里的顺序是：关联 → 附件 → ①③ 撤销语义收口 → 管理性交接 → 通信 + 两个超时自动任务。）
 
 ## 片 D 交接结果与工作树现状（历史，2026-10-08）
 
