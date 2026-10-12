@@ -1,0 +1,980 @@
+{
+    "_note":  "本文件由 scripts/ticket-relations-acceptance.ps1 写出（无 BOM 的 UTF-8）。验收范围：完整版 backlog 2「工单关联」——创建后续工单的 sourceTicketNo（可见性校验、带空白编号、无效引用统一 400、幂等重放）、详情 relations[]（OUTGOING/INCOMING 方向、对端摘要四字段、固定排序、空数组）、既有 DUPLICATE 重复关闭路径的回归与两类关联共存，以及匿名 401 / 无 TICKET_CREATE 403 两道闸门。只记录状态码、业务码、traceId、断言结论与 SQL；不含口令、密钥与 accessToken，也不含机器绝对路径。",
+    "stage":  "完整版 backlog 2：工单关联真实栈验收",
+    "slice":  "relations",
+    "date":  "2026-10-12",
+    "result":  "PASS",
+    "invocation":  "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\ticket-relations-acceptance.ps1 -BaseUrl http://127.0.0.1:8092",
+    "script":  {
+                   "path":  "scripts/ticket-relations-acceptance.ps1",
+                   "lines":  1246,
+                   "invocation":  "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\ticket-relations-acceptance.ps1 -BaseUrl http://127.0.0.1:8092",
+                   "powershellVersion":  "5.1.22000.2538",
+                   "exitCode":  0,
+                   "startedAt":  "2026-10-12T11:10:17",
+                   "finishedAt":  "2026-10-12T11:10:33",
+                   "durationSeconds":  16.2,
+                   "baseUrl":  "http://127.0.0.1:8092",
+                   "baseUrlSource":  "param -BaseUrl / 环境变量 FLOWDESK_BASE_URL / 缺省 http://127.0.0.1:8081（PowerShell 5.1 没有 ??，用 param 默认值 + 兜底实现）",
+                   "evidencePath":  "docs/acceptance/2026-10-12-ticket-relations.json"
+               },
+    "target":  {
+                   "baseUrl":  "http://127.0.0.1:8092",
+                   "dbContainer":  "flowdesk-mysql-1",
+                   "database":  "flowdesk",
+                   "originHeader":  "http://127.0.0.1:5173",
+                   "accounts":  [
+                                    "employee",
+                                    "it"
+                                ],
+                   "tempPrincipals":  [
+                                          "viewer=只持 TICKET_VIEW_OWN（403 闸门 + 他人工单夹具）"
+                                      ],
+                   "endpointsUnderTest":  [
+                                              "POST /fd/v1/tickets（sourceTicketNo 可选字段）",
+                                              "GET  /fd/v1/tickets/{ticketNo}（relations[] 字段）",
+                                              "POST /fd/v1/tickets/{ticketNo}/actions/close（DUPLICATE 关联回归）"
+                                          ],
+                   "credentialsPrinted":  false,
+                   "credentialsInEvidence":  false
+               },
+    "preflight":  {
+                      "baseUrl":  "http://127.0.0.1:8092",
+                      "dbAvailable":  true,
+                      "demoFingerprintAt":  "2026-10-12T11:10:22",
+                      "demoCountsBefore":  [
+                                               0,
+                                               0,
+                                               0,
+                                               0,
+                                               6,
+                                               8,
+                                               3,
+                                               14
+                                           ],
+                      "categoryId":  1,
+                      "unknownTicketNo":  "FD-19990101-001"
+                  },
+    "tempPrincipals":  {
+                           "username":  "rl-acc-20261012-111017-viewer",
+                           "userId":  79,
+                           "roleCode":  "RL_ACC_20261012_111017-VIEWER",
+                           "roleId":  127,
+                           "permissionCodes":  [
+                                                   "TICKET_VIEW_OWN"
+                                               ],
+                           "purpose":  "① 别人的待受理工单（不可见引用目标）② 无 TICKET_CREATE 账号的 403 闸门"
+                       },
+    "relationFacts":  {
+                          "originalTicket":  "FD-20261012-001",
+                          "followUpTicket":  "FD-20261012-002",
+                          "relationRow":  "303\t302\tFOLLOW_UP\t1",
+                          "outgoing":  "type=FOLLOW_UP direction=OUTGOING",
+                          "incoming":  "type=FOLLOW_UP direction=INCOMING"
+                      },
+    "duplicateLegacy":  {
+                            "duplicateTicket":  "FD-20261012-004",
+                            "duplicateId":  305,
+                            "itUserId":  2,
+                            "relationTypes":  [
+                                                  "FOLLOW_UP",
+                                                  "FOLLOW_UP",
+                                                  "DUPLICATE"
+                                              ],
+                            "directions":  [
+                                               "INCOMING",
+                                               "INCOMING",
+                                               "INCOMING"
+                                           ]
+                        },
+    "tickets":  {
+                    "original":  "FD-20261012-001",
+                    "followUp":  "FD-20261012-002",
+                    "replay":  "FD-20261012-003",
+                    "duplicate":  "FD-20261012-004",
+                    "foreign":  "RL-FIXTURE-20261012-111017"
+                },
+    "fingerprints":  {
+                         "before":  {
+                                        "at":  "2026-10-12T11:10:22",
+                                        "tickets":  0,
+                                        "records":  0,
+                                        "participants":  0,
+                                        "relations":  0,
+                                        "users":  6,
+                                        "userRoles":  8,
+                                        "roles":  3,
+                                        "rolePermissions":  14,
+                                        "permissions":  14,
+                                        "categories":  5,
+                                        "ticketNos":  "-",
+                                        "ticketRows":  "-",
+                                        "recordRows":  "-",
+                                        "participantRows":  "-",
+                                        "relationRows":  "-",
+                                        "userRows":  "1|employee|ENABLED ;; 2|it|ENABLED ;; 3|admin|ENABLED ;; 42|E2E_ticket_isolation_436217|ENABLED ;; 43|E2E_ticket_isolation_516012|ENABLED ;; 44|E2E_ticket_isolation_596550|ENABLED",
+                                        "userRoleRows":  "1|1 ;; 2|2 ;; 3|1 ;; 3|2 ;; 3|3 ;; 42|1 ;; 43|1 ;; 44|1",
+                                        "roleRows":  "1|EMPLOYEE ;; 2|IT_SUPPORT ;; 3|SYSTEM_ADMIN",
+                                        "rolePermissionRows":  "1|1 ;; 1|2 ;; 1|3 ;; 2|4 ;; 2|5 ;; 2|6 ;; 2|7 ;; 2|8 ;; 2|9 ;; 2|13 ;; 3|10 ;; 3|11 ;; 3|12 ;; 3|15",
+                                        "dailySequence":  "2026-10-06=60 ;; 2026-10-07=35 ;; 2026-10-08=80 ;; 2026-10-09=59",
+                                        "readOk":  true
+                                    },
+                         "after":  {
+                                       "at":  "2026-10-12T11:10:33",
+                                       "tickets":  0,
+                                       "records":  0,
+                                       "participants":  0,
+                                       "relations":  0,
+                                       "users":  6,
+                                       "userRoles":  8,
+                                       "roles":  3,
+                                       "rolePermissions":  14,
+                                       "permissions":  14,
+                                       "categories":  5,
+                                       "ticketNos":  "-",
+                                       "ticketRows":  "-",
+                                       "recordRows":  "-",
+                                       "participantRows":  "-",
+                                       "relationRows":  "-",
+                                       "userRows":  "1|employee|ENABLED ;; 2|it|ENABLED ;; 3|admin|ENABLED ;; 42|E2E_ticket_isolation_436217|ENABLED ;; 43|E2E_ticket_isolation_516012|ENABLED ;; 44|E2E_ticket_isolation_596550|ENABLED",
+                                       "userRoleRows":  "1|1 ;; 2|2 ;; 3|1 ;; 3|2 ;; 3|3 ;; 42|1 ;; 43|1 ;; 44|1",
+                                       "roleRows":  "1|EMPLOYEE ;; 2|IT_SUPPORT ;; 3|SYSTEM_ADMIN",
+                                       "rolePermissionRows":  "1|1 ;; 1|2 ;; 1|3 ;; 2|4 ;; 2|5 ;; 2|6 ;; 2|7 ;; 2|8 ;; 2|9 ;; 2|13 ;; 3|10 ;; 3|11 ;; 3|12 ;; 3|15",
+                                       "dailySequence":  "2026-10-06=60 ;; 2026-10-07=35 ;; 2026-10-08=80 ;; 2026-10-09=59 ;; 2026-10-12=4",
+                                       "readOk":  true
+                                   }
+                     },
+    "keyActions":  [
+                       {
+                           "order":  1,
+                           "step":  "a1.create.original",
+                           "actor":  "employee",
+                           "action":  "create.original",
+                           "method":  "POST",
+                           "path":  "/fd/v1/tickets",
+                           "ticketNo":  "FD-20261012-001",
+                           "httpStatus":  201,
+                           "traceId":  "695f163c-ee7b-4785-847a-66ecbc93d1c5"
+                       },
+                       {
+                           "order":  2,
+                           "step":  "a2.create.followUp",
+                           "actor":  "employee",
+                           "action":  "create.followUp",
+                           "method":  "POST",
+                           "path":  "/fd/v1/tickets",
+                           "ticketNo":  "FD-20261012-002",
+                           "httpStatus":  201,
+                           "traceId":  "53c30c2d-36e7-465a-9b19-e3fb44e53a14"
+                       },
+                       {
+                           "order":  3,
+                           "step":  "a4.replay.first",
+                           "actor":  "employee",
+                           "action":  "create.replay",
+                           "method":  "POST",
+                           "path":  "/fd/v1/tickets",
+                           "ticketNo":  "FD-20261012-003",
+                           "httpStatus":  201,
+                           "traceId":  "c205b082-e5ba-4b5e-82b4-71d592f4b7d7"
+                       },
+                       {
+                           "order":  4,
+                           "step":  "a5.claim",
+                           "actor":  "it",
+                           "action":  "claim",
+                           "method":  "POST",
+                           "path":  "/fd/v1/tickets/FD-20261012-004/actions/claim",
+                           "ticketNo":  "FD-20261012-004",
+                           "httpStatus":  200,
+                           "traceId":  "d9476a98-3e20-430c-903f-fa45b0ee2a20"
+                       },
+                       {
+                           "order":  5,
+                           "step":  "a5.close.duplicate",
+                           "actor":  "it",
+                           "action":  "close.duplicate",
+                           "method":  "POST",
+                           "path":  "/fd/v1/tickets/FD-20261012-004/actions/close",
+                           "ticketNo":  "FD-20261012-004",
+                           "httpStatus":  200,
+                           "traceId":  "40a54009-d629-43a9-b040-0669b71e9eca"
+                       }
+                   ],
+    "dbChecks":  [
+                     {
+                         "name":  "a1.db.original.hasNoRelation",
+                         "sql":  "SELECT COUNT(*) FROM ticket_relation WHERE source_ticket_id = 302 OR target_ticket_id = 302;",
+                         "raw":  "0",
+                         "expected":  "0",
+                         "passed":  true
+                     },
+                     {
+                         "name":  "a2.db.relation.directionAndType",
+                         "sql":  "SELECT source_ticket_id, target_ticket_id, relation_type, created_by FROM ticket_relation WHERE source_ticket_id = 303;",
+                         "raw":  "303\t302\tFOLLOW_UP\t1",
+                         "expected":  "source=303 target=302 type=FOLLOW_UP createdBy=1",
+                         "passed":  true
+                     },
+                     {
+                         "name":  "a2.db.relation.onePerSource",
+                         "sql":  "SELECT COUNT(*) FROM ticket_relation WHERE source_ticket_id = 303 AND relation_type = \u0027FOLLOW_UP\u0027;",
+                         "raw":  "1",
+                         "expected":  "1",
+                         "passed":  true
+                     },
+                     {
+                         "name":  "a3.db.noTicketFromRejectedCreates",
+                         "sql":  "SELECT COUNT(*) FROM ticket WHERE title LIKE \u0027RL-ACC-20261012-111017-无效引用%\u0027;",
+                         "raw":  "0",
+                         "expected":  "0",
+                         "passed":  true
+                     },
+                     {
+                         "name":  "a3.db.noRelationFromRejectedCreates",
+                         "sql":  "SELECT COUNT(*) FROM ticket_relation r JOIN ticket t ON t.id = r.source_ticket_id WHERE t.title LIKE \u0027RL-ACC-20261012-111017-%\u0027;",
+                         "raw":  "1",
+                         "expected":  "1（只算 a2 写入的那一条）",
+                         "passed":  true
+                     },
+                     {
+                         "name":  "a4.db.replay.singleRelation",
+                         "sql":  "SELECT COUNT(*) FROM ticket_relation WHERE source_ticket_id = 304;",
+                         "raw":  "1",
+                         "expected":  "1",
+                         "passed":  true
+                     },
+                     {
+                         "name":  "a4.db.replay.singleTicket",
+                         "sql":  "SELECT COUNT(*) FROM ticket WHERE title LIKE \u0027RL-ACC-20261012-111017-幂等重放\u0027;",
+                         "raw":  "1",
+                         "expected":  "1",
+                         "passed":  true
+                     },
+                     {
+                         "name":  "a5.db.duplicate.relationWritten",
+                         "sql":  "SELECT relation_type, IFNULL(created_by,-1), IFNULL(target_ticket_id,-1) FROM ticket_relation WHERE source_ticket_id = 305;",
+                         "raw":  "DUPLICATE\t2\t302",
+                         "expected":  "DUPLICATE / createdBy=2 / target=302",
+                         "passed":  true
+                     },
+                     {
+                         "name":  "a5.db.duplicate.closeFields",
+                         "sql":  "SELECT status, IFNULL(close_method,\u0027NULL\u0027), IFNULL(close_reason,\u0027NULL\u0027) FROM ticket WHERE id = 305;",
+                         "raw":  "CLOSED\tMANUAL\tDUPLICATE",
+                         "expected":  "CLOSED / MANUAL / DUPLICATE",
+                         "passed":  true
+                     },
+                     {
+                         "name":  "a6.db.noTicketFromForbiddenCreate",
+                         "sql":  "SELECT COUNT(*) FROM ticket WHERE title LIKE \u0027RL-ACC-20261012-111017-无权限创建%\u0027;",
+                         "raw":  "0",
+                         "expected":  "0",
+                         "passed":  true
+                     },
+                     {
+                         "name":  "a7.cleanup.noLeftoverTickets",
+                         "sql":  "SELECT COUNT(*) FROM ticket WHERE title LIKE \u0027RL-ACC-20261012-111017-%\u0027 OR ticket_no = \u0027RL-FIXTURE-20261012-111017\u0027;",
+                         "raw":  "0",
+                         "expected":  "0",
+                         "passed":  true
+                     },
+                     {
+                         "name":  "a7.cleanup.noLeftoverPrincipals",
+                         "sql":  "SELECT (SELECT COUNT(*) FROM iam_user WHERE username = \u0027rl-acc-20261012-111017-viewer\u0027) + (SELECT COUNT(*) FROM iam_role WHERE code = \u0027RL_ACC_20261012_111017-VIEWER\u0027);",
+                         "raw":  "0",
+                         "expected":  "0",
+                         "passed":  true
+                     }
+                 ],
+    "assertions":  [
+                       {
+                           "name":  "preflight.anonymous.create.401",
+                           "expected":  "401 + AUTH_REQUIRED",
+                           "actual":  "status=401 code=AUTH_REQUIRED",
+                           "why":  "创建端点受统一安全链保护；匿名可写意味着整个工单入口失守",
+                           "httpStatus":  401,
+                           "traceId":  "e0f02b81-8df4-4e87-b9b7-46a5ff1c49a1",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "login.employee.200",
+                           "expected":  "200",
+                           "actual":  "status=200 code=OK",
+                           "why":  "创建与详情断言全部由这个身份执行；登录失败说明演示账号口令与 .env/默认值不一致",
+                           "httpStatus":  200,
+                           "traceId":  "f6f7f5ed-f604-4108-8179-79411edb0924",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "login.it.200",
+                           "expected":  "200",
+                           "actual":  "status=200 code=OK",
+                           "why":  "重复关闭回归需要 IT 领取并关闭；登录失败则该组断言无法进行",
+                           "httpStatus":  200,
+                           "traceId":  "0c2b58a9-94a4-4aba-bad6-a1e40f2c09d1",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "categories.options.nonEmpty",
+                           "expected":  "200 且至少一个启用分类",
+                           "actual":  "status=200 count=4",
+                           "why":  "接口建单必须带 categoryId；没有启用分类就没法造出真实的载体工单",
+                           "httpStatus":  200,
+                           "traceId":  "b6491cf1-010c-4a00-8cf1-2ee62094b992",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "preflight.db.available",
+                           "expected":  "1（.env 加载且 docker exec 可查库）",
+                           "actual":  "dbAvailable=True pingOk=True raw=[1]",
+                           "why":  "指纹、关联行直查与清理都依赖数据库直连；不可用时后面所有直查断言都失去意义",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "setup.temp.viewer.created",
+                           "expected":  "临时用户 + 只含 TICKET_VIEW_OWN 的角色建好",
+                           "actual":  "username=rl-acc-20261012-111017-viewer roleCode=RL_ACC_20261012_111017-VIEWER userId=79 roleId=127 exitCode=0 stderr=[]",
+                           "why":  "临时主体是\"他人工单不可见\"与 403 两格的唯一装置；建不出来这两格无法进行",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "setup.foreignTicket.created",
+                           "expected":  "他人待受理工单夹具插入成功",
+                           "actual":  "ticketNo=RL-FIXTURE-20261012-111017 ticketId=301 exitCode=0",
+                           "why":  "它专供\"原工单对提交人不可见 → 400\"这一格；没有它，该格只能跳过",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a1.create.original.201",
+                           "expected":  "201",
+                           "actual":  "status=201 code=OK body=[{\"code\":\"OK\",\"message\":\"操作成功\",\"data\":{\"ticketNo\":\"FD-20261012-001\",\"status\":\"PENDING\",\"version\":0,\"createdAt\":\"2026-10-12T03:10:23.811Z\"}}]",
+                           "why":  "原工单是后续全部断言的地基；这一步失败后面没有可引用的对象",
+                           "httpStatus":  201,
+                           "traceId":  "695f163c-ee7b-4785-847a-66ecbc93d1c5",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a1.detail.original.200",
+                           "expected":  "200",
+                           "actual":  "status=200 code=OK",
+                           "why":  "详情是关联摘要的唯一出口；这一步同时证明目标后端包含工单关联代码",
+                           "httpStatus":  200,
+                           "traceId":  "37510ee9-7121-4915-8496-2c25a666a46d",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a1.detail.relations.fieldPresent",
+                           "expected":  "relations 字段存在（空数组）",
+                           "actual":  "fieldPresent=True count=0；若字段不存在说明目标后端不含 2026-10-12 的关联代码",
+                           "why":  "relations 是本次新增的契约字段；用\"字段存在且为空\"同时证明端点存活与\"无关联返回空数组\"",
+                           "httpStatus":  200,
+                           "traceId":  "37510ee9-7121-4915-8496-2c25a666a46d",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a1.detail.relations.empty",
+                           "expected":  "0 条",
+                           "actual":  "count=0",
+                           "why":  "没有关联的工单必须返回空数组而不是省略字段，界面才能统一按列表渲染",
+                           "httpStatus":  200,
+                           "traceId":  "37510ee9-7121-4915-8496-2c25a666a46d",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a1.db.original.hasNoRelation",
+                           "expected":  "0",
+                           "actual":  "row=[0]",
+                           "why":  "无引用创建不得写关联（关联只在带 sourceTicketNo 的创建里产生）",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a2.create.followUp.201",
+                           "expected":  "201",
+                           "actual":  "status=201 code=OK body=[{\"code\":\"OK\",\"message\":\"操作成功\",\"data\":{\"ticketNo\":\"FD-20261012-002\",\"status\":\"PENDING\",\"version\":0,\"createdAt\":\"2026-10-12T03:10:24.702Z\"}}]",
+                           "why":  "后续工单创建成功是关联写入的前提；400 说明可见性校验把原工单误判为不可见",
+                           "httpStatus":  201,
+                           "traceId":  "53c30c2d-36e7-465a-9b19-e3fb44e53a14",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a2.db.followUp.relationWritten",
+                           "expected":  "1 行：source=后续工单 target=原工单 type=FOLLOW_UP created_by=提交人",
+                           "actual":  "row=[303\t302\tFOLLOW_UP\t1]",
+                           "why":  "方向约定（source = 新工单、target = 原工单）是唯一键与四格标签的共同前提",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a2.db.relation.directionAndType",
+                           "expected":  "source=303 target=302 type=FOLLOW_UP createdBy=1",
+                           "actual":  "row=[303\t302\tFOLLOW_UP\t1]",
+                           "why":  "写入行必须与\"新工单指向原工单\"的方向逐字一致，created_by 记提交人",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a2.db.relation.onePerSource",
+                           "expected":  "1",
+                           "actual":  "row=[1]",
+                           "why":  "唯一键 (source, relation_type) 保证一张单只有一条后续指向",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a2.detail.followUp.oneRelation",
+                           "expected":  "1 条",
+                           "actual":  "count=1",
+                           "why":  "新单视角应恰有一条出向关联",
+                           "httpStatus":  200,
+                           "traceId":  "5dc438a8-8940-41bc-b8a7-d045579531da",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a2.detail.followUp.outgoingShape",
+                           "expected":  "FOLLOW_UP + OUTGOING + FD-20261012-001 + 原工单标题 + PENDING",
+                           "actual":  "type=FOLLOW_UP direction=OUTGOING ticketNo=FD-20261012-001 status=PENDING title=RL-ACC-20261012-111017-原工单",
+                           "why":  "新单视角是\"本单是 source\"→ OUTGOING；摘要的四个字段是前端四格标签之外的全部信息",
+                           "httpStatus":  200,
+                           "traceId":  "5dc438a8-8940-41bc-b8a7-d045579531da",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a2.detail.original.incomingShape",
+                           "expected":  "1 条：FOLLOW_UP + INCOMING + FD-20261012-002",
+                           "actual":  "count=1 type=FOLLOW_UP direction=INCOMING ticketNo=FD-20261012-002",
+                           "why":  "同一行数据在原工单视角必须翻转为 INCOMING——方向是\"相对当前工单\"算的，不是写死的",
+                           "httpStatus":  200,
+                           "traceId":  "ebc16292-73bf-4ae0-8260-6a455c2fd09d",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a3.create.unknownSource.400",
+                           "expected":  "400 + VALIDATION_FAILED",
+                           "actual":  "status=400 code=VALIDATION_FAILED body=[{\"code\":\"VALIDATION_FAILED\",\"message\":\"原工单编号无效\",\"data\":{\"traceId\":\"47cddcc3-25f0-49a9-8528-8169158109bd\"}}]",
+                           "why":  "不存在的编号必须被校验挡住；201 说明后端忽略了 sourceTicketNo（旧构建或字段没接上）",
+                           "httpStatus":  400,
+                           "traceId":  "47cddcc3-25f0-49a9-8528-8169158109bd",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a3.create.invisibleSource.400",
+                           "expected":  "400 + VALIDATION_FAILED",
+                           "actual":  "status=400 code=VALIDATION_FAILED body=[{\"code\":\"VALIDATION_FAILED\",\"message\":\"原工单编号无效\",\"data\":{\"traceId\":\"8cd0318b-d4a2-44c7-82c2-769b34854d8e\"}}]",
+                           "why":  "他人的工单对员工不可见；必须与\"不存在\"同一种 400，不回显他人工单是否存在",
+                           "httpStatus":  400,
+                           "traceId":  "8cd0318b-d4a2-44c7-82c2-769b34854d8e",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a3.db.noTicketFromRejectedCreates",
+                           "expected":  "0",
+                           "actual":  "row=[0]",
+                           "why":  "被拒绝的创建不落工单——校验先于编号分配与插入",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a3.db.noRelationFromRejectedCreates",
+                           "expected":  "1（只算 a2 写入的那一条）",
+                           "actual":  "row=[1]",
+                           "why":  "两条被拒绝的创建都不能写关联；计数为 1 说明只有 a2 的合法引用落了库",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a4.replay.sameTicketNo",
+                           "expected":  "两次都是 201 且编号相同",
+                           "actual":  "first=201/FD-20261012-003 second=201/FD-20261012-003",
+                           "why":  "重放必须返回首次创建结果；编号不同意味着同一次提交建出了两张工单",
+                           "httpStatus":  201,
+                           "traceId":  "3993dce2-256f-4cf2-824b-6d3cd2e4a192",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a4.db.replay.singleRelation",
+                           "expected":  "1",
+                           "actual":  "row=[1]",
+                           "why":  "重放不再写第二条 FOLLOW_UP（唯一键与幂等路径双重保护）",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a4.db.replay.singleTicket",
+                           "expected":  "1",
+                           "actual":  "row=[1]",
+                           "why":  "同一提交键在库里只能有一行",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a5.create.duplicate.201",
+                           "expected":  "201",
+                           "actual":  "status=201 ticketNo=FD-20261012-004",
+                           "why":  "重复关闭回归的载体；失败则该组无法进行",
+                           "httpStatus":  201,
+                           "traceId":  "42ef9f30-7cd0-4206-b411-bb32e6c758c0",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a5.claim.200",
+                           "expected":  "200",
+                           "actual":  "status=200 code=OK",
+                           "why":  "关闭只允许「处理中」的当前负责人；领取失败则关闭无法进行",
+                           "httpStatus":  200,
+                           "traceId":  "d9476a98-3e20-430c-903f-fa45b0ee2a20",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a5.close.duplicate.200",
+                           "expected":  "200",
+                           "actual":  "status=200 code=OK body=[{\"code\":\"OK\",\"message\":\"操作成功\",\"data\":{\"ticketNo\":\"FD-20261012-004\",\"status\":\"CLOSED\",\"assignee\":{\"id\":2,\"displayName\":\"IT 支持人员\"},\"version\":2,\"actionTime\":\"2026-10-12T03:10:27.897Z\"}}]",
+                           "why":  "既有 DUPLICATE 写入路径必须不受本次改动影响（回归）",
+                           "httpStatus":  200,
+                           "traceId":  "40a54009-d629-43a9-b040-0669b71e9eca",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a5.db.duplicate.relationWritten",
+                           "expected":  "DUPLICATE / createdBy=2 / target=302",
+                           "actual":  "row=[DUPLICATE\t2\t302]",
+                           "why":  "重复关闭的既有方向（source=被关闭的本单）必须保持不变",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a5.db.duplicate.closeFields",
+                           "expected":  "CLOSED / MANUAL / DUPLICATE",
+                           "actual":  "row=[CLOSED\tMANUAL\tDUPLICATE]",
+                           "why":  "关闭字段与状态不因本次改动漂移",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a5.detail.relations.count",
+                           "expected":  "3 条（a2/a4 两条 FOLLOW_UP + a5 一条 DUPLICATE）",
+                           "actual":  "count=3 types=FOLLOW_UP,FOLLOW_UP,DUPLICATE",
+                           "why":  "两类关联共存说明唯一键 (source, relation_type) 按预期工作，不是\"一张单只能有一条关联\"",
+                           "httpStatus":  200,
+                           "traceId":  "0453064c-9d5e-441f-a894-b2de5c74d78f",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a5.detail.relations.fixedOrder",
+                           "expected":  "FOLLOW_UP, FOLLOW_UP, DUPLICATE",
+                           "actual":  "types=FOLLOW_UP,FOLLOW_UP,DUPLICATE",
+                           "why":  "排序是契约的一部分：后续关联在前、重复关联在后，界面分组才不会随数据变化",
+                           "httpStatus":  200,
+                           "traceId":  "0453064c-9d5e-441f-a894-b2de5c74d78f",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a5.detail.relations.allIncoming",
+                           "expected":  "全部 INCOMING",
+                           "actual":  "directions=INCOMING,INCOMING,INCOMING",
+                           "why":  "原工单是三组关系的 target，方向必须全部翻转",
+                           "httpStatus":  200,
+                           "traceId":  "0453064c-9d5e-441f-a894-b2de5c74d78f",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a6.login.tempViewer.200",
+                           "expected":  "200",
+                           "actual":  "status=200 code=OK",
+                           "why":  "403 闸门需要真实登录的\"低权限账号\"；登录失败则该格无法进行",
+                           "httpStatus":  200,
+                           "traceId":  "200c1df7-7854-4b31-8d5c-f3a94e113fbd",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a6.create.byTempViewer.403",
+                           "expected":  "403 + ACCESS_DENIED",
+                           "actual":  "status=403 code=ACCESS_DENIED",
+                           "why":  "方法级授权先于请求体语义；没有创建权限的账号连\"原工单是否可见\"都不该被判断",
+                           "httpStatus":  403,
+                           "traceId":  "6967e33e-198a-4a45-9d5d-9b13a19936f1",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a6.db.noTicketFromForbiddenCreate",
+                           "expected":  "0",
+                           "actual":  "row=[0]",
+                           "why":  "被 403 的创建不落任何数据",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a6.detail.tempOwnTicket.200",
+                           "expected":  "200（夹具工单对它的提交人可见）",
+                           "actual":  "status=200 code=OK",
+                           "why":  "夹具工单真实存在且可被它自己的提交人看到，因此员工引用它得到 400 是\"不可见\"而不是\"不存在\"",
+                           "httpStatus":  200,
+                           "traceId":  "11509328-e3a5-431b-a34a-f9de704b7d33",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a6.detail.anonymous.401",
+                           "expected":  "401 + AUTH_REQUIRED",
+                           "actual":  "status=401 code=AUTH_REQUIRED",
+                           "why":  "详情是工单正文的出口；匿名可读意味着数据泄露",
+                           "httpStatus":  401,
+                           "traceId":  "aabbc5bf-5af0-4bc0-8f76-76638d266915",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a7.cleanup.sqlApplied",
+                           "expected":  "退出码 0",
+                           "actual":  "exitCode=0 stderr=[]",
+                           "why":  "本脚本创建的行必须由自己删干净（指纹对照的前提）",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a7.cleanup.noLeftoverTickets",
+                           "expected":  "0",
+                           "actual":  "row=[0]",
+                           "why":  "自建工单与夹具工单都必须删除",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a7.cleanup.noLeftoverPrincipals",
+                           "expected":  "0",
+                           "actual":  "row=[0]",
+                           "why":  "临时用户与临时角色都必须删除（含它们的用户角色与角色权限）",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "a7.fingerprint.unchanged",
+                           "expected":  "运行前与清理后逐项相同（10 项计数 + 逐行指纹）",
+                           "actual":  "before(tickets=0) after(tickets=0) relationsBefore=0 relationsAfter=0",
+                           "why":  "本脚本只允许动自己创建的行；指纹不同意味着动了运行前就存在的行",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       }
+                   ],
+    "httpLog":  [
+                    {
+                        "step":  "preflight.anonymous.create",
+                        "actor":  "anonymous",
+                        "note":  "无令牌创建工单，必须 401",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets",
+                        "status":  401,
+                        "traceId":  "e0f02b81-8df4-4e87-b9b7-46a5ff1c49a1",
+                        "requestTraceId":  "e0f02b81-8df4-4e87-b9b7-46a5ff1c49a1",
+                        "detail":  "actor=anonymous；无令牌创建工单，必须 401；contentType=multipart/form-data（ticket part 携 JSON；sourceTicketNo=(未传)，submissionKey=e640755a-3520-4851-a40d-07bf26ec678e）"
+                    },
+                    {
+                        "step":  "login.employee",
+                        "actor":  "employee",
+                        "note":  "演示员工登录",
+                        "method":  "Post",
+                        "path":  "/fd/v1/auth/login",
+                        "status":  200,
+                        "traceId":  "f6f7f5ed-f604-4108-8179-79411edb0924",
+                        "requestTraceId":  "f6f7f5ed-f604-4108-8179-79411edb0924",
+                        "detail":  "actor=employee；演示员工登录；contentType=application/json"
+                    },
+                    {
+                        "step":  "login.it",
+                        "actor":  "it",
+                        "note":  "演示 IT 登录（重复关闭回归用）",
+                        "method":  "Post",
+                        "path":  "/fd/v1/auth/login",
+                        "status":  200,
+                        "traceId":  "0c2b58a9-94a4-4aba-bad6-a1e40f2c09d1",
+                        "requestTraceId":  "0c2b58a9-94a4-4aba-bad6-a1e40f2c09d1",
+                        "detail":  "actor=it；演示 IT 登录（重复关闭回归用）；contentType=application/json"
+                    },
+                    {
+                        "step":  "categories.options",
+                        "actor":  "employee",
+                        "note":  "读取启用分类，供建单使用",
+                        "method":  "Get",
+                        "path":  "/fd/v1/categories/options",
+                        "status":  200,
+                        "traceId":  "b6491cf1-010c-4a00-8cf1-2ee62094b992",
+                        "requestTraceId":  "b6491cf1-010c-4a00-8cf1-2ee62094b992",
+                        "detail":  "actor=employee；读取启用分类，供建单使用；contentType=application/json"
+                    },
+                    {
+                        "step":  "a1.create.original",
+                        "actor":  "employee",
+                        "note":  "不带 sourceTicketNo 创建原工单",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets",
+                        "status":  201,
+                        "traceId":  "695f163c-ee7b-4785-847a-66ecbc93d1c5",
+                        "requestTraceId":  "695f163c-ee7b-4785-847a-66ecbc93d1c5",
+                        "detail":  "actor=employee；不带 sourceTicketNo 创建原工单；contentType=multipart/form-data（ticket part 携 JSON；sourceTicketNo=(未传)，submissionKey=2e1b668a-9d7d-48fe-b986-714f06da5111）"
+                    },
+                    {
+                        "step":  "a1.detail.original",
+                        "actor":  "employee",
+                        "note":  "读取原工单详情（关联为空）",
+                        "method":  "Get",
+                        "path":  "/fd/v1/tickets/FD-20261012-001",
+                        "status":  200,
+                        "traceId":  "37510ee9-7121-4915-8496-2c25a666a46d",
+                        "requestTraceId":  "37510ee9-7121-4915-8496-2c25a666a46d",
+                        "detail":  "actor=employee；读取原工单详情（关联为空）；contentType=application/json"
+                    },
+                    {
+                        "step":  "a2.create.followUp",
+                        "actor":  "employee",
+                        "note":  "带 sourceTicketNo（含首尾空白）创建后续工单",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets",
+                        "status":  201,
+                        "traceId":  "53c30c2d-36e7-465a-9b19-e3fb44e53a14",
+                        "requestTraceId":  "53c30c2d-36e7-465a-9b19-e3fb44e53a14",
+                        "detail":  "actor=employee；带 sourceTicketNo（含首尾空白）创建后续工单；contentType=multipart/form-data（ticket part 携 JSON；sourceTicketNo=  FD-20261012-001  ，submissionKey=9db4db83-e9a3-435c-9d9f-f3f778a4d30d）"
+                    },
+                    {
+                        "step":  "a2.detail.followUp",
+                        "actor":  "employee",
+                        "note":  "后续工单详情：应返回 OUTGOING 关联",
+                        "method":  "Get",
+                        "path":  "/fd/v1/tickets/FD-20261012-002",
+                        "status":  200,
+                        "traceId":  "5dc438a8-8940-41bc-b8a7-d045579531da",
+                        "requestTraceId":  "5dc438a8-8940-41bc-b8a7-d045579531da",
+                        "detail":  "actor=employee；后续工单详情：应返回 OUTGOING 关联；contentType=application/json"
+                    },
+                    {
+                        "step":  "a2.detail.original",
+                        "actor":  "employee",
+                        "note":  "原工单详情：应返回 INCOMING 关联",
+                        "method":  "Get",
+                        "path":  "/fd/v1/tickets/FD-20261012-001",
+                        "status":  200,
+                        "traceId":  "ebc16292-73bf-4ae0-8260-6a455c2fd09d",
+                        "requestTraceId":  "ebc16292-73bf-4ae0-8260-6a455c2fd09d",
+                        "detail":  "actor=employee；原工单详情：应返回 INCOMING 关联；contentType=application/json"
+                    },
+                    {
+                        "step":  "a3.create.unknownSource",
+                        "actor":  "employee",
+                        "note":  "引用不存在的编号",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets",
+                        "status":  400,
+                        "traceId":  "47cddcc3-25f0-49a9-8528-8169158109bd",
+                        "requestTraceId":  "47cddcc3-25f0-49a9-8528-8169158109bd",
+                        "detail":  "actor=employee；引用不存在的编号；contentType=multipart/form-data（ticket part 携 JSON；sourceTicketNo=FD-19990101-001，submissionKey=64182619-b5cf-4bb8-a9fe-d23cb8402045）"
+                    },
+                    {
+                        "step":  "a3.create.invisibleSource",
+                        "actor":  "employee",
+                        "note":  "引用别人的待受理工单",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets",
+                        "status":  400,
+                        "traceId":  "8cd0318b-d4a2-44c7-82c2-769b34854d8e",
+                        "requestTraceId":  "8cd0318b-d4a2-44c7-82c2-769b34854d8e",
+                        "detail":  "actor=employee；引用别人的待受理工单；contentType=multipart/form-data（ticket part 携 JSON；sourceTicketNo=RL-FIXTURE-20261012-111017，submissionKey=40f3ab4d-317d-4a5e-953a-55b00227af60）"
+                    },
+                    {
+                        "step":  "a4.replay.first",
+                        "actor":  "employee",
+                        "note":  "第一次请求（该提交键）",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets",
+                        "status":  201,
+                        "traceId":  "c205b082-e5ba-4b5e-82b4-71d592f4b7d7",
+                        "requestTraceId":  "c205b082-e5ba-4b5e-82b4-71d592f4b7d7",
+                        "detail":  "actor=employee；第一次请求（该提交键）；contentType=multipart/form-data（ticket part 携 JSON；sourceTicketNo=FD-20261012-001，submissionKey=3104b67d-0be3-4082-a22c-6e6b82c7186f）"
+                    },
+                    {
+                        "step":  "a4.replay.second",
+                        "actor":  "employee",
+                        "note":  "同一提交键第二次请求",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets",
+                        "status":  201,
+                        "traceId":  "3993dce2-256f-4cf2-824b-6d3cd2e4a192",
+                        "requestTraceId":  "3993dce2-256f-4cf2-824b-6d3cd2e4a192",
+                        "detail":  "actor=employee；同一提交键第二次请求；contentType=multipart/form-data（ticket part 携 JSON；sourceTicketNo=FD-20261012-001，submissionKey=3104b67d-0be3-4082-a22c-6e6b82c7186f）"
+                    },
+                    {
+                        "step":  "a5.create.duplicate",
+                        "actor":  "employee",
+                        "note":  "创建将被关闭为重复的工单",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets",
+                        "status":  201,
+                        "traceId":  "42ef9f30-7cd0-4206-b411-bb32e6c758c0",
+                        "requestTraceId":  "42ef9f30-7cd0-4206-b411-bb32e6c758c0",
+                        "detail":  "actor=employee；创建将被关闭为重复的工单；contentType=multipart/form-data（ticket part 携 JSON；sourceTicketNo=(未传)，submissionKey=cb6b83e3-f616-438a-bdb7-a530b7811923）"
+                    },
+                    {
+                        "step":  "a5.claim",
+                        "actor":  "it",
+                        "note":  "IT 领取待关闭工单",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261012-004/actions/claim",
+                        "status":  200,
+                        "traceId":  "d9476a98-3e20-430c-903f-fa45b0ee2a20",
+                        "requestTraceId":  "d9476a98-3e20-430c-903f-fa45b0ee2a20",
+                        "detail":  "actor=it；IT 领取待关闭工单；contentType=application/json"
+                    },
+                    {
+                        "step":  "a5.close.duplicate",
+                        "actor":  "it",
+                        "note":  "按重复原因关闭，目标指向原工单",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261012-004/actions/close",
+                        "status":  200,
+                        "traceId":  "40a54009-d629-43a9-b040-0669b71e9eca",
+                        "requestTraceId":  "40a54009-d629-43a9-b040-0669b71e9eca",
+                        "detail":  "actor=it；按重复原因关闭，目标指向原工单；contentType=application/json"
+                    },
+                    {
+                        "step":  "a5.detail.originalSorted",
+                        "actor":  "employee",
+                        "note":  "原工单详情：后续与重复两类入向关联，按\"后续在前、重复在后\"排序",
+                        "method":  "Get",
+                        "path":  "/fd/v1/tickets/FD-20261012-001",
+                        "status":  200,
+                        "traceId":  "0453064c-9d5e-441f-a894-b2de5c74d78f",
+                        "requestTraceId":  "0453064c-9d5e-441f-a894-b2de5c74d78f",
+                        "detail":  "actor=employee；原工单详情：后续与重复两类入向关联，按\"后续在前、重复在后\"排序；contentType=application/json"
+                    },
+                    {
+                        "step":  "login.tempViewer",
+                        "actor":  "temp-viewer",
+                        "note":  "临时账号登录（只持 TICKET_VIEW_OWN）",
+                        "method":  "Post",
+                        "path":  "/fd/v1/auth/login",
+                        "status":  200,
+                        "traceId":  "200c1df7-7854-4b31-8d5c-f3a94e113fbd",
+                        "requestTraceId":  "200c1df7-7854-4b31-8d5c-f3a94e113fbd",
+                        "detail":  "actor=temp-viewer；临时账号登录（只持 TICKET_VIEW_OWN）；contentType=application/json"
+                    },
+                    {
+                        "step":  "a6.create.byTempViewer",
+                        "actor":  "temp-viewer",
+                        "note":  "无 TICKET_CREATE 的账号创建工单",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets",
+                        "status":  403,
+                        "traceId":  "6967e33e-198a-4a45-9d5d-9b13a19936f1",
+                        "requestTraceId":  "6967e33e-198a-4a45-9d5d-9b13a19936f1",
+                        "detail":  "actor=temp-viewer；无 TICKET_CREATE 的账号创建工单；contentType=multipart/form-data（ticket part 携 JSON；sourceTicketNo=(未传)，submissionKey=ca96a9b5-0a88-4d27-9dd6-c978023b38ba）"
+                    },
+                    {
+                        "step":  "a6.detail.tempOwnTicket",
+                        "actor":  "temp-viewer",
+                        "note":  "临时账号查看自己的夹具工单（证明 400 不是\"编号打错\"）",
+                        "method":  "Get",
+                        "path":  "/fd/v1/tickets/RL-FIXTURE-20261012-111017",
+                        "status":  200,
+                        "traceId":  "11509328-e3a5-431b-a34a-f9de704b7d33",
+                        "requestTraceId":  "11509328-e3a5-431b-a34a-f9de704b7d33",
+                        "detail":  "actor=temp-viewer；临时账号查看自己的夹具工单（证明 400 不是\"编号打错\"）；contentType=application/json"
+                    },
+                    {
+                        "step":  "a6.detail.anonymous",
+                        "actor":  "anonymous",
+                        "note":  "无令牌读取详情",
+                        "method":  "Get",
+                        "path":  "/fd/v1/tickets/FD-20261012-001",
+                        "status":  401,
+                        "traceId":  "aabbc5bf-5af0-4bc0-8f76-76638d266915",
+                        "requestTraceId":  "aabbc5bf-5af0-4bc0-8f76-76638d266915",
+                        "detail":  "actor=anonymous；无令牌读取详情；contentType=application/json"
+                    }
+                ],
+    "sqlExecuted":  [
+                        "SELECT 1;",
+                        "SELECT (SELECT COUNT(*) FROM ticket), (SELECT COUNT(*) FROM ticket_record), (SELECT COUNT(*) FROM ticket_participant), (SELECT COUNT(*) FROM ticket_relation), (SELECT COUNT(*) FROM iam_user), (SELECT COUNT(*) FROM iam_user_role), (SELECT COUNT(*) FROM iam_role), (SELECT COUNT(*) FROM iam_role_permission), (SELECT COUNT(*) FROM iam_permission), (SELECT COUNT(*) FROM ticket_category);",
+                        "SELECT IFNULL(GROUP_CONCAT(ticket_no ORDER BY id SEPARATOR \u0027,\u0027),\u0027-\u0027) FROM ticket;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(ticket_no,\u0027|\u0027,status,\u0027|\u0027,version,\u0027|\u0027,record_seq,\u0027|\u0027,IFNULL(assignee_id,-1),\u0027|\u0027,IF(ended_at IS NULL,\u0027NULL\u0027,\u0027SET\u0027),\u0027|\u0027,IFNULL(close_method,\u0027NULL\u0027),\u0027|\u0027,IFNULL(close_reason,\u0027NULL\u0027),\u0027|\u0027,DATE_FORMAT(updated_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027)) ORDER BY id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM ticket;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(id,\u0027|\u0027,ticket_id,\u0027|\u0027,sequence_no,\u0027|\u0027,record_type,\u0027|\u0027,actor_type,\u0027|\u0027,IFNULL(actor_user_id,-1),\u0027|\u0027,DATE_FORMAT(created_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027)) ORDER BY id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM ticket_record;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(ticket_id,\u0027|\u0027,user_id,\u0027|\u0027,DATE_FORMAT(first_assigned_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027)) ORDER BY ticket_id,user_id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM ticket_participant;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(source_ticket_id,\u0027|\u0027,target_ticket_id,\u0027|\u0027,relation_type,\u0027|\u0027,IFNULL(created_by,-1),\u0027|\u0027,DATE_FORMAT(created_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027)) ORDER BY id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM ticket_relation;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(id,\u0027|\u0027,username,\u0027|\u0027,status) ORDER BY id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM iam_user;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(user_id,\u0027|\u0027,role_id) ORDER BY user_id,role_id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM iam_user_role;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(id,\u0027|\u0027,code) ORDER BY id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM iam_role;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(role_id,\u0027|\u0027,permission_id) ORDER BY role_id,permission_id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM iam_role_permission;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(business_date,\u0027=\u0027,current_value) ORDER BY business_date SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM ticket_daily_sequence;",
+                        "INSERT INTO iam_role (code, name, description, created_at) VALUES (\u0027RL_ACC_20261012_111017-VIEWER\u0027, \u0027工单关联验收临时账号-20261012-111017 角色\u0027, \u0027工单关联真实验收临时角色（脚本创建，收尾删除）\u0027, UTC_TIMESTAMP(3)); INSERT INTO iam_role_permission (role_id, permission_id, granted_by, granted_at) SELECT r.id, p.id, NULL, UTC_TIMESTAMP(3) FROM iam_role r JOIN iam_permission p ON p.code = \u0027TICKET_VIEW_OWN\u0027 WHERE r.code = \u0027RL_ACC_20261012_111017-VIEWER\u0027; INSERT INTO iam_user (username, display_name, password, status, created_at, updated_at, version) SELECT \u0027rl-acc-20261012-111017-viewer\u0027, \u0027工单关联验收临时账号-20261012-111017\u0027, u.password, \u0027ENABLED\u0027, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3), 0 FROM iam_user u WHERE u.username = \u0027employee\u0027; INSERT INTO iam_user_role (user_id, role_id, granted_by, granted_at) SELECT u.id, r.id, NULL, UTC_TIMESTAMP(3) FROM iam_user u JOIN iam_role r ON r.code = \u0027RL_ACC_20261012_111017-VIEWER\u0027 WHERE u.username = \u0027rl-acc-20261012-111017-viewer\u0027;",
+                        "SELECT IFNULL(u.id,-1), IFNULL(r.id,-1) FROM iam_user u LEFT JOIN iam_role r ON r.code = \u0027RL_ACC_20261012_111017-VIEWER\u0027 WHERE u.username = \u0027rl-acc-20261012-111017-viewer\u0027;",
+                        "INSERT INTO ticket (ticket_no, submission_key, requester_id, title, description, category_id, priority, status, record_seq, version, created_at, updated_at) VALUES (\u0027RL-FIXTURE-20261012-111017\u0027, \u0027a2e858e2-8b06-491c-8651-5c91e632bae5\u0027, 79, \u0027RL-ACC-20261012-111017-别人的工单\u0027, \u0027不可见引用目标（脚本造数夹具）\u0027, 1, \u0027MEDIUM\u0027, \u0027PENDING\u0027, 1, 0, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3));",
+                        "SELECT IFNULL(t.id,-1) FROM ticket t WHERE t.ticket_no = \u0027RL-FIXTURE-20261012-111017\u0027;",
+                        "SELECT IFNULL(id,-1), IFNULL(requester_id,-1) FROM ticket WHERE ticket_no = \u0027FD-20261012-001\u0027;",
+                        "SELECT COUNT(*) FROM ticket_relation WHERE source_ticket_id = 302 OR target_ticket_id = 302;",
+                        "SELECT IFNULL(id,-1) FROM ticket WHERE ticket_no = \u0027FD-20261012-002\u0027;",
+                        "SELECT IFNULL(source_ticket_id,-1), IFNULL(target_ticket_id,-1), IFNULL(relation_type,\u0027NULL\u0027), IFNULL(created_by,-1) FROM ticket_relation WHERE source_ticket_id = 303;",
+                        "SELECT source_ticket_id, target_ticket_id, relation_type, created_by FROM ticket_relation WHERE source_ticket_id = 303;",
+                        "SELECT COUNT(*) FROM ticket_relation WHERE source_ticket_id = 303 AND relation_type = \u0027FOLLOW_UP\u0027;",
+                        "SELECT COUNT(*) FROM ticket WHERE title LIKE \u0027RL-ACC-20261012-111017-无效引用%\u0027;",
+                        "SELECT COUNT(*) FROM ticket_relation r JOIN ticket t ON t.id = r.source_ticket_id WHERE t.title LIKE \u0027RL-ACC-20261012-111017-%\u0027;",
+                        "SELECT IFNULL(id,-1) FROM ticket WHERE ticket_no = \u0027FD-20261012-003\u0027;",
+                        "SELECT COUNT(*) FROM ticket_relation WHERE source_ticket_id = 304;",
+                        "SELECT COUNT(*) FROM ticket WHERE title LIKE \u0027RL-ACC-20261012-111017-幂等重放\u0027;",
+                        "SELECT IFNULL(id,-1) FROM ticket WHERE ticket_no = \u0027FD-20261012-004\u0027;",
+                        "SELECT IFNULL(assignee_id,0) FROM ticket WHERE ticket_no = \u0027FD-20261012-004\u0027;",
+                        "SELECT relation_type, IFNULL(created_by,-1), IFNULL(target_ticket_id,-1) FROM ticket_relation WHERE source_ticket_id = 305;",
+                        "SELECT status, IFNULL(close_method,\u0027NULL\u0027), IFNULL(close_reason,\u0027NULL\u0027) FROM ticket WHERE id = 305;",
+                        "SELECT COUNT(*) FROM ticket WHERE title LIKE \u0027RL-ACC-20261012-111017-无权限创建%\u0027;",
+                        "DELETE r FROM ticket_relation r JOIN ticket t ON t.id = r.source_ticket_id WHERE t.title LIKE \u0027RL-ACC-20261012-111017-%\u0027;\nDELETE r FROM ticket_relation r JOIN ticket t ON t.id = r.target_ticket_id WHERE t.title LIKE \u0027RL-ACC-20261012-111017-%\u0027;\nDELETE r FROM ticket_record r JOIN ticket t ON t.id = r.ticket_id WHERE t.title LIKE \u0027RL-ACC-20261012-111017-%\u0027;\nDELETE p FROM ticket_participant p JOIN ticket t ON t.id = p.ticket_id WHERE t.title LIKE \u0027RL-ACC-20261012-111017-%\u0027;\nDELETE FROM ticket WHERE title LIKE \u0027RL-ACC-20261012-111017-%\u0027;\nDELETE ur FROM iam_user_role ur JOIN iam_user u ON u.id = ur.user_id WHERE u.username = \u0027rl-acc-20261012-111017-viewer\u0027;\nDELETE rp FROM iam_role_permission rp JOIN iam_role r ON r.id = rp.role_id WHERE r.code = \u0027RL_ACC_20261012_111017-VIEWER\u0027;\nDELETE FROM iam_role WHERE code = \u0027RL_ACC_20261012_111017-VIEWER\u0027;\nDELETE FROM iam_user WHERE username = \u0027rl-acc-20261012-111017-viewer\u0027;",
+                        "SELECT COUNT(*) FROM ticket WHERE title LIKE \u0027RL-ACC-20261012-111017-%\u0027 OR ticket_no = \u0027RL-FIXTURE-20261012-111017\u0027;",
+                        "SELECT (SELECT COUNT(*) FROM iam_user WHERE username = \u0027rl-acc-20261012-111017-viewer\u0027) + (SELECT COUNT(*) FROM iam_role WHERE code = \u0027RL_ACC_20261012_111017-VIEWER\u0027);",
+                        "SELECT (SELECT COUNT(*) FROM ticket), (SELECT COUNT(*) FROM ticket_record), (SELECT COUNT(*) FROM ticket_participant), (SELECT COUNT(*) FROM ticket_relation), (SELECT COUNT(*) FROM iam_user), (SELECT COUNT(*) FROM iam_user_role), (SELECT COUNT(*) FROM iam_role), (SELECT COUNT(*) FROM iam_role_permission), (SELECT COUNT(*) FROM iam_permission), (SELECT COUNT(*) FROM ticket_category);",
+                        "SELECT IFNULL(GROUP_CONCAT(ticket_no ORDER BY id SEPARATOR \u0027,\u0027),\u0027-\u0027) FROM ticket;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(ticket_no,\u0027|\u0027,status,\u0027|\u0027,version,\u0027|\u0027,record_seq,\u0027|\u0027,IFNULL(assignee_id,-1),\u0027|\u0027,IF(ended_at IS NULL,\u0027NULL\u0027,\u0027SET\u0027),\u0027|\u0027,IFNULL(close_method,\u0027NULL\u0027),\u0027|\u0027,IFNULL(close_reason,\u0027NULL\u0027),\u0027|\u0027,DATE_FORMAT(updated_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027)) ORDER BY id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM ticket;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(id,\u0027|\u0027,ticket_id,\u0027|\u0027,sequence_no,\u0027|\u0027,record_type,\u0027|\u0027,actor_type,\u0027|\u0027,IFNULL(actor_user_id,-1),\u0027|\u0027,DATE_FORMAT(created_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027)) ORDER BY id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM ticket_record;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(ticket_id,\u0027|\u0027,user_id,\u0027|\u0027,DATE_FORMAT(first_assigned_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027)) ORDER BY ticket_id,user_id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM ticket_participant;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(source_ticket_id,\u0027|\u0027,target_ticket_id,\u0027|\u0027,relation_type,\u0027|\u0027,IFNULL(created_by,-1),\u0027|\u0027,DATE_FORMAT(created_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027)) ORDER BY id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM ticket_relation;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(id,\u0027|\u0027,username,\u0027|\u0027,status) ORDER BY id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM iam_user;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(user_id,\u0027|\u0027,role_id) ORDER BY user_id,role_id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM iam_user_role;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(id,\u0027|\u0027,code) ORDER BY id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM iam_role;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(role_id,\u0027|\u0027,permission_id) ORDER BY role_id,permission_id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM iam_role_permission;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(business_date,\u0027=\u0027,current_value) ORDER BY business_date SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM ticket_daily_sequence;"
+                    ],
+    "cleanup":  {
+                    "startedAt":  "2026-10-12T11:10:28",
+                    "sql":  [
+                                "DELETE r FROM ticket_relation r JOIN ticket t ON t.id = r.source_ticket_id WHERE t.title LIKE \u0027RL-ACC-20261012-111017-%\u0027;",
+                                "DELETE r FROM ticket_relation r JOIN ticket t ON t.id = r.target_ticket_id WHERE t.title LIKE \u0027RL-ACC-20261012-111017-%\u0027;",
+                                "DELETE r FROM ticket_record r JOIN ticket t ON t.id = r.ticket_id WHERE t.title LIKE \u0027RL-ACC-20261012-111017-%\u0027;",
+                                "DELETE p FROM ticket_participant p JOIN ticket t ON t.id = p.ticket_id WHERE t.title LIKE \u0027RL-ACC-20261012-111017-%\u0027;",
+                                "DELETE FROM ticket WHERE title LIKE \u0027RL-ACC-20261012-111017-%\u0027;",
+                                "DELETE ur FROM iam_user_role ur JOIN iam_user u ON u.id = ur.user_id WHERE u.username = \u0027rl-acc-20261012-111017-viewer\u0027;",
+                                "DELETE rp FROM iam_role_permission rp JOIN iam_role r ON r.id = rp.role_id WHERE r.code = \u0027RL_ACC_20261012_111017-VIEWER\u0027;",
+                                "DELETE FROM iam_role WHERE code = \u0027RL_ACC_20261012_111017-VIEWER\u0027;",
+                                "DELETE FROM iam_user WHERE username = \u0027rl-acc-20261012-111017-viewer\u0027;"
+                            ],
+                    "finishedAt":  "2026-10-12T11:10:33"
+                },
+    "totals":  {
+                   "total":  43,
+                   "passed":  43,
+                   "failed":  0
+               }
+}
