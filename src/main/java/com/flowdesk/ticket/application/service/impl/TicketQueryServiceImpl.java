@@ -17,6 +17,7 @@ import com.flowdesk.ticket.infrastructure.persistence.TicketListRow;
 import com.flowdesk.ticket.infrastructure.persistence.TicketRecordRow;
 import com.flowdesk.ticket.mapper.TicketMapper;
 import com.flowdesk.ticket.mapper.TicketRecordMapper;
+import com.flowdesk.ticket.mapper.TicketRelationMapper;
 import org.springframework.http.HttpStatus;
 import com.flowdesk.ticket.application.port.TicketReadPermissionPort;
 import com.flowdesk.ticket.infrastructure.persistence.TicketDetailRow;
@@ -64,18 +65,22 @@ public class TicketQueryServiceImpl implements TicketQueryService {
     private final TicketReadPermissionPort ticketReadPermissionPort;
     private final TicketRecordMapper ticketRecordMapper;
     private final TicketClaimantPort ticketClaimantPort;
+    /** 工单有向关联：详情返回关联摘要，方向（OUTGOING/INCOMING）由 SQL 相对本单生成。 */
+    private final TicketRelationMapper ticketRelationMapper;
 
     public TicketQueryServiceImpl(
             TicketMapper ticketMapper,
             CurrentRequesterPort currentRequesterPort,
             TicketReadPermissionPort ticketReadPermissionPort,
             TicketRecordMapper ticketRecordMapper,
-            TicketClaimantPort ticketClaimantPort) {
+            TicketClaimantPort ticketClaimantPort,
+            TicketRelationMapper ticketRelationMapper) {
         this.ticketMapper = ticketMapper;
         this.currentRequesterPort = currentRequesterPort;
         this.ticketReadPermissionPort = ticketReadPermissionPort;
         this.ticketRecordMapper = ticketRecordMapper;
         this.ticketClaimantPort = ticketClaimantPort;
+        this.ticketRelationMapper = ticketRelationMapper;
     }
 
     /**
@@ -549,6 +554,19 @@ public class TicketQueryServiceImpl implements TicketQueryService {
                         row.getCancelRequestReason())
                 : null;
 
+        // 工单关联摘要随详情返回：方向由 SQL 按「本单是 source 还是 target」判定，
+        // 这里只做行到结果的映射；对端工单的详情权限仍在打开对端时独立校验
+        List<TicketRelationResult> relations = ticketRelationMapper
+                .selectRelationsByTicketId(row.getId())
+                .stream()
+                .map(relation -> new TicketRelationResult(
+                        relation.getRelationType(),
+                        relation.getDirection(),
+                        relation.getTicketNo(),
+                        relation.getTitle(),
+                        relation.getStatus()))
+                .collect(Collectors.toList());
+
         return new TicketDetailResult(
                 row.getTicketNo(),
                 row.getTitle(),
@@ -567,7 +585,8 @@ public class TicketQueryServiceImpl implements TicketQueryService {
                 toOffsetDateTime(row.getEndedAt()),
                 toOffsetDateTime(row.getCreatedAt()),
                 toOffsetDateTime(row.getUpdatedAt()),
-                allowedActions);
+                allowedActions,
+                relations);
     }
 
     /**

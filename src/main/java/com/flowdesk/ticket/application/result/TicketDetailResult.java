@@ -21,5 +21,6 @@ public record TicketDetailResult(
         OffsetDateTime endedAt,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt,
-        List<String> allowedActions) {
+        List<String> allowedActions,
+        List<TicketRelationResult> relations) {
 }

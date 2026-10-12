@@ -2186,6 +2186,27 @@ public class TicketServiceImpl implements TicketService {
                     "请选择启用的分类");
         }
 
+        //2.原工单引用：必须是当前提交人有权查看的工单，复用详情同一条可见性 SQL；
+        //  无权查看与编号不存在统一 400，不向调用方回显他人工单是否存在（与「重复工单」同一口径）。
+        //  校验放在编号分配之前：无效引用不会浪费一个当日序号。
+        //  不做自引用校验：此时新编号尚不存在，sourceTicketNo 不可能指向本次要创建的工单
+        TicketDetailRow sourceTicket = null ;
+
+        if (command.sourceTicketNo() != null ) {
+        sourceTicket = ticketMapper.selectVisibleDetail(
+                command.sourceTicketNo(),
+                requesterId,
+                ticketReadPermissionPort.hasAuthority( "TICKET_VIEW_OWN" ),
+                ticketReadPermissionPort.hasAuthority( "TICKET_VIEW_QUEUE" ),
+                ticketReadPermissionPort.hasAuthority( "TICKET_VIEW_PARTICIPATED" ));
+
+        if (sourceTicket == null ) {
+            throw new ApiException (
+                HttpStatus.BAD_REQUEST,
+                    "VALIDATION_FAILED" ,
+                    "原工单编号无效" );
+        }
+    }
         // 2. 同一时刻分别用于 UTC 存储和北京时间编号。
         Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
 
@@ -2242,6 +2263,18 @@ public class TicketServiceImpl implements TicketService {
         if (ticketRecordMapper.insert(record) != 1) {
             throw new IllegalStateException("创建记录插入失败");
         }
+
+        //8.写「后续工单」关联：source = 新工单，target = 原工单（本方法内是同事务写入，失败整体回滚）。
+        //  不写时间线事件：关联只在详情 relations[] 里返回
+        if (sourceTicket != null ) {
+            if (ticketRelationMapper.recordFollowUp(
+                    ticket.getId(),
+                    sourceTicket.getId(),
+                    requesterId,
+                    now) != 1 ) {
+                throw new IllegalStateException ( "后续工单关联写入失败" );
+        }
+    }
 
         return toCreatedResult(ticket);
     }

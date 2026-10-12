@@ -12,6 +12,7 @@ import {
   ticketCloseReasonLabel,
   ticketPriorityTone,
   ticketRecordTypeLabel,
+  ticketRelationLabel,
   ticketStatusLabel,
   ticketStatusTone,
 } from './tickets'
@@ -547,5 +548,18 @@ describe('describeRecordContext', () => {
   it('终态原因文案由同一份映射给出', () => {
     expect(ticketCloseReasonLabel('REQUESTER_NO_RESPONSE')).toBe('提交人逾期未补充信息')
     expect(ticketCloseReasonLabel(null)).toBeNull()
+  })
+
+  /**
+   * 工单关联（2026-10-12）：方向相对**当前工单**，四格合起来是一张固定对照表。
+   *
+   * <p>四格都在这里钉住，是因为它们分散在两张页面上（新建页选原工单、详情页看对端），
+   * 一旦某一格被改错，另一处会跟着一起错，只有"一张表"能保证两处口径一致。</p>
+   */
+  it('工单关联四格标签固定，与后端编码一一对应', () => {
+    expect(ticketRelationLabel('FOLLOW_UP', 'OUTGOING')).toBe('原工单')
+    expect(ticketRelationLabel('FOLLOW_UP', 'INCOMING')).toBe('后续工单')
+    expect(ticketRelationLabel('DUPLICATE', 'OUTGOING')).toBe('重复于')
+    expect(ticketRelationLabel('DUPLICATE', 'INCOMING')).toBe('被重复')
   })
 })

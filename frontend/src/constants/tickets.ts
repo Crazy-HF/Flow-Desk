@@ -2,6 +2,8 @@ import type {
   TicketCloseReason,
   TicketListSort,
   TicketPriority,
+  TicketRelationDirection,
+  TicketRelationType,
   TicketScope,
   TicketStatus,
 } from '@/api/tickets'
@@ -124,6 +126,33 @@ export function ticketPriorityTone(priority: TicketPriority): 'high' | 'medium' 
     return 'high'
   }
   return priority === 'MEDIUM' ? 'medium' : 'low'
+}
+
+/**
+ * 工单关联的固定四格标签（`docs/api-design.md` 5.4，2026-10-12 工单关联）。
+ *
+ * <p>编码由后端给出：`direction` 相对**当前这张工单**（本单是 source 记 `OUTGOING`，
+ * 本单是 target 记 `INCOMING`），`relationType` 说明是什么关系。四格合起来是一张固定对照表，
+ * 中文文案只写在这里一处（与状态、优先级同一层），页面只负责排版：</p>
+ * <ul>
+ *   <li>`FOLLOW_UP + OUTGOING`：本单是后续工单，对端显示为「原工单」；</li>
+ *   <li>`FOLLOW_UP + INCOMING`：本单是原工单，对端显示为「后续工单」；</li>
+ *   <li>`DUPLICATE + OUTGOING`：本单被关闭为重复，对端显示为「重复于」；</li>
+ *   <li>`DUPLICATE + INCOMING`：本单是有效单，对端显示为「被重复」。</li>
+ * </ul>
+ */
+const relationLabels: Record<string, string> = {
+  'FOLLOW_UP:OUTGOING': '原工单',
+  'FOLLOW_UP:INCOMING': '后续工单',
+  'DUPLICATE:OUTGOING': '重复于',
+  'DUPLICATE:INCOMING': '被重复',
+}
+
+export function ticketRelationLabel(
+  relationType: TicketRelationType,
+  direction: TicketRelationDirection,
+): string {
+  return relationLabels[`${relationType}:${direction}`] ?? `${relationType} / ${direction}`
 }
 
 /** 列表状态筛选项；顺序按工单生命周期排，不按编码字母排。 */

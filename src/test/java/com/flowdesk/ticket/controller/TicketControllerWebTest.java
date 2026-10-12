@@ -32,6 +32,7 @@ import com.flowdesk.ticket.application.result.TicketCreatedResult;
 import com.flowdesk.ticket.application.result.TicketDetailResult;
 import com.flowdesk.ticket.application.result.TicketListItemResult;
 import com.flowdesk.ticket.application.result.TicketRecordResult;
+import com.flowdesk.ticket.application.result.TicketRelationResult;
 import com.flowdesk.ticket.application.result.TicketUserSummaryResult;
 import com.flowdesk.ticket.application.service.TicketQueryService;
 import com.flowdesk.ticket.application.service.TicketService;
@@ -279,6 +280,20 @@ class TicketControllerWebTest {
         assertThat(command.priority()).isEqualTo("HIGH");
     }
 
+    /** 原工单引用随同一个 {@code ticket} part 绑定：去除首尾空白后进入命令。 */
+    @Test
+    void ticketCreatorCanCreateFollowUpTicketWithSourceTicketNo() throws Exception {
+        when(ticketService.create(any())).thenReturn(sampleCreated());
+
+        mockMvc.perform(createRequest(followUpTicketPart()).with(ticketUser("TICKET_CREATE")))
+                .andExpect(status().isCreated());
+
+        ArgumentCaptor<CreateTicketCommand> captor =
+                ArgumentCaptor.forClass(CreateTicketCommand.class);
+        verify(ticketService).create(captor.capture());
+        assertThat(captor.getValue().sourceTicketNo()).isEqualTo("FD-20261005-007");
+    }
+
     /**
      * 缺少 {@code ticket} 部分 → {@code 400/VALIDATION_FAILED}。
      *
@@ -323,6 +338,11 @@ class TicketControllerWebTest {
                         {"submissionKey": "not-a-uuid", "title": "打印机无法连接",
                          "description": "三楼打印机无法连接网络", "categoryId": 7, "priority": "HIGH"}
                         """),
+                Arguments.of("a source ticket number longer than 32 characters", "sourceTicketNo", """
+                        {"submissionKey": "%s", "title": "打印机无法连接",
+                         "description": "三楼打印机无法连接网络", "categoryId": 7, "priority": "HIGH",
+                         "sourceTicketNo": "FD-20261005-007-12345678901234567890"}
+                        """.formatted(SUBMISSION_KEY)),
                 Arguments.of("a blank title", "title", """
                         {"submissionKey": "%s", "title": "   ",
                          "description": "三楼打印机无法连接网络", "categoryId": 7, "priority": "HIGH"}
@@ -564,9 +584,26 @@ class TicketControllerWebTest {
                 .andExpect(jsonPath("$.data.requester.id").value(REQUESTER_ID))
                 .andExpect(jsonPath("$.data.assignee").doesNotExist())
                 .andExpect(jsonPath("$.data.completionMethod").doesNotExist())
-                .andExpect(jsonPath("$.data.allowedActions[0]").value("claim"));
+                .andExpect(jsonPath("$.data.allowedActions[0]").value("claim"))
+                .andExpect(jsonPath("$.data.relations").isEmpty());
 
         verify(ticketQueryService).detail(TICKET_NO);
+    }
+
+    /** 关联摘要随详情返回：类型与方向都是编码，界面按固定四格标签渲染。 */
+    @Test
+    void detailSerialisesTicketRelations() throws Exception {
+        when(ticketQueryService.detail(TICKET_NO)).thenReturn(sampleDetail(List.of(
+                new TicketRelationResult(
+                        "FOLLOW_UP", "OUTGOING", "FD-20261005-007", "此前的打印机问题", "COMPLETED"))));
+
+        mockMvc.perform(get(TICKETS + "/" + TICKET_NO).with(ticketUser("TICKET_VIEW_OWN")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.relations[0].relationType").value("FOLLOW_UP"))
+                .andExpect(jsonPath("$.data.relations[0].direction").value("OUTGOING"))
+                .andExpect(jsonPath("$.data.relations[0].ticketNo").value("FD-20261005-007"))
+                .andExpect(jsonPath("$.data.relations[0].title").value("此前的打印机问题"))
+                .andExpect(jsonPath("$.data.relations[0].status").value("COMPLETED"));
     }
 
     /** 无权查看与确实不存在统一返回 {@code 404/TICKET_NOT_FOUND}。 */
@@ -2196,6 +2233,20 @@ class TicketControllerWebTest {
                 """.formatted(SUBMISSION_KEY);
     }
 
+    /** 后续工单：同一个 multipart 的 {@code ticket} part 里带上原工单引用。 */
+    private static String followUpTicketPart() {
+        return """
+                {
+                  "submissionKey": "%s",
+                  "title": "打印机无法连接",
+                  "description": "三楼打印机无法连接网络",
+                  "categoryId": 7,
+                  "priority": "HIGH",
+                  "sourceTicketNo": "  FD-20261005-007  "
+                }
+                """.formatted(SUBMISSION_KEY);
+    }
+
     private static String versionOnlyBody() {
         return """
                 {"version": 3}
@@ -2233,6 +2284,10 @@ class TicketControllerWebTest {
     }
 
     private static TicketDetailResult sampleDetail() {
+        return sampleDetail(List.of());
+    }
+
+    private static TicketDetailResult sampleDetail(List<TicketRelationResult> relations) {
         return new TicketDetailResult(
                 TICKET_NO,
                 "打印机无法连接",
@@ -2251,7 +2306,8 @@ class TicketControllerWebTest {
                 null,
                 CREATED_AT,
                 UPDATED_AT,
-                List.of("claim"));
+                List.of("claim"),
+                relations);
     }
 
     private static TicketRecordResult sampleRecord() {

@@ -71,6 +71,7 @@ import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
@@ -127,10 +128,12 @@ class TicketServiceImplTest {
     private static final long OTHER_IT_USER_ID = 9L;
     private static final long NEW_IT_USER_ID = 11L;
     private static final long TICKET_ID = 1001L;
+    private static final long SOURCE_TICKET_ID = 1002L;
     private static final long CATEGORY_ID = 3L;
     private static final long NEW_CATEGORY_ID = 4L;
 
     private static final String TICKET_NO = "FD-20261006-001";
+    private static final String SOURCE_TICKET_NO = "FD-20261005-007";
     private static final String IT_DISPLAY_NAME = "演示 IT 支持人员";
     private static final String OTHER_IT_DISPLAY_NAME = "演示 IT 二号";
     private static final String NEW_IT_DISPLAY_NAME = "演示 IT 三号";
@@ -446,6 +449,89 @@ class TicketServiceImplTest {
                 HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
 
         verifyNoInteractions(ticketMapper, ticketDailySequenceMapper, ticketRecordMapper);
+    }
+
+    /**
+     * 带原工单引用创建：可见性通过后，同事务写入一条 FOLLOW_UP 关联
+     * （source = 新工单，target = 原工单），时间线不新增事件。
+     */
+    @Test
+    void createWritesFollowUpRelationWhenSourceTicketIsVisible() {
+        stubFirstCreation(1L);
+        when(ticketMapper.selectVisibleDetail(
+                eq(SOURCE_TICKET_NO), eq(REQUESTER_ID), anyBoolean(), anyBoolean(), anyBoolean()))
+                .thenReturn(sourceTicketRow());
+        when(ticketRelationMapper.recordFollowUp(anyLong(), anyLong(), anyLong(), any()))
+                .thenReturn(1);
+
+        TicketCreatedResult result = service.create(createCommand(SUBMISSION_KEY, SOURCE_TICKET_NO));
+
+        assertThat(result.ticketNo()).isEqualTo(TICKET_NO);
+        verify(ticketRelationMapper).recordFollowUp(
+                TICKET_ID, SOURCE_TICKET_ID, REQUESTER_ID, NOW_UTC);
+    }
+
+    /**
+     * 原工单不可见或不存在统一 400，不区分是哪一种；校验先于序号分配，
+     * 被拒绝的创建不领编号、不落库、也不写关联。
+     */
+    @Test
+    void createRejectsInvisibleSourceTicketBeforeAllocatingSequence() {
+        when(currentRequesterPort.currentUserId()).thenReturn(REQUESTER_ID);
+        when(ticketMapper.selectCreationByRequesterAndSubmissionKey(REQUESTER_ID, SUBMISSION_KEY))
+                .thenReturn(null);
+        when(categoryAvailabilityPort.isEnabled(CATEGORY_ID)).thenReturn(true);
+        when(ticketMapper.selectVisibleDetail(
+                eq(SOURCE_TICKET_NO), eq(REQUESTER_ID), anyBoolean(), anyBoolean(), anyBoolean()))
+                .thenReturn(null);
+
+        assertApiException(
+                () -> service.create(createCommand(SUBMISSION_KEY, SOURCE_TICKET_NO)),
+                HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+
+        verifyNoInteractions(ticketDailySequenceMapper, ticketRecordMapper, ticketRelationMapper);
+        verify(ticketMapper, never()).insert(any(Ticket.class));
+    }
+
+    /** 不带原工单引用的创建完全不触碰关联表。 */
+    @Test
+    void createWithoutSourceTicketDoesNotWriteRelation() {
+        stubFirstCreation(1L);
+
+        service.create(createCommand(SUBMISSION_KEY));
+
+        verifyNoInteractions(ticketRelationMapper);
+    }
+
+    /** 幂等重放返回首次结果：不重新校验原工单，也不重复写关联。 */
+    @Test
+    void createReplayDoesNotValidateSourceTicketOrWriteRelationAgain() {
+        when(currentRequesterPort.currentUserId()).thenReturn(REQUESTER_ID);
+        when(ticketMapper.selectCreationByRequesterAndSubmissionKey(REQUESTER_ID, SUBMISSION_KEY))
+                .thenReturn(existingTicket("FD-20261001-004",
+                        LocalDateTime.of(2026, 10, 1, 1, 0), COMPLETED, 9L));
+
+        TicketCreatedResult result = service.create(createCommand(SUBMISSION_KEY, SOURCE_TICKET_NO));
+
+        assertThat(result.ticketNo()).isEqualTo("FD-20261001-004");
+        verify(ticketMapper, never())
+                .selectVisibleDetail(any(), anyLong(), anyBoolean(), anyBoolean(), anyBoolean());
+        verifyNoInteractions(ticketRelationMapper);
+    }
+
+    /** 关联写入影响行数不为 1 视为失败，整个创建事务回滚。 */
+    @Test
+    void createFailsWhenRelationInsertAffectsNoRow() {
+        stubFirstCreation(1L);
+        when(ticketMapper.selectVisibleDetail(
+                eq(SOURCE_TICKET_NO), eq(REQUESTER_ID), anyBoolean(), anyBoolean(), anyBoolean()))
+                .thenReturn(sourceTicketRow());
+        when(ticketRelationMapper.recordFollowUp(anyLong(), anyLong(), anyLong(), any()))
+                .thenReturn(0);
+
+        assertThatThrownBy(() -> service.create(createCommand(SUBMISSION_KEY, SOURCE_TICKET_NO)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("后续工单关联写入失败");
     }
 
     // ---------- claim ----------
@@ -4520,8 +4606,14 @@ class TicketServiceImplTest {
     }
 
     private static CreateTicketCommand createCommand(String submissionKey) {
+        return createCommand(submissionKey, null);
+    }
+
+    /** {@code sourceTicketNo} 可选：后续工单引用（{@code docs/kickoff.md} 4.10）。 */
+    private static CreateTicketCommand createCommand(String submissionKey, String sourceTicketNo) {
         return new CreateTicketCommand(
-                submissionKey, "  打印机无法连接  ", " 三楼打印机离线 ", CATEGORY_ID, HIGH);
+                submissionKey, "  打印机无法连接  ", " 三楼打印机离线 ",
+                CATEGORY_ID, HIGH, sourceTicketNo);
     }
 
     /** 首次创建路径：分类启用、序号可用、插入成功并回填工单 ID。 */
@@ -4609,6 +4701,15 @@ class TicketServiceImplTest {
         row.setVersion(version);
         row.setCreatedAt(NOW_UTC);
         row.setUpdatedAt(NOW_UTC);
+        return row;
+    }
+
+    /** 原工单引用校验只用到 id：目标是"存在且可见"这一位信息，其余列不是断言对象。 */
+    private static TicketDetailRow sourceTicketRow() {
+        TicketDetailRow row = new TicketDetailRow();
+        row.setId(SOURCE_TICKET_ID);
+        row.setTicketNo(SOURCE_TICKET_NO);
+        row.setStatus(COMPLETED);
         return row;
     }
 

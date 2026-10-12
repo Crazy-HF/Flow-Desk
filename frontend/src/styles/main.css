@@ -1619,7 +1619,8 @@ h1 {
 
 /* 新建工单：表单单列阅读宽度；优先级用三个带后果说明的选项，而不是一个下拉——
    它决定 IT 先看哪一张工单，用户需要看到选择的后果才能选对。 */
-.ticket-form__control {
+.ticket-form__control,
+.ticket-form__source {
   width: 100%;
 }
 
@@ -1718,6 +1719,15 @@ h1 {
   line-height: var(--fd-line-height-relaxed);
 }
 
+/* 表单控件下方的说明：讲清"这个可选字段是干什么的"，也用于下拉里的空态文案。 */
+.ticket-form__hint {
+  width: 100%;
+  margin: var(--fd-space-2) 0 0;
+  color: var(--fd-color-text-subtle);
+  font-size: var(--fd-font-size-sm);
+  line-height: var(--fd-line-height-relaxed);
+}
+
 /* 详情：主体 + 属性侧栏（侧栏宽度按"标签 + 值"的最长组合定，不跟着内容抖动）。
    窄屏改为上下排列，见文件末尾的媒体查询。 */
 .ticket-detail {
@@ -1807,6 +1817,42 @@ h1 {
   line-height: var(--fd-line-height-relaxed);
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+/* 关联工单：上下文信息，一行一条；编号可点开对端（权限由对端页面自己再校验一次）。 */
+.ticket-relations__list {
+  display: grid;
+  gap: var(--fd-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ticket-relations__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--fd-space-1) var(--fd-space-3);
+  min-width: 0;
+}
+
+.ticket-relations__label {
+  color: var(--fd-color-text-subtle);
+  font-size: var(--fd-font-size-sm);
+}
+
+.ticket-relations__link {
+  color: var(--fd-color-primary);
+  font-family: var(--fd-font-family-mono);
+  font-size: var(--fd-font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.ticket-relations__title {
+  flex: 1 1 12rem;
+  min-width: 0;
+  color: var(--fd-color-text);
+  overflow-wrap: anywhere;
 }
 
 /* 时间线：一条脊加一串节点。记录是业务事实的顺序，所以只追加、不重排。 */

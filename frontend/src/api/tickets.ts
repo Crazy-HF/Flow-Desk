@@ -124,6 +124,31 @@ export interface TicketCancelRequest {
   reason: string
 }
 
+/**
+ * 工单关联方向，相对**当前这张工单**而言（`docs/api-design.md` 5.4，2026-10-12 工单关联）。
+ *
+ * <p>本单是 `source` 记 `OUTGOING`，本单是 `target` 记 `INCOMING`；它与 `relationType`
+ * 一起决定固定四格标签，中文文案只在 `constants/tickets.ts` 维护一次。</p>
+ */
+export type TicketRelationDirection = 'OUTGOING' | 'INCOMING'
+
+/** 工单关联类型：`FOLLOW_UP` 后续工单引用、`DUPLICATE` 重复工单指向（`docs/database-design.md` 19.4）。 */
+export type TicketRelationType = 'FOLLOW_UP' | 'DUPLICATE'
+
+/**
+ * 详情里的一条工单关联摘要（`docs/api-design.md` 5.4）。
+ *
+ * <p>摘要只用于展示：它**不代表对端工单的详情权限**，打开对端时仍执行目标工单自己的
+ * 可见性校验（`docs/api-design.md` 7.5）；字段里只有编号、标题与状态，没有对端正文。</p>
+ */
+export interface TicketRelation {
+  relationType: TicketRelationType
+  direction: TicketRelationDirection
+  ticketNo: string
+  title: string
+  status: TicketStatus
+}
+
 /** 详情：列表项字段加原始问题描述与终态信息。 */
 export interface TicketDetail extends TicketListItem {
   description: string
@@ -140,6 +165,13 @@ export interface TicketDetail extends TicketListItem {
    * <p>它是唯一能看出"这张工单正卡在一次撤销申请上"的字段——状态、期限与负责人此时都还是原样。</p>
    */
   cancelRequest?: TicketCancelRequest
+  /**
+   * 与本单有关的工单关联（`docs/api-design.md` 5.4）。
+   *
+   * <p>**没有关联时是空数组**，不是缺键——界面统一按列表渲染，不需要判空分支。
+   * 排序由服务端固定：后续关联在前、重复关联在后，组内按工单编号升序。</p>
+   */
+  relations: TicketRelation[]
   /**
    * 后端按当前用户、角色、工单关系与状态计算的可用动作。
    *
@@ -204,6 +236,14 @@ export interface CreateTicketPayload {
   description: string
   categoryId: number
   priority: TicketPriority
+  /**
+   * 可选：新工单引用的原工单编号（`docs/kickoff.md` 4.10，2026-10-12 工单关联）。
+   *
+   * <p>只有用户确实选了一张原工单才带这个键。它必须是当前提交人有权查看的工单，
+   * 服务端按详情同一条可见性规则复核，不通过返回 `400/VALIDATION_FAILED`；
+   * 原工单本身保持不变，两张单会互相显示关联关系。</p>
+   */
+  sourceTicketNo?: string
 }
 
 /** 领取：只需要客户端最后读到的版本，服务端用它做乐观锁与并发资格判断。 */
@@ -445,8 +485,9 @@ export async function listTicketRecords(
 /**
  * 创建工单（`multipart/form-data`，只发送 `ticket` JSON 部分）。
  *
- * <p>阶段 2 不上传附件，也不传 `sourceTicketNo`。multipart 是契约本身的形式（后续附件直接
- * 复用同一个请求），所以这里不改成 JSON body。</p>
+ * <p>阶段 2 不上传附件；`sourceTicketNo` 自 2026-10-12 起随同一个 `ticket` 部件提交（可选，
+ * 见 `CreateTicketPayload`）。multipart 是契约本身的形式（后续附件直接复用同一个请求），
+ * 所以这里不改成 JSON body。</p>
  *
  * <p>`ticket` 部件必须自带 `application/json` 类型：后端用 `@RequestPart` 接收，
  * 它按**部件自己的 Content-Type** 选消息转换器，只声明 `application/json` 的部件才会被

@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { AuthUser } from '@/api/auth'
 import { listCategoryOptions } from '@/api/categories'
-import { createSubmissionKey, createTicket } from '@/api/tickets'
+import { createSubmissionKey, createTicket, listTickets } from '@/api/tickets'
 import { useAuthStore } from '@/stores/auth'
 import TicketCreateView from './TicketCreateView.vue'
 
@@ -18,6 +18,7 @@ vi.mock('@/api/categories', () => ({
 vi.mock('@/api/tickets', () => ({
   createTicket: vi.fn(),
   createSubmissionKey: vi.fn(),
+  listTickets: vi.fn(),
 }))
 
 const mountedWrappers: VueWrapper[] = []
@@ -181,6 +182,47 @@ describe('TicketCreateView', () => {
     })
     expect(router.currentRoute.value.name).toBe('ticket-detail')
     expect(router.currentRoute.value.params.ticketNo).toBe('FD-20260929-001')
+  })
+
+  /** 工单关联（2026-10-12）：原工单搜索只查「我提交的」范围，选中的编号进请求体。 */
+  it('原工单下拉按关键词搜索「我提交的」范围', async () => {
+    vi.mocked(listTickets).mockResolvedValue({
+      items: [],
+      page: 1,
+      size: 10,
+      totalElements: 0,
+      totalPages: 0,
+    })
+    const { wrapper } = await mountPage()
+
+    const remoteMethod = wrapper.findAllComponents({ name: 'ElSelect' })[1]?.props('remoteMethod') as
+      | ((keyword: string) => void)
+      | undefined
+    expect(remoteMethod, '关联原工单下拉必须支持远程搜索').toBeTruthy()
+    remoteMethod?.('打印机')
+    await flushPromises()
+
+    expect(listTickets).toHaveBeenCalledWith({
+      scope: 'REQUESTED_BY_ME',
+      keyword: '打印机',
+      pageSize: 10,
+    })
+  })
+
+  it('选择了原工单：请求体带上 sourceTicketNo', async () => {
+    vi.mocked(createTicket).mockResolvedValue(createdTicket)
+    const { wrapper } = await mountPage()
+    await fillValidForm(wrapper)
+
+    // 关联下拉是第二个 ElSelect（第一个是分类）；直接抛模型更新，不在 jsdom 里模拟弹层选择
+    wrapper.findAllComponents({ name: 'ElSelect' })[1]?.vm.$emit(
+      'update:modelValue',
+      'FD-20260928-002',
+    )
+    await flushPromises()
+    await clickSubmit(wrapper)
+
+    expect(submittedPayload(0)?.sourceTicketNo).toBe('FD-20260928-002')
   })
 
   it('提交失败后保留原请求：重试复用同一个提交编号与同一份内容', async () => {
