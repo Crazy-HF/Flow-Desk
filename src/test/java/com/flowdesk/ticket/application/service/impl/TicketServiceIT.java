@@ -27,6 +27,7 @@ import com.flowdesk.ticket.application.result.TicketActionResult;
 import com.flowdesk.ticket.application.result.TicketAssigneeOptionResult;
 import com.flowdesk.ticket.application.result.TicketCreatedResult;
 import com.flowdesk.ticket.application.result.TicketRecordResult;
+import com.flowdesk.ticket.application.result.TicketRelationResult;
 import com.flowdesk.ticket.application.service.TicketQueryService;
 import com.flowdesk.ticket.application.service.TicketService;
 import com.flowdesk.ticket.mapper.TicketMapper;
@@ -352,6 +353,111 @@ class TicketServiceIT {
                         + ")", Integer.class, ticketNos.toArray()))
                 .as("每个编号都真实落库")
                 .isEqualTo(threads);
+    }
+
+    // ---------- 后续工单关联 ----------
+
+    /**
+     * 后续工单引用写成一条有向关联：source = 新建的后续工单，target = 被引用的原工单；
+     * 两侧详情按方向返回（新单 OUTGOING「原工单」，原单 INCOMING「后续工单」）。
+     * 提交时编号两侧带空白，服务按去除空白后的值校验。
+     */
+    @Test
+    void createWithSourceTicketWritesFollowUpRelationVisibleFromBothSides() {
+        authenticateAs(employeeId, EMPLOYEE);
+        TicketCreatedResult original = createTicket(UUID.randomUUID().toString(), "原始工单");
+
+        TicketCreatedResult followUp = createTicket(
+                UUID.randomUUID().toString(), "后续工单", "  " + original.ticketNo() + "  ");
+
+        long followUpId = ticketIdOf(followUp.ticketNo());
+        long originalId = ticketIdOf(original.ticketNo());
+        assertThat(countRelations(followUpId)).as("新单作为 source 只有一条关联").isEqualTo(1);
+
+        Map<String, Object> relation = relationOf(followUpId);
+        assertThat(((Number) relation.get("target_ticket_id")).longValue())
+                .as("target 是被引用的原工单").isEqualTo(originalId);
+        assertThat(relation.get("relation_type")).isEqualTo("FOLLOW_UP");
+        assertThat(((Number) relation.get("created_by")).longValue()).isEqualTo(employeeId);
+
+        List<TicketRelationResult> fromFollowUp =
+                ticketQueryService.detail(followUp.ticketNo()).relations();
+        assertThat(fromFollowUp).hasSize(1);
+        assertThat(fromFollowUp.get(0).relationType()).isEqualTo("FOLLOW_UP");
+        assertThat(fromFollowUp.get(0).direction()).as("新单视角是 OUTGOING").isEqualTo("OUTGOING");
+        assertThat(fromFollowUp.get(0).ticketNo()).isEqualTo(original.ticketNo());
+        assertThat(fromFollowUp.get(0).title()).isEqualTo("原始工单");
+        assertThat(fromFollowUp.get(0).status()).isEqualTo(PENDING);
+
+        List<TicketRelationResult> fromOriginal =
+                ticketQueryService.detail(original.ticketNo()).relations();
+        assertThat(fromOriginal).hasSize(1);
+        assertThat(fromOriginal.get(0).direction()).as("原工单视角是 INCOMING").isEqualTo("INCOMING");
+        assertThat(fromOriginal.get(0).ticketNo()).isEqualTo(followUp.ticketNo());
+        assertThat(fromOriginal.get(0).title()).isEqualTo("后续工单");
+    }
+
+    /** 原工单必须对提交人可见：别人的单与不存在的编号都按 400 拒绝，且不落工单。 */
+    @Test
+    void createRejectsSourceTicketInvisibleToTheRequester() {
+        long sourceOwnerId = insertUser("source-owner", EMPLOYEE);
+        String foreignTicketNo = ticketNoOf(insertPendingTicket(sourceOwnerId));
+
+        authenticateAs(employeeId, EMPLOYEE);
+        for (String source : List.of(foreignTicketNo, "FD-20260101-999")) {
+            assertApiError(
+                    () -> createTicket(UUID.randomUUID().toString(), "无效引用", source),
+                    HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
+        }
+
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM ticket WHERE requester_id = ?", Integer.class, employeeId))
+                .as("被拒绝的创建不落工单").isZero();
+    }
+
+    /** 同一提交键重放返回首次结果，不再写第二条关联。 */
+    @Test
+    void replayedSubmissionKeyDoesNotCreateASecondRelation() {
+        authenticateAs(employeeId, EMPLOYEE);
+        TicketCreatedResult original = createTicket(UUID.randomUUID().toString(), "原始工单");
+        String submissionKey = UUID.randomUUID().toString();
+
+        TicketCreatedResult first = createTicket(submissionKey, "后续工单", original.ticketNo());
+        TicketCreatedResult repeated = createTicket(submissionKey, "后续工单-重复", original.ticketNo());
+
+        assertThat(repeated.ticketNo()).isEqualTo(first.ticketNo());
+        assertThat(countRelations(ticketIdOf(first.ticketNo())))
+                .as("重放不写第二条关联").isEqualTo(1);
+    }
+
+    /**
+     * 唯一键是 {@code (source, relation_type)}：后续关联与重复关联各占一条、互不冲突，
+     * 详情按「后续在前、重复在后」的固定次序返回，且两条都指向同一张原工单。
+     */
+    @Test
+    void followUpAndDuplicateRelationsCoexistOnOneTicket() {
+        authenticateAs(employeeId, EMPLOYEE);
+        TicketCreatedResult original = createTicket(UUID.randomUUID().toString(), "原始工单");
+        TicketCreatedResult followUp = createTicket(
+                UUID.randomUUID().toString(), "后续工单", original.ticketNo());
+        long followUpId = ticketIdOf(followUp.ticketNo());
+
+        authenticateAs(itUserId, IT_SUPPORT);
+        ticketService.claim(followUp.ticketNo(), new ClaimTicketCommand(followUp.version()));
+        ticketService.close(followUp.ticketNo(), new CloseTicketCommand(
+                versionOf(followUpId), "DUPLICATE", "与原始工单重复", original.ticketNo()));
+
+        assertThat(countRelations(followUpId)).as("两类关联各占一条").isEqualTo(2);
+
+        authenticateAs(employeeId, EMPLOYEE);
+        List<TicketRelationResult> relations =
+                ticketQueryService.detail(followUp.ticketNo()).relations();
+        assertThat(relations).extracting(TicketRelationResult::relationType)
+                .as("固定排序：后续关联在前、重复关联在后")
+                .containsExactly("FOLLOW_UP", "DUPLICATE");
+        assertThat(relations).extracting(TicketRelationResult::direction).containsOnly("OUTGOING");
+        assertThat(relations).extracting(TicketRelationResult::ticketNo)
+                .containsOnly(original.ticketNo());
     }
 
     // ---------- 领取并发 ----------
@@ -2345,8 +2451,14 @@ class TicketServiceIT {
     // ---------- 身份与断言辅助 ----------
 
     private TicketCreatedResult createTicket(String submissionKey, String title) {
+        return createTicket(submissionKey, title, null);
+    }
+
+    /** {@code sourceTicketNo} 可选：后续工单引用（{@code docs/kickoff.md} 4.10）。 */
+    private TicketCreatedResult createTicket(
+            String submissionKey, String title, String sourceTicketNo) {
         return ticketService.create(new CreateTicketCommand(
-                submissionKey, title, title + "-描述", categoryId, "MEDIUM"));
+                submissionKey, title, title + "-描述", categoryId, "MEDIUM", sourceTicketNo));
     }
 
     /** 与 {@code JwtAuthenticationFilter} 一致：权限来自会话快照，由真实角色授权推导。 */

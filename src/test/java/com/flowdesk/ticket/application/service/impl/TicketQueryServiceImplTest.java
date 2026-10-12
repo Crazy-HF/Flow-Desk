@@ -14,14 +14,17 @@ import com.flowdesk.ticket.application.result.TicketCategorySummaryResult;
 import com.flowdesk.ticket.application.result.TicketDetailResult;
 import com.flowdesk.ticket.application.result.TicketListItemResult;
 import com.flowdesk.ticket.application.result.TicketRecordResult;
+import com.flowdesk.ticket.application.result.TicketRelationResult;
 import com.flowdesk.ticket.application.result.TicketUserSummaryResult;
 import com.flowdesk.ticket.domain.TicketScope;
 import com.flowdesk.ticket.infrastructure.persistence.TicketAssigneeRow;
 import com.flowdesk.ticket.infrastructure.persistence.TicketDetailRow;
 import com.flowdesk.ticket.infrastructure.persistence.TicketListRow;
 import com.flowdesk.ticket.infrastructure.persistence.TicketRecordRow;
+import com.flowdesk.ticket.infrastructure.persistence.TicketRelationRow;
 import com.flowdesk.ticket.mapper.TicketMapper;
 import com.flowdesk.ticket.mapper.TicketRecordMapper;
+import com.flowdesk.ticket.mapper.TicketRelationMapper;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -134,6 +137,8 @@ class TicketQueryServiceImplTest {
     private TicketRecordMapper ticketRecordMapper;
     @Mock
     private TicketClaimantPort ticketClaimantPort;
+    @Mock
+    private TicketRelationMapper ticketRelationMapper;
 
     private TicketQueryServiceImpl service;
 
@@ -144,7 +149,8 @@ class TicketQueryServiceImplTest {
                 currentRequesterPort,
                 ticketReadPermissionPort,
                 ticketRecordMapper,
-                ticketClaimantPort);
+                ticketClaimantPort,
+                ticketRelationMapper);
     }
 
     // ---------- page ----------
@@ -637,6 +643,39 @@ class TicketQueryServiceImplTest {
         assertThat(result.assignee())
                 .as("无人负责时摘要为 null，而不是 id/名称为空的空对象")
                 .isNull();
+    }
+
+    /** 关联摘要随详情透传：方向与类型都来自 SQL 生成的投影，服务层不推导方向。 */
+    @Test
+    void detailMapsRelationsWithDirectionAndSummaryFromProjection() {
+        stubCurrentUser(REQUESTER_ID);
+        stubVisible(detailRow(PENDING, null, 0L));
+        when(ticketRelationMapper.selectRelationsByTicketId(TICKET_ID)).thenReturn(List.of(
+                relationRow("FOLLOW_UP", "OUTGOING",
+                        "FD-20261005-007", "此前的打印机问题", COMPLETED),
+                relationRow("DUPLICATE", "INCOMING",
+                        "FD-20261007-003", "重复提交的同问题", CLOSED)));
+
+        TicketDetailResult result = service.detail(TICKET_NO);
+
+        assertThat(result.relations()).containsExactly(
+                new TicketRelationResult(
+                        "FOLLOW_UP", "OUTGOING", "FD-20261005-007", "此前的打印机问题", COMPLETED),
+                new TicketRelationResult(
+                        "DUPLICATE", "INCOMING", "FD-20261007-003", "重复提交的同问题", CLOSED));
+        verify(ticketRelationMapper).selectRelationsByTicketId(TICKET_ID);
+    }
+
+    /** 没有关联的工单返回空列表：界面统一按列表渲染，不需要判空分支。 */
+    @Test
+    void detailReturnsEmptyRelationsWhenTicketHasNoRelations() {
+        stubCurrentUser(REQUESTER_ID);
+        stubVisible(detailRow(PENDING, null, 0L));
+        when(ticketRelationMapper.selectRelationsByTicketId(TICKET_ID)).thenReturn(List.of());
+
+        TicketDetailResult result = service.detail(TICKET_NO);
+
+        assertThat(result.relations()).isEmpty();
     }
 
     // ---------- records ----------
@@ -1459,6 +1498,18 @@ class TicketQueryServiceImplTest {
         row.setVersion(version);
         row.setCreatedAt(CREATED_AT);
         row.setUpdatedAt(UPDATED_AT);
+        return row;
+    }
+
+    /** 关联投影：方向与类型由 SQL 生成，这里按行原样搬进结果。 */
+    private static TicketRelationRow relationRow(
+            String relationType, String direction, String ticketNo, String title, String status) {
+        TicketRelationRow row = new TicketRelationRow();
+        row.setRelationType(relationType);
+        row.setDirection(direction);
+        row.setTicketNo(ticketNo);
+        row.setTitle(title);
+        row.setStatus(status);
         return row;
     }
 
