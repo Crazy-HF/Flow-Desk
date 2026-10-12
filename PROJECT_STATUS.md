@@ -1,5 +1,13 @@
 # FlowDesk 项目状态
 
+## 2026-10-12 工单关联交付（当前分支 `flow-desk/attachments-and-relations`）
+
+- **范围与结果**：完整版 backlog 2 的「轻」一侧——创建后续工单引用原工单（`sourceTicketNo`）与详情级 `relations[]`（方向 + 对端摘要 + 固定排序）已全部落地：后端（创建校验与 `FOLLOW_UP` 同事务写入、`relations` 查询投影与结果映射）、前端（新建页原工单远程搜索选择器、详情「关联工单」面板、`constants/tickets.ts` 四格标签）、E2E 一条（`frontend/e2e/ticket-relations.spec.ts`）与真实栈验收脚本 `scripts/ticket-relations-acceptance.ps1`（**43/43 断言、退出码 0**，证据 `docs/acceptance/2026-10-12-ticket-relations.json`；演示库运行前后 10 项计数与逐行指纹一致，自建 4 张工单 + 临时用户/角色全部按主键清理）。**「关联」不需要新迁移**（`ticket_relation` 在 `V1` 已就位）、**不写时间线事件、不提供独立建链/删链接口**；`FOLLOW_UP` 方向固定 source=新工单、target=原工单，`DUPLICATE` 维持片 D 既有方向。
+- **契约落点**：`docs/api-design.md` 5.4（`relations` 数组与四格标签）、6.2（`sourceTicketNo` 校验与 `FOLLOW_UP` 写入）、7.5（前端复用「我提交的」选择器；实现说明更新为已实现）；`docs/implementation-plan.md` 第 9 节 backlog 第 2 项已加同日进展。
+- **验证口径（实跑）**：后端 `clean verify` → surefire **1080** + failsafe **164**、`Failures 0 / Errors 0`；前端 `typecheck` / `lint` / `build` 退出码 0、单测 **24 套件 215 项**、**全量 E2E 25 项通过（2.2 分钟，`FLOWDESK_API_TARGET` 指向 8092 并行后端）**；截图两页已人工查看（关联块位置/标签/状态、无溢出）。
+- **一处环境事件（如实记录）**：本会话中途发现本地分支引用 `flow-desk/attachments-and-relations` **丢失**、HEAD 处于"未出生分支"且索引被整树暂存（工作树文件无损、远端同名分支仍在 `0ec646c`）；已按「引用指回 `b22bff5`（当时 `main` 的 tip）+ 重置索引」恢复，最终工作区与预期完全一致（19 个修改 + 8 个未跟踪）。事件期间仓库出现 `.workbuddy-ai/` 与 `refs/codex/turn-diffs/*` 检查点引用，疑似**其他代理工具**对同一仓库执行过 Git 操作；建议后续避免多代理并发操作本仓库。
+- **交接**：本轮代码改动分三个提交 **`8d094a2`**（后端）/ **`6e3579e`**（前端）/ **`2bb6533`**（E2E + 验收脚本与证据），加一个文档同步提交，推送后经 PR 合并 `main`；**PR 号、CI 运行号与合并提交按仓库惯例记录在下一分支的首个提交**。交接后下一步仍是 backlog 2 的**附件（重）**，随后为 ①③ 撤销语义收口（含 IT「待我批准」筛选与索引）。
+
 ## 片 E（两阶段撤销）**已交接完成**：PR #18 → `2cf1bc1`，CI 三个 job 全绿；当前分支 `flow-desk/attachments-and-relations`（主题：附件与关联，2026-10-08）
 
 - **交接结果（2026-10-08）**：四条提交 `ed419de`（后端实现与 V7）、`c695133`（测试补齐）、`9a984f6`（前端与 E2E）、`d0c224c`（验收脚本与证据、契约与状态文档）经 **[PR #18](https://github.com/Crazy-HF/Flow-Desk/pull/18)** 以 merge commit 合并 `main`（合并提交 **`2cf1bc1`**，基线 `95eee90`）；CI 运行 **[37902111061](https://github.com/Crazy-HF/Flow-Desk/actions/runs/37902111061)** 三个 job 首轮全绿（`frontend-verify` 46s、`core-e2e` 2m50s、`backend-verify` 2m50s）。本地 `main` 已仅快进到 `2cf1bc1`，随后从最新 `main` 创建 **`flow-desk/attachments-and-relations`**（用户 2026-10-08 指定的下一方向：先做**附件与关联**，之后再做**撤销请求到期语义（到期前提醒 + 到期自动失效并写记录）与 IT 列表「待我批准」筛选**）。
