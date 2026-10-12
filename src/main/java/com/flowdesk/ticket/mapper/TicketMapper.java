@@ -67,7 +67,19 @@ public interface TicketMapper extends BaseMapper<Ticket> {
             @Param("canViewQueue") boolean canViewQueue,
             @Param("canViewParticipated") boolean canViewParticipated);
 
-    /** 数据范围由 scope 决定，用户 ID 仅由应用服务的认证上下文提供。 */
+    /**
+     * 数据范围由 scope 决定，用户 ID 仅由应用服务的认证上下文提供。
+     *
+     * <p><b>「待我批准」筛选</b>（{@code docs/api-design.md} 5.3、完整版 backlog 第 7 项）：只在
+     * {@code ASSIGNED_TO_ME} 下生效，语义是「本人是当前负责人 且 有**未过期**的待决撤销请求」。
+     * 状态白名单只留「处理中」与「待确认」——「待补充期间不裁决」是叠加在它之上的既有条件，因此
+     * 处于待补充的工单**不出现在**这个筛选里，员工补充完、工单回到处理中后自动恢复。这与详情里的
+     * {@code approve-cancel} / {@code reject-cancel} 两格是同一个判定，两边必须同时成立或同时不成立
+     * （{@code TicketQueryServiceIT} 有交叉验证用例）。</p>
+     *
+     * <p>{@code now} 只被这个筛选用；它来自应用注入的 UTC 时钟，与四条撤销条件更新的 {@code #{now}}
+     * 和详情里的 {@code expired} 判定同源。</p>
+     */
     @Select("""
             <script>
             SELECT t.ticket_no, t.title,
@@ -89,6 +101,11 @@ public interface TicketMapper extends BaseMapper<Ticket> {
               </when>
               <when test="query.scope != null and query.scope.name() == 'ASSIGNED_TO_ME'">
                 WHERE t.assignee_id = #{currentUserId}
+                <if test="query.awaitingMyApproval != null and query.awaitingMyApproval">
+                  AND t.cancel_requested_at IS NOT NULL
+                  AND t.cancel_request_deadline_at &gt; #{now}
+                  AND t.status IN ('PROCESSING', 'WAITING_FOR_CONFIRMATION')
+                </if>
               </when>
               <when test="query.scope != null and query.scope.name() == 'PARTICIPATED_BY_ME'">
                 WHERE EXISTS (
@@ -151,7 +168,8 @@ public interface TicketMapper extends BaseMapper<Ticket> {
             @Param("query") TicketQuery query,
             @Param("keywordPattern") String keywordPattern,
             @Param("createdFrom") LocalDateTime createdFrom,
-            @Param("createdTo") LocalDateTime createdTo);
+            @Param("createdTo") LocalDateTime createdTo,
+            @Param("now") LocalDateTime now);
 
     /** 领取待处理工单。 */
     @Update("""
@@ -517,16 +535,24 @@ public interface TicketMapper extends BaseMapper<Ticket> {
     /**
      * 提交人发起撤销请求：三个「有人负责且未终结」的状态都可以发起，状态不变。
      *
-     * <p>{@code cancel_requested_at IS NULL} 是判定的一部分：一张工单同时只能有一个待决请求。
-     * 重复发起由条件更新挡成 409，而不是静默覆盖前一次的说明。</p>
+     * <p>「一张工单同时只能有一个**有效**请求」由条件更新保证：已有未过期的请求时重复发起被挡成 409，
+     * 而不是静默覆盖前一次的说明；请求一旦过期即可被新请求直接覆盖（2026-10-10 裁决）。</p>
      *
      * <p>三列必须**在同一条 UPDATE 里**写入：{@code ck_ticket_cancel_request_pair} 要求三列同生同灭。
      * 状态不在 SET 里，因此不必动 {@code action_deadline_at}，也就不会撞期限约束——
      * 这一点与 {@link #cancel} 恰好相反（那条必须清期限）。</p>
      *
-     * <p><b>2026-10-10 裁决已改口径、实现待落地</b>：{@code cancel_requested_at IS NULL} 届时放宽为
-     * 「没有未过期的请求」（{@code cancel_requested_at IS NULL OR cancel_request_deadline_at <= now}），
-     * 已过期的请求由新请求直接替换、不再返回 409，见 {@code docs/implementation-plan.md} 9.3 待改清单 ①。</p>
+     * <p><b>2026-10-10 裁决，本版已实现</b>：{@code cancel_requested_at IS NULL} 放宽为「没有**未过期**的
+     * 请求」——已过期的请求由新请求直接替换、不再返回 409，且不设终身次数上限（同一时刻仍只允许一个
+     * 有效请求）。覆盖发生时服务层先补写一条 {@code CANCELLATION_REQUEST_EXPIRED} 记录，
+     * 见 {@code docs/implementation-plan.md} 9.3 待改清单 ①～③。</p>
+     *
+     * <p><b>{@code recordSeqIncrement} 为什么由调用方给</b>：覆盖已过期的请求时，这一次动作要写两条
+     * 记录（先「已过期」留痕、再新的 {@code CANCELLATION_REQUEST}），序号必须推进 2；没有待决请求时
+     * 只写一条，推进 1。调用方在读到快照时就已经知道是哪种情况，直接传值比在 SQL 里用
+     * {@code CASE WHEN cancel_request_deadline_at <= #{now}} 更清楚——后者依赖 {@code SET} 子句的
+     * 求值顺序（MySQL 的赋值从左到右、且后一个能看到前一个的结果），一旦有人调整列顺序就会静默算错。
+     * 覆盖与否则仍由 {@code WHERE} 裁决：快照与提交时不一致时这条更新命中 0 行，调用方拿到 409。</p>
      */
     @Update("""
     UPDATE ticket
@@ -534,13 +560,13 @@ public interface TicketMapper extends BaseMapper<Ticket> {
         cancel_request_reason = #{reason},
         cancel_request_deadline_at = #{deadlineAt},
         version = version + 1,
-        record_seq = record_seq + 1,
+        record_seq = record_seq + #{recordSeqIncrement},
         updated_at = #{now}
     WHERE id = #{ticketId}
       AND version = #{expectedVersion}
       AND requester_id = #{actorId}
       AND status IN ('PROCESSING', 'WAITING_FOR_REQUESTER', 'WAITING_FOR_CONFIRMATION')
-      AND cancel_requested_at IS NULL
+      AND (cancel_requested_at IS NULL OR cancel_request_deadline_at <= #{now})
     """)
     int requestCancel(
             @Param("ticketId") long ticketId,
@@ -548,6 +574,7 @@ public interface TicketMapper extends BaseMapper<Ticket> {
             @Param("actorId") long actorId,
             @Param("reason") String reason,
             @Param("deadlineAt") LocalDateTime deadlineAt,
+            @Param("recordSeqIncrement") int recordSeqIncrement,
             @Param("now") LocalDateTime now);
 
     /**
@@ -568,9 +595,9 @@ public interface TicketMapper extends BaseMapper<Ticket> {
      * 请求本身仍合法地留在工单上（{@code ck_ticket_cancel_request_status} 允许它停在待补充），
      * 员工补充完、工单回到「处理中」即可裁决，响应期限不重算。</p>
      *
-     * <p><b>2026-10-10 裁决已改口径、实现待落地</b>：这条 UPDATE 届时还要加「请求未过期」的条件，
-     * {@link #rejectCancel} 与 {@link #withdrawCancelRequest} 同样要加——期限届满后三条路一起关闭，
-     * 见 {@code docs/implementation-plan.md} 9.3 待改清单 ①。</p>
+     * <p><b>请求未过期也在 {@code WHERE} 里</b>（2026-10-10 裁决，本版已实现）：期限届满后批准、拒绝、
+     * 撤回三条路一起关闭，调用方统一拿到 409 + 最新快照（刷新详情即可看到「已过期」）。
+     * {@link #rejectCancel} 与 {@link #withdrawCancelRequest} 同样带这一条。</p>
      */
     @Update("""
     UPDATE ticket
@@ -588,6 +615,7 @@ public interface TicketMapper extends BaseMapper<Ticket> {
       AND assignee_id = #{actorId}
       AND status IN ('PROCESSING', 'WAITING_FOR_CONFIRMATION')
       AND cancel_requested_at IS NOT NULL
+      AND cancel_request_deadline_at > #{now}
     """)
     int approveCancel(
             @Param("ticketId") long ticketId,
@@ -604,6 +632,9 @@ public interface TicketMapper extends BaseMapper<Ticket> {
      *
      * <p>状态白名单与 {@link #approveCancel} 一样不含「待补充」（2026-10-10 用户裁决）：
      * 待补充期间不裁决，员工补充完、工单回到「处理中」再拒绝。</p>
+     *
+     * <p>与 {@link #approveCancel} 一样带「请求未过期」：期限届满后连「拒绝」也不再允许——否则提交人
+     * 会以为申请被正式驳回，而实际上它已经失效（2026-10-10 裁决，本版已实现）。</p>
      */
     @Update("""
     UPDATE ticket
@@ -618,6 +649,7 @@ public interface TicketMapper extends BaseMapper<Ticket> {
       AND assignee_id = #{actorId}
       AND status IN ('PROCESSING', 'WAITING_FOR_CONFIRMATION')
       AND cancel_requested_at IS NOT NULL
+      AND cancel_request_deadline_at > #{now}
     """)
     int rejectCancel(
             @Param("ticketId") long ticketId,
@@ -630,6 +662,10 @@ public interface TicketMapper extends BaseMapper<Ticket> {
      *
      * <p>身份列是 {@code requester_id} 而不是 {@code assignee_id}：这是提交人的动作，
      * 当前负责人即使同时持有提交人权限也撤不掉别人的请求（与 {@link #cancel} 同一条口径）。</p>
+     *
+     * <p>与批准 / 拒绝一样带「请求未过期」（2026-10-10 裁决，本版已实现）：三个动作一起关闭，因此
+     * <b>不存在「先撤回再重新发起」这条路径</b>——过期之后提交人直接重新发起即可，覆盖由
+     * {@link #requestCancel} 的条件承担。</p>
      */
     @Update("""
     UPDATE ticket
@@ -644,6 +680,7 @@ public interface TicketMapper extends BaseMapper<Ticket> {
       AND requester_id = #{actorId}
       AND status IN ('PROCESSING', 'WAITING_FOR_REQUESTER', 'WAITING_FOR_CONFIRMATION')
       AND cancel_requested_at IS NOT NULL
+      AND cancel_request_deadline_at > #{now}
     """)
     int withdrawCancelRequest(
             @Param("ticketId") long ticketId,
