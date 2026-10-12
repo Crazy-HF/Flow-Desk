@@ -120,6 +120,8 @@ const detail: TicketDetail = {
   updatedAt: '2026-09-29T02:00:00Z',
   // 待受理、没有负责人的工单，服务端对任何账号都不返回动作
   allowedActions: [],
+  // 没有关联时是空数组（不是缺键）：下面对应的断言是"关联块整块不出现"
+  relations: [],
 }
 
 const createRecord: TicketRecord = {
@@ -253,6 +255,48 @@ describe('TicketDetailView', () => {
       { id: 2, name: '软件' },
     ])
     vi.mocked(listTransferCandidates).mockResolvedValue([{ id: 5, displayName: '演示同事' }])
+  })
+
+  /** 工单关联（2026-10-12）：四格标签 + 对端摘要，编号可点开对端。 */
+  it('关联工单块按方向渲染四格标签与对端摘要', async () => {
+    vi.mocked(getTicket).mockResolvedValue({
+      ...detail,
+      relations: [
+        {
+          relationType: 'FOLLOW_UP',
+          direction: 'OUTGOING',
+          ticketNo: 'FD-20260928-002',
+          title: '之前的打印机问题',
+          status: 'CLOSED',
+        },
+        {
+          relationType: 'DUPLICATE',
+          direction: 'INCOMING',
+          ticketNo: 'FD-20260929-003',
+          title: '重复提交的同问题',
+          status: 'PENDING',
+        },
+      ],
+    })
+    const { wrapper } = await mountPage()
+
+    const items = wrapper.findAll('.ticket-relations__item')
+    expect(items).toHaveLength(2)
+    expect(items[0]?.text()).toContain('原工单')
+    expect(items[0]?.text()).toContain('FD-20260928-002')
+    expect(items[0]?.text()).toContain('之前的打印机问题')
+    expect(items[0]?.text()).toContain('已关闭')
+    expect(items[1]?.text()).toContain('被重复')
+    expect(wrapper.get('.ticket-relations__link').attributes('href')).toContain(
+      '/tickets/FD-20260928-002',
+    )
+  })
+
+  it('没有关联的工单不出现关联块', async () => {
+    const { wrapper } = await mountPage()
+
+    expect(wrapper.find('.ticket-relations__item').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('关联工单')
   })
 
   it('标题用问题本身，编号、状态与优先级组成标识条', async () => {

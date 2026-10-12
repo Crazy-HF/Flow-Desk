@@ -7,8 +7,8 @@ import { RouterLink, useRouter } from 'vue-router'
 import { listCategoryOptions } from '@/api/categories'
 import type { CategoryOption } from '@/api/categories'
 import { describeError } from '@/api/errorMessages'
-import { createSubmissionKey, createTicket } from '@/api/tickets'
-import type { CreateTicketPayload, TicketPriority } from '@/api/tickets'
+import { createSubmissionKey, createTicket, listTickets } from '@/api/tickets'
+import type { CreateTicketPayload, TicketListItem, TicketPriority } from '@/api/tickets'
 import AppPage from '@/components/AppPage.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useSubmissionGuard } from './useSubmissionGuard'
@@ -41,6 +41,8 @@ interface TicketForm {
   description: string
   categoryId: number | null
   priority: TicketPriority
+  /** 空串表示"没有关联原工单"：提交时不带这个键（`CreateTicketPayload.sourceTicketNo`）。 */
+  sourceTicketNo: string
 }
 
 const form = reactive<TicketForm>({
@@ -48,6 +50,7 @@ const form = reactive<TicketForm>({
   description: '',
   categoryId: null,
   priority: 'MEDIUM',
+  sourceTicketNo: '',
 })
 
 const formRef = ref<FormInstance>()
@@ -96,6 +99,66 @@ const noCategoryAvailable = computed(
   () => optionsPhase.value === 'ready' && categoryOptions.value.length === 0,
 )
 
+// ---------- 关联原工单（可选） ----------
+
+/**
+ * 原工单搜索（`docs/kickoff.md` 4.10、`docs/api-design.md` 7.5）。
+ *
+ * <p>候选来自「我提交的」这一个范围——员工只能关联自己有权查看的原工单，服务端还会按详情
+ * 同一条可见性规则复核一次。用户输入关键词后才发请求；选中值就是工单编号。</p>
+ *
+ * <p>与动作弹窗的选项同一套防串写做法：每次搜索持一个递增令牌，只认最后一次的响应——
+ * 否则先发的慢响应会覆盖后发的结果，用户看到的是上一个关键词的工单列表。</p>
+ */
+const sourceOptions = ref<TicketListItem[]>([])
+const sourcePhase = ref<'idle' | 'loading' | 'ready' | 'error'>('idle')
+const sourceError = ref('')
+let sourceRequest = 0
+
+async function searchSourceTickets(keyword: string): Promise<void> {
+  const text = keyword.trim()
+  const request = (sourceRequest += 1)
+
+  if (text === '') {
+    sourceOptions.value = []
+    sourceError.value = ''
+    sourcePhase.value = 'idle'
+    return
+  }
+
+  sourcePhase.value = 'loading'
+  sourceError.value = ''
+  try {
+    const result = await listTickets({ scope: 'REQUESTED_BY_ME', keyword: text, pageSize: 10 })
+    if (request !== sourceRequest) {
+      return
+    }
+    sourceOptions.value = result.items
+    sourcePhase.value = 'ready'
+  } catch (error) {
+    if (request !== sourceRequest) {
+      return
+    }
+    sourceOptions.value = []
+    sourceError.value = describeError(error, '原工单没有搜索成功，请稍后重试')
+    sourcePhase.value = 'error'
+  }
+}
+
+/** 下拉里没有选项时说什么：三种"空"不是一回事，不能统一写成"暂无数据"。 */
+const sourceEmptyText = computed(() => {
+  if (sourceError.value !== '') {
+    return sourceError.value
+  }
+  if (sourcePhase.value === 'loading') {
+    return '正在搜索…'
+  }
+  if (sourcePhase.value === 'ready') {
+    return '没有找到匹配的工单，换个关键词试试。'
+  }
+  return '输入编号或标题，搜索你提交过的工单。'
+})
+
 // ---------- 提交 ----------
 
 const {
@@ -116,6 +179,8 @@ function buildPayload(submissionKeyValue: string): CreateTicketPayload {
     // 调用前已经校验过分类必填，这里不可能为空
     categoryId: form.categoryId as number,
     priority: form.priority,
+    // 没选原工单时**不带这个键**：与关闭弹窗的条件输入同一口径，不是给服务端送一个空串
+    ...(form.sourceTicketNo === '' ? {} : { sourceTicketNo: form.sourceTicketNo }),
   }
 }
 
@@ -126,7 +191,7 @@ function buildPayload(submissionKeyValue: string): CreateTicketPayload {
  * 用户刚改的内容被静默丢弃。清掉键，下次提交才会真正带上新内容。</p>
  */
 watch(
-  () => [form.title, form.description, form.categoryId, form.priority],
+  () => [form.title, form.description, form.categoryId, form.priority, form.sourceTicketNo],
   () => clearSubmission(),
 )
 
@@ -303,6 +368,39 @@ onMounted(() => {
           show-word-limit
           type="textarea"
         />
+      </el-form-item>
+
+      <el-form-item
+        label="关联原工单"
+        prop="sourceTicketNo"
+      >
+        <el-select
+          id="ticket-source"
+          v-model="form.sourceTicketNo"
+          aria-label="关联原工单"
+          class="ticket-form__source"
+          clearable
+          filterable
+          :loading="sourcePhase === 'loading'"
+          placeholder="请输入编号或标题，搜索你提交过的工单（可选）"
+          remote
+          :remote-method="searchSourceTickets"
+        >
+          <el-option
+            v-for="option in sourceOptions"
+            :key="option.ticketNo"
+            :label="`${option.ticketNo} ${option.title}`"
+            :value="option.ticketNo"
+          />
+          <template #empty>
+            <p class="ticket-form__hint">
+              {{ sourceEmptyText }}
+            </p>
+          </template>
+        </el-select>
+        <p class="ticket-form__hint">
+          如果这个问题之前提交过，可以关联原来那张工单；原工单保持不变，两张单会互相显示关联关系。
+        </p>
       </el-form-item>
 
       <div class="ticket-commit">

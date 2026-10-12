@@ -49,6 +49,7 @@ import {
   ticketPriorityLabel,
   ticketPriorityTone,
   ticketRecordTypeLabel,
+  ticketRelationLabel,
   ticketStatusLabel,
   ticketStatusTone,
 } from '@/constants/tickets'
@@ -937,6 +938,52 @@ async function runAction(name: TicketActionName): Promise<void> {
               <p class="ticket-description">
                 {{ detail.description }}
               </p>
+            </div>
+          </section>
+
+          <!--
+            关联工单：编号、标题与状态来自详情的 relations[]，四格标签由服务端给出的
+            relationType + direction 在前端常量里查表（不在这里推导方向）。
+            摘要是"看得到"而不是"进得去"——说明文字必须写明打开对方仍按对方自己的权限校验，
+            否则"看得到摘要却打不开"会被读成缺陷。
+          -->
+          <section
+            v-if="detail.relations.length > 0"
+            class="ticket-panel"
+            aria-labelledby="ticket-relations-heading"
+          >
+            <header class="ticket-panel__header">
+              <h2 id="ticket-relations-heading">
+                关联工单
+              </h2>
+              <p class="ticket-panel__count">
+                打开对方仍按对方自己的查看权限校验
+              </p>
+            </header>
+            <div class="ticket-panel__body">
+              <ul class="ticket-relations__list">
+                <li
+                  v-for="relation in detail.relations"
+                  :key="`${relation.relationType}:${relation.direction}:${relation.ticketNo}`"
+                  class="ticket-relations__item"
+                >
+                  <span class="ticket-relations__label">{{ ticketRelationLabel(relation.relationType, relation.direction) }}</span>
+                  <RouterLink
+                    class="ticket-relations__link"
+                    :to="{ name: 'ticket-detail', params: { ticketNo: relation.ticketNo } }"
+                  >
+                    {{ relation.ticketNo }}
+                  </RouterLink>
+                  <span class="ticket-relations__title">{{ relation.title }}</span>
+                  <span class="ticket-mark">
+                    <span
+                      class="ticket-mark__dot"
+                      :class="`ticket-mark__dot--${ticketStatusTone(relation.status)}`"
+                    />
+                    {{ ticketStatusLabel(relation.status) }}
+                  </span>
+                </li>
+              </ul>
             </div>
           </section>
 
