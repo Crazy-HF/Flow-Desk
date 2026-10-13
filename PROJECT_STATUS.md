@@ -1,5 +1,21 @@
 # FlowDesk 项目状态
 
+## 2026-10-13 交付：附件（独立通用模块 + 工单接入，步骤 1～7）
+
+- **范围与结果**：完整版 backlog 2 的「重」一侧全部落地，形态为**独立于工单、可跨项目复用的通用附件模块**（用户 2026-10-13 明确路径约定 `attachments/xx`，**不带 `/fd/v1` 前缀**；复用方式 = 拷 `com.flowdesk.attachment` 包 + `attachment` 表 + `flowdesk.attachment.root` 配置）：
+  - 存储与校验：受控目录（staging/files 同卷 + 启动可写与原子移动探针）、魔数嗅探与「扩展名 + 声明类型 + 识别结果」三重一致（OOXML 按中央目录枚举、不展开数据防压缩炸弹；TXT 按前 8 KiB 无 NUL 判定）；
+  - 端点：`POST /attachments/upload`、`GET /attachments/download/{attachmentId}`（认证链作用域同步覆盖 `/attachments/**`；Vite dev/preview 代理同步）；可见性 = 上传者本人或经业务授权端口判定，统一 404；
+  - 工单侧接入：创建/补充支持 `files`（重复 part）与 `attachmentIds`（先传后绑，`FOR UPDATE` 复核「本人 + 未绑定 + 未过期」）；绑定写 `ticket_attachment`；下载可见性谓词**逐字复用详情可见性 SQL**；
+  - 提交顺序与失败补偿：`engineering-readiness` 7.2 在三处写入口（独立上传/创建/补充）全实现（暂存 → 校验 → 事务内写元数据与绑定 → 逐个原子移动 → 提交；失败删暂存/已移动文件；提交失败 `afterCompletion` 兜底）；
+  - 孤儿对账：每小时三段（超期暂存清理、最终目录以数据库为权威、超期未绑定清理「先删元数据再删文件、靠下一轮自愈」、缺失文件只告警）；保留期统一为 `flowdesk.attachment.retention`（默认 24h，与工单侧引用校验同源）。
+- **迁移**：`V9__generalize_attachment.sql`（通用 `attachment` 表 + `ticket_attachment` 重建为绑定表；**原编号 V8，因撤销到期批次已占用 V8 而改号**；`V1` 旧表从未投入使用、直接重建）。
+- **契约落点**：`docs/api-design.md` 7.1/7.2/7.6 与 6.2/6.4、`docs/database-design.md` 6.3/19.3、`docs/technical-architecture.md` 第 4 节/6.3、`docs/engineering-readiness.md` 7.2/11.2；实施入口与分步记录 `docs/modules/ticket-attachments.md`。
+- **验证（实跑）**：合并 `main`（`3d8de14`）后 `.\mvnw.cmd -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → surefire **1112** + failsafe **168**、`Failures 0 / Errors 0`、`BUILD SUCCESS`；测试适配：既有用例改用新签名/新行为（两个旧「files 即 400」控制器用例改为透传断言；`DatabaseMigrationIT` 基线合并为 `1..9`）。
+- **交接**：提交 `84223ff`（实现）与 `8a5edee`（清理误入的探针文件），合并主干得合并提交 `dc414dd`（并入 `main` `3d8de14`）；推送后经 PR 合并 `main`（**PR 号、CI 运行号与合并提交按仓库惯例记录在下一分支首个提交**）。
+- **本轮环境事件（如实记录）**：本工作树分支引用曾被外部删除（unborn + 整树暂存、工作区无损）；按「恢复引用到基点 → 提交 → 合并 `main` → 就地解决 2 处冲突（`TicketMapper`、`DatabaseMigrationIT`）」恢复。仓库再次出现检查点引用与探针文件痕迹（`.git-probe.txt` 已清理），**建议避免多代理并发操作同一仓库**。
+- **未跑项（如实记录）**：附件的前端界面（上传控件、详情附件块）与前端全量 E2E、8092 真实栈验收脚本均未做——建议随下一分支一并补（前端需接线 `/attachments`，代理已就位）。
+- **下一步**：管理性交接（backlog 4）→ 通知 / 通信通道 + 两个超时自动任务（backlog 3）。
+
 ## 2026-10-13 缺陷修复：撤销请求过期留痕导致时间线 500（工作树 `D:\Idea\item\flow-Desk-cancel-expiry-filter`）
 
 - **现象**：工单时间线上出现 `CANCELLATION_REQUEST_EXPIRED`（覆盖已过期请求时补写的留痕）时，`GET /fd/v1/tickets/{ticketNo}/records` 返回 **`500 / INTERNAL_ERROR`**，详情页整条时间线打不开。实测 traceId `360c7cba-2b1e-4958-b1cb-306004b75797`（8092 真实栈）。

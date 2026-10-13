@@ -35,13 +35,24 @@ export default defineConfig({
         target: apiTarget,
         changeOrigin: true,
       },
+      // 公共附件路径不在 /fd 前缀下（/attachments/upload、/attachments/download/{id}），
+      // 单独代理，否则前端开发服务器会把这些请求当成自己的静态资源而 404
+      '/attachments': {
+        target: apiTarget,
+        changeOrigin: true,
+      },
     },
   },
   preview: {
     port: 4173,
-    // e2e 与本地预览走的是 preview 服务器，同样需要把 /fd 代理到后端，否则接口会 404
+    // e2e 与本地预览走的是 preview 服务器，同样需要代理到后端，否则接口会 404；
+    // /attachments 与 /fd 一样必须代理（公共附件路径不带 /fd 前缀）
     proxy: {
       '/fd': {
+        target: apiTarget,
+        changeOrigin: true,
+      },
+      '/attachments': {
         target: apiTarget,
         changeOrigin: true,
       },

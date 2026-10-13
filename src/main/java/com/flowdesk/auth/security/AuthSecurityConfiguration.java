@@ -14,13 +14,14 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import java.time.Clock;
 
 /**
- * 认证模块在公共安全基线上叠加的过滤链：接住全部 {@code /fd/v1/**} 业务请求
- * （认证接口、管理端接口以及后续的业务接口），并声明认证路径的放行规则。
+ * 认证模块在公共安全基线上叠加的过滤链：接住全部 {@code /fd/v1/**} 业务请求与
+ * 公共附件路径 {@code /attachments/**}（认证接口、管理端接口、附件上传/下载以及后续的业务接口），
+ * 并声明认证路径的放行规则。
  *
  * <p>{@code @Order(1)} 让它先于基础链匹配——两条链都命中时 {@code FilterChainProxy} 只取第一条。
  * <b>作用域必须覆盖所有业务路径</b>：JWT 请求认证过滤器只装在本链上，落到基础链的请求没有人设置身份，
  * 会被基础链的 {@code anyRequest().authenticated()} 一律判成匿名，结果是恒返回 {@code 401/AUTH_REQUIRED}
- * （{@code /fd/v1/admin/**} 曾因此对任何令牌都不可用）。非 {@code /fd} 路径（{@code /actuator/**}、springdoc）
+ * （{@code /fd/v1/admin/**} 曾因此对任何令牌都不可用）。非业务路径（{@code /actuator/**}、springdoc）
  * 仍由基础链负责。</p>
  *
  * <p>本链必须自行关闭 CSRF：每条链由各自的 {@code HttpSecurity} 构建，基础链里的关闭配置不会继承过来。</p>
@@ -43,7 +44,7 @@ public class AuthSecurityConfiguration {
                 jwtTokenService, authSessionRepository, clock);
 
         http
-                .securityMatcher("/fd/v1/**")
+                .securityMatcher("/fd/v1/**", "/attachments/**")
                 .csrf(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)

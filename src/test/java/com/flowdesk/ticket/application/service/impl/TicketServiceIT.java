@@ -1039,7 +1039,8 @@ class TicketServiceIT {
         authenticateAs(employeeId, EMPLOYEE);
         TicketActionResult supplemented = ticketService.supplement(
                 created.ticketNo(),
-                new SupplementCommand(requested.version(), "  型号是 L3153，报错见附件说明  "));
+                new SupplementCommand(requested.version(), "  型号是 L3153，报错见附件说明  ", List.of()),
+                List.of());
 
         assertThat(supplemented.status()).isEqualTo(PROCESSING);
         assertThat(supplemented.version()).isEqualTo(requested.version() + 1L);
@@ -2092,7 +2093,8 @@ class TicketServiceIT {
 
         authenticateAs(employeeId, EMPLOYEE);
         TicketActionResult supplemented = ticketService.supplement(ticketNo,
-                new SupplementCommand(requested.version(), "型号是 L3153，报错见附件说明"));
+                new SupplementCommand(requested.version(), "型号是 L3153，报错见附件说明", List.of()),
+                List.of());
 
         assertThat(supplemented.status()).isEqualTo(PROCESSING);
         assertThat(cancelRequestedAtOf(ticketId)).as("补充只推进工单，不动撤销请求").isNotNull();
@@ -2458,7 +2460,8 @@ class TicketServiceIT {
     private TicketCreatedResult createTicket(
             String submissionKey, String title, String sourceTicketNo) {
         return ticketService.create(new CreateTicketCommand(
-                submissionKey, title, title + "-描述", categoryId, "MEDIUM", sourceTicketNo));
+                submissionKey, title, title + "-描述", categoryId, "MEDIUM", sourceTicketNo,
+                List.of()), List.of());
     }
 
     /** 与 {@code JwtAuthenticationFilter} 一致：权限来自会话快照，由真实角色授权推导。 */
