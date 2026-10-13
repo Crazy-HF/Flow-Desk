@@ -805,6 +805,67 @@ class TicketQueryServiceIT {
                 .isEmpty();
     }
 
+    // ---------- 时间线上的「已过期」留痕 ----------
+
+    /**
+     * 覆盖已过期请求时补写的 {@code CANCELLATION_REQUEST_EXPIRED} 必须能被时间线翻译出来。
+     *
+     * <p>这条用例守的是 {@code toRecordContext} 的穷尽 {@code switch}：漏一个 {@code case}
+     * 不是"少一个字段"，而是 {@code default} 抛异常、整条时间线 {@code 500}。它曾经真的漏过一次——
+     * 当时的用例只断言服务层写入、没有真的调一次 {@code records}，因此只在真实栈上才暴露。
+     * 首要断言是"读得出来"，其次才逐字段核对 context。</p>
+     */
+    @Test
+    void timelineTranslatesTheExpiredCancelRequestRecordInsteadOfFailing() {
+        long requesterId = insertUser("expired-record-requester", EMPLOYEE);
+        long assigneeId = insertUser("expired-record-assignee", IT_SUPPORT);
+        long categoryId = insertCategory("已过期留痕");
+        LocalDateTime now = LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC).withNano(0);
+
+        String ticketNo = insertTicket(requesterId, categoryId, "覆盖过期请求",
+                PROCESSING, assigneeId, MEDIUM, now.minusDays(5), now.minusDays(5));
+        long ticketId = ticketIdOf(ticketNo);
+
+        // 覆盖动作的产物：n+1 是「已过期」留痕（原说明、原期限各有列，原发起时间写在 content 里），
+        // n+2 是新的待决请求。按 TicketServiceImpl 的列组合直接造数，避免绕完整状态机。
+        LocalDateTime originalRequestedAt = now.minusDays(3);
+        LocalDateTime originalDeadline = now.minusDays(1);
+        LocalDateTime newDeadline = now.plusDays(3);
+        jdbc.update("""
+                INSERT INTO ticket_record (
+                    ticket_id, sequence_no, record_type, actor_type, actor_user_id,
+                    content, reason, deadline_at, from_status, to_status, created_at
+                ) VALUES (?, 1, 'CANCELLATION_REQUEST_EXPIRED', 'USER', ?, ?, ?,
+                          ?, 'PROCESSING', 'PROCESSING', ?)
+                """, ticketId, requesterId, originalRequestedAt.atOffset(ZoneOffset.UTC).toString(),
+                CANCEL_REQUEST_REASON, originalDeadline, now);
+        jdbc.update("""
+                INSERT INTO ticket_record (
+                    ticket_id, sequence_no, record_type, actor_type, actor_user_id,
+                    reason, deadline_at, from_status, to_status, created_at
+                ) VALUES (?, 2, 'CANCELLATION_REQUEST', 'USER', ?, ?, ?,
+                          'PROCESSING', 'PROCESSING', ?)
+                """, ticketId, requesterId, CANCEL_REQUEST_REASON, newDeadline, now);
+        jdbc.update("UPDATE ticket SET record_seq = 2 WHERE id = ?", ticketId);
+
+        authenticateAs(requesterId);
+
+        PageResult<TicketRecordResult> timeline = records(ticketNo, new TicketRecordQuery());
+
+        assertThat(timeline.items()).extracting(TicketRecordResult::recordType)
+                .as("已过期留痕与新请求都要出现在时间线上")
+                .containsExactly("CANCELLATION_REQUEST_EXPIRED", "CANCELLATION_REQUEST");
+
+        assertThat(timeline.items().getFirst().context())
+                .as("已过期留痕的 context 含原说明、原发起时间、原期限与不变的状态")
+                .containsOnlyKeys("reason", "content", "deadlineAt", "fromStatus", "toStatus")
+                .containsEntry("reason", CANCEL_REQUEST_REASON)
+                .containsEntry("content", originalRequestedAt.atOffset(ZoneOffset.UTC).toString())
+                .containsEntry("deadlineAt", originalDeadline.atOffset(ZoneOffset.UTC))
+                .containsEntry("fromStatus", PROCESSING)
+                .containsEntry("toStatus", PROCESSING);
+    }
+
     // ---------- 查询辅助 ----------
 
     private TicketQuery query(TicketScope scope, long categoryId) {
