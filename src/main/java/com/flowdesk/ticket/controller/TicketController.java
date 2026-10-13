@@ -86,13 +86,14 @@ public class TicketController {
         return R.success(ticketQueryService.transferCandidates(ticketNo));
     }
 
-    /**创建工单*/
+    /**创建工单；可携带新附件（files 重复 part）或引用已上传附件（attachmentIds）*/
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasAuthority('TICKET_CREATE')")
     public ResponseEntity<R<TicketCreatedResult>> create(
-            @Valid @RequestPart("ticket") CreateTicketCommand command) {
+            @Valid @RequestPart("ticket") CreateTicketCommand command,
+            @RequestPart(name = "files", required = false) List<MultipartFile> files) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(R.success(ticketService.create(command)));
+                .body(R.success(ticketService.create(command, files)));
     }
 
     /** 领取工单 */
@@ -158,14 +159,7 @@ public class TicketController {
             @PathVariable String ticketNo,
             @Valid @RequestPart("ticket") SupplementCommand command,
             @RequestPart(name = "files", required = false) List<MultipartFile> files) {
-        if (files != null && !files.isEmpty()) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "VALIDATION_FAILED",
-                    "本版本不支持附件，请只提交补充正文");
-        }
-
-        return R.success(ticketService.supplement(ticketNo, command));
+        return R.success(ticketService.supplement(ticketNo, command, files));
     }
 
     /** 当前负责人调整分类；状态、负责人与期限不变。 */

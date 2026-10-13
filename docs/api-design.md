@@ -243,6 +243,7 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 - `categoryId`：必填且必须指向启用分类。
 - `priority`：必填，`LOW`、`MEDIUM` 或 `HIGH`。
 - `sourceTicketNo`：可选；必须是当前提交人有权查看的原工单，且不能形成自引用。
+- `attachmentIds`：可选；引用当前提交人已上传且尚未绑定的附件（见 7.1），与 `files` part 可同时出现（**待实现**，2026-10-12 方案 B）。
 
 **已确认**：`submissionKey` 由 Vue 在用户开始一次提交时生成，同一用户使用同一键重复请求时返回首次创建结果。`ticket` 表使用对应字段及 `(requester_id, submission_key)` 唯一约束，不增加独立幂等表。
 
@@ -250,7 +251,7 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 
 **关联补充（2026-10-12，已实现）**：`sourceTicketNo` 随同一个 multipart 的 `ticket` part 提交，不设独立 part；它必须是当前提交人有权查看的工单——服务端复用详情的同一条可见性 SQL（5.1），**无权查看与编号不存在统一返回 `400/VALIDATION_FAILED`「原工单编号无效」**，不向调用方回显他人工单是否存在；校验先于每日编号分配，被拒绝的创建不消耗当日序号、不落工单。首次创建在同一事务内写一条 `ticket_relation`（`relation_type = FOLLOW_UP`，source = 新工单、target = 原工单）；**不新增时间线事件、不提供独立建链/删链接口**，同一 `submissionKey` 重放不重复写关联。原工单可以是任意状态——终态工单正是「问题再次出现」时的主要引用对象（`docs/kickoff.md` 4.10）。
 
-附件类型、单文件大小、总数量及失败补偿在工程准备阶段确定。v1 直接随创建请求上传，不提前引入临时文件资源或分片上传。
+**附件独立化（2026-10-12 用户确认，方案 B，待实现）**：附件改由独立的通用附件模块承载，见 7.1——创建工单可携带新文件（multipart `files` part）与引用已上传附件的 `attachmentIds`；限制、校验与失败补偿见 7.1 与 `docs/engineering-readiness.md` 7.2。仍不引入分片上传。
 
 ### 6.3 IT 支持人员动作
 
@@ -312,7 +313,7 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 | `withdraw-cancel-request` | 同上 | `version` | 状态与期限不变，待决撤销请求失效 |
 | `cancel` | 仅 `PENDING` | `version`、`reason` | 进入 `CANCELED` |
 
-这些动作都要求当前用户是工单提交人。`supplement` 使用 `multipart/form-data`，正文和附件至少存在一项；其他动作使用 JSON。
+这些动作都要求当前用户是工单提交人。`supplement` 使用 `multipart/form-data`（附件上传与引用见 7.1），正文和附件至少存在一项；其他动作使用 JSON。
 
 **实现状态（截至 2026-10-08）**：`confirm-resolution`（阶段 3）、`report-unresolved`（片 A）、`supplement`（片 B）、`request-supplement`（片 B，IT 侧）与 `cancel`（**片 D**）均已实现；同日的两阶段撤销规则变更再加 `request-cancel` 与 `withdraw-cancel-request`，并把 `cancel` 收窄为「只有 `PENDING`」。`supplement` 的实现见 6.3 的状态清单。
 
@@ -325,7 +326,7 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
   - 待受理本来没有负责人，`ck_ticket_status_assignee` 对「已取消」带不带负责人都允许。撤销**不写** `completion_method` / `close_method` / `close_reason`，因此「已取消」与「已完成」「已关闭」在库层面可区分（`docs/kickoff.md` 4.7：已取消不等于 IT 解决了问题）。
   - 直接撤销的原因只存在于不可变时间线的 `CANCELLATION` 记录里；两阶段路径的说明存在 `ticket.cancel_request_reason`，批准进入终态时随请求三列一并清空，说明本身仍留在 `CANCELLATION_REQUEST` 记录上。**v1 不支持恢复**，员工仍需处理时应新建工单。
 
-**范围裁决（2026-10-06，用户确认）**：附件上传/下载、文件与数据库提交顺序、失败补偿与孤儿对账属完整版 backlog 第 2 项，尚未设计落地。因此 `supplement` **先按"正文版"实现**：请求形状不变（`multipart/form-data`，`ticket` part 携带 JSON），但只接受正文；请求里出现文件 part 时返回 `400/VALIDATION_FAILED` 并说明本版本不支持附件，**不静默忽略**。附件落地后本条随之失效。
+**范围裁决（2026-10-06，用户确认；2026-10-12 方向更新）**：附件上传/下载、文件与数据库提交顺序、失败补偿与孤儿对账属完整版 backlog 第 2 项；附件已按方案 B 独立化（见 7.1），`supplement` 的旧「正文版」限制（出现文件 part 即 `400`）随之失效——改为接受 `files` part 与 `attachmentIds`，正文和附件至少存在一项（**待实现**；附件代码落地前，现行实现仍会拒绝文件 part）。
 
 ### 6.5 非公开系统动作
 
@@ -354,34 +355,41 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 
 ## 7. 附件与辅助查询接口草案
 
-### 7.1 附件上传限制
+### 7.1 附件上传
 
-附件只随“创建工单”或“员工补充”动作上传，不提供独立上传、替换或删除接口。
+**方向确认（2026-10-12 用户确认；2026-10-13 公共路径约定 `attachments/xx` 更新并落地上传与下载）**：附件由独立的通用附件模块承载（模块边界见 `docs/technical-architecture.md` 第 4 节，表结构见 `docs/database-design.md` 6.3/19.3），不再要求「只随工单动作上传」。v1 提供两类上传路径：
 
-**已确认**：v1 使用以下限制：
+- **独立上传**：`POST /attachments/upload`，`multipart/form-data` 单文件 `file` part；成功返回附件标识与元数据；上传者为当前登录用户，**未绑定的附件只有上传者本人可下载**（**已实现**，2026-10-13；公共路径约定 `attachments/xx`，**不带 `/fd/v1` 前缀**——2026-10-13 用户明确；认证链作用域已同步覆盖 `/attachments/**`）。
+- **随动作上传**：创建工单（6.2）与员工补充（6.4）可携带 `files`（重复 part 名，多个文件）或 `attachmentIds`（引用先传后绑的附件）。
+
+**已确认**：两类路径共用同一套限制与校验：
 
 - 单个文件最大 10 MiB。
 - 单次请求最多 5 个文件，文件总大小最大 25 MiB。
-- 原始文件名最长 255 个字符；空文件拒绝上传。
+- 原始文件名去首尾空白后 1～255 个字符；空文件拒绝上传。
 - 允许 JPEG、PNG、PDF、TXT、DOCX 和 XLSX。
 - 同时校验扩展名、声明的媒体类型和服务端识别结果，不能只相信客户端 `Content-Type`。
 - 拒绝可执行文件、脚本、HTML、SVG、压缩包和其他未列入白名单的格式。
 
-任一附件校验或保存失败时，整个创建或补充动作失败，不能留下已提交的工单快照、记录、附件元数据或孤立文件。具体文件与数据库提交顺序及失败补偿在工程准备阶段落实并测试。
+任一附件校验或保存失败时，整个上传动作失败，不能留下已提交的工单快照、记录、附件元数据或孤立文件。文件与数据库提交顺序及失败补偿见 `docs/engineering-readiness.md` 7.2。
 
-文件使用服务端随机存储标识，保存在 Web 根目录之外；数据库只保存元数据，客户端文件名不得参与真实磁盘路径拼接。
+文件使用服务端随机存储标识，保存在 Web 根目录之外；数据库只保存元数据，客户端文件名不得参与真实磁盘路径拼接。附件元数据保存在通用 `attachment` 表；与工单的归属保存在 `ticket_attachment` 绑定表，只允许绑定创建记录或员工补充记录（跨表类型约束由工单事务用例校验）。
+
+**引用规则（待实现）**：`attachmentIds` 只能引用当前用户上传、尚未绑定、且未超过保留期（默认 24 小时）的附件；引用他人附件、已绑定附件或不存在/不可见的附件时按统一 `404/ATTACHMENT_NOT_FOUND` 或 `400/VALIDATION_FAILED` 处理，不泄露他人附件是否存在。超期未绑定的附件由对账任务清理（`docs/engineering-readiness.md` 7.2）。
+
+v1 仍不提供附件替换、删除、预览或分片上传接口。
 
 ### 7.2 附件下载
 
 | 项目 | 契约 |
 | --- | --- |
-| 方法与路径 | `GET /fd/v1/tickets/{ticketNo}/attachments/{attachmentId}/content` |
+| 方法与路径 | `GET /attachments/download/{attachmentId}`（2026-10-13 公共路径约定 `attachments/xx`，**不带 `/fd/v1` 前缀**，**已实现**；此前的工单嵌套路径已按同日约定推翻） |
 | 响应 | 原始文件流，不使用 `R<T>` |
-| 权限 | 调用者必须能够查看该工单，且附件必须真实属于该工单 |
+| 权限 | 调用者是上传者本人，或附件经业务授权端口判定对调用者可见（工单绑定可见性在步骤 5 接入） |
 
 下载响应设置服务端确认的 `Content-Type`、文件长度、经过安全编码的 `Content-Disposition: attachment` 和 `X-Content-Type-Options: nosniff`。
 
-附件不存在、不属于路径中的工单或调用者无工单查看权时，统一返回 `404`。不能只根据 `attachmentId` 读取文件，也不能暴露真实磁盘路径。
+附件不存在、归属不符或不可见时统一返回 `404/ATTACHMENT_NOT_FOUND`。不能只根据 `attachmentId` 读取文件，也不能暴露真实磁盘路径。
 
 ### 7.3 分类选项
 
@@ -420,9 +428,9 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 
 1. 单文件 10 MiB、单次最多 5 个且总计不超过 25 MiB。
 2. 白名单只包含 JPEG、PNG、PDF、TXT、DOCX 和 XLSX。
-3. 附件下载使用嵌套工单路径、强制下载，并重新校验工单与附件归属。
+3. 附件下载使用公共路径 `GET /attachments/download/{attachmentId}`（强制下载、复核权限，**已实现**，2026-10-13；工单嵌套路径已按同日约定推翻）；权限口径见 7.2。
 4. 分类选项和转交候选人使用最小字段专用接口，不开放通用用户搜索。
-5. v1 不提供独立附件上传、删除、预览或分片上传。
+5. v1 提供独立附件上传（`POST /attachments/upload`）与下载（**均已实现**，2026-10-13），仍不提供替换、删除、预览或分片上传。
 
 附件与辅助查询接口组就绪状态：**Ready**。
 
@@ -588,7 +596,7 @@ MySQL 与 Redis 之间不存在天然原子事务。工程准备阶段必须明�
 | `CATEGORY_MANAGE` | 分类管理 | 分类版本、名称唯一和引用约束 |
 | `DASHBOARD_VIEW` | 工单数据概览 | 复用 IT 工单可见范围 |
 
-附件下载和关联摘要不单设权限编码，继承所属工单的查看权限。认证接口只要求相应的匿名、Refresh Cookie 或已登录状态。
+附件下载和关联摘要不单设权限编码：附件下载按 7.2 的「上传者本人或业务授权」口径判定，工单可见性经业务授权端口接入（步骤 5 实现）。认证接口只要求相应的匿名、Refresh Cookie 或已登录状态。
 
 ## 10. 统一错误契约
 
@@ -619,7 +627,7 @@ MySQL 与 Redis 之间不存在天然原子事务。工程准备阶段必须明�
 | `404` | `ROLE_NOT_FOUND` | 角色不存在，或 `roleId` 非正整数 |
 | `404` | `PERMISSION_NOT_FOUND` | 权限不存在，或 `permissionId` 非正整数 |
 | `404` | `GRANT_NOT_FOUND` | 要撤销的授权关系不存在 |
-| `404` | `ATTACHMENT_NOT_FOUND` | 附件不存在、归属不符或不可见 |
+| `404` | `ATTACHMENT_NOT_FOUND` | 附件不存在、归属不符或不可见（两条下载路径统一） |
 | `404` | `RESOURCE_NOT_FOUND` | 请求路径未匹配任何接口（Spring MVC 兜底，非业务语义；业务 404 使用各自编码） |
 | `409` | `TICKET_CONFLICT` | 工单版本、状态或负责人已变化 |
 | `409` | `TICKET_CREATE_CONFLICT` | 创建工单命中非提交键的唯一约束（如工单编号冲突），可重试；原始数据库异常保留为 cause |

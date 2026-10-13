@@ -56,6 +56,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.MockMultipartHttpServletRequestBuilder;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
@@ -257,7 +258,7 @@ class TicketControllerWebTest {
 
     @Test
     void ticketCreatorCanCreateTicketAndMultipartPartReachesService() throws Exception {
-        when(ticketService.create(any())).thenReturn(sampleCreated());
+        when(ticketService.create(any(), any())).thenReturn(sampleCreated());
 
         mockMvc.perform(createRequest(validTicketPart()).with(ticketUser("TICKET_CREATE")))
                 .andExpect(status().isCreated())
@@ -270,7 +271,7 @@ class TicketControllerWebTest {
 
         ArgumentCaptor<CreateTicketCommand> captor =
                 ArgumentCaptor.forClass(CreateTicketCommand.class);
-        verify(ticketService).create(captor.capture());
+        verify(ticketService).create(captor.capture(), any());
         CreateTicketCommand command = captor.getValue();
         assertThat(command.submissionKey()).isEqualTo(SUBMISSION_KEY);
         // 记录构造器会去掉首尾空白，校验与入库都按去空白后的结果
@@ -283,14 +284,14 @@ class TicketControllerWebTest {
     /** 原工单引用随同一个 {@code ticket} part 绑定：去除首尾空白后进入命令。 */
     @Test
     void ticketCreatorCanCreateFollowUpTicketWithSourceTicketNo() throws Exception {
-        when(ticketService.create(any())).thenReturn(sampleCreated());
+        when(ticketService.create(any(), any())).thenReturn(sampleCreated());
 
         mockMvc.perform(createRequest(followUpTicketPart()).with(ticketUser("TICKET_CREATE")))
                 .andExpect(status().isCreated());
 
         ArgumentCaptor<CreateTicketCommand> captor =
                 ArgumentCaptor.forClass(CreateTicketCommand.class);
-        verify(ticketService).create(captor.capture());
+        verify(ticketService).create(captor.capture(), any());
         assertThat(captor.getValue().sourceTicketNo()).isEqualTo("FD-20261005-007");
     }
 
@@ -317,7 +318,7 @@ class TicketControllerWebTest {
                 .doesNotContain("com.flowdesk")
                 .doesNotContain("org.springframework");
 
-        verify(ticketService, never()).create(any());
+        verify(ticketService, never()).create(any(), any());
     }
 
     @ParameterizedTest(name = "create rejects {0}")
@@ -329,7 +330,7 @@ class TicketControllerWebTest {
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
                 .andExpect(jsonPath("$.data.fieldErrors[*].field", hasItem(expectedField)));
 
-        verify(ticketService, never()).create(any());
+        verify(ticketService, never()).create(any(), any());
     }
 
     static Stream<Arguments> invalidTicketParts() {
@@ -1189,40 +1190,49 @@ class TicketControllerWebTest {
     }
 
     /**
-     * 本版本只接受正文：带文件部分必须返回 400 并说明不支持附件，**不能静默忽略**——
-     * 静默忽略会让调用方以为附件已经收下（`docs/api-design.md` 6.4 的范围裁决）。
+     * 带文件部分不再由控制器拒绝：{@code files} 原样透传给服务层，由服务层判定
+     * 「正文与附件至少一项」等跨字段规则（`docs/api-design.md` 6.4）。
      *
      * <p>两个 part 都在同一次 {@code multipart(...)} 里给出：先构造再认证，
      * 才能保证"已认证 + 带文件"这个组合本身被测到。</p>
      */
     @Test
-    void supplementRejectsFilePartWithExplicitValidationFailure() throws Exception {
-        mockMvc.perform(multipart(TICKETS + "/" + TICKET_NO + "/actions/supplement")
+    void supplementPassesFilePartThroughToService() throws Exception {
+        when(ticketService.supplement(eq(TICKET_NO), any(), any()))
+                .thenReturn(processingAction());
+
+        assertReturnActionEnvelope(mockMvc.perform(
+                multipart(TICKETS + "/" + TICKET_NO + "/actions/supplement")
                         .file(ticketPart("""
                                 {"version": 5, "content": "型号是 M404dn"}
                                 """))
                         .file(filePart("screenshot.png", "fake-image-bytes"))
-                        .with(ticketUser("TICKET_REQUESTER_ACTION")))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
-                .andExpect(jsonPath("$.message", containsString("本版本不支持附件")));
+                        .with(ticketUser("TICKET_REQUESTER_ACTION"))));
 
-        verifyNoInteractions(ticketService);
+        ArgumentCaptor<List<MultipartFile>> captor = ArgumentCaptor.forClass(List.class);
+        verify(ticketService).supplement(eq(TICKET_NO), any(), captor.capture());
+        assertThat(captor.getValue()).as("文件部分原样透传给服务层").hasSize(1);
+        assertThat(captor.getValue().get(0).getOriginalFilename()).isEqualTo("screenshot.png");
     }
 
-    /** 空文件部分同样按"出现了文件"处理：判定的依据是 part 存在，不是字节数为正。 */
+    /** 空文件部分同样进入透传给服务的文件列表：判定的依据是 part 存在，不是字节数为正。 */
     @Test
-    void supplementRejectsEmptyFilePartToo() throws Exception {
-        mockMvc.perform(multipart(TICKETS + "/" + TICKET_NO + "/actions/supplement")
+    void supplementPassesEmptyFilePartThroughToService() throws Exception {
+        when(ticketService.supplement(eq(TICKET_NO), any(), any()))
+                .thenReturn(processingAction());
+
+        assertReturnActionEnvelope(mockMvc.perform(
+                multipart(TICKETS + "/" + TICKET_NO + "/actions/supplement")
                         .file(ticketPart("""
                                 {"version": 5, "content": "型号是 M404dn"}
                                 """))
                         .file(filePart("empty.txt", ""))
-                        .with(ticketUser("TICKET_REQUESTER_ACTION")))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+                        .with(ticketUser("TICKET_REQUESTER_ACTION"))));
 
-        verifyNoInteractions(ticketService);
+        ArgumentCaptor<List<MultipartFile>> captor = ArgumentCaptor.forClass(List.class);
+        verify(ticketService).supplement(eq(TICKET_NO), any(), captor.capture());
+        assertThat(captor.getValue()).hasSize(1);
+        assertThat(captor.getValue().get(0).getOriginalFilename()).isEqualTo("empty.txt");
     }
 
     @ParameterizedTest(name = "supplement rejects {0}")
@@ -1242,9 +1252,6 @@ class TicketControllerWebTest {
                 Arguments.of("a missing version", """
                         {"content": "型号是 M404dn"}
                         """, "version"),
-                Arguments.of("a blank content", """
-                        {"version": 5, "content": "   "}
-                        """, "content"),
                 Arguments.of("content over 10000 characters", """
                         {"version": 5, "content": "%s"}
                         """.formatted("补".repeat(10001)), "content"));
@@ -1253,7 +1260,7 @@ class TicketControllerWebTest {
     /** multipart 的 {@code ticket} 部分必须原样到达服务层，并被反序列化成命令对象。 */
     @Test
     void supplementReturnsTicketActionEnvelopeAndReachesService() throws Exception {
-        when(ticketService.supplement(eq(TICKET_NO), any())).thenReturn(processingAction());
+        when(ticketService.supplement(eq(TICKET_NO), any(), any())).thenReturn(processingAction());
 
         assertReturnActionEnvelope(mockMvc.perform(supplementRequest("""
                         {"version": 5, "content": "  型号是 M404dn  "}
@@ -1261,14 +1268,14 @@ class TicketControllerWebTest {
 
         ArgumentCaptor<SupplementCommand> captor =
                 ArgumentCaptor.forClass(SupplementCommand.class);
-        verify(ticketService).supplement(eq(TICKET_NO), captor.capture());
+        verify(ticketService).supplement(eq(TICKET_NO), captor.capture(), any());
         assertThat(captor.getValue().version()).isEqualTo(5L);
         assertThat(captor.getValue().content()).isEqualTo("型号是 M404dn");
     }
 
     @Test
     void supplementIsForbiddenForItAuthorities() throws Exception {
-        when(ticketService.supplement(eq(TICKET_NO), any()))
+        when(ticketService.supplement(eq(TICKET_NO), any(), any()))
                 .thenThrow(new ApiException(HttpStatus.FORBIDDEN, "TICKET_ACTION_FORBIDDEN",
                         "无提交人操作权限"));
 
@@ -1278,7 +1285,7 @@ class TicketControllerWebTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("TICKET_ACTION_FORBIDDEN"));
 
-        verify(ticketService).supplement(eq(TICKET_NO), any());
+        verify(ticketService).supplement(eq(TICKET_NO), any(), any());
     }
 
     // ---------- 片 C：调整与转交 ----------

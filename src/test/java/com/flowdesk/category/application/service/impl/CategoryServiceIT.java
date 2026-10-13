@@ -358,7 +358,7 @@ class CategoryServiceIT {
         assertApiError(
                 () -> ticketService.create(new CreateTicketCommand(
                         UUID.randomUUID().toString(), "停用分类建单", "应当被拒绝",
-                        category.id(), "MEDIUM", null)),
+                        category.id(), "MEDIUM", null, List.of()), List.of()),
                 HttpStatus.BAD_REQUEST,
                 "VALIDATION_FAILED");
 
@@ -371,7 +371,7 @@ class CategoryServiceIT {
         categoryService.enable(category.id(), new CategoryStatusChangeCommand(disabled.version()));
         TicketCreatedResult created = ticketService.create(new CreateTicketCommand(
                 UUID.randomUUID().toString(), "启用后建单", "应当创建成功",
-                category.id(), "MEDIUM", null));
+                category.id(), "MEDIUM", null, List.of()), List.of());
 
         assertThat(created.status()).isEqualTo("PENDING");
         assertThat(created.ticketNo()).startsWith("FD-");

@@ -41,13 +41,13 @@ class DatabaseMigrationIT {
 
     private static final Set<String> EXPECTED_TABLES = Set.of(
             "iam_user", "iam_role", "iam_permission", "iam_user_role", "iam_role_permission",
-            "ticket_category", "ticket", "ticket_record", "ticket_attachment",
+            "ticket_category", "ticket", "ticket_record", "attachment", "ticket_attachment",
             "ticket_relation", "ticket_participant", "ticket_daily_sequence");
 
     private static final Set<String> EXPECTED_INDEXES = Set.of(
             "uk_iam_user_username", "uk_iam_role_code", "uk_iam_permission_code",
             "uk_ticket_category_name", "uk_ticket_no", "uk_ticket_requester_submission",
-            "uk_ticket_record_ticket_seq", "uk_ticket_attachment_storage_key",
+            "uk_ticket_record_ticket_seq", "uk_attachment_storage_key", "uk_ticket_attachment_attachment",
             "uk_ticket_relation_source_type",
             "idx_iam_user_status", "idx_iam_user_role_role_user", "idx_iam_role_permission_permission_role",
             "idx_iam_role_permission_granted_by",
@@ -83,7 +83,7 @@ class DatabaseMigrationIT {
         var history = jdbc.queryForList(
                 "SELECT version, success FROM flyway_schema_history ORDER BY installed_rank");
         assertThat(history).extracting(row -> String.valueOf(row.get("version")))
-                .containsExactly("1", "2", "4", "5", "6", "7");
+                .containsExactly("1", "2", "4", "5", "6", "7", "8", "9");
         assertThat(history).allSatisfy(row ->
                 assertThat(row.get("success")).isEqualTo(Boolean.TRUE));
 
@@ -99,7 +99,7 @@ class DatabaseMigrationIT {
         var foreignKeys = jdbc.queryForList(
                 "SELECT constraint_name, delete_rule FROM information_schema.referential_constraints "
                         + "WHERE constraint_schema = DATABASE()");
-        assertThat(foreignKeys).hasSize(22);
+        assertThat(foreignKeys).hasSize(23);
         assertThat(foreignKeys).allSatisfy(row ->
                 assertThat(row.get("delete_rule")).isEqualTo("NO ACTION"));
 

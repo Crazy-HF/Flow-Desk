@@ -12,7 +12,8 @@ springdoc:
     enabled: false
 
 flowdesk:
-  attachment-root: ${java.io.tmpdir}/flowdesk-test-attachments
+  attachment:
+    root: ${java.io.tmpdir}/flowdesk-test-attachments
 
 jwt:
   secret: dGVzdC1vbmx5LXNlY3JldC10aGF0LWlzLW5vdC1mb3ItcHJvZA==

@@ -67,6 +67,34 @@ public interface TicketMapper extends BaseMapper<Ticket> {
             @Param("canViewQueue") boolean canViewQueue,
             @Param("canViewParticipated") boolean canViewParticipated);
 
+    /**
+     * 按工单 id 复用同一条可见性判定（附件下载走这里，确保与详情权限口径完全一致；
+     * 分支谓词逐字复制自 {@link #selectVisibleDetail}）。
+     */
+    @Select("""
+            SELECT EXISTS (
+                SELECT 1 FROM ticket t
+                WHERE t.id = #{ticketId}
+                  AND (
+                    (#{canViewOwn} = TRUE AND t.requester_id = #{currentUserId})
+                    OR (#{canViewQueue} = TRUE AND t.status = 'PENDING')
+                    OR (#{canViewParticipated} = TRUE AND (
+                        t.assignee_id = #{currentUserId}
+                        OR EXISTS (
+                            SELECT 1 FROM ticket_participant p
+                            WHERE p.ticket_id = t.id AND p.user_id = #{currentUserId}
+                        )
+                    ))
+                  )
+            )
+            """)
+    boolean existsVisibleTicketById(
+            @Param("ticketId") long ticketId,
+            @Param("currentUserId") long currentUserId,
+            @Param("canViewOwn") boolean canViewOwn,
+            @Param("canViewQueue") boolean canViewQueue,
+            @Param("canViewParticipated") boolean canViewParticipated);
+
     /** 数据范围由 scope 决定，用户 ID 仅由应用服务的认证上下文提供。 */
     @Select("""
             <script>
