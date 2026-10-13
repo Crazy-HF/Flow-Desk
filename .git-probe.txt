@@ -1,4 +1,0 @@
---- version ---
---- log ---
---- rev-parse ---
---- end ---
