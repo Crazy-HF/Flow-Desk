@@ -12,6 +12,7 @@ import com.flowdesk.ticket.application.query.TicketQuery;
 import com.flowdesk.ticket.application.query.TicketRecordQuery;
 import com.flowdesk.ticket.application.result.*;
 import com.flowdesk.ticket.application.service.TicketQueryService;
+import com.flowdesk.ticket.domain.CancelRequestPolicy;
 import com.flowdesk.ticket.domain.Ticket;
 import com.flowdesk.ticket.infrastructure.persistence.TicketListRow;
 import com.flowdesk.ticket.infrastructure.persistence.TicketRecordRow;
@@ -24,6 +25,7 @@ import com.flowdesk.ticket.infrastructure.persistence.TicketDetailRow;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -67,14 +69,21 @@ public class TicketQueryServiceImpl implements TicketQueryService {
     private final TicketClaimantPort ticketClaimantPort;
     /** 工单有向关联：详情返回关联摘要，方向（OUTGOING/INCOMING）由 SQL 相对本单生成。 */
     private final TicketRelationMapper ticketRelationMapper;
+    /**
+     * 判定用的时钟：撤销请求是否已过期（决定批准 / 拒绝 / 撤回三个入口与「已过期」展示）与写库时的
+     * {@code #{now}} 同源，一律取应用注入的 UTC 时钟，不引入数据库时钟作为第二个真相来源。
+     */
+    private final Clock clock;
 
     public TicketQueryServiceImpl(
+            Clock clock,
             TicketMapper ticketMapper,
             CurrentRequesterPort currentRequesterPort,
             TicketReadPermissionPort ticketReadPermissionPort,
             TicketRecordMapper ticketRecordMapper,
             TicketClaimantPort ticketClaimantPort,
             TicketRelationMapper ticketRelationMapper) {
+        this.clock = clock;
         this.ticketMapper = ticketMapper;
         this.currentRequesterPort = currentRequesterPort;
         this.ticketReadPermissionPort = ticketReadPermissionPort;
@@ -109,7 +118,8 @@ public class TicketQueryServiceImpl implements TicketQueryService {
         Page<TicketListRow> page =
                 new Page<>(query.getCurrent(), query.getSize());
 
-        // 5. Mapper 根据 scope 选择数据范围。
+        // 5. Mapper 根据 scope 选择数据范围。「待我批准」筛选的期限条件用同一个应用时钟：
+        //    与写库的 #{now}、详情里的 expired 判定同源，避免「列表说可批准、点下去已过期」
         Page<TicketListRow> result =
                 ticketMapper.selectScopedPage(
                         page,
@@ -117,7 +127,8 @@ public class TicketQueryServiceImpl implements TicketQueryService {
                         query,
                         keywordPattern,
                         createdFrom,
-                        createdTo);
+                        createdTo,
+                        LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC));
 
         // 6. 沿用已有结果转换。
         return PageResult.from(result, this::toListItem);
@@ -327,6 +338,10 @@ public class TicketQueryServiceImpl implements TicketQueryService {
      * 详情结果。
      */
     private TicketDetailResult toDetail(TicketDetailRow row, long currentUserId) {
+        // 过期判定用的 now 与写库的 #{now} 同源（应用注入的 UTC 时钟）；不让前端拿本地时钟去比
+        // deadlineAt——两侧有偏差时，界面会与「批准 / 拒绝入口是否返回」「列表是否命中」分叉
+        LocalDateTime now = LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
+
         TicketCategorySummaryResult category =
                 new TicketCategorySummaryResult(
                         row.getCategoryId(),
@@ -418,10 +433,13 @@ public class TicketQueryServiceImpl implements TicketQueryService {
                 && ticketReadPermissionPort.hasAuthority(TICKET_CLOSE);
 
         // 待批准的撤销请求：只存在于「有人负责且未终结」的三个状态上，且**状态不变**，
-        // 因此无法从 status 推出来——必须看请求列，界面也靠它渲染待批准提示与决策按钮
-        // （2026-10-10 裁决已改口径、实现待落地：届时"有待决请求"要再分未过期 / 已过期两种，
-        //   已过期时不返回批准 / 拒绝 / 撤回三格、详情显示「已过期」，见 9.3 待改清单 ①④）
+        // 因此无法从 status 推出来——必须看请求列，界面也靠它渲染待批准提示与决策按钮。
+        // 请求一旦过期（2026-10-10 裁决）就只展示、不再可裁决：批准 / 拒绝 / 撤回三格一起消失，
+        // 提交人改为重新发起（覆盖），因此下面每一处都要带上 expired
         boolean hasCancelRequest = row.getCancelRequestedAt() != null;
+
+        boolean cancelRequestExpired = hasCancelRequest
+                && CancelRequestPolicy.isExpired(row.getCancelRequestDeadlineAt(), now);
 
         boolean isCancelRequestStatus =
                 STATUS_PROCESSING.equals(row.getStatus())
@@ -434,16 +452,18 @@ public class TicketQueryServiceImpl implements TicketQueryService {
         boolean isAssignee = row.getAssigneeId() != null
                 && row.getAssigneeId() == currentUserId;
 
-        // 提交人在两阶段里有两个互斥动作：没有待决请求时可以发起，已有待决请求时可以撤回自己那一个。
-        // 权限与补充、确认、未解决反馈、直接撤销共用 TICKET_REQUESTER_ACTION
+        // 提交人在两阶段里有两个互斥动作：没有有效请求时可以发起，已有未过期的请求时可以撤回。
+        // 「已过期」的请求不挡新请求——那正是重新发起的入口，因此 canRequestCancel 认的是
+        // 「没有请求 或 请求已过期」这两个条件
         boolean canRequestCancel = isCancelRequestStatus
                 && isRequester
-                && !hasCancelRequest
+                && (!hasCancelRequest || cancelRequestExpired)
                 && ticketReadPermissionPort.hasAuthority(TICKET_REQUESTER_ACTION);
 
         boolean canWithdrawCancelRequest = isCancelRequestStatus
                 && isRequester
                 && hasCancelRequest
+                && !cancelRequestExpired
                 && ticketReadPermissionPort.hasAuthority(TICKET_REQUESTER_ACTION);
 
         // 裁决只发生在「处理中」与「待确认」：待补充期间 IT 刚把球交给员工，不允许在信息不全的时候
@@ -464,6 +484,7 @@ public class TicketQueryServiceImpl implements TicketQueryService {
         boolean canDecideCancelRequest = isCancelDecidableStatus
                 && isAssignee
                 && hasCancelRequest
+                && !cancelRequestExpired
                 && ticketReadPermissionPort.hasAuthority(TICKET_PROCESS);
 
         boolean canApproveCancel = canDecideCancelRequest;
@@ -546,12 +567,14 @@ public class TicketQueryServiceImpl implements TicketQueryService {
             allowedActions.add("cancel");
         }
 
-        // 待批准的撤销请求：状态不变，所以详情必须单独返回它，否则界面渲染不出待批准提示
+        // 待批准的撤销请求：状态不变，所以详情必须单独返回它，否则界面渲染不出待批准提示。
+        // expired 由服务端判定（不让前端比本地时钟），界面据此显示「已过期」并隐藏三个入口
         TicketCancelRequestResult cancelRequest = hasCancelRequest
                 ? new TicketCancelRequestResult(
                         toOffsetDateTime(row.getCancelRequestedAt()),
                         toOffsetDateTime(row.getCancelRequestDeadlineAt()),
-                        row.getCancelRequestReason())
+                        row.getCancelRequestReason(),
+                        cancelRequestExpired)
                 : null;
 
         // 工单关联摘要随详情返回：方向由 SQL 按「本单是 source 还是 target」判定，

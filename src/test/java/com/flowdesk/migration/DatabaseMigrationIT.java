@@ -54,8 +54,23 @@ class DatabaseMigrationIT {
             "idx_ticket_category_status_sort", "idx_ticket_requester_created",
             "idx_ticket_status_priority_created", "idx_ticket_assignee_status_updated",
             "idx_ticket_status_deadline", "idx_ticket_category_status",
+            "idx_ticket_assignee_status_cancel_deadline",
             "idx_ticket_record_actor_created", "idx_ticket_attachment_record",
             "idx_ticket_relation_target_type_source", "idx_ticket_participant_user_ticket");
+
+    /**
+     * 记录类型白名单的完整基线：V1 的 15 个 + V7 追加的 4 个 + V8 追加的 1 个。
+     *
+     * <p>每一次重建 {@code ck_ticket_record_type} 都必须保留此前已发布的全部类型——漏一个就会让
+     * 历史时间线无法写入，而这类错误在只写新类型的用例里看不见。逐类型插入是唯一能钉住它的方式。</p>
+     */
+    private static final List<String> EXPECTED_RECORD_TYPES = List.of(
+            "CREATE", "CLAIM", "PROCESS", "CATEGORY_CHANGE", "PRIORITY_CHANGE", "TRANSFER",
+            "ADMIN_HANDOFF", "SUPPLEMENT_REQUEST", "REQUESTER_SUPPLEMENT", "SUPPLEMENT_REQUEST_WITHDRAWN",
+            "RESOLUTION", "UNSATISFIED_FEEDBACK", "COMPLETION", "CANCELLATION", "CLOSURE",
+            "CANCELLATION_REQUEST", "CANCELLATION_APPROVED", "CANCELLATION_REJECTED",
+            "CANCELLATION_REQUEST_WITHDRAWN", "CANCELLATION_REQUEST_EXPIRED");
+
 
     private static final Set<String> EXPECTED_PERMISSIONS = Set.of(
             "TICKET_CREATE", "TICKET_VIEW_OWN", "TICKET_REQUESTER_ACTION",
@@ -83,7 +98,7 @@ class DatabaseMigrationIT {
         var history = jdbc.queryForList(
                 "SELECT version, success FROM flyway_schema_history ORDER BY installed_rank");
         assertThat(history).extracting(row -> String.valueOf(row.get("version")))
-                .containsExactly("1", "2", "4", "5", "6", "7");
+                .containsExactly("1", "2", "4", "5", "6", "7", "8");
         assertThat(history).allSatisfy(row ->
                 assertThat(row.get("success")).isEqualTo(Boolean.TRUE));
 
@@ -235,6 +250,35 @@ class DatabaseMigrationIT {
                 categoryId, itUserId, "AUTO_SUPPLEMENT_TIMEOUT", "DUPLICATE"));
     }
 
+    /**
+     * 记录类型白名单：V8 重建 {@code ck_ticket_record_type} 之后，此前发布过的**每一个**类型都必须
+     * 仍可写入，新类型 {@code CANCELLATION_REQUEST_EXPIRED} 也必须可写入，未知类型继续被拒绝。
+     *
+     * <p>「重建白名单时漏掉历史类型」在只写新类型的用例里看不见，逐类型插入是唯一能钉住它的方式。</p>
+     */
+    @Test
+    void recordTypeWhitelistKeepsEveryPublishedTypeAndAcceptsTheNewExpiryType() {
+        long requesterId = insertUser("recordtype.requester");
+        long categoryId = insertCategory();
+        insertTicket("FD-20260907-000101", requesterId, categoryId, UUID.randomUUID().toString(),
+                "PENDING", null, null);
+        long ticketId = jdbc.queryForObject(
+                "SELECT id FROM ticket WHERE ticket_no = 'FD-20260907-000101'", Long.class);
+
+        int sequenceNo = 1;
+        for (String recordType : EXPECTED_RECORD_TYPES) {
+            insertRecord(ticketId, sequenceNo++, recordType, requesterId);
+        }
+
+        assertThat(jdbc.queryForList(
+                "SELECT DISTINCT record_type FROM ticket_record WHERE ticket_id = ?",
+                String.class, ticketId))
+                .containsExactlyInAnyOrderElementsOf(EXPECTED_RECORD_TYPES);
+
+        // 未知类型仍必须被库层拒绝：白名单是约束，不是枚举文档
+        assertRejected(() -> insertRecord(ticketId, 999, "UNKNOWN_RECORD_TYPE", requesterId));
+    }
+
     @Test
     void demoSeedRunsOnlyWithDemoLocationAndRepeatsWithoutDuplication() {
         String demoUrl = demoJdbcUrl();
@@ -280,6 +324,12 @@ class DatabaseMigrationIT {
                         + "created_at, updated_at, version) VALUES (?, ?, ?, 'ENABLED', ?, ?, 0)",
                 username, username, "test-hash", timestamp(), timestamp());
         return jdbc.queryForObject("SELECT id FROM iam_user WHERE username = ?", Long.class, username);
+    }
+
+    private void insertRecord(long ticketId, int sequenceNo, String recordType, long actorUserId) {
+        jdbc.update("INSERT INTO ticket_record (ticket_id, sequence_no, record_type, actor_type, "
+                        + "actor_user_id, created_at) VALUES (?, ?, ?, 'USER', ?, ?)",
+                ticketId, sequenceNo, recordType, actorUserId, timestamp());
     }
 
     private long insertCategory() {

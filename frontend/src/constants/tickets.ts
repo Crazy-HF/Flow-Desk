@@ -220,6 +220,9 @@ export const ticketRecordTypeLabels: Record<string, string> = {
   CANCELLATION_APPROVED: '同意撤销申请',
   CANCELLATION_REJECTED: '驳回撤销申请',
   CANCELLATION_REQUEST_WITHDRAWN: '撤回撤销申请',
+  // V8（2026-10-12 到期即失效）：提交人重新发起时，服务端先补写这条留痕再写新请求。
+  // 漏了它时间线会直接显示英文编码——片 E 已经踩过一次同样的坑。
+  CANCELLATION_REQUEST_EXPIRED: '撤销申请已过期',
 }
 
 export function ticketRecordTypeLabel(recordType: string): string {

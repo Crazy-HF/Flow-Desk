@@ -242,6 +242,72 @@ class TicketControllerWebTest {
                 Arguments.of("PARTICIPATED_BY_ME", "TICKET_VIEW_QUEUE"));
     }
 
+    /**
+     * 「待我批准」筛选要求额外的 {@code TICKET_PROCESS}（{@code docs/api-design.md} 5.3）。
+     *
+     * <p>它返回的是「我该去批准的工单」，与详情里的批准 / 拒绝入口共用同一判定；没有处理权限的人
+     * 拿到的是空列表——那还不如直接 403，调用方才知道是权限问题，而不是"我没有待办"。</p>
+     */
+    @Test
+    void listAwaitingMyApprovalWithoutProcessAuthorityIsForbidden() throws Exception {
+        mockMvc.perform(get(TICKETS)
+                        .with(ticketUser("TICKET_VIEW_PARTICIPATED"))
+                        .queryParam("scope", "ASSIGNED_TO_ME")
+                        .queryParam("awaitingMyApproval", "true"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+
+        verifyNoInteractions(ticketQueryService);
+    }
+
+    /** 同时持有范围权限与 {@code TICKET_PROCESS} 时放行，参数照原样进服务层。 */
+    @Test
+    void listAwaitingMyApprovalIsAllowedWithProcessAuthority() throws Exception {
+        when(ticketQueryService.page(any())).thenReturn(emptyTicketPage());
+
+        mockMvc.perform(get(TICKETS)
+                        .with(ticketUser("TICKET_VIEW_PARTICIPATED", "TICKET_PROCESS"))
+                        .queryParam("scope", "ASSIGNED_TO_ME")
+                        .queryParam("awaitingMyApproval", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"));
+
+        ArgumentCaptor<TicketQuery> query = ArgumentCaptor.forClass(TicketQuery.class);
+        verify(ticketQueryService).page(query.capture());
+        assertThat(query.getValue().getAwaitingMyApproval()).isTrue();
+    }
+
+    /**
+     * 「待我批准」只在「我负责的」范围里有定义：其它范围传 {@code true} 属于参数用错，
+     * 按 {@code 400} 拒绝而不是静默忽略——静默忽略会让调用方以为筛选生效了。
+     */
+    @Test
+    void listAwaitingMyApprovalOutsideAssignedToMeIsRejected() throws Exception {
+        mockMvc.perform(get(TICKETS)
+                        .with(ticketUser("TICKET_VIEW_OWN", "TICKET_PROCESS"))
+                        .queryParam("scope", "REQUESTED_BY_ME")
+                        .queryParam("awaitingMyApproval", "true"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+
+        verifyNoInteractions(ticketQueryService);
+    }
+
+    /** 不带这个参数时列表行为不变：它默认不生效，老调用方不需要改。 */
+    @Test
+    void listWithoutAwaitingMyApprovalKeepsThePlainScopeBehaviour() throws Exception {
+        when(ticketQueryService.page(any())).thenReturn(emptyTicketPage());
+
+        mockMvc.perform(get(TICKETS)
+                        .with(ticketUser("TICKET_VIEW_PARTICIPATED"))
+                        .queryParam("scope", "ASSIGNED_TO_ME"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<TicketQuery> query = ArgumentCaptor.forClass(TicketQuery.class);
+        verify(ticketQueryService).page(query.capture());
+        assertThat(query.getValue().getAwaitingMyApproval()).isNull();
+    }
+
     /** 创建要求 {@code TICKET_CREATE}；其他工单权限不能替代。 */
     @Test
     void createWithoutTicketCreatePermissionIsForbidden() throws Exception {

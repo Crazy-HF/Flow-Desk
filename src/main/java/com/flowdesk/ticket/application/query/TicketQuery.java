@@ -40,6 +40,19 @@ public class TicketQuery extends PageQuery {
 
     private TicketListSort sort;
 
+    /**
+     * IT 列表的「待我批准」筛选（{@code docs/api-design.md} 5.3，完整版 backlog 第 7 项）。
+     *
+     * <p>语义固定为「本人是当前负责人 且 工单上有**未过期**的待决撤销请求」，与详情里的
+     * {@code approve-cancel} / {@code reject-cancel} 两格**共用同一判定**（其上再叠加
+     * {@code TICKET_PROCESS} 与「待补充期间不裁决」两条既有条件）。列表项响应不因此增加字段：
+     * 这个参数只决定命中哪些工单，待决请求本身仍只在详情返回。</p>
+     *
+     * <p>只在 {@code scope=ASSIGNED_TO_ME} 下有定义——其它范围传 {@code true} 是参数用错，
+     * 由下面的跨字段校验按 {@code 400} 拒绝，而不是静默忽略（静默忽略会让调用方以为筛选生效了）。</p>
+     */
+    private Boolean awaitingMyApproval;
+
     /** 未指定排序时，队列按优先级/创建时间，其他范围按更新时间。 */
     public TicketListSort getSort() {
         if (sort != null) {
@@ -73,5 +86,17 @@ public class TicketQuery extends PageQuery {
     @AssertTrue(message = "工单排序请使用固定 sort 编码")
     public boolean isFixedSortOnly() {
         return !StringUtils.hasText(getOrderBy()) && isAscendingDirection();
+    }
+
+    /**
+     * 「待我批准」只在「我负责的」范围里有定义：其它范围传 {@code true} 属于参数用错。
+     *
+     * <p>与 {@code createdFrom} / {@code createdTo} 的跨字段校验同一风格——注解表达不了的关系写在
+     * {@code @AssertTrue} 里，失败即 {@code 400/VALIDATION_FAILED}。</p>
+     */
+    @AssertTrue(message = "待我批准筛选只能用于 ASSIGNED_TO_ME 范围")
+    public boolean isAwaitingMyApprovalScopeValid() {
+        return !Boolean.TRUE.equals(awaitingMyApproval)
+                || scope == TicketScope.ASSIGNED_TO_ME;
     }
 }

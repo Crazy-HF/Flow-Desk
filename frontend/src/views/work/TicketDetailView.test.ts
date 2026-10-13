@@ -1398,6 +1398,7 @@ describe('TicketDetailView', () => {
         cancelRequest: {
           requestedAt: '2026-10-08T08:00:00Z',
           deadlineAt: '2026-10-11T08:00:00Z',
+          expired: false,
           reason: '问题已经自行解决',
         },
       })
@@ -1456,6 +1457,7 @@ describe('TicketDetailView', () => {
         cancelRequest: {
           requestedAt: '2026-10-08T08:00:00Z',
           deadlineAt: '2026-10-11T08:00:00Z',
+          expired: false,
           reason: '这是一次重复提交',
         },
       })
@@ -1514,6 +1516,7 @@ describe('TicketDetailView', () => {
       cancelRequest: {
         requestedAt: '2026-10-08T08:00:00Z',
         deadlineAt: '2026-10-11T08:00:00Z',
+        expired: false,
         reason: '不需要了',
       },
     })
@@ -1549,6 +1552,7 @@ describe('TicketDetailView', () => {
       cancelRequest: {
         requestedAt: '2026-10-08T08:00:00Z',
         deadlineAt: '2026-10-11T08:00:00Z',
+        expired: false,
         reason: '不需要了',
       },
     })
@@ -1583,6 +1587,66 @@ describe('TicketDetailView', () => {
   })
 
   /**
+   * 申请已过期（2026-10-10 裁决，2026-10-12 落地）：面板标题与说明都换成「已过期」，
+   * 三个决策入口一个都不出现，提交人那一侧只剩「申请撤销工单」（重新发起即覆盖）。
+   *
+   * <p>判据是服务端返回的 `cancelRequest.expired`：这里刻意把 `deadlineAt` 写成**未来**，
+   * 用来证明界面不看本地时钟——只要服务端说过期，界面就按过期渲染。</p>
+   */
+  it('申请已过期：标题与说明改为已过期，提交人只剩重新申请', async () => {
+    useAuthStore().user = requester
+    vi.mocked(getTicket).mockResolvedValue({
+      ...detail,
+      status: 'PROCESSING',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      version: 6,
+      allowedActions: ['request-cancel'],
+      cancelRequest: {
+        requestedAt: '2026-10-08T08:00:00Z',
+        deadlineAt: '2099-01-01T08:00:00Z',
+        expired: true,
+        reason: '问题已经自行解决',
+      },
+    })
+
+    const { wrapper } = await mountPage()
+    const panel = cancelRequestPanel(wrapper)
+
+    expect(panel.text()).toContain('撤销申请已过期')
+    expect(panel.text()).toContain('你申请的撤销已经过期')
+    expect(panel.text()).toContain('重新申请')
+    // 旧口径那句「这次申请也不会自动失效」必须消失：它承诺的是另一套语义
+    expect(panel.text()).not.toContain('不会自动失效')
+    expect(actionLabels(wrapper)).toEqual(['申请撤销工单'])
+  })
+
+  /** 负责人侧：过期之后没有人需要处理，读到的必须是"不用管"，而不是"正在等你处理"。 */
+  it('申请已过期：负责人读到不需要再处理，且没有同意与驳回入口', async () => {
+    useAuthStore().user = support
+    vi.mocked(getTicket).mockResolvedValue({
+      ...detail,
+      status: 'PROCESSING',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      version: 6,
+      allowedActions: ['add-processing-record', 'submit-resolution'],
+      cancelRequest: {
+        requestedAt: '2026-10-08T08:00:00Z',
+        deadlineAt: '2026-10-11T08:00:00Z',
+        expired: true,
+        reason: '问题已经自行解决',
+      },
+    })
+
+    const { wrapper } = await mountPage()
+    const panel = cancelRequestPanel(wrapper)
+
+    expect(panel.text()).toContain('撤销申请已过期')
+    expect(panel.text()).toContain('已经过期，不需要你再处理')
+    expect(actionLabels(wrapper)).not.toContain('同意撤销')
+    expect(actionLabels(wrapper)).not.toContain('驳回撤销申请')
+  })
+
+  /**
    * 撤回自己的申请（2026-10-08 两阶段撤销）：不需要理由，工单回到"没有被申请撤销"。
    *
    * <p>撤回后仍能重新发起——界面重新按服务端返回的 `allowedActions` 渲染，不缓存上一次的结论。</p>
@@ -1599,6 +1663,7 @@ describe('TicketDetailView', () => {
         cancelRequest: {
           requestedAt: '2026-10-08T08:00:00Z',
           deadlineAt: '2026-10-11T08:00:00Z',
+          expired: false,
           reason: '问题已经自行解决',
         },
       })
@@ -1649,6 +1714,7 @@ describe('TicketDetailView', () => {
       cancelRequest: {
         requestedAt: '2026-10-08T08:00:00Z',
         deadlineAt: '2026-10-11T08:00:00Z',
+        expired: false,
         reason: '不需要了',
       },
     })

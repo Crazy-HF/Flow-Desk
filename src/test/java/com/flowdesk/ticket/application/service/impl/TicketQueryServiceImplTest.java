@@ -41,6 +41,8 @@ import org.mockito.quality.Strictness;
 import org.springframework.http.HttpStatus;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -127,6 +129,26 @@ class TicketQueryServiceImplTest {
     private static final LocalDateTime CANCEL_REQUEST_DEADLINE_AT =
             LocalDateTime.of(2026, 10, 9, 4, 0, 0);
 
+    /**
+     * 已过期的待决撤销请求：期限落在固定时钟（{@code NOW_UTC} = 2026-10-06T08:15:30Z）之前。
+     *
+     * <p>「过期」是随时间变化的状态，因此用同一个时钟配一个更早的期限来表达——「未过期 / 已过期」
+     * 两组夹具只差期限一列，判定差别一眼可见。</p>
+     */
+    private static final LocalDateTime EXPIRED_CANCEL_REQUEST_DEADLINE_AT =
+            LocalDateTime.of(2026, 10, 6, 8, 0, 0);
+
+    /**
+     * 固定时钟（与 {@code TicketServiceImplTest} 同一个时刻）。撤销请求的响应期限
+     * {@code CANCEL_REQUEST_DEADLINE_AT}（2026-10-09T04:00Z）在它之后，因此默认夹具里的请求是
+     * **未过期**的，「批准 / 拒绝 / 撤回三格在」的既有期望全部成立；「已过期」的用例用同一个时钟
+     * 配一个更早的期限来表达（见 {@code CANCEL_REQUEST_EXPIRED_DEADLINE_AT}）。
+     */
+    private static final Clock CLOCK = Clock.fixed(
+            Instant.parse("2026-10-06T08:15:30.123456789Z"), ZoneOffset.UTC);
+    private static final LocalDateTime NOW_UTC =
+            LocalDateTime.ofInstant(CLOCK.instant(), ZoneOffset.UTC);
+
     @Mock
     private TicketMapper ticketMapper;
     @Mock
@@ -145,6 +167,7 @@ class TicketQueryServiceImplTest {
     @BeforeEach
     void setUp() {
         service = new TicketQueryServiceImpl(
+                CLOCK,
                 ticketMapper,
                 currentRequesterPort,
                 ticketReadPermissionPort,
@@ -179,7 +202,7 @@ class TicketQueryServiceImplTest {
 
         ArgumentCaptor<Page<TicketListRow>> pageCaptor = pageCaptor();
         verify(ticketMapper).selectScopedPage(
-                pageCaptor.capture(), eq(REQUESTER_ID), eq(query), isNull(), isNull(), isNull());
+                pageCaptor.capture(), eq(REQUESTER_ID), eq(query), isNull(), isNull(), isNull(), eq(NOW_UTC));
         assertThat(pageCaptor.getValue().getCurrent()).as("页码来自 query.current").isEqualTo(3L);
         assertThat(pageCaptor.getValue().getSize()).as("每页条数来自 query.size").isEqualTo(7L);
     }
@@ -200,7 +223,7 @@ class TicketQueryServiceImplTest {
 
         ArgumentCaptor<String> keywordCaptor = ArgumentCaptor.forClass(String.class);
         verify(ticketMapper).selectScopedPage(
-                any(), anyLong(), any(), keywordCaptor.capture(), any(), any());
+                any(), anyLong(), any(), keywordCaptor.capture(), any(), any(), eq(NOW_UTC));
         assertThat(keywordCaptor.getValue())
                 .as("去空白后 ! → !!、% → !%、_ → !_，再包通配符")
                 .isEqualTo("%50!%!_off!!%");
@@ -216,7 +239,7 @@ class TicketQueryServiceImplTest {
         service.page(query);
 
         verify(ticketMapper).selectScopedPage(
-                any(), anyLong(), any(), isNull(), isNull(), isNull());
+                any(), anyLong(), any(), isNull(), isNull(), isNull(), eq(NOW_UTC));
     }
 
     @Test
@@ -230,7 +253,7 @@ class TicketQueryServiceImplTest {
         service.page(query);
 
         verify(ticketMapper).selectScopedPage(
-                any(), anyLong(), any(), isNull(), isNull(), isNull());
+                any(), anyLong(), any(), isNull(), isNull(), isNull(), eq(NOW_UTC));
     }
 
     /** 带时区的入参必须换算成同一时刻的 UTC 本地时间，否则边界会整体偏移 8 小时。 */
@@ -248,7 +271,7 @@ class TicketQueryServiceImplTest {
         ArgumentCaptor<LocalDateTime> fromCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
         ArgumentCaptor<LocalDateTime> toCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
         verify(ticketMapper).selectScopedPage(
-                any(), anyLong(), any(), any(), fromCaptor.capture(), toCaptor.capture());
+                any(), anyLong(), any(), any(), fromCaptor.capture(), toCaptor.capture(), eq(NOW_UTC));
         assertThat(fromCaptor.getValue()).as("+08:00 的 08:00 就是 UTC 的 00:00")
                 .isEqualTo(LocalDateTime.of(2026, 10, 6, 0, 0));
         assertThat(toCaptor.getValue()).as("+09:00 的 09:30 就是 UTC 的 00:30")
@@ -1205,6 +1228,39 @@ class TicketQueryServiceImplTest {
     }
 
     /**
+     * 请求过期后三格一起消失（2026-10-10 裁决）：负责人读到的是「已过期」，
+     * 而不是一个点下去注定 409 的按钮。
+     *
+     * <p>与上面那条「待补充不裁决」同一形式：期望的是"少三格"，同时证明该状态原有的处理动作一格没少。</p>
+     */
+    @Test
+    void detailWithholdsCancelDecisionsWhenTheRequestHasExpired() {
+        stubCurrentUser(IT_USER_ID);
+        grant("TICKET_PROCESS", "TICKET_CLOSE", "TICKET_TRANSFER");
+        stubVisible(detailRowWithExpiredCancelRequest(PROCESSING, IT_USER_ID, 3L));
+
+        assertThat(service.detail(TICKET_NO).allowedActions())
+                .as("过期的请求不再可裁决，负责人侧三格一起消失")
+                .containsExactly("add-processing-record", "submit-resolution",
+                        "request-supplement", "change-category", "change-priority",
+                        "transfer", "close")
+                .doesNotContain("approve-cancel", "reject-cancel", "withdraw-cancel-request");
+    }
+
+    /** 提交人在过期请求上只剩「重新发起」：过期不再挡新请求，那正是覆盖的入口。 */
+    @Test
+    void detailOffersRequestCancelAgainOnceTheRequestHasExpired() {
+        stubCurrentUser(REQUESTER_ID);
+        grant("TICKET_REQUESTER_ACTION");
+        stubVisible(detailRowWithExpiredCancelRequest(PROCESSING, IT_USER_ID, 3L));
+
+        assertThat(service.detail(TICKET_NO).allowedActions())
+                .as("过期后可以重新发起，撤回已关闭")
+                .containsExactly("request-cancel")
+                .doesNotContain("withdraw-cancel-request", "cancel");
+    }
+
+    /**
      * 待受理上没有负责人，提交人只拿直接撤销；两阶段那三格一个都不出现。
      *
      * <p>与 {@code cancelableStatusesWithExpectedActions} 的"恰好等于"是同一件事，
@@ -1254,6 +1310,29 @@ class TicketQueryServiceImplTest {
         assertThat(cancelRequest.deadlineAt()).as("响应期限按 UTC 输出")
                 .isEqualTo(CANCEL_REQUEST_DEADLINE_AT.atOffset(ZoneOffset.UTC));
         assertThat(cancelRequest.reason()).isEqualTo(CANCEL_REQUEST_REASON);
+        assertThat(cancelRequest.expired()).as("未过期的请求由服务端标记为 expired=false")
+                .isFalse();
+    }
+
+    /**
+     * 期限已到时 {@code expired} 由**服务端**置为 {@code true}（2026-10-10 裁决）。
+     *
+     * <p>前端不比本地时钟：两侧有偏差时界面会与「批准 / 拒绝入口是否返回」「列表是否命中」分叉，
+     * 因此这个布尔值是界面显示「已过期」的唯一依据。</p>
+     */
+    @Test
+    void detailMarksCancelRequestAsExpiredOnceTheDeadlinePassed() {
+        stubCurrentUser(REQUESTER_ID);
+        grant("TICKET_REQUESTER_ACTION");
+        stubVisible(detailRowWithExpiredCancelRequest(PROCESSING, IT_USER_ID, 3L));
+
+        TicketCancelRequestResult cancelRequest = service.detail(TICKET_NO).cancelRequest();
+
+        assertThat(cancelRequest).isNotNull();
+        assertThat(cancelRequest.expired()).as("期限在固定时钟之前").isTrue();
+        assertThat(cancelRequest.requestedAt()).isEqualTo(CANCEL_REQUESTED_AT.atOffset(ZoneOffset.UTC));
+        assertThat(cancelRequest.deadlineAt())
+                .isEqualTo(EXPIRED_CANCEL_REQUEST_DEADLINE_AT.atOffset(ZoneOffset.UTC));
     }
 
     // ---------- transferCandidates ----------
@@ -1414,7 +1493,7 @@ class TicketQueryServiceImplTest {
             page.setRecords(rows);
             page.setTotal(total);
             return page;
-        }).when(ticketMapper).selectScopedPage(any(), anyLong(), any(), any(), any(), any());
+        }).when(ticketMapper).selectScopedPage(any(), anyLong(), any(), any(), any(), any(), any());
     }
 
     private void stubTimeline(List<TicketRecordRow> rows, long total) {
@@ -1469,6 +1548,16 @@ class TicketQueryServiceImplTest {
         row.setCancelRequestedAt(CANCEL_REQUESTED_AT);
         row.setCancelRequestReason(CANCEL_REQUEST_REASON);
         row.setCancelRequestDeadlineAt(CANCEL_REQUEST_DEADLINE_AT);
+        return row;
+    }
+
+    /** 带**已过期**待决撤销请求的可见行：批准 / 拒绝 / 撤回三格都不该出现。 */
+    private static TicketDetailRow detailRowWithExpiredCancelRequest(
+            String status, Long assigneeId, long version) {
+        TicketDetailRow row = detailRow(status, assigneeId, version);
+        row.setCancelRequestedAt(CANCEL_REQUESTED_AT);
+        row.setCancelRequestReason(CANCEL_REQUEST_REASON);
+        row.setCancelRequestDeadlineAt(EXPIRED_CANCEL_REQUEST_DEADLINE_AT);
         return row;
     }
 

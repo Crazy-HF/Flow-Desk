@@ -137,6 +137,59 @@ describe('TicketListView', () => {
     expect(router.currentRoute.value.query.scope).toBeUndefined()
   })
 
+  /**
+   * 「待我批准」筛选（2026-10-10 裁决，2026-10-12 交付）：只在「我负责的」范围出现，
+   * 打开才发送参数——不发送 = 不筛选，老行为不变。
+   */
+  it('「待我批准」开关只在"我负责的"出现，打开才下发参数', async () => {
+    useAuthStore().user = support
+    const { wrapper } = await mountPage()
+
+    // 默认范围是「待受理」：这个筛选在那里没有定义，界面不该给一个点了必然 400 的开关
+    expect(wrapper.findComponent({ name: 'ElSwitch' }).exists()).toBe(false)
+
+    await switchScope(wrapper, 'ASSIGNED_TO_ME')
+    expect(wrapper.findComponent({ name: 'ElSwitch' }).exists()).toBe(true)
+    expect(listTickets).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ awaitingMyApproval: true }),
+    )
+
+    const toggle = wrapper.findComponent({ name: 'ElSwitch' })
+    toggle.vm.$emit('update:modelValue', true)
+    toggle.vm.$emit('change', true)
+    await flushPromises()
+
+    expect(listTickets).toHaveBeenLastCalledWith(
+      expect.objectContaining({ scope: 'ASSIGNED_TO_ME', awaitingMyApproval: true }),
+    )
+  })
+
+  /** 界面看不见的条件不能继续影响请求：切走范围时必须清掉这个开关。 */
+  it('切走范围会清掉「待我批准」', async () => {
+    useAuthStore().user = support
+    const { wrapper } = await mountPage()
+
+    await switchScope(wrapper, 'ASSIGNED_TO_ME')
+    const toggle = wrapper.findComponent({ name: 'ElSwitch' })
+    toggle.vm.$emit('update:modelValue', true)
+    toggle.vm.$emit('change', true)
+    await flushPromises()
+
+    await switchScope(wrapper, 'PARTICIPATED_BY_ME')
+    expect(listTickets).toHaveBeenLastCalledWith(
+      expect.objectContaining({ scope: 'PARTICIPATED_BY_ME' }),
+    )
+    expect(listTickets).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ awaitingMyApproval: true }),
+    )
+
+    // 切回来时开关是关的，请求里也就不该再带这个参数
+    await switchScope(wrapper, 'ASSIGNED_TO_ME')
+    expect(listTickets).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ awaitingMyApproval: true }),
+    )
+  })
+
   it('两条列表路由复用同一组件实例时，默认范围变了就重新取数', async () => {
     useAuthStore().user = support
     const { wrapper } = await mountPage({ defaultScope: 'PENDING_QUEUE' })
