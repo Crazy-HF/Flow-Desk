@@ -534,6 +534,11 @@ MVP 最终完成定义：
 - **T11 的两项真实栈验收本轮未执行（如实记录，不视为已通过）**：`scripts/slice-e-two-phase-cancel-acceptance.ps1` 已按新口径改写（a4 探针反向、a5 三条决策路 409、a6 覆盖与留痕、a7 新请求可批准；证据路径改为 `docs/acceptance/2026-10-12-slice-e-two-phase-cancel.json`；`Parser::ParseFile` → `SYNTAX OK`）但**未在真实栈运行**，因此**没有新的证据文件**；旧的 `2026-10-08-slice-e-two-phase-cancel.json`（178/178）是旧口径的历史记录，**不得当作当前脚本的证据引用**。前端**全量 E2E 同样未跑**——「已过期」的真实证据本就在 8092 脚本里（E2E 的期限窗口下限为 `1m`，构造不出「已过期」）。两项按用户 2026-10-12 指示收口，**合并后可在下一分支先补跑再继续**。
 - **T12 交接**：提交 / 推送 / PR / 合并按用户 2026-10-12 授权执行；合并提交与 CI 运行号按仓库惯例记在下一分支的首个提交。
 
+**补正与修复（2026-10-13）**
+
+- **上一段「T1～T10 全部完成」里有一处与代码不符**：`toRecordContext` 的 `CANCELLATION_REQUEST_EXPIRED` **`case` 当时并没有补上**（T4 的验证方式明写"真库**实际调一次 `records` 接口**并断言 200 + context 三个字段（防 500 的兜底，不能只测服务层）"，这一条当时也未交付）。后果是工单时间线上出现该记录类型时 `GET /records` 返回 **500**（真实栈 traceId `360c7cba-2b1e-4958-b1cb-306004b75797`）；该缺陷同样存在于 `main`。
+- **已修复**：`TicketQueryServiceImpl.toRecordContext` 补 `case "CANCELLATION_REQUEST_EXPIRED"`（`reason` + `content` + `deadlineAt` + 状态迁移）；`TicketQueryServiceImplTest` 新增该类型的 context 用例并补齐 `CANCELLATION_REQUEST` / 批准 / 拒绝 / 撤回三条此前缺失的 context 覆盖；`TicketQueryServiceIT` 新增真库用例，**首要断言即"`records()` 不抛异常"**。验证与证据见 `PROJECT_STATUS.md` 顶部 2026-10-13 段。
+
 
 ### 9.4 对标成熟工单系统的差距与候选方向（2026-10-10 分析登记，待用户裁决）
 

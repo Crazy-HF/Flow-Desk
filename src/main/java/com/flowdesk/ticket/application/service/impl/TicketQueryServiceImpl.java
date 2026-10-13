@@ -704,6 +704,17 @@ public class TicketQueryServiceImpl implements TicketQueryService {
                 putContext(context, "reason", row.getReason());
                 putStatusContext(context, row);
             }
+            // 到期即失效（V8）：原请求被新请求覆盖时补写的留痕。工单状态不变（from == to），
+            // 原说明与原响应期限各有列；原发起时间按 9.3 的 D3 写在 content 里（ticket_record
+            // 没有该列，且已发布迁移不得改），因此形状与 CANCELLATION_REQUEST 同族。
+            case "CANCELLATION_REQUEST_EXPIRED" -> {
+                putContext(context, "reason", row.getReason());
+                putContext(context, "content", row.getContent());
+                putContext(
+                        context, "deadlineAt",
+                        toOffsetDateTime(row.getDeadlineAt()));
+                putStatusContext(context, row);
+            }
             default -> throw new IllegalStateException(
                     "不支持的工单记录类型：" + row.getRecordType());
         }

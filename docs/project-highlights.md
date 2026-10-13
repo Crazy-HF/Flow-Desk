@@ -7,7 +7,7 @@
 - 本文档不是开发阶段的默认必读文件。只有新增亮点、准备简历或面试复盘时才读取。
 - 设计完成不等于已经实现；每条亮点必须明确当前状态，实际编码和测试完成后才能表述为“已实现”。
 
-## 当前状态总览（2026-10-06 核对；2026-10-07 追加 HL-011 行；2026-10-08 更新 HL-011 的边界修复、追加 HL-012 与 HL-013）
+## 当前状态总览（2026-10-06 核对；2026-10-07 追加 HL-011 行；2026-10-08 更新 HL-011 的边界修复、追加 HL-012 与 HL-013；2026-10-13 追加 HL-014 行）
 
 各条目正文的“当前状态”是写入当时的事实，按上一条规则不逐条改写；下表是截至 2026-10-06 的真实状态与证据位置（HL-011 的行为 2026-10-08 片 D 更新，HL-012 与 HL-013 为 2026-10-08 新增）。
 
@@ -26,6 +26,7 @@
 | HL-011 | 跨模块不变量：条件更新之外为何还要固定顺序的行锁 | **已实现，并有自动化与真实栈证据**；其覆盖不到的边界（跨路径交叉死锁）已独立为 HL-012 | `TicketServiceIT`（互转并发不死锁、锁后资格复核、同版本「转交 vs 撤回」并发）；`TicketServiceImplTest` 的锁顺序与资格复核用例；真实栈 `docs/acceptance/2026-10-07-slice-c-adjust-transfer.json`（127/127） |
 | HL-012 | 跨路径交叉死锁：从一次偶发并发失败到统一全模块的加锁起点 | **已实现，并有自动化与真实栈证据**（2026-10-07 发现、2026-10-08 片 D 修复；原先只作为 HL-011 的「已知边界」记录） | `TicketServiceIT`（转交 vs 撤回 / 转交 vs 关闭 / 领取 vs 撤销，**败者必为 409**）；`TicketServiceImplTest` 的加锁顺序与锁后版本复核用例；真实栈 `docs/acceptance/2026-10-08-slice-d-close-cancel.json`（182/182，含两组真并发） |
 | HL-013 | 两阶段撤销：不新增第 8 个状态，用三列请求表达「待批准」 | **已实现，并有自动化与真实栈双重证据**（2026-10-08；已随 [PR #18](https://github.com/Crazy-HF/Flow-Desk/pull/18) 合并 `main`，合并提交 `2cf1bc1`） | `DatabaseMigrationIT`（空库 `V7` 迁移与两条新 CHECK）；`TicketServiceIT`（真实 MySQL：发起 → 批准 / 拒绝 / 撤回、期限与请求三列同一条 UPDATE 清空、「关闭 vs 批准撤销」唯一胜者、`confirmResolution` 挂待决申请的组合）；`TicketQueryServiceImplTest` / `TicketQueryServiceIT`（`allowedActions` 三状态 × 两角色与 `cancelRequest`）；前端 4 格动作与详情「待批准」块的单测；E2E 两阶段两个场景；真实栈 `docs/acceptance/2026-10-08-slice-e-two-phase-cancel.json`（**178/178、退出码 0**）；全量 `clean verify` surefire 1070 + failsafe 158、前端单测 200 项、E2E 24 项 |
+| HL-014 | 穷尽 `switch` 的守卫必须配一条「真的读一次」的用例：一次时间线 500 的复盘 | **已实现并修复，并有回归守卫**（2026-10-12 缺陷随该批进入 `main`，2026-10-13 定位、修复并补用例） | 缺陷真实栈 traceId `360c7cba-2b1e-4958-b1cb-306004b75797`（`GET /fd/v1/tickets/{ticketNo}/records` → 500）；修复 `TicketQueryServiceImpl.toRecordContext` 的 `case "CANCELLATION_REQUEST_EXPIRED"`；回归守卫 `TicketQueryServiceIT.timelineTranslatesTheExpiredCancelRequestRecordInsteadOfFailing`（**首要断言是 `records()` 返回而不是抛异常**）与 `TicketQueryServiceImplTest.expiredCancelRequestRecordContextExposesOriginalRequestAndStatus`；`PROJECT_STATUS.md` / `docs/implementation-plan.md` 9.3 的交付记录已按实际改写 |
 
 **对外表述口径**：HL-001～HL-010 全部可以作为“已实现并验证”的成果写入简历或面试讲解；其中 HL-007～HL-010 是 2026-10-06 阶段 3 收口与阶段 4 补测试后新增的证据，表述时必须带上对应的测试类名，不得只说“设计过”。
 
@@ -719,4 +720,57 @@ ticket 行写锁  →  [version 复核]  →  iam_user 行锁（升序）  →  
 ### 简历或面试表达参考
 
 “工单原先允许提交人在四种非终态直接撤销，IT 没有否决权。改成两阶段时我面临一个建模选择：加第 8 个状态 `CANCEL_REQUESTED`，还是在工单快照上挂一组请求字段。我选了后者，因为‘待批准’和‘当前状态’是正交的——处理中的单可以挂着请求也可以没有，两者都还是处理中；状态机表达不了这个区分，硬塞会让状态承担两个含义。代价是所有进终态的路径都要清这三列，而我把这条规则交给数据库：`CHECK` 约束要求三列同生同灭、且终态不允许残留请求，忘记清就直接写不进去——结果它真的逼我改了两处看似无关的代码（人工关闭与员工确认），这正是我要的效果。并发的四路（发起 / 批准 / 拒绝 / 撤回）共用一组条件更新，只有一条能命中，其余拿 409；请求期间我刻意不冻结工单，代价是 IT 推进后提交人要按新版本重新发起，换来的是不必引入一个所有动作都得判断的隐形状态。”"
+
+## HL-014 穷尽 `switch` 的守卫，必须配一条「真的读一次」的用例（2026-10-13，来自一次真实缺陷）
+
+### 当前状态
+
+**已修复，并有回归守卫**。缺陷随 `flow-desk/cancel-expiry-and-approval-filter` 合并进入 `main`（PR #22），表现为**工单时间线整条打不开**：`GET /fd/v1/tickets/{ticketNo}/records` 返回 `500 / INTERNAL_ERROR`（真实栈 traceId `360c7cba-2b1e-4958-b1cb-306004b75797`）。修复是 `TicketQueryServiceImpl.toRecordContext` 补一个 `case`；回归守卫是 `TicketQueryServiceIT.timelineTranslatesTheExpiredCancelRequestRecordInsteadOfFailing`——**首要断言是「`records()` 返回而不是抛异常」**，其次才逐字段核对 context。
+
+### 问题背景
+
+`toRecordContext` 用穷尽 `switch (row.getRecordType())` 把 `ticket_record` 的行翻译成时间线响应，`default` 分支**刻意抛 `IllegalStateException`**：
+
+```java
+default -> throw new IllegalStateException("不支持的工单记录类型：" + row.getRecordType());
+```
+
+这个 `default` 是**设计出来的守卫**，不是遗漏——它的用意是：新增记录类型时若忘了补投影，宁可**当场炸**，也不要静默返回一个缺字段的 `context` 让前端显示空白行。片 A 就靠它抓到过一次同类问题，HL-013 也把这条写成了"三条约束驱动的陷阱"之一。
+
+这次新增的记录类型是 `CANCELLATION_REQUEST_EXPIRED`（撤销请求到期后被新请求覆盖时补写的留痕，V8 扩进 `ck_ticket_record_type`）。它的**其余环节一个都没漏**：迁移白名单加了、`TicketServiceImpl.requestCancel` 的覆盖分支写了、`DatabaseMigrationIT` 的逐类型插入探针过了、前端 `constants/tickets.ts` 的标签也加了——**唯独 `toRecordContext` 少一个 `case`**。于是：写的时候一切正常，读的时候整条时间线 500。
+
+### 为什么"写了守卫"还是漏了
+
+三件事同时成立，才让一个刻意的守卫形同虚设：
+
+| 环节 | 当时的实际情况 |
+| --- | --- |
+| 服务层测试 | `TicketServiceImplTest` 断言了"覆盖时写两条记录、类型与字段逐列"——**它测的是写**，根本不经过 `toRecordContext` |
+| 查询层测试 | `TicketQueryServiceIT` 那批新增的是"筛选矩阵"与"详情两格 ⟺ 列表命中"，**没有任何用例真的调一次 `records()` 去读这个新类型**；`TicketQueryServiceImplTest` 的 context 白名单用例也**从来没覆盖 `CANCELLATION_*` 这一族** |
+| 交付记录 | `PROJECT_STATUS.md` 与 `implementation-plan.md` 把 `toRecordContext` 补 `case` 写成了已完成，而计划里 T4 的验证方式**明写要"真库实际调一次 `records` 接口"**——计划要求的那条兜底用例没有交付 |
+
+**关键区分：`default` 抛异常保证的是"不会静默错"，它保证不了"有人会读到"。** 只要没有一条用例真的把新类型读出来，守卫就只是一句注释。
+
+### 修法与守卫
+
+- 补 `case "CANCELLATION_REQUEST_EXPIRED"`：`reason` + `content`（原发起时间）+ `deadlineAt` + 状态迁移（工单状态不变，`from == to`），形状与 `CANCELLATION_REQUEST` 同族。
+- 单测补两处：新增该类型的 context 用例，并**顺带补齐 `CANCELLATION_REQUEST` / 批准 / 拒绝 / 撤回三条此前完全没有 context 覆盖的类型**——同一族一起锁，避免下次换个兄弟类型再漏。
+- 真库补一条：造数写出一条 `CANCELLATION_REQUEST_EXPIRED` + 一条新的 `CANCELLATION_REQUEST`，然后**真的调一次 `records()`**；第一条断言就是"不抛异常"，第二条才是 context 逐字段。
+- 文档按实际改写：`PROJECT_STATUS.md` 与 `implementation-plan.md` 9.3 的交付记录里"已补 `case`"改为"当时漏了、2026-10-13 修复"。
+
+### 为什么这条值得单独记
+
+它是 HL-009（"接口有、提示没有"）的**同一类缺陷换了张脸**：那次是"两条判定各写一份会漂移"，这次是"守卫写得对，但没人真的触发它"。两次都不是靠单测或接口验收发现的，而是**真实栈端到端跑一次**才暴露——一次是浏览器点不到按钮，一次是时间线打不开。
+
+可复用的规则：**凡是"漏了就抛"的穷尽分支，它的回归守卫必须是"真的调用那条读取路径"，而不是"断言写入方写了什么"。** 断言写入只证明数据进去了，证明不了它出得来。
+
+### 后续实现与测试重点
+
+- 新增任何记录类型时，四处必须同批改：`ck_ticket_record_type`（迁移）、写入方、**`toRecordContext` 的 `case`**、前端标签；其中只有第二处会被服务层用例覆盖，其余三处的回归守卫分别是 `DatabaseMigrationIT`、**真库 `records()` 用例**、前端标签单测。
+- 该族的 context 白名单用例已补齐，但仍以"逐个类型列举"的方式维护；若类型继续增加，可考虑改成"遍历 `ck_ticket_record_type` 白名单、逐类型断言能被翻译"的矩阵用例，把"漏一个"变成结构性失败而不是人工列举遗漏。
+
+### 简历或面试表达参考
+
+"我用穷尽 `switch` 加 `default` 抛异常，把'新增记录类型忘了写投影'从静默显示空白变成当场失败。后来真的漏了一个类型——它的迁移、写入、前端标签都齐了，只有查询投影少一个 `case`，结果整条时间线 500。复盘发现：**守卫保证的是'不会静默错'，不是'有人会读到'**；当时的用例只断言了写入方写了什么，没有一条真的调 `records()` 去读。所以我补的回归守卫第一条断言就是'读得出来'，第二条才是字段对不对——这也让我把'断言写入'和'断言可读'当成了两件必须分别做的事。"
+
 

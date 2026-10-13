@@ -916,6 +916,60 @@ class TicketQueryServiceImplTest {
                 .containsEntry("toStatus", PROCESSING);
     }
 
+    /** 发起撤销请求：说明与响应期限一起暴露，状态不变。 */
+    @Test
+    void cancelRequestRecordContextExposesReasonDeadlineAndStatus() {
+        Map<String, Object> context = contextOf("CANCELLATION_REQUEST");
+
+        assertThat(context)
+                .as("CANCELLATION_REQUEST 的 context 只允许 reason/deadlineAt 与状态迁移")
+                .containsOnlyKeys("reason", "deadlineAt", "fromStatus", "toStatus")
+                .containsEntry("reason", "原因说明")
+                .containsEntry("deadlineAt", DEADLINE_AT.atOffset(ZoneOffset.UTC));
+    }
+
+    /** 批准 / 拒绝 / 撤回：只有说明与状态迁移，没有期限。 */
+    @Test
+    void cancelDecisionRecordTypesExposeReasonAndStatusOnly() {
+        for (String recordType : List.of(
+                "CANCELLATION_APPROVED", "CANCELLATION_REJECTED",
+                "CANCELLATION_REQUEST_WITHDRAWN")) {
+            assertThat(contextOf(recordType))
+                    .as("%s 的 context 只允许 reason 与状态迁移", recordType)
+                    .containsOnlyKeys("reason", "fromStatus", "toStatus")
+                    .containsEntry("reason", "原因说明")
+                    .doesNotContainKey("deadlineAt");
+        }
+    }
+
+    /**
+     * 到期即失效（V8）：原请求被新请求覆盖时补写的留痕。
+     *
+     * <p>这条用例守着 {@code toRecordContext} 的穷尽 {@code switch}——漏掉一个 {@code case}
+     * 不是"少一个字段"，而是整条时间线抛异常。该分支曾经真的漏过一次（真实栈上表现为
+     * {@code GET /records} 返回 500），因此这里既断言"读得出来"，也逐字段核对 context：
+     * 原说明与原期限各有列，原发起时间按约定写在 {@code content} 里。</p>
+     */
+    @Test
+    void expiredCancelRequestRecordContextExposesOriginalRequestAndStatus() {
+        TicketRecordRow row = recordRow("CANCELLATION_REQUEST_EXPIRED");
+        // 覆盖动作的产物：状态没有变化，from 与 to 都是当时的工单状态
+        row.setFromStatus(PROCESSING);
+        row.setToStatus(PROCESSING);
+        row.setContent("2026-01-10T08:00:00Z");
+
+        Map<String, Object> context = contextOf(row);
+
+        assertThat(context)
+                .as("CANCELLATION_REQUEST_EXPIRED 的 context 允许 reason/content/deadlineAt 与状态迁移")
+                .containsOnlyKeys("reason", "content", "deadlineAt", "fromStatus", "toStatus")
+                .containsEntry("reason", "原因说明")
+                .containsEntry("content", "2026-01-10T08:00:00Z")
+                .containsEntry("deadlineAt", DEADLINE_AT.atOffset(ZoneOffset.UTC))
+                .containsEntry("fromStatus", PROCESSING)
+                .containsEntry("toStatus", PROCESSING);
+    }
+
     // ---------- allowedActions：片 C 新增三格 ----------
 
     /**
