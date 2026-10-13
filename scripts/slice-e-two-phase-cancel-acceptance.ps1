@@ -24,7 +24,8 @@
 # UTF-8 脚本，中文注释会被解析成乱码并报语法错误。证据文件相反，必须写成**无 BOM 的 UTF-8**。
 #
 # 证据
-#   docs/acceptance/2026-10-08-slice-e-two-phase-cancel.json（无 BOM 的 UTF-8，脚本自己写出）
+#   docs/acceptance/2026-10-12-slice-e-two-phase-cancel.json（无 BOM 的 UTF-8，脚本自己写出；
+#   2026-10-08 的同名文件对应「到期不自动处置」的旧口径，保留为历史记录、不再由本脚本生成）
 #   含：_note、invocation（**带 -BaseUrl**）、script.evidencePath（仓库根相对路径）、script / target /
 #   preflight / tempPrincipals / cancelRequestFacts / fingerprints{before,after} / keyActions（每条带
 #   X-Trace-Id）/ httpLog（step / method / path / status / traceId / detail）/ dbChecks / assertions
@@ -37,6 +38,12 @@
 #     提交人也可以**撤回**自己的请求。批准/拒绝只要 TICKET_PROCESS，**不要求** TICKET_CLOSE。
 #   · 撤销请求不改变工单状态：三列（cancel_requested_at / cancel_request_reason /
 #     cancel_request_deadline_at）落在 ticket 上，终态一律不带待决请求（V7 的两条 CHECK 强制）。
+#   · 片 E 收口（2026-10-10 裁决，2026-10-12 实现）：**期限届满后请求即失效**——批准 / 拒绝 / 撤回
+#     三条路一起关闭（a5 组，三条都断言 409 + 快照 + 库不变），详情不再返回那两格并标记
+#     cancelRequest.expired=true，IT 列表「待我批准」也不再命中；提交人重新发起即可**直接覆盖**它
+#     （a6 组：record_seq +2、version +1、时间线多一条 CANCELLATION_REQUEST_EXPIRED 留痕），
+#     新请求随后可以正常批准（a7 组）。**「到期不自动处置」的旧口径已被取代**：工单仍不自动取消，
+#     但请求本身会失效，因此本脚本原先把期限回填到过去、再断言"仍可批准"的那一格改为**反向断言**。
 #
 # 权限闸门顺序（三处都断言）
 #   认证 401 → 权限 403 → 可见性 404 → 状态/身份/版本 409 → 字段 400。
@@ -50,7 +57,7 @@
 #   · 不触碰运行前就存在的任何行：运行前后各测一次演示库指纹（八项计数 + 工单/记录/参与关系/
 #     用户/用户角色/角色权限逐行指纹）并断言完全相同
 #   · 全程只有一条写库 SQL 不是通过接口发出的（把自建工单的请求期限改成过去时间，用于证明
-#     「到期不自动处置」），它按 ticket_no 精确命中本脚本自建的工单，且只改 cancel_request_deadline_at
+#     「期限届满后请求即失效」），它按 ticket_no 精确命中本脚本自建的工单，且只改 cancel_request_deadline_at
 #     一列；另有两条约束探针 SQL 会被数据库拒绝（探针若意外成功，立即回滚并记账）
 #   · 不执行 docker compose down、不删容器、不删卷、不停任何后端进程；数据库访问一律是
 #     `docker exec -i <mysql 容器> mysql ...`（容器名与库名来自仓库根 .env 与既有脚本约定）
@@ -68,7 +75,7 @@ param(
     [string]$BaseUrl = $env:FLOWDESK_BASE_URL,
     # 证据路径：-OutFile 与片 D 一致；别名 -EvidencePath 供调用方按另一种叫法覆盖
     [Alias('EvidencePath')]
-    [string]$OutFile = (Join-Path $PSScriptRoot '..\docs\acceptance\2026-10-08-slice-e-two-phase-cancel.json'),
+    [string]$OutFile = (Join-Path $PSScriptRoot '..\docs\acceptance\2026-10-12-slice-e-two-phase-cancel.json'),
     [string]$EnvFile = (Join-Path $PSScriptRoot '..\.env'),
     [string]$DbContainer = 'flowdesk-mysql-1',
     [string]$EmployeeUser = $env:E2E_EMPLOYEE_USERNAME,
@@ -1661,7 +1668,8 @@ try {
         -Why '冻结的只是待补充那一段；若补充之后两格不回来，请求就永远无法被裁决，提交人的出口也被堵死了' `
         -Result $detailItAfterSupplement
 
-    # ── 7. 断言组 a4：期限到点不自动处置（唯一一条非接口写库 SQL） ──────────
+    # ── 7. 断言组 a4：期限回填到过去（唯一一条非接口写库 SQL）——
+    #    它证明的是「过期之后三条决策路一起关闭」，不是旧口径的「到期不自动处置」 ──
     $rowBeforeDeadlineProbe = Get-TicketDbRow -TicketNo $ticketMain
     $beforeExpired = $false
     if ($null -ne $rowBeforeDeadlineProbe -and $rowBeforeDeadlineProbe.cancelRequestDeadlineAt -ne 'NULL') {
@@ -1671,7 +1679,7 @@ try {
     Add-Assertion -Name 'a4.beforeProbe.notExpiredYet' -Condition (-not $beforeExpired) `
         -Expected '探针之前，请求期限还在未来（默认 3d）' `
         -Actual "cancel_request_deadline_at=$($rowBeforeDeadlineProbe.cancelRequestDeadlineAt) utcNow=$([datetimeoffset]::UtcNow.ToString('u'))" `
-        -Why '先证明它本来没过期，才能让"改成过去时间后依然可以批准"这一格有意义' `
+        -Why '先证明它本来没过期，才能让"回填到过去之后三条决策路被挡住"这一格有意义' `
         -Result $null
 
     $deadlineProbeSql = "UPDATE ticket SET cancel_request_deadline_at = DATE_SUB(UTC_TIMESTAMP(3), INTERVAL 5 MINUTE) " +
@@ -1707,25 +1715,192 @@ try {
         sql                      = $deadlineProbeSql
         deadlineBefore           = $rowBeforeDeadlineProbe.cancelRequestDeadlineAt
         deadlineAfter            = $rowAfterDeadlineProbe.cancelRequestDeadlineAt
-        expectedBehaviourOnExpiry = '到期不自动处置：不自动取消、请求也不自动失效，回到处理中之后负责人仍可批准（docs/kickoff.md 4.7；待补充期间不裁决是 2026-10-10 的另一条裁决，主链因此先由员工补充把工单推回处理中）'
+        expectedBehaviourOnExpiry = '到期即失效（2026-10-10 裁决，2026-10-12 实现）：工单不自动取消、请求也不自动消失，但批准 / 拒绝 / 撤回三条路一起关闭（三条都 409），详情不再返回那两格并标记 expired=true，IT 列表「待我批准」也不再命中；提交人重新发起即可直接覆盖它（覆盖时补写 CANCELLATION_REQUEST_EXPIRED 留痕）。（待补充期间不裁决是 2026-10-10 的另一条裁决，主链因此先由员工补充把工单推回处理中。）'
     }
 
-    # ── 8. 断言组 a5：批准（在"期限已过"的请求上批准，同时证明不自动处置） ──
-    $approveMain = Send-CancelAction -Client $itClient -Token $itToken -TicketNo $ticketMain `
+    # ── 8. 断言组 a5：到期即失效——批准 / 拒绝 / 撤回三条路一起关闭 ────────────
+    #    三条各发一次，全部必须 409 + 带最新快照；被拒的请求一行都不许改库
+    $signatureBeforeExpiryDecisions = Get-TicketStateSignature -TicketNo $ticketMain
+    $rowBeforeExpiryDecisions = Get-TicketDbRow -TicketNo $ticketMain
+
+    $approveExpired = Send-CancelAction -Client $itClient -Token $itToken -TicketNo $ticketMain `
         -Action 'approve-cancel' -Body (New-VersionOnlyBody -Version $verMainAfterSupplement) `
-        -Step 'a5.approve' -Actor 'it' -Note '当前负责人批准撤销请求（工单已被员工补充推回处理中；请求期限已被探针改成过去时间）'
+        -Step 'a5.approve.expired' -Actor 'it' `
+        -Note '请求期限已被探针改成过去时间：批准必须被挡成 409'
+    $approveExpiredErr = Get-ErrData $approveExpired
+    $approveExpiredOk = ($approveExpired.Status -eq 409) -and ((Get-Code $approveExpired) -eq 'TICKET_CONFLICT')
+    Add-Assertion -Name 'a5.approve.expiredIs409' -Condition $approveExpiredOk `
+        -Expected '409/TICKET_CONFLICT' `
+        -Actual "status=$($approveExpired.Status) code=$(Get-Code $approveExpired)" `
+        -Why '2026-10-10 裁决「过期不可批准」：期限一到这条 UPDATE 的 WHERE 就不再命中，界面刷新后三个入口一起消失' `
+        -Result $approveExpired
+    Add-Assertion -Name 'a5.approve.expiredCarriesSnapshot' `
+        -Condition ($approveExpiredOk -and ($null -ne $approveExpiredErr) -and
+        ($approveExpiredErr.version -eq $verMainAfterSupplement) -and ($approveExpiredErr.status -eq 'PROCESSING')) `
+        -Expected "409 的 data 里带最新快照 version=$verMainAfterSupplement status=PROCESSING" `
+        -Actual "version=$($approveExpiredErr.version) status=$($approveExpiredErr.status)" `
+        -Why '过期与"已被别人处理"收敛到同一种冲突：调用方刷新详情即可看到「已过期」，不需要另一套错误码' `
+        -Result $approveExpired
+
+    $rejectExpired = Send-CancelAction -Client $itClient -Token $itToken -TicketNo $ticketMain `
+        -Action 'reject-cancel' -Body (New-RejectCancelBody -Version $verMainAfterSupplement -Reason '过期之后拒绝也应当被挡住') `
+        -Step 'a5.reject.expired' -Actor 'it' -Note '过期后拒绝同样关闭：不能把一份已经失效的申请"正式驳回"'
+    $rejectExpiredOk = ($rejectExpired.Status -eq 409) -and ((Get-Code $rejectExpired) -eq 'TICKET_CONFLICT')
+    Add-Assertion -Name 'a5.reject.expiredIs409' -Condition $rejectExpiredOk `
+        -Expected '409/TICKET_CONFLICT' `
+        -Actual "status=$($rejectExpired.Status) code=$(Get-Code $rejectExpired)" `
+        -Why '三个动作一起失效：否则提交人会以为申请被正式驳回，而实际上它已经作废' `
+        -Result $rejectExpired
+
+    $withdrawExpired = Send-CancelAction -Client $employeeClient -Token $employeeToken -TicketNo $ticketMain `
+        -Action 'withdraw-cancel-request' -Body (New-VersionOnlyBody -Version $verMainAfterSupplement) `
+        -Step 'a5.withdraw.expired' -Actor 'employee' -Note '过期后提交人也撤不回：不存在"先撤回再重新发起"这条路'
+    $withdrawExpiredOk = ($withdrawExpired.Status -eq 409) -and ((Get-Code $withdrawExpired) -eq 'TICKET_CONFLICT')
+    Add-Assertion -Name 'a5.withdraw.expiredIs409' -Condition $withdrawExpiredOk `
+        -Expected '409/TICKET_CONFLICT' `
+        -Actual "status=$($withdrawExpired.Status) code=$(Get-Code $withdrawExpired)" `
+        -Why '撤回也被关闭是"三禁"的第三格；提交人的出口是直接重新发起（覆盖），不是撤回' `
+        -Result $withdrawExpired
+
+    $signatureAfterExpiryDecisions = Get-TicketStateSignature -TicketNo $ticketMain
+    Add-Assertion -Name 'a5.db.rejectedDecisionsLeaveNothingBehind' `
+        -Condition ($signatureAfterExpiryDecisions -eq $signatureBeforeExpiryDecisions) `
+        -Expected '三个被拒请求前后，库里的状态 / 版本 / 记录序号 / 请求三列 / 记录数逐字相同' `
+        -Actual "before=[$signatureBeforeExpiryDecisions] after=[$signatureAfterExpiryDecisions]" `
+        -Why '被拒的请求不留痕：过期不是"悄悄清掉请求"，它仍然挂在工单上等提交人处理' `
+        -Result $null
+
+    $detailExpiredIt = Send-Req -Client $itClient -Method Get -Path "/fd/v1/tickets/$ticketMain" `
+        -Token $itToken -Step 'a5.detail.expired.it' -Actor 'it' -Note '过期后负责人侧：两格消失 + expired=true'
+    $detailExpiredItData = Get-Data $detailExpiredIt
+    $itActionsExpired = @($detailExpiredItData.allowedActions)
+    Add-Assertion -Name 'a5.detail.expiredFlagIsTrue' `
+        -Condition (($null -ne $detailExpiredItData.cancelRequest) -and ($detailExpiredItData.cancelRequest.expired -eq $true)) `
+        -Expected 'cancelRequest.expired=true' `
+        -Actual "expired=$($detailExpiredItData.cancelRequest.expired) deadlineAt=$($detailExpiredItData.cancelRequest.deadlineAt)" `
+        -Why '「已过期」由服务端判定：前端拿本地时钟比 deadlineAt 会与判定分叉，界面必须直接读这个字段' `
+        -Result $detailExpiredIt
+    Add-Assertion -Name 'a5.detail.it.decisionCellsGone' `
+        -Condition ((-not ($itActionsExpired -contains 'approve-cancel')) -and (-not ($itActionsExpired -contains 'reject-cancel'))) `
+        -Expected 'allowedActions 不含 approve-cancel 与 reject-cancel' `
+        -Actual "allowedActions=$($itActionsExpired -join ',')" `
+        -Why '判定与界面同批：列表命中什么、详情就能批准什么；过期后两侧必须同时不成立' `
+        -Result $detailExpiredIt
+
+    $detailExpiredEmployee = Send-Req -Client $employeeClient -Method Get -Path "/fd/v1/tickets/$ticketMain" `
+        -Token $employeeToken -Step 'a5.detail.expired.employee' -Actor 'employee' `
+        -Note '过期后提交人侧：只剩重新发起，撤回已关闭'
+    $employeeActionsExpired = @((Get-Data $detailExpiredEmployee).allowedActions)
+    Add-Assertion -Name 'a5.detail.employee.canRequestAgain' `
+        -Condition (($employeeActionsExpired -contains 'request-cancel') -and
+        (-not ($employeeActionsExpired -contains 'withdraw-cancel-request'))) `
+        -Expected '含 request-cancel 且不含 withdraw-cancel-request' `
+        -Actual "allowedActions=$($employeeActionsExpired -join ',')" `
+        -Why '过期后提交人的出口是重新发起（覆盖），不是撤回；这也是界面那句「重新申请会直接替换这一份」的依据' `
+        -Result $detailExpiredEmployee
+
+    # 列表「待我批准」：过期之后不再命中（与详情两格同时不成立）
+    $listExpired = Send-Req -Client $itClient -Method Get `
+        -Path "/fd/v1/tickets?scope=ASSIGNED_TO_ME&awaitingMyApproval=true&size=100" `
+        -Token $itToken -Step 'a5.list.expired' -Actor 'it' -Note '过期之后「待我批准」不再命中这张工单'
+    $listExpiredNos = @((Get-Data $listExpired).items | ForEach-Object { $_.ticketNo })
+    Add-Assertion -Name 'a5.list.expiredNotMatched' -Condition (-not ($listExpiredNos -contains $ticketMain)) `
+        -Expected "筛选结果不含 $ticketMain" `
+        -Actual "matched=[$($listExpiredNos -join ',')]" `
+        -Why '验证口径要求「详情不返回两格」与「列表不返回该工单」同时断言；两侧不同步就会出现「列表说可批准、点下去已过期」' `
+        -Result $listExpired
+
+    # ── 9. 断言组 a6：提交人重新发起（直接覆盖已过期的请求）并补写留痕 ──────────
+    $overwriteReason = '问题仍未解决，重新申请撤销'
+    $overwriteMain = Send-CancelAction -Client $employeeClient -Token $employeeToken -TicketNo $ticketMain `
+        -Action 'request-cancel' -Body (New-RequestCancelBody -Version $verMainAfterSupplement -Reason $overwriteReason) `
+        -Step 'a6.requestCancel.overwrite' -Actor 'employee' `
+        -Note '重新发起：新请求直接覆盖已过期的那一份，不设终身次数上限'
+    $overwriteMainData = Get-Data $overwriteMain
+    $overwriteOk = ($overwriteMain.Status -eq 200) -and ($null -ne $overwriteMainData) -and
+    ($overwriteMainData.status -eq 'PROCESSING')
+    Add-Assertion -Name 'a6.requestCancel.200' -Condition $overwriteOk `
+        -Expected '200 且 status=PROCESSING（重新发起不迁移状态）' `
+        -Actual "status=$($overwriteMain.Status) code=$(Get-Code $overwriteMain) businessStatus=$($overwriteMainData.status) version=$($overwriteMainData.version)" `
+        -Why '覆盖是 2026-10-10 裁决的核心：过期的请求不需要人工清理，提交人直接重新发起即可' `
+        -Result $overwriteMain
+    $verMainAfterOverwrite = -1
+    if ($overwriteOk) { $verMainAfterOverwrite = [long]$overwriteMainData.version }
+    Add-Assertion -Name 'a6.requestCancel.versionAdvancedByOne' `
+        -Condition ($overwriteOk -and ($verMainAfterOverwrite -eq ($verMainAfterSupplement + 1))) `
+        -Expected "version = $($verMainAfterSupplement + 1)（一次动作只推进一次版本）" `
+        -Actual "version=$verMainAfterOverwrite" `
+        -Why '覆盖要写两条记录，因此 record_seq 推进 2；version 仍只 +1——版本是客户端的乐观锁令牌，按"用户动作"计数' `
+        -Result $overwriteMain
+
+    $rowAfterOverwrite = Get-TicketDbRow -TicketNo $ticketMain
+    $overwriteDbOk = ($null -ne $rowAfterOverwrite) -and
+    ($rowAfterOverwrite.cancelRequestState -eq 'HAS_REQUEST') -and
+    ($rowAfterOverwrite.cancelRequestReason -eq $overwriteReason) -and
+    ($rowAfterOverwrite.cancelRequestedAt -ne 'NULL') -and
+    ($rowAfterOverwrite.cancelRequestDeadlineAt -ne $rowBeforeExpiryDecisions.cancelRequestDeadlineAt) -and
+    ($rowAfterOverwrite.recordSeq -eq ($rowBeforeExpiryDecisions.recordSeq + 2)) -and
+    ($rowAfterOverwrite.status -eq 'PROCESSING')
+    Add-Assertion -Name 'a6.db.requestReplacedAndSequenceAdvancedByTwo' -Condition $overwriteDbOk `
+        -Expected '请求三列被新值替换（说明是新写的、期限重算）、record_seq 推进 2、状态不变' `
+        -Actual "row=[$($rowAfterOverwrite.raw)]" `
+        -Why '一次动作写两条记录（过期留痕 + 新请求），所以序号 +2；三列同生同灭由 ck_ticket_cancel_request_pair 兜底' `
+        -Result $null
+
+    Assert-Db -Name 'a6.db.expiredRecordKeepsOriginals' `
+        -Sql ("SELECT CONCAT(record_type,'|',IFNULL(content,'-'),'|',IFNULL(reason,'-'),'|'," +
+        "IFNULL(DATE_FORMAT(deadline_at,'%Y-%m-%d %H:%i:%s.%f'),'-'),'|',sequence_no) " +
+        "FROM ticket_record WHERE ticket_id = (SELECT id FROM ticket WHERE ticket_no = '$ticketMain') " +
+        "AND record_type = 'CANCELLATION_REQUEST_EXPIRED';") `
+        -Expected "CANCELLATION_REQUEST_EXPIRED|原发起时间(ISO-8601)|$mainReason|$($rowBeforeExpiryDecisions.cancelRequestDeadlineAt)|$($rowBeforeExpiryDecisions.recordSeq + 1)" `
+        -Why '留痕必须能自证"哪一次申请、什么时候发起的、期限到什么时候"：原发起时间在 ticket_record 没有对应列，按 9.3 的 D3 用 content 承载 ISO-8601 文本' `
+        -Check { param($c) $c[0] -like 'CANCELLATION_REQUEST_EXPIRED|*-*-*T*Z|' + $mainReason + '|*' }
+    Assert-Db -Name 'a6.db.timelineOrder' `
+        -Sql ("SELECT IFNULL(GROUP_CONCAT(record_type ORDER BY sequence_no SEPARATOR ','),'-') " +
+        "FROM ticket_record WHERE ticket_id = (SELECT id FROM ticket WHERE ticket_no = '$ticketMain') " +
+        "AND record_type LIKE 'CANCELLATION%';") `
+        -Expected 'CANCELLATION_REQUEST,CANCELLATION_REQUEST_EXPIRED,CANCELLATION_REQUEST（旧请求 → 过期留痕 → 新请求）' `
+        -Why '顺序错了时间线就读不出"上一次作废了、这一次是新的"；留痕必须排在旧请求之后、新请求之前' `
+        -Check { param($c) $c[0] -eq 'CANCELLATION_REQUEST,CANCELLATION_REQUEST_EXPIRED,CANCELLATION_REQUEST' }
+
+    $listAfterOverwrite = Send-Req -Client $itClient -Method Get `
+        -Path "/fd/v1/tickets?scope=ASSIGNED_TO_ME&awaitingMyApproval=true&size=100" `
+        -Token $itToken -Step 'a6.list.afterOverwrite' -Actor 'it' -Note '重新发起之后，「待我批准」重新命中'
+    $listAfterOverwriteNos = @((Get-Data $listAfterOverwrite).items | ForEach-Object { $_.ticketNo })
+    Add-Assertion -Name 'a6.list.matchedAgain' -Condition ($listAfterOverwriteNos -contains $ticketMain) `
+        -Expected "筛选结果重新包含 $ticketMain" `
+        -Actual "matched=[$($listAfterOverwriteNos -join ',')]" `
+        -Why '过期 → 不命中、重新发起 → 重新命中：这条来回把"列表与详情共用同一判定"钉在真实栈上' `
+        -Result $listAfterOverwrite
+
+    $detailAfterOverwrite = Send-Req -Client $itClient -Method Get -Path "/fd/v1/tickets/$ticketMain" `
+        -Token $itToken -Step 'a6.detail.afterOverwrite' -Actor 'it' -Note '重新发起后负责人侧：两格回来、expired=false'
+    $detailAfterOverwriteData = Get-Data $detailAfterOverwrite
+    $itActionsAfterOverwrite = @($detailAfterOverwriteData.allowedActions)
+    Add-Assertion -Name 'a6.detail.decisionCellsBack' `
+        -Condition (($detailAfterOverwriteData.cancelRequest.expired -eq $false) -and
+        ($itActionsAfterOverwrite -contains 'approve-cancel') -and ($itActionsAfterOverwrite -contains 'reject-cancel')) `
+        -Expected 'expired=false 且 approve-cancel / reject-cancel 两格回来' `
+        -Actual "expired=$($detailAfterOverwriteData.cancelRequest.expired) allowedActions=$($itActionsAfterOverwrite -join ',')" `
+        -Why '新请求是未过期的，判定自然回到"可裁决"；与 a5 的两格消失形成对照' `
+        -Result $detailAfterOverwrite
+
+    # ── 10. 断言组 a7：批准（在新请求上，走完两阶段） ─────────────────────────
+    $approveMain = Send-CancelAction -Client $itClient -Token $itToken -TicketNo $ticketMain `
+        -Action 'approve-cancel' -Body (New-VersionOnlyBody -Version $verMainAfterOverwrite) `
+        -Step 'a7.approve' -Actor 'it' -Note '当前负责人批准重新发起后的请求（工单已被员工补充推回处理中）'
     $approveMainData = Get-Data $approveMain
     $approveOk = (($approveMain.Status -eq 200) -and ($null -ne $approveMainData) -and
         ($approveMainData.status -eq 'CANCELED'))
-    Add-Assertion -Name 'a5.approve.200' -Condition $approveOk `
+    Add-Assertion -Name 'a7.approve.200' -Condition $approveOk `
         -Expected '200 且 status=CANCELED' `
         -Actual "status=$($approveMain.Status) code=$(Get-Code $approveMain) businessStatus=$($approveMainData.status) version=$($approveMainData.version)" `
         -Why '这是两阶段撤销的终点：批准必须真的把工单推进终态，而不是只把请求标记为已决' `
         -Result $approveMain
-    Add-Assertion -Name 'a5.approve.expiredRequestStillApprovable' -Condition $approveOk `
-        -Expected '请求期限已过（探针改过去时间）仍然可以批准 —— 到期不自动处置的行为证据' `
-        -Actual "expired=$probeExpired approveStatus=$($approveMain.Status)" `
-        -Why '这是"期限只用于展示"唯一的正向证据；若实现成"过期即失效"，这一格会变成 409，界面上的文案就是错的' `
+    Add-Assertion -Name 'a7.approve.worksOnTheReplacedRequest' -Condition $approveOk `
+        -Expected '被覆盖后的新请求可以正常批准 —— 覆盖不是"把工单卡死"，而是给提交人一条出路' `
+        -Actual "expiredAtProbe=$probeExpired approveStatus=$($approveMain.Status)" `
+        -Why '与 a5 的三条 409 对照：过期的不可批准，重新发起的可以——这正是 2026-10-10 裁决的完整语义' `
         -Result $approveMain
     Add-Assertion -Name 'a5.approve.deadlineFieldAbsent' -Condition (Test-DeadlineAbsent $approveMain) `
         -Expected '成功响应里没有 actionDeadlineAt 字段（终态没有有效期限）' `
@@ -2989,7 +3164,7 @@ $script:cleanupInfo['backendProcessTouched'] = $false
 $script:cleanupInfo['backendProcessesStartedOrStopped'] = 0
 $script:cleanupInfo['targetBaseUrl'] = $baseUrl
 $script:cleanupInfo['nonApiWrites'] = @(
-    'UPDATE ticket SET cancel_request_deadline_at = DATE_SUB(UTC_TIMESTAMP(3), INTERVAL 5 MINUTE) WHERE ticket_no = <本次自建工单>（a4，证明到期不自动处置）',
+    'UPDATE ticket SET cancel_request_deadline_at = DATE_SUB(UTC_TIMESTAMP(3), INTERVAL 5 MINUTE) WHERE ticket_no = <本次自建工单>（a4，证明期限届满后请求即失效）',
     '两条约束探针 UPDATE/INSERT（a9，预期被数据库拒绝；若意外成功则立即回滚并记账）',
     '约束探针成功插入的那条 CANCELLATION_REQUEST 记录按工单 + 类型删除（a9）'
 )
@@ -3013,7 +3188,7 @@ $passedCount = $totalCount - $failedCount
 if ($failedCount -gt 0) { $script:quitCode = 1 }
 
 $relativeScriptPath = 'scripts/slice-e-two-phase-cancel-acceptance.ps1'
-$relativeOutPath = 'docs/acceptance/2026-10-08-slice-e-two-phase-cancel.json'
+$relativeOutPath = 'docs/acceptance/2026-10-12-slice-e-two-phase-cancel.json'
 # 证据里的 evidencePath 只写仓库相对路径：本文件顶部的 _note 明确声明「不含机器绝对路径」，
 # 而 $OutFile 的默认值是 Join-Path $PSScriptRoot '..\...'，直接写入会把本机路径带进入库文件。
 # 用 GetFullPath 而不是 Resolve-Path——首次运行时目标文件尚不存在，Resolve-Path 会失败，
@@ -3094,7 +3269,8 @@ try {
         _note = ('本文件由 scripts/slice-e-two-phase-cancel-acceptance.ps1 写出（无 BOM 的 UTF-8）。' +
         '验收范围：完整工单状态机「片 E：两阶段撤销」——request-cancel / approve-cancel / reject-cancel / ' +
         'withdraw-cancel-request 四个端点、cancel 收窄到待受理、详情 cancelRequest 字段、四个新记录类型的时间线 context、' +
-        'V7 的两条新 CHECK 与重建后的记录类型白名单、三组真并发、权限/身份/版本/幂等与"到期不自动处置"。' +
+        'V7 的两条新 CHECK 与重建后的记录类型白名单、三组真并发、权限/身份/版本/幂等，' +
+        '以及本轮的「到期即失效」（三禁 409 + 详情两格消失 + 列表不命中 + 重新发起覆盖并留痕 + 新请求可批准）。' +
         '只记录状态码、业务码、traceId、断言结论与 SQL；不含口令、密钥与 accessToken，也不含机器绝对路径。')
         stage              = '完整工单状态机 片 E：两阶段撤销真实栈验收'
         slice              = 'E'

@@ -1,6 +1,18 @@
 # FlowDesk 项目状态
 
-## 2026-10-12 工单关联交付（当前分支 `flow-desk/attachments-and-relations`）
+## 2026-10-12 交付：撤销请求到期即失效 + IT 列表「待我批准」（分支 `flow-desk/cancel-expiry-and-approval-filter`）
+
+- **分支起点**：基点 `7c7807d`（= `main`，PR #21「附件与关联」已合并），**不需要先合并 `main`**；工作树 `D:\Idea\item\flow-Desk-cancel-expiry-filter`。
+- **任务清单落点**：`docs/implementation-plan.md` 9.3 末的「实施清单（2026-10-12 制定）」——**T1～T12** 逐项含工作内容 / 涉及文件与改动点 / 验证方式，另含 6 个决策点的采用方案、依赖与执行顺序、以及「与附件批次的依赖对照」。本段只做指针与顺序记录，不重复清单内容。
+- **顺序调整（2026-10-12 按推荐方案确认，取代 2026-10-10 的「关联 → 附件 → 本批」）**：关联（已交付）→ **本批（①～⑥ + ⑧）** → 附件（重）→ 管理性交接 → 通知 / 通信通道 + 两个超时自动任务。理由：①③ 与本批不可拆，且本批只占迁移 `V8`、**不新增 Mapper / Controller 端点 / 调度器**，全量验证风险最低；附件随后落地时若需要迁移取 `V9`。已同步 `AGENTS.md`、`README.md` 与本文件四处；2026-10-10 的原始顺序记录保留在下方「2026-10-10 用户五项集中裁决」段，不追改。
+- **读码确认的关键事实**（2026-10-12，供实施时直接引用）：迁移只到 `V7` → **`V8` 空闲**；四条撤销相关条件更新**都已带 `#{now}` 参数**，加期限条件不需改方法签名；`TicketListRow` **不含**请求三列 → 「待我批准」只能写进 SQL（服务层过滤会把分页 `total` 算错）；`TicketQueryServiceImpl.toRecordContext` 的 `default` 会抛异常 → 新增记录类型必须补 `case`（片 E 已踩过，表现为整条时间线 `500`）；`DatabaseMigrationIT` 的迁移基线当前为 `1,2,4,5,6,7`。
+- **交付内容（①～⑥ + ⑧ 全部落地）**：① 三条条件更新（批准 / 拒绝 / 撤回）各加 `AND cancel_request_deadline_at > #{now}`，并在 `TicketServiceImpl` 三个方法的第 3 道门加「请求未过期」——过期一律 `409` 带最新快照，且**排在字段校验（400）之前**；② `requestCancel` 放宽为 `(cancel_requested_at IS NULL OR cancel_request_deadline_at <= #{now})`，**不设终身次数上限**；③ 覆盖已过期请求时同事务先补写 `CANCELLATION_REQUEST_EXPIRED`（`record_seq` 先占 n+1、新请求取 n+2，`version` 只 +1），`toRecordContext` 补 `case`；④ 详情新增 `cancelRequest.expired`，过期时提交人只剩「重新发起」、负责人零格，界面显示「已过期」；⑥ 规则文本去「待实现」标记；⑧ `TicketQuery.awaitingMyApproval`（仅 `ASSIGNED_TO_ME` 合法，其它范围传 true → `400`）+ `@PreAuthorize` 叠 `TICKET_PROCESS`（缺权限 `403`）+ 列表 SQL 内联期限与状态白名单（「待补充不裁决」的叠加），**列表项响应不新增字段**。**新增唯一结构**：迁移 `V8__add_cancel_request_expiry.sql`（重建 `ck_ticket_record_type` 追加记录类型 + 新索引）。判定唯一出口为新增的 `domain/CancelRequestPolicy`，由查询侧与写入侧共用。
+- **验证（实跑）**：后端 `.\mvnw.cmd -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → surefire **1091** + failsafe **167**、`Failures 0 / Errors 0`、`BUILD SUCCESS`（片 E 基线 1070 + 158，本轮 +21 / +9）；`DatabaseMigrationIT` **5/5**（空库 migrate + validate 到 v8，20 个记录类型逐类型插入、未知类型被 CHECK 拒绝）；`TicketQueryServiceIT` 新增筛选矩阵（未过期命中 / 已过期不命中 / 待补充不命中 / 补充回到处理中重新命中 / 重新发起后重新命中）与**详情两格 ⟺ 列表命中的双向交叉验证**；前端 `typecheck` / `eslint` / `stylelint` 退出码 0、单测 **24 套件 220 项**（片 E 基线 200）。**索引选型有实测依据**：临时库 10000 行上 `(assignee_id, cancel_request_deadline_at, id)` 扫描 358 行、加 `status` 后 **179 行（=结果集）**，故取 `(assignee_id, status, cancel_request_deadline_at, id)`；四条条件更新的期限语义在真实 MySQL 上用 7 项探针逐格验证（未过期可批准 1 / 过期三条全 0 / 覆盖过期 1 且旧值被替换 / 有未过期请求再发起 0 / 无请求正常发起 1）。
+- **本轮未执行的两项验收（如实记录，不视为已通过）**：① `scripts/slice-e-two-phase-cancel-acceptance.ps1` 已按新口径改写（a4 探针改为回填期限到过去、**a5 三条决策路 409**、a6 覆盖与留痕、a7 在新请求上批准；旧正向断言 `a5.approve.expiredRequestStillApprovable` 已删除；证据路径改为 `docs/acceptance/2026-10-12-slice-e-two-phase-cancel.json`；BOM 保留、`Parser::ParseFile` → `SYNTAX OK`），但**尚未在真实栈上执行**，因此本轮**没有新的验收证据文件**——旧的 `2026-10-08-slice-e-two-phase-cancel.json`（178/178）是「到期不自动处置」旧口径的历史记录，**不能当作当前脚本的证据引用**。② 前端**全量 E2E 未跑**（E2E 无法把期限改成过去，窗口下限是 `1m`，该行为的真实证据本就落在上面的 8092 脚本里）。两项均因用户 2026-10-12 指示「不再启动后端」而按此收口，**合并后如需要，可在下一分支先跑这两项再继续**。
+- **演示库状态**：本轮启动 8092 后端时已把演示库迁到 **V8**（只增记录类型白名单与索引，不回滚）；该后端进程与端口 8092 已停止释放，8081 全程未被触碰。
+- **收尾清理（已执行）**：删除失败安装留下的 `frontend/.pnpm-store` 与工作树根 `.node-modules-partial`（后者曾被 vitest 当成测试源扫到，造成 50 个假失败）。**本工作树的前端依赖是目录联接**指向主工作树的 `frontend/node_modules`（同一 lockfile、同一提交；`pnpm install` 在本机被拒写），`node_modules` 与 `.env` 均被 `.gitignore` 覆盖、未进入提交。
+
+## 2026-10-12 工单关联交付（原分支 `flow-desk/attachments-and-relations`，已随 PR #21 合并 `main`）
 
 - **范围与结果**：完整版 backlog 2 的「轻」一侧——创建后续工单引用原工单（`sourceTicketNo`）与详情级 `relations[]`（方向 + 对端摘要 + 固定排序）已全部落地：后端（创建校验与 `FOLLOW_UP` 同事务写入、`relations` 查询投影与结果映射）、前端（新建页原工单远程搜索选择器、详情「关联工单」面板、`constants/tickets.ts` 四格标签）、E2E 一条（`frontend/e2e/ticket-relations.spec.ts`）与真实栈验收脚本 `scripts/ticket-relations-acceptance.ps1`（**43/43 断言、退出码 0**，证据 `docs/acceptance/2026-10-12-ticket-relations.json`；演示库运行前后 10 项计数与逐行指纹一致，自建 4 张工单 + 临时用户/角色全部按主键清理）。**「关联」不需要新迁移**（`ticket_relation` 在 `V1` 已就位）、**不写时间线事件、不提供独立建链/删链接口**；`FOLLOW_UP` 方向固定 source=新工单、target=原工单，`DUPLICATE` 维持片 D 既有方向。
 - **契约落点**：`docs/api-design.md` 5.4（`relations` 数组与四格标签）、6.2（`sourceTicketNo` 校验与 `FOLLOW_UP` 写入）、7.5（前端复用「我提交的」选择器；实现说明更新为已实现）；`docs/implementation-plan.md` 第 9 节 backlog 第 2 项已加同日进展。
@@ -23,7 +35,7 @@
   3. **IT 侧发现路径与本批同批**：IT 列表「待我批准」筛选与到期语义**同一批**实施，两者**共用同一判定**——「本人是当前负责人 且 工单上有未过期的待决请求」（其上再叠加 `TICKET_PROCESS` 与「待补充期间不裁决」两条既有条件），不允许列表与详情各写一份判定；落地时连带补索引，`V7` 的「不新增索引」不再是结论。**待实现**。
   4. **附件与关联的顺序**：先做**关联**（轻——`ticket_relation` 已在 `V1`，不涉及文件存储与失败补偿），再做**附件**（重）。
   5. **管理性交接的位置**：排在撤销语义收口（第 3 条那一批）**之后**。
-- **由此确定的推进顺序（取代此前表述里的模糊处）**：**关联 → 附件 → ①③ 撤销语义收口（含 IT「待我批准」筛选与索引）→ 管理性交接（backlog 4）→ 通知 / 通信通道 + 两个超时自动任务（backlog 3）**。本文件、`AGENTS.md` 与 `docs/implementation-plan.md` 第 9 节三处同日一致。
+- **由此确定的推进顺序（取代此前表述里的模糊处）**：**关联 → 附件 → ①③ 撤销语义收口（含 IT「待我批准」筛选与索引）→ 管理性交接（backlog 4）→ 通知 / 通信通道 + 两个超时自动任务（backlog 3）**。本文件、`AGENTS.md` 与 `docs/implementation-plan.md` 第 9 节三处同日一致。（**2026-10-12 顺序调整，取代本句的先后关系**：关联已交付，①～⑥ + ⑧ 那一批**先行**，附件随后；新顺序与理由见本文件顶部段，任务清单见 `docs/implementation-plan.md` 9.3 末的「实施清单」。本句保留为 2026-10-10 的原始记录，不追改。）
 - **一处派生细节（由已确认内容推导，已写入契约）**：列表的「可批准」判定必须叠加 4.11 的「待补充期间不裁决」，否则会出现「列表显示可批准、点进去只有 `409`」——因此处于「待补充」的工单不出现在「待我批准」里，员工补充完、工单回到处理中后自动恢复；列表项响应**不**增加待决请求字段（该判定只用于筛选），待决请求仍只在详情返回。
 - **下一步（供交接使用）**：① 分支接手前先把 `main`（`95633f0`）合并进 `flow-desk/attachments-and-relations`（先删除或改名被取代的旧草稿 `frontend/PAGE-TEMPLATE.md`）；② 按第 4 条先做**关联**；③ ①③ 批次落地时的完整待改清单、探针反向断言要求与验收证据重跑口径见 `docs/implementation-plan.md` 9.3 的规则变更登记。
 

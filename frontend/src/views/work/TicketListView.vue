@@ -120,6 +120,15 @@ const pageDescription = computed(() => currentScope.value?.pageDescription ?? ''
  */
 const statusFilterAvailable = computed(() => scope.value !== 'PENDING_QUEUE')
 
+/**
+ * 「待我批准」筛选只在「我负责的」范围里有定义（`docs/api-design.md` 5.3）。
+ *
+ * <p>与 `statusFilterAvailable` 同一模式：**不给**调用方一个能拼出必然空结果（或必然 400）的
+ * 组合——切到别的范围时下面的 `changeScope` 会把它清掉。服务端另有 `TICKET_PROCESS` 要求，
+ * 缺权限时返回 403，那是授权边界，界面显隐不代替它。</p>
+ */
+const awaitingMyApprovalAvailable = computed(() => scope.value === 'ASSIGNED_TO_ME')
+
 // ---------- 筛选条件 ----------
 
 const keyword = ref('')
@@ -128,6 +137,11 @@ const priorityFilter = ref<TicketPriority[]>([])
 const categoryFilter = ref<number | null>(null)
 const createdRange = ref<string[] | null>(null)
 const sort = ref<TicketSortChoice>('DEFAULT')
+/**
+ * 「待我批准」（2026-10-10 裁决）：只看「本人是当前负责人 且 有未过期的待决撤销请求」的工单。
+ * 它与详情里的批准 / 拒绝两格共用同一判定，因此这里命中什么，点进去就一定能批准或驳回。
+ */
+const awaitingMyApproval = ref(false)
 
 /**
  * 分类筛选用启用中的分类选项（这是员工能拿到的唯一分类来源）。停用分类不出现在这里，
@@ -161,6 +175,10 @@ const { items, total, pageNo, pageSize, phase, errorMessage, retrying, search, l
       ...(createdRange.value?.[1] ? { createdTo: createdRange.value[1] } : {}),
       // DEFAULT 是"默认排序"：不发送 sort，由后端按范围决定，前端不复制这份规则
       ...(sort.value === 'DEFAULT' ? {} : { sort: sort.value }),
+      // 只在「我负责的」且开关打开时发送；不发送 = 不筛选，老行为不变
+      ...(awaitingMyApprovalAvailable.value && awaitingMyApproval.value
+        ? { awaitingMyApproval: true }
+        : {}),
     }),
   )
 
@@ -183,7 +201,8 @@ const hasFilters = computed(
     statusFilter.value.length > 0 ||
     priorityFilter.value.length > 0 ||
     categoryFilter.value !== null ||
-    (createdRange.value?.length ?? 0) > 0,
+    (createdRange.value?.length ?? 0) > 0 ||
+    awaitingMyApproval.value,
 )
 
 const emptyTitle = computed(() =>
@@ -202,6 +221,15 @@ function resetFilters(): void {
   priorityFilter.value = []
   categoryFilter.value = null
   createdRange.value = null
+  awaitingMyApproval.value = false
+  void search()
+}
+
+/**
+ * 「待我批准」开关：筛选条件变了要重新取数，且回到第 1 页（`search` 的既有语义）。
+ * 用 `change` 而不是 `watch`：只在用户真的拨动时请求一次，切范围时的清理不会多发一次。
+ */
+function onAwaitingMyApprovalChange(): void {
   void search()
 }
 
@@ -224,6 +252,11 @@ async function changeScope(value: unknown): Promise<void> {
   scope.value = next
   if (next === 'PENDING_QUEUE') {
     statusFilter.value = []
+  }
+  // 「待我批准」只在「我负责的」有意义：切走时必须清掉，否则下一次切回来会带着一个用户
+  // 已经看不见的筛选条件发请求（界面与请求不一致）
+  if (next !== 'ASSIGNED_TO_ME') {
+    awaitingMyApproval.value = false
   }
   const query = { ...route.query }
   if (next === props.defaultScope) {
@@ -330,6 +363,20 @@ onMounted(() => {
         </div>
 
         <div class="admin-filter-fields">
+          <span
+            v-if="awaitingMyApprovalAvailable"
+            class="admin-filter-field"
+          >
+            待办
+            <el-switch
+              id="ticket-awaiting-my-approval"
+              v-model="awaitingMyApproval"
+              aria-label="只看待我批准的工单"
+              active-text="待我批准"
+              @change="onAwaitingMyApprovalChange"
+            />
+          </span>
+
           <span class="admin-filter-field">
             关键词
             <el-input

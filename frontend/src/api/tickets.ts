@@ -106,22 +106,24 @@ export interface TicketListItem {
  * <p>申请存在期间工单**状态不变**，所以它推不出来，只能由详情单独返回：没有这份数据，
  * 界面就画不出「IT 正在等批准」以及同意 / 驳回 / 撤回三个入口。</p>
  *
- * <p>`deadlineAt` 只用于展示与提醒：本版本没有超时自动任务，到期不会自动取消工单，
- * 申请也不会自动失效（`docs/kickoff.md` 4.7）。</p>
- *
- * <p>**2026-10-10 裁决已改口径、实现待落地**：期限届满后本次申请失效——批准 / 拒绝 / 撤回
- * 三个入口届时消失、详情显示「已过期」，员工可重新发起（工单仍不自动取消）。要一起改的是三处：
- * 本段注释、下面 `deadlineAt` 的行内注释，以及 `TicketDetailView.vue` 撤销块里那句
- * 「这次申请也不会自动失效」的界面文案——文案必须与判定同批，否则界面会承诺一个还不存在的
- * 「重新发起」入口（见 `docs/implementation-plan.md` 9.3 待改清单 ①④）。</p>
+ * <p>期限届满后本次申请失效（2026-10-10 裁决，**已实现**）：批准 / 拒绝 / 撤回三个入口一起消失、
+ * 详情显示「已过期」，提交人可以重新发起并直接覆盖它（工单仍不自动取消）。**不要在前端用本地时钟
+ * 比 `deadlineAt`**——`expired` 由服务端按与批准 / 拒绝入口、列表「待我批准」筛选同一个判定算好，
+ * 两侧时钟有偏差时界面会与判定分叉。</p>
  */
 export interface TicketCancelRequest {
   /** 提交人发起申请的时间。 */
   requestedAt: string
-  /** 负责人应当在此之前处理的响应期限；只展示，到期不自动处置（**2026-10-10 裁决已改口径、实现待落地**：届满即失效）。 */
+  /** 负责人应当在此之前处理的响应期限；届满即失效，`expired` 是它的判定结果。 */
   deadlineAt: string
   /** 提交人写的申请理由，也就是负责人做决定时要看的那段说明。 */
   reason: string
+  /**
+   * 服务端判定的「已过期」（2026-10-10 裁决）。为 `true` 时界面显示「已过期」，且
+   * `allowedActions` 里不会再有 `approve-cancel` / `reject-cancel` / `withdraw-cancel-request`；
+   * 提交人那一侧改成「申请撤销工单」——重新发起会直接覆盖已过期的那一份。
+   */
+  expired: boolean
 }
 
 /**
@@ -222,6 +224,16 @@ export interface TicketListParams {
   createdTo?: string
   /** 缺省时不发送：让后端按 `scope` 决定默认排序。 */
   sort?: TicketListSort
+  /**
+   * 「待我批准」筛选（`docs/api-design.md` 5.3，完整版 backlog 第 7 项）。
+   *
+   * <p>语义是「本人是当前负责人 且 工单上有**未过期**的待决撤销请求」，只在
+   * `scope=ASSIGNED_TO_ME` 下有定义；其它范围传 `true` 会被服务端按 `400/VALIDATION_FAILED`
+   * 拒绝（不是静默忽略）。服务端还要求 `TICKET_PROCESS`，缺权限时是 `403`。
+   *
+   * <p>缺省时不发送：不开启筛选的列表行为与以前完全一致。</p>
+   */
+  awaitingMyApproval?: boolean
 }
 
 export interface TicketRecordParams {
@@ -442,6 +454,7 @@ export async function listTickets(
       ...(params.createdFrom ? { createdFrom: params.createdFrom } : {}),
       ...(params.createdTo ? { createdTo: params.createdTo } : {}),
       ...(params.sort ? { sort: params.sort } : {}),
+      ...(params.awaitingMyApproval ? { awaitingMyApproval: true } : {}),
     },
   })
   return response.data.data
