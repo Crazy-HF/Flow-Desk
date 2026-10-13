@@ -444,6 +444,26 @@ describe('工单展示映射', () => {
     // 兜底行为不变：迁移里将来新增、界面还没接上的类型按编码原样显示，而不是丢掉这一行
     expect(ticketRecordTypeLabel('FUTURE_RECORD')).toBe('FUTURE_RECORD')
   })
+
+  /**
+   * `V8`（2026-10-12 到期即失效）追加的 `CANCELLATION_REQUEST_EXPIRED` 同样要有中文名：
+   * 它出现在「提交人重新发起」的时间线上，显示成英文编码就等于把"上一次申请作废了"这件事
+   * 从界面上抹掉。
+   */
+  it('V8 追加的过期留痕有独立中文名，与另外四种撤销记录都不重名', () => {
+    const labels = [
+      ticketRecordTypeLabel('CANCELLATION_REQUEST'),
+      ticketRecordTypeLabel('CANCELLATION_APPROVED'),
+      ticketRecordTypeLabel('CANCELLATION_REJECTED'),
+      ticketRecordTypeLabel('CANCELLATION_REQUEST_WITHDRAWN'),
+      ticketRecordTypeLabel('CANCELLATION_REQUEST_EXPIRED'),
+    ]
+
+    expect(labels.every((label) => label.trim() !== '' && !label.includes('CANCELLATION'))).toBe(
+      true,
+    )
+    expect(new Set([...labels, ticketRecordTypeLabel('CANCELLATION')]).size).toBe(6)
+  })
 })
 
 describe('describeRecordContext', () => {

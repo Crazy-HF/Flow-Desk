@@ -49,7 +49,13 @@ public class TicketController {
         this.ticketQueryService = ticketQueryService;
     }
 
-    /** 每个显式查询范围分别校验权限，不能用任意查询权限替代。 */
+    /**
+     * 每个显式查询范围分别校验权限，不能用任意查询权限替代。
+     *
+     * <p>「待我批准」筛选（{@code ASSIGNED_TO_ME} 下的 {@code awaitingMyApproval=true}）要求额外持有
+     * {@code TICKET_PROCESS}：它返回的是「我该去批准的工单」，与详情里的批准 / 拒绝入口共用同一判定，
+     * 没有处理权限的人拿到的是空列表——那还不如直接 403，调用方才知道是权限而不是"没有待办"。</p>
+     */
     @GetMapping
     @PreAuthorize("""
             (#p0.scope?.name() == 'REQUESTED_BY_ME'
@@ -58,7 +64,10 @@ public class TicketController {
                 and hasAuthority('TICKET_VIEW_QUEUE'))
             or ((#p0.scope?.name() == 'ASSIGNED_TO_ME'
                  or #p0.scope?.name() == 'PARTICIPATED_BY_ME')
-                and hasAuthority('TICKET_VIEW_PARTICIPATED'))
+                and hasAuthority('TICKET_VIEW_PARTICIPATED')
+                and (#p0.awaitingMyApproval != true
+                     or (#p0.scope?.name() == 'ASSIGNED_TO_ME'
+                         and hasAuthority('TICKET_PROCESS'))))
             """)
     public R<PageResult<TicketListItemResult>> page(
             @Valid @ModelAttribute TicketQuery query) {

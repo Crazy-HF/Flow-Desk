@@ -11,6 +11,7 @@ import com.flowdesk.ticket.application.result.TicketActionResult;
 import com.flowdesk.ticket.application.result.TicketCreatedResult;
 import com.flowdesk.ticket.application.result.TicketUserSummaryResult;
 import com.flowdesk.ticket.application.service.TicketService;
+import com.flowdesk.ticket.domain.CancelRequestPolicy;
 import com.flowdesk.ticket.domain.Ticket;
 import com.flowdesk.ticket.domain.TicketPriority;
 import com.flowdesk.ticket.domain.TicketRecord;
@@ -1745,13 +1746,18 @@ public class TicketServiceImpl implements TicketService {
                     "工单不存在");
         }
 
-        // 3. 三个"有人负责"的状态 + 本人是提交人；已有待决请求也按冲突返回——
-        //    重复发起不是幂等成功：前一次的说明还在，不能被静默覆盖
-        //    （2026-10-10 裁决已改口径、实现待落地：请求已过期时届时可直接覆盖，见 9.3 待改清单 ①）
+        Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
+        LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+
+        // 3. 三个"有人负责"的状态 + 本人是提交人。已有**未过期**的请求才算冲突——
+        //    重复发起不是幂等成功：前一次的说明还在，不能被静默覆盖；
+        //    但已过期的请求可以被新请求直接覆盖（2026-10-10 裁决），不设终身次数上限
+        boolean overwritingExpiredRequest = visible.getCancelRequestedAt() != null
+                && isCancelRequestExpired(visible, now);
         if (!isCancelRequestableStatus(visible.getStatus())
                 || visible.getRequesterId() == null
                 || visible.getRequesterId() != actorId
-                || visible.getCancelRequestedAt() != null) {
+                || CancelRequestPolicy.blocksNewRequest(visible.getCancelRequestDeadlineAt(), now)) {
             throw conflict(visible.getVersion(), visible.getStatus());
         }
 
@@ -1769,20 +1775,21 @@ public class TicketServiceImpl implements TicketService {
                     "撤销请求说明长度必须在 1 到 1000 之间");
         }
 
-        Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
-        LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
-
-        // 6. 响应期限从发起时刻起算；只落库展示，到期不自动处置（与补充期限同口径）
-        //    （2026-10-10 裁决已改口径、实现待落地：届满即失效，这一列届时进三条条件更新的 WHERE）
+        // 5. 响应期限从发起时刻起算；到期即失效，这一列进四条条件更新的 WHERE
+        //    （覆盖分支要用原请求的三列写「已过期」留痕，所以下面先取一次原快照）
         LocalDateTime deadlineAt = now.plus(ticketProperties.cancelRequestWindow());
 
-        // 7. 条件更新是唯一胜者判定：版本、提交人、三种状态与"当前没有待决请求"都在 WHERE 里
+        // 6. 条件更新是唯一胜者判定：版本、提交人、三种状态与「没有未过期的待决请求」都在 WHERE 里。
+        //    覆盖已过期请求时这一次动作要写两条记录（先留痕、再新请求），序号推进 2；
+        //    没有待决请求时推进 1。version 两种情况都只 +1——一次用户动作只推进一次版本
+        int recordSeqIncrement = overwritingExpiredRequest ? 2 : 1;
         int updatedRows = ticketMapper.requestCancel(
                 visible.getId(),
                 command.version(),
                 actorId,
                 reason,
                 deadlineAt,
+                recordSeqIncrement,
                 now);
 
         if (updatedRows != 1) {
@@ -1800,7 +1807,29 @@ public class TicketServiceImpl implements TicketService {
             throw new IllegalStateException("发起撤销请求后无法读取工单快照");
         }
 
-        // 8. 不可变时间线：请求说明与响应期限随记录留存；状态没有变化，from 与 to 相同
+        // 8. 覆盖分支先补写「已过期」留痕：它占用 n+1，新请求占 n+2，时间线上顺序正确。
+        //    原发起时间在 ticket_record 没有对应列，且已发布的迁移不得修改，因此按 9.3 的 D3
+        //    用 content 承载 ISO-8601 UTC 文本；actor 取发起新请求的提交人本人（这条记录由他的动作产生）
+        if (overwritingExpiredRequest) {
+            TicketRecord expired = new TicketRecord();
+            expired.setTicketId(updated.getId());
+            expired.setSequenceNo(updated.getRecordSeq() - 1);
+            expired.setRecordType("CANCELLATION_REQUEST_EXPIRED");
+            expired.setActorType("USER");
+            expired.setActorUserId(actorId);
+            expired.setContent(toOffsetDateTime(visible.getCancelRequestedAt()).toString());
+            expired.setReason(visible.getCancelRequestReason());
+            expired.setDeadlineAt(visible.getCancelRequestDeadlineAt());
+            expired.setFromStatus(visible.getStatus());
+            expired.setToStatus(visible.getStatus());
+            expired.setCreatedAt(now);
+
+            if (ticketRecordMapper.insert(expired) != 1) {
+                throw new IllegalStateException("撤销请求过期记录插入失败");
+            }
+        }
+
+        // 9. 不可变时间线：请求说明与响应期限随记录留存；状态没有变化，from 与 to 相同
         //    （既有 PROCESS / CATEGORY_CHANGE / TRANSFER 等不改变状态的动作也是这么写的）
         TicketRecord record = new TicketRecord();
         record.setTicketId(updated.getId());
@@ -1867,13 +1896,19 @@ public class TicketServiceImpl implements TicketService {
                     "工单不存在");
         }
 
-        // 3. 必须是当前负责人，且工单上确实挂着一个待决请求。
-        //    "没有请求"、"请求已经被别人处理掉"与"工单正在待补充（此时不裁决）"都落到这里，
-        //    统一 409 带快照
+        // 时钟提到闸门之前：过期判定要用 now，而它属于「状态 / 身份 / 版本」这一道 409 门，
+        // 必须排在字段校验（400）之前——否则「过期 + 空原因」会先返回 400，调用方看不到「已过期」
+        Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
+        LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+
+        // 3. 必须是当前负责人，且工单上确实挂着一个**未过期**的待决请求。
+        //    "没有请求"、"请求已经被别人处理掉"、"工单正在待补充（此时不裁决）"与"请求已过期"
+        //    都落到这里，统一 409 带快照；刷新详情即可看到「已过期」与消失的三个入口
         if (!isCancelDecidableStatus(visible.getStatus())
                 || visible.getAssigneeId() == null
                 || visible.getAssigneeId() != actorId
-                || visible.getCancelRequestedAt() == null) {
+                || visible.getCancelRequestedAt() == null
+                || isCancelRequestExpired(visible, now)) {
             throw conflict(visible.getVersion(), visible.getStatus());
         }
 
@@ -1881,9 +1916,6 @@ public class TicketServiceImpl implements TicketService {
         if (!Objects.equals(command.version(), visible.getVersion())) {
             throw conflict(visible.getVersion(), visible.getStatus());
         }
-
-        Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
-        LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
 
         // 5. 条件更新是唯一胜者判定。注意这条 SQL 里同时处理了三件事：
         //    进入终态要写 ended_at、要清 action_deadline_at（待补充/待确认带着期限）、
@@ -1969,11 +2001,17 @@ public class TicketServiceImpl implements TicketService {
                     "工单不存在");
         }
 
-        // 3. 必须是当前负责人，且确实有请求可以拒绝；「待补充」不在可裁决状态里（2026-10-10 用户裁决）
+        // 时钟提到闸门之前：过期属于 409 门，必须排在字段校验（400）之前
+        Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
+        LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+
+        // 3. 必须是当前负责人，且确实有一条**未过期**的请求可以拒绝；
+        //    「待补充」不在可裁决状态里（2026-10-10 用户裁决），过期后连拒绝也不再允许
         if (!isCancelDecidableStatus(visible.getStatus())
                 || visible.getAssigneeId() == null
                 || visible.getAssigneeId() != actorId
-                || visible.getCancelRequestedAt() == null) {
+                || visible.getCancelRequestedAt() == null
+                || isCancelRequestExpired(visible, now)) {
             throw conflict(visible.getVersion(), visible.getStatus());
         }
 
@@ -1990,9 +2028,6 @@ public class TicketServiceImpl implements TicketService {
                     "VALIDATION_FAILED",
                     "拒绝原因长度必须在 1 到 1000 之间");
         }
-
-        Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
-        LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
 
         // 6. 条件更新是唯一胜者判定：状态与期限都不变，只让请求失效
         int updatedRows = ticketMapper.rejectCancel(
@@ -2078,11 +2113,18 @@ public class TicketServiceImpl implements TicketService {
                     "工单不存在");
         }
 
-        // 3. 只有提交人本人能撤回自己的请求；负责人撤不掉（即使他同时持有提交人权限）
+        // 时钟提到闸门之前：过期属于 409 门，必须排在其它判定之前
+        Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
+        LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+
+        // 3. 只有提交人本人能撤回自己的请求；负责人撤不掉（即使他同时持有提交人权限）。
+        //    请求过期后撤回同样关闭——三个动作一起失效，因此不存在「先撤回再重新发起」这条路，
+        //    提交人直接重新发起即可（覆盖由 requestCancel 的条件承担）
         if (!isCancelRequestableStatus(visible.getStatus())
                 || visible.getRequesterId() == null
                 || visible.getRequesterId() != actorId
-                || visible.getCancelRequestedAt() == null) {
+                || visible.getCancelRequestedAt() == null
+                || isCancelRequestExpired(visible, now)) {
             throw conflict(visible.getVersion(), visible.getStatus());
         }
 
@@ -2090,9 +2132,6 @@ public class TicketServiceImpl implements TicketService {
         if (!Objects.equals(command.version(), visible.getVersion())) {
             throw conflict(visible.getVersion(), visible.getStatus());
         }
-
-        Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
-        LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
 
         // 5. 条件更新是唯一胜者判定
         int updatedRows = ticketMapper.withdrawCancelRequest(
@@ -2545,6 +2584,18 @@ public class TicketServiceImpl implements TicketService {
      */
     private boolean isCancelDecidableStatus(String status) {
         return PROCESSING.equals(status) || WAITING_FOR_CONFIRMATION.equals(status);
+    }
+
+    /**
+     * 撤销请求是否已过期（2026-10-10 裁决）：期限一到，批准、拒绝、撤回三个动作一起关闭，
+     * 工单保持原状态、不自动取消；提交人可以直接重新发起（覆盖），不设终身次数上限。
+     *
+     * <p>与 {@code TicketQueryServiceImpl} 的详情判定共用 {@link CancelRequestPolicy}，与四条条件更新的
+     * {@code WHERE}（{@code cancel_request_deadline_at > #{now}}）互为反面。三处不同步时，界面会给出
+     * 一个注定 409 的按钮，或者出现「详情说已过期、列表仍显示」的分叉。</p>
+     */
+    private boolean isCancelRequestExpired(TicketDetailRow visible, LocalDateTime now) {
+        return CancelRequestPolicy.isExpired(visible.getCancelRequestDeadlineAt(), now);
     }
 
     /** 优先级取值以 {@link TicketPriority} 为准，避免再抄一份正则；null 视为非法。 */

@@ -77,6 +77,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -172,6 +173,15 @@ class TicketServiceImplTest {
     private static final String CANCEL_REQUEST_REASON = "问题已自行解决";
     private static final LocalDateTime CANCEL_REQUEST_DEADLINE_AT =
             LocalDateTime.of(2026, 10, 9, 9, 0, 0);
+
+    /**
+     * 已过期的待决撤销请求：期限落在固定时钟（{@code NOW_UTC} = 2026-10-06T08:15:30）之前。
+     *
+     * <p>「过期」是随时间变化的状态，因此用同一个时钟配一个更早的期限来表达，而不是另定一个时钟——
+     * 这样「未过期 / 已过期」两组夹具只差期限一列，判据的差别一眼可见。</p>
+     */
+    private static final LocalDateTime EXPIRED_CANCEL_REQUEST_DEADLINE_AT =
+            LocalDateTime.of(2026, 10, 6, 8, 0, 0);
 
     private static final String SUBMISSION_KEY = "3f1c9f4e-2a6b-4b7c-8d9e-0a1b2c3d4e5f";
     private static final TicketProperties DEFAULT_PROPERTIES =
@@ -3638,7 +3648,7 @@ class TicketServiceImplTest {
                 HttpStatus.NOT_FOUND, "TICKET_NOT_FOUND");
 
         verify(ticketMapper, never()).requestCancel(
-                anyLong(), anyLong(), anyLong(), any(), any(), any());
+                anyLong(), anyLong(), anyLong(), any(), any(), anyInt(), any());
     }
 
     /**
@@ -3658,7 +3668,7 @@ class TicketServiceImplTest {
         assertThat(exception.resourceVersion()).isEqualTo(3L);
         assertThat(exception.resourceStatus()).isEqualTo(PENDING);
         verify(ticketMapper, never()).requestCancel(
-                anyLong(), anyLong(), anyLong(), any(), any(), any());
+                anyLong(), anyLong(), anyLong(), any(), any(), anyInt(), any());
     }
 
     /**
@@ -3687,7 +3697,7 @@ class TicketServiceImplTest {
                 HttpStatus.CONFLICT, "TICKET_CONFLICT");
 
         verify(ticketMapper, never()).requestCancel(
-                anyLong(), anyLong(), anyLong(), any(), any(), any());
+                anyLong(), anyLong(), anyLong(), any(), any(), anyInt(), any());
         verify(ticketMapper, never()).approveCancel(anyLong(), anyLong(), anyLong(), any());
         verify(ticketMapper, never()).rejectCancel(anyLong(), anyLong(), anyLong(), any());
         verify(ticketMapper, never())
@@ -3707,7 +3717,7 @@ class TicketServiceImplTest {
                 HttpStatus.CONFLICT, "TICKET_CONFLICT");
 
         verify(ticketMapper, never()).requestCancel(
-                anyLong(), anyLong(), anyLong(), any(), any(), any());
+                anyLong(), anyLong(), anyLong(), any(), any(), anyInt(), any());
     }
 
     /**
@@ -3725,7 +3735,7 @@ class TicketServiceImplTest {
                 HttpStatus.CONFLICT, "TICKET_CONFLICT");
 
         verify(ticketMapper, never()).requestCancel(
-                anyLong(), anyLong(), anyLong(), any(), any(), any());
+                anyLong(), anyLong(), anyLong(), any(), any(), anyInt(), any());
     }
 
     @Test
@@ -3752,7 +3762,7 @@ class TicketServiceImplTest {
                 HttpStatus.CONFLICT, "TICKET_CONFLICT");
 
         verify(ticketMapper, never()).requestCancel(
-                anyLong(), anyLong(), anyLong(), any(), any(), any());
+                anyLong(), anyLong(), anyLong(), any(), any(), anyInt(), any());
     }
 
     /** 非 HTTP 调用方传 null 与纯空白说明：必须是 400，而不是 NPE 或空白请求入库。 */
@@ -3768,7 +3778,7 @@ class TicketServiceImplTest {
                 HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
 
         verify(ticketMapper, never()).requestCancel(
-                anyLong(), anyLong(), anyLong(), any(), any(), any());
+                anyLong(), anyLong(), anyLong(), any(), any(), anyInt(), any());
     }
 
     @Test
@@ -3781,7 +3791,7 @@ class TicketServiceImplTest {
                 HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
 
         verify(ticketMapper, never()).requestCancel(
-                anyLong(), anyLong(), anyLong(), any(), any(), any());
+                anyLong(), anyLong(), anyLong(), any(), any(), anyInt(), any());
     }
 
     /** 恰好 1000 个字符必须放行，并说明按去空白之后的长度判定。 */
@@ -3791,14 +3801,14 @@ class TicketServiceImplTest {
         stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
         String reason = "a".repeat(1000);
         when(ticketMapper.requestCancel(TICKET_ID, 3L, REQUESTER_ID, reason,
-                NOW_UTC.plusDays(3), NOW_UTC)).thenReturn(1);
+                NOW_UTC.plusDays(3), 1, NOW_UTC)).thenReturn(1);
         when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 5, 4L));
         when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
 
         service.requestCancel(TICKET_NO, new RequestCancelCommand(3L, "  " + reason + "  "));
 
         verify(ticketMapper).requestCancel(TICKET_ID, 3L, REQUESTER_ID, reason,
-                NOW_UTC.plusDays(3), NOW_UTC);
+                NOW_UTC.plusDays(3), 1, NOW_UTC);
     }
 
     /**
@@ -3816,7 +3826,7 @@ class TicketServiceImplTest {
         stubVisible(row);
         LocalDateTime expectedDeadline = NOW_UTC.plusDays(3);
         when(ticketMapper.requestCancel(TICKET_ID, 5L, REQUESTER_ID,
-                CANCEL_REQUEST_REASON, expectedDeadline, NOW_UTC)).thenReturn(1);
+                CANCEL_REQUEST_REASON, expectedDeadline, 1, NOW_UTC)).thenReturn(1);
         when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 7, 6L));
         when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
 
@@ -3824,7 +3834,7 @@ class TicketServiceImplTest {
                 new RequestCancelCommand(5L, "  " + CANCEL_REQUEST_REASON + "  "));
 
         verify(ticketMapper).requestCancel(TICKET_ID, 5L, REQUESTER_ID,
-                CANCEL_REQUEST_REASON, expectedDeadline, NOW_UTC);
+                CANCEL_REQUEST_REASON, expectedDeadline, 1, NOW_UTC);
 
         ArgumentCaptor<TicketRecord> records = ArgumentCaptor.forClass(TicketRecord.class);
         verify(ticketRecordMapper).insert(records.capture());
@@ -3860,7 +3870,7 @@ class TicketServiceImplTest {
         stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
         LocalDateTime expectedDeadline = NOW_UTC.plusHours(1);
         when(ticketMapper.requestCancel(TICKET_ID, 3L, REQUESTER_ID,
-                CANCEL_REQUEST_REASON, expectedDeadline, NOW_UTC)).thenReturn(1);
+                CANCEL_REQUEST_REASON, expectedDeadline, 1, NOW_UTC)).thenReturn(1);
         when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 5, 4L));
         when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
 
@@ -3868,7 +3878,7 @@ class TicketServiceImplTest {
                 new RequestCancelCommand(3L, CANCEL_REQUEST_REASON));
 
         verify(ticketMapper).requestCancel(TICKET_ID, 3L, REQUESTER_ID,
-                CANCEL_REQUEST_REASON, expectedDeadline, NOW_UTC);
+                CANCEL_REQUEST_REASON, expectedDeadline, 1, NOW_UTC);
         assertThat(result.version()).isEqualTo(4L);
     }
 
@@ -3877,7 +3887,7 @@ class TicketServiceImplTest {
         stubRequesterActor();
         stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
         when(ticketMapper.requestCancel(TICKET_ID, 5L, REQUESTER_ID,
-                CANCEL_REQUEST_REASON, NOW_UTC.plusDays(3), NOW_UTC)).thenReturn(0);
+                CANCEL_REQUEST_REASON, NOW_UTC.plusDays(3), 1, NOW_UTC)).thenReturn(0);
         when(ticketMapper.selectClaimConflictSnapshotForUpdate(TICKET_ID))
                 .thenReturn(conflictSnapshot(WAITING_FOR_CONFIRMATION, 6L));
 
@@ -3897,7 +3907,7 @@ class TicketServiceImplTest {
         stubRequesterActor();
         stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
         when(ticketMapper.requestCancel(TICKET_ID, 5L, REQUESTER_ID,
-                CANCEL_REQUEST_REASON, NOW_UTC.plusDays(3), NOW_UTC)).thenReturn(0);
+                CANCEL_REQUEST_REASON, NOW_UTC.plusDays(3), 1, NOW_UTC)).thenReturn(0);
         when(ticketMapper.selectClaimConflictSnapshotForUpdate(TICKET_ID)).thenReturn(null);
 
         assertThatThrownBy(() -> service.requestCancel(TICKET_NO,
@@ -3911,7 +3921,7 @@ class TicketServiceImplTest {
         stubRequesterActor();
         stubVisible(detailRow(PROCESSING, IT_USER_ID, 5L));
         when(ticketMapper.requestCancel(TICKET_ID, 5L, REQUESTER_ID,
-                CANCEL_REQUEST_REASON, NOW_UTC.plusDays(3), NOW_UTC)).thenReturn(1);
+                CANCEL_REQUEST_REASON, NOW_UTC.plusDays(3), 1, NOW_UTC)).thenReturn(1);
         when(ticketMapper.selectById(TICKET_ID)).thenReturn(null);
 
         assertThatThrownBy(() -> service.requestCancel(TICKET_NO,
@@ -3920,6 +3930,100 @@ class TicketServiceImplTest {
                 .hasMessageContaining("发起撤销请求后无法读取工单快照");
 
         verifyNoInteractions(ticketRecordMapper);
+    }
+
+    // ---------- 到期即失效：发起侧（覆盖）与三条关闭 ----------
+
+    /**
+     * 覆盖已过期的请求：这一次动作写**两条**记录（先「已过期」留痕、再新请求），序号推进 2，
+     * 版本仍只 +1（2026-10-10 裁决；{@code docs/implementation-plan.md} 9.3 待改清单 ②③）。
+     *
+     * <p>「原发起时间」在 {@code ticket_record} 没有对应列、且已发布的迁移不得修改，因此用
+     * {@code content} 承载 ISO-8601 UTC 文本——这条断言把那个取舍钉死，避免以后有人换成别的写法。</p>
+     */
+    @Test
+    void requestCancelOverwritesExpiredRequestAndWritesBothRecords() {
+        stubRequesterActor();
+        stubVisible(detailRowWithExpiredCancelRequest(PROCESSING, IT_USER_ID, 5L));
+        LocalDateTime expectedDeadline = NOW_UTC.plusDays(3);
+        when(ticketMapper.requestCancel(TICKET_ID, 5L, REQUESTER_ID,
+                CANCEL_REQUEST_REASON, expectedDeadline, 2, NOW_UTC)).thenReturn(1);
+        when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 9, 8L));
+        when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
+
+        TicketActionResult result = service.requestCancel(TICKET_NO,
+                new RequestCancelCommand(5L, CANCEL_REQUEST_REASON));
+
+        ArgumentCaptor<TicketRecord> records = ArgumentCaptor.forClass(TicketRecord.class);
+        verify(ticketRecordMapper, times(2)).insert(records.capture());
+
+        TicketRecord expired = records.getAllValues().get(0);
+        assertThat(expired.getRecordType()).as("先补写留痕").isEqualTo("CANCELLATION_REQUEST_EXPIRED");
+        assertThat(expired.getSequenceNo()).as("留痕占 n+1").isEqualTo(8);
+        assertThat(expired.getActorType()).isEqualTo("USER");
+        assertThat(expired.getActorUserId()).as("由提交人重新发起触发，actor 是本人")
+                .isEqualTo(REQUESTER_ID);
+        assertThat(expired.getReason()).as("原说明随留痕保留").isEqualTo(CANCEL_REQUEST_REASON);
+        assertThat(expired.getDeadlineAt()).as("原响应期限随留痕保留")
+                .isEqualTo(EXPIRED_CANCEL_REQUEST_DEADLINE_AT);
+        assertThat(expired.getContent()).as("原发起时间用 content 承载（ISO-8601 UTC）")
+                .isEqualTo(CANCEL_REQUESTED_AT.atOffset(ZoneOffset.UTC).toString());
+        assertThat(expired.getFromStatus()).isEqualTo(PROCESSING);
+        assertThat(expired.getToStatus()).as("状态不变").isEqualTo(PROCESSING);
+
+        TicketRecord fresh = records.getAllValues().get(1);
+        assertThat(fresh.getRecordType()).isEqualTo("CANCELLATION_REQUEST");
+        assertThat(fresh.getSequenceNo()).as("新请求占 n+2").isEqualTo(9);
+        assertThat(fresh.getDeadlineAt()).as("期限按配置重算").isEqualTo(expectedDeadline);
+
+        assertThat(result.version()).as("两条记录同属一次动作，版本只 +1").isEqualTo(8L);
+    }
+
+    /**
+     * 请求过期后批准关闭（2026-10-10 裁决）：第 3 道门就挡成 409，且**不打条件更新**。
+     */
+    @Test
+    void approveCancelRejectsExpiredRequestBeforeTouchingTheDatabase() {
+        stubProcessActor();
+        stubVisible(detailRowWithExpiredCancelRequest(PROCESSING, IT_USER_ID, 5L));
+
+        ApiException exception = assertApiException(() -> service.approveCancel(TICKET_NO,
+                        new ApproveCancelCommand(5L)),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        assertThat(exception.resourceVersion()).as("携带最新快照").isEqualTo(5L);
+        assertThat(exception.resourceStatus()).isEqualTo(PROCESSING);
+        verify(ticketMapper, never()).approveCancel(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /**
+     * 请求过期后拒绝同样关闭，且**过期属于 409 门、排在字段校验之前**：原因故意留空，
+     * 期望仍是 409 而不是 400——顺序反了的话，调用方会以为"补个原因就能拒绝"。
+     */
+    @Test
+    void rejectCancelReportsConflictOnExpiredRequestBeforeValidatingReason() {
+        stubProcessActor();
+        stubVisible(detailRowWithExpiredCancelRequest(PROCESSING, IT_USER_ID, 5L));
+
+        assertApiException(() -> service.rejectCancel(TICKET_NO,
+                        new RejectCancelCommand(5L, "")),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never()).rejectCancel(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    /** 提交人撤回自己的过期请求同样关闭：不存在「先撤回再重新发起」这条路，直接重新发起即可。 */
+    @Test
+    void withdrawCancelRequestRejectsExpiredRequest() {
+        stubRequesterActor();
+        stubVisible(detailRowWithExpiredCancelRequest(PROCESSING, IT_USER_ID, 5L));
+
+        assertApiException(() -> service.withdrawCancelRequest(TICKET_NO,
+                        new WithdrawCancelRequestCommand(5L)),
+                HttpStatus.CONFLICT, "TICKET_CONFLICT");
+
+        verify(ticketMapper, never())
+                .withdrawCancelRequest(anyLong(), anyLong(), anyLong(), any());
     }
 
     // ---------- 两阶段撤销：approve-cancel ----------
@@ -4703,6 +4807,19 @@ class TicketServiceImplTest {
         row.setCancelRequestedAt(CANCEL_REQUESTED_AT);
         row.setCancelRequestReason(CANCEL_REQUEST_REASON);
         row.setCancelRequestDeadlineAt(CANCEL_REQUEST_DEADLINE_AT);
+        return row;
+    }
+
+    /**
+     * 带**已过期**待决撤销请求的可见行：批准、拒绝、撤回三条路都必须 409，
+     * 提交人则改为「可以重新发起」（覆盖）。
+     */
+    private static TicketDetailRow detailRowWithExpiredCancelRequest(
+            String status, Long assigneeId, long version) {
+        TicketDetailRow row = detailRow(status, assigneeId, version);
+        row.setCancelRequestedAt(CANCEL_REQUESTED_AT);
+        row.setCancelRequestReason(CANCEL_REQUEST_REASON);
+        row.setCancelRequestDeadlineAt(EXPIRED_CANCEL_REQUEST_DEADLINE_AT);
         return row;
     }
 

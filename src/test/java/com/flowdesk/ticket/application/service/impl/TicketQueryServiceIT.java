@@ -32,6 +32,7 @@ import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -120,6 +121,13 @@ class TicketQueryServiceIT {
     @Autowired
     private JdbcTemplate jdbc;
 
+    /**
+     * 应用自己的 UTC 时钟：撤销请求的期限判定与列表筛选都用它，造数必须用同一个来源，
+     * 否则「未过期 / 已过期」的边界会取决于测试进程与容器的时钟差。
+     */
+    @Autowired
+    private Clock clock;
+
     /** Redis 不属于本切片，用替身满足认证模块依赖（adapter 仍是真的）。 */
     @MockitoBean
     private AuthSessionRepository authSessionRepository;
@@ -189,6 +197,107 @@ class TicketQueryServiceIT {
         // 参与历史靠 ticket_participant：不在负责人位置上也能看到，当前负责人身份本身不算参与
         assertThat(ticketNos(page(query(TicketScope.PARTICIPATED_BY_ME, categoryId))))
                 .containsExactly(participatedOnly);
+    }
+
+    // ---------- 「待我批准」筛选与到期语义（2026-10-10 裁决，同一批） ----------
+
+    /**
+     * 筛选矩阵：只有「本人是当前负责人 且 有**未过期**的待决请求」才命中。
+     *
+     * <p>四条工单同一个负责人、同一个分类，只有状态与期限不同——这正是「筛选条件只有这些」的证明。
+     * 另外两条是叠加条件的回归点：处于「待补充」的工单**不**命中（待补充期间不裁决），员工补充完、
+     * 工单回到处理中后重新命中；已过期的请求被提交人重新发起覆盖后也重新命中。</p>
+     */
+    @Test
+    void awaitingMyApprovalFilterTracksExpiryAndTheSupplementRoundTrip() {
+        long itId = insertUser("awaiting-it", IT_SUPPORT);
+        long requesterId = insertUser("awaiting-requester", EMPLOYEE);
+        long categoryId = insertCategory("待我批准");
+        LocalDateTime now = LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC).withNano(0);
+        LocalDateTime createdAt = now.minusDays(2);
+
+        String live = insertTicket(requesterId, categoryId, "请求未过期",
+                PROCESSING, itId, MEDIUM, createdAt, createdAt);
+        insertPendingCancelRequest(live, now.minusDays(1), now.plusDays(1));
+
+        String expired = insertTicket(requesterId, categoryId, "请求已过期",
+                PROCESSING, itId, MEDIUM, createdAt, createdAt);
+        insertPendingCancelRequest(expired, now.minusDays(3), now.minusDays(1));
+
+        String waiting = insertTicket(requesterId, categoryId, "待补充期间不裁决",
+                WAITING_FOR_REQUESTER, itId, MEDIUM, createdAt, createdAt);
+        insertPendingCancelRequest(waiting, now.minusDays(1), now.plusDays(1));
+
+        String withoutRequest = insertTicket(requesterId, categoryId, "没有待决请求",
+                PROCESSING, itId, MEDIUM, createdAt, createdAt);
+
+        authenticateAs(itId);
+
+        assertThat(ticketNos(page(awaitingPage(categoryId))))
+                .as("只有未过期的待决请求命中：已过期、待补充、没有请求都不在")
+                .containsExactly(live);
+
+        // 员工补充完、工单回到处理中：待补充那一条重新命中（请求与期限都还在）
+        jdbc.update("UPDATE ticket SET status = 'PROCESSING', action_deadline_at = NULL "
+                + "WHERE ticket_no = ?", waiting);
+        assertThat(ticketNos(page(awaitingPage(categoryId))))
+                .containsExactlyInAnyOrder(live, waiting);
+
+        // 已过期的那一条被提交人重新发起覆盖后也回到筛选结果里
+        insertPendingCancelRequest(expired, now, now.plusDays(3));
+        assertThat(ticketNos(page(awaitingPage(categoryId))))
+                .containsExactlyInAnyOrder(live, waiting, expired);
+
+        // 没有待决请求的那条永远不出现，与上面三步无关
+        assertThat(ticketNos(page(awaitingPage(categoryId)))).doesNotContain(withoutRequest);
+    }
+
+    /**
+     * 「共用同一判定」的交叉验证：详情里能不能批准 / 拒绝，必须与列表筛选中不命中一一对应。
+     *
+     * <p>列表 SQL 与 Java 判定无法共用代码（一个在 {@code WHERE} 里、一个在服务层），允许各写一份，
+     * 但不允许分叉——两侧不一致时，界面会出现「列表说可批准、点进去已过期」。这条用例是它们之间
+     * 唯一的连接件，两个方向都要成立：命中 ⟹ 详情有那两格，不命中 ⟹ 详情没有那两格。</p>
+     */
+    @Test
+    void awaitingMyApprovalFilterAgreesWithTheDetailDecisionCells() {
+        long itId = insertUser("awaiting-agree-it", IT_SUPPORT);
+        long requesterId = insertUser("awaiting-agree-requester", EMPLOYEE);
+        long categoryId = insertCategory("待我批准-一致性");
+        LocalDateTime now = LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC).withNano(0);
+        LocalDateTime createdAt = now.minusDays(2);
+
+        String live = insertTicket(requesterId, categoryId, "未过期",
+                PROCESSING, itId, MEDIUM, createdAt, createdAt);
+        insertPendingCancelRequest(live, now.minusDays(1), now.plusDays(1));
+
+        String expired = insertTicket(requesterId, categoryId, "已过期",
+                PROCESSING, itId, MEDIUM, createdAt, createdAt);
+        insertPendingCancelRequest(expired, now.minusDays(3), now.minusDays(1));
+
+        String waiting = insertTicket(requesterId, categoryId, "待补充",
+                WAITING_FOR_REQUESTER, itId, MEDIUM, createdAt, createdAt);
+        insertPendingCancelRequest(waiting, now.minusDays(1), now.plusDays(1));
+
+        String withoutRequest = insertTicket(requesterId, categoryId, "没有请求",
+                PROCESSING, itId, MEDIUM, createdAt, createdAt);
+
+        authenticateAs(itId);
+
+        List<String> filtered = ticketNos(page(awaitingPage(categoryId)));
+
+        for (String ticketNo : List.of(live, expired, waiting, withoutRequest)) {
+            List<String> actions = ticketQueryService.detail(ticketNo).allowedActions();
+            boolean detailOffersDecision =
+                    actions.contains("approve-cancel") && actions.contains("reject-cancel");
+            assertThat(filtered.contains(ticketNo))
+                    .as("工单 %s：详情两格=%s，列表命中=%s", ticketNo, detailOffersDecision,
+                            filtered.contains(ticketNo))
+                    .isEqualTo(detailOffersDecision);
+        }
+
+        // 交叉一致性不能靠"两侧都返回空"通过：必须至少有一条真的命中
+        assertThat(filtered).as("至少有一条真的在筛选结果里").isNotEmpty();
     }
 
     // ---------- 筛选 ----------
@@ -638,8 +747,11 @@ class TicketQueryServiceIT {
                 "待确认无请求", WAITING_FOR_CONFIRMATION, assigneeId, MEDIUM, BASE_TIME, BASE_TIME);
         String waitingRequestedNo = insertTicket(requesterId, categoryId,
                 "待确认待批准", WAITING_FOR_CONFIRMATION, assigneeId, MEDIUM, BASE_TIME, BASE_TIME);
-        LocalDateTime requestedAt = BASE_TIME.plusHours(1);
-        LocalDateTime requestDeadline = BASE_TIME.plusDays(3);
+        // 请求与期限相对**应用时钟**造数：2026-10-10 起期限进判定，写死的历史时间会让请求直接过期，
+        // 这条用例要验的是"未过期的请求换动作"，所以期限必须落在未来
+        LocalDateTime now = LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC).withNano(0);
+        LocalDateTime requestedAt = now.minusHours(1);
+        LocalDateTime requestDeadline = now.plusDays(3);
         insertPendingCancelRequest(processingNo, requestedAt, requestDeadline);
         insertPendingCancelRequest(supplementNo, requestedAt, requestDeadline);
         insertPendingCancelRequest(waitingRequestedNo, requestedAt, requestDeadline);
@@ -693,6 +805,67 @@ class TicketQueryServiceIT {
                 .isEmpty();
     }
 
+    // ---------- 时间线上的「已过期」留痕 ----------
+
+    /**
+     * 覆盖已过期请求时补写的 {@code CANCELLATION_REQUEST_EXPIRED} 必须能被时间线翻译出来。
+     *
+     * <p>这条用例守的是 {@code toRecordContext} 的穷尽 {@code switch}：漏一个 {@code case}
+     * 不是"少一个字段"，而是 {@code default} 抛异常、整条时间线 {@code 500}。它曾经真的漏过一次——
+     * 当时的用例只断言服务层写入、没有真的调一次 {@code records}，因此只在真实栈上才暴露。
+     * 首要断言是"读得出来"，其次才逐字段核对 context。</p>
+     */
+    @Test
+    void timelineTranslatesTheExpiredCancelRequestRecordInsteadOfFailing() {
+        long requesterId = insertUser("expired-record-requester", EMPLOYEE);
+        long assigneeId = insertUser("expired-record-assignee", IT_SUPPORT);
+        long categoryId = insertCategory("已过期留痕");
+        LocalDateTime now = LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC).withNano(0);
+
+        String ticketNo = insertTicket(requesterId, categoryId, "覆盖过期请求",
+                PROCESSING, assigneeId, MEDIUM, now.minusDays(5), now.minusDays(5));
+        long ticketId = ticketIdOf(ticketNo);
+
+        // 覆盖动作的产物：n+1 是「已过期」留痕（原说明、原期限各有列，原发起时间写在 content 里），
+        // n+2 是新的待决请求。按 TicketServiceImpl 的列组合直接造数，避免绕完整状态机。
+        LocalDateTime originalRequestedAt = now.minusDays(3);
+        LocalDateTime originalDeadline = now.minusDays(1);
+        LocalDateTime newDeadline = now.plusDays(3);
+        jdbc.update("""
+                INSERT INTO ticket_record (
+                    ticket_id, sequence_no, record_type, actor_type, actor_user_id,
+                    content, reason, deadline_at, from_status, to_status, created_at
+                ) VALUES (?, 1, 'CANCELLATION_REQUEST_EXPIRED', 'USER', ?, ?, ?,
+                          ?, 'PROCESSING', 'PROCESSING', ?)
+                """, ticketId, requesterId, originalRequestedAt.atOffset(ZoneOffset.UTC).toString(),
+                CANCEL_REQUEST_REASON, originalDeadline, now);
+        jdbc.update("""
+                INSERT INTO ticket_record (
+                    ticket_id, sequence_no, record_type, actor_type, actor_user_id,
+                    reason, deadline_at, from_status, to_status, created_at
+                ) VALUES (?, 2, 'CANCELLATION_REQUEST', 'USER', ?, ?, ?,
+                          'PROCESSING', 'PROCESSING', ?)
+                """, ticketId, requesterId, CANCEL_REQUEST_REASON, newDeadline, now);
+        jdbc.update("UPDATE ticket SET record_seq = 2 WHERE id = ?", ticketId);
+
+        authenticateAs(requesterId);
+
+        PageResult<TicketRecordResult> timeline = records(ticketNo, new TicketRecordQuery());
+
+        assertThat(timeline.items()).extracting(TicketRecordResult::recordType)
+                .as("已过期留痕与新请求都要出现在时间线上")
+                .containsExactly("CANCELLATION_REQUEST_EXPIRED", "CANCELLATION_REQUEST");
+
+        assertThat(timeline.items().getFirst().context())
+                .as("已过期留痕的 context 含原说明、原发起时间、原期限与不变的状态")
+                .containsOnlyKeys("reason", "content", "deadlineAt", "fromStatus", "toStatus")
+                .containsEntry("reason", CANCEL_REQUEST_REASON)
+                .containsEntry("content", originalRequestedAt.atOffset(ZoneOffset.UTC).toString())
+                .containsEntry("deadlineAt", originalDeadline.atOffset(ZoneOffset.UTC))
+                .containsEntry("fromStatus", PROCESSING)
+                .containsEntry("toStatus", PROCESSING);
+    }
+
     // ---------- 查询辅助 ----------
 
     private TicketQuery query(TicketScope scope, long categoryId) {
@@ -706,6 +879,13 @@ class TicketQueryServiceIT {
     private TicketQuery sortedPage(TicketScope scope, long categoryId, TicketListSort sort) {
         TicketQuery query = query(scope, categoryId);
         query.setSort(sort);
+        return query;
+    }
+
+    /** 「待我批准」筛选：只在 ASSIGNED_TO_ME 下有定义（其它范围由参数校验按 400 拒绝）。 */
+    private TicketQuery awaitingPage(long categoryId) {
+        TicketQuery query = query(TicketScope.ASSIGNED_TO_ME, categoryId);
+        query.setAwaitingMyApproval(true);
         return query;
     }
 

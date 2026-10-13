@@ -216,8 +216,8 @@ const runningAction = ref<TicketActionName | null>(null)
  *
  * <p><b>2026-10-10 裁决已改口径、实现待落地</b>：待确认自动完成与待补充自动关闭将与通知 / 通信
  * 通道一并落地（②），届时下面四条 hint 文案与组件 / E2E 里对应的断言都要改写。撤销块那句
- * 「这次申请也不会自动失效」属另一条（①）——文案必须与判定同批，见
- * `docs/implementation-plan.md` 9.3 待改清单。</p>
+ * 「这次申请也不会自动失效」已在 2026-10-12 随 ① 落地改掉（见 {@code cancelRequestNotice} 与
+ * 面板里的期限说明）：撤销请求到期即失效，与工单自身的期限是两条不同的规则。</p>
  */
 const deadlineFact = computed<{ label: string; hint?: string } | null>(() => {
   if (!detail.value?.actionDeadlineAt) {
@@ -272,6 +272,9 @@ const deadlineFact = computed<{ label: string; hint?: string } | null>(() => {
  * <p>第四种情况（2026-10-10 用户裁决）：工单处于「待补充」时**没有人**在裁决这份申请——
  * 待补充的当前负责人（由 `withdraw-supplement-request` 认出来）读到的是"等提交人补充、
  * 补充回来再由你决定"，而不是对着他自己说的"正在等待当前负责人处理"。</p>
+ *
+ * <p>第五种情况（2026-10-10 裁决，2026-10-12 落地）：申请**已过期**。此时那三格一个都不返回，
+ * 因此必须单独给一支——判据是服务端返回的 {@code cancelRequest.expired}，不是本地时钟。</p>
  */
 const cancelRequestNotice = computed<{ lead: string; actionHint: string } | null>(() => {
   const current = detail.value
@@ -281,6 +284,25 @@ const cancelRequestNotice = computed<{ lead: string; actionHint: string } | null
 
   const requester = current.requester.displayName
   const assignee = current.assignee?.displayName
+
+  /**
+   * 申请已过期（2026-10-10 裁决，2026-10-12 落地）：批准 / 拒绝 / 撤回三个入口都不再返回，
+   * 界面要说的只有两件事——提交人可以重新发起（覆盖已过期的那一份），负责人不需要再处理。
+   *
+   * <p>必须排在下面两条之前：过期后那三格本来就不在 {@code allowedActions} 里，但这一支要给的是
+   * 与「正在等批准」完全不同的说法——过期不是"还在等谁"，而是"这一份已经作废"。</p>
+   */
+  if (current.cancelRequest.expired) {
+    return availableActions.value.includes('request-cancel')
+      ? {
+          lead: '你申请的撤销已经过期，这张工单仍按当前状态继续流转。',
+          actionHint: '在下面的操作里重新申请撤销即可——重新申请会直接替换已经过期的这一份。',
+        }
+      : {
+          lead: `${requester}申请过撤销这张工单，但那次申请已经过期，不需要你再处理。`,
+          actionHint: '提交人如果还想撤销，他会重新申请；届时你可以同意或驳回。',
+        }
+  }
 
   if (availableActions.value.includes('approve-cancel')) {
     return {
@@ -849,10 +871,14 @@ async function runAction(name: TicketActionName): Promise<void> {
           >
             <header class="ticket-panel__header">
               <h2 id="ticket-cancel-request-heading">
-                撤销申请待处理
+                {{ detail.cancelRequest.expired ? '撤销申请已过期' : '撤销申请待处理' }}
               </h2>
               <p class="ticket-panel__count">
-                申请期间工单的状态与期限都不变
+                {{
+                  detail.cancelRequest.expired
+                    ? '期限已过：批准 / 拒绝 / 撤回三个入口都不再提供'
+                    : '申请期间工单的状态与期限都不变'
+                }}
               </p>
             </header>
             <div class="ticket-panel__body">
@@ -871,7 +897,11 @@ async function runAction(name: TicketActionName): Promise<void> {
                 <dd>
                   {{ formatDateTime(detail.cancelRequest.deadlineAt) }}
                   <span class="ticket-facts__hint">
-                    到期不会自动处理：工单不会因此自动取消，这次申请也不会自动失效。
+                    {{
+                      detail.cancelRequest.expired
+                        ? '这次申请已经过期：工单不会因此自动取消，重新申请会直接替换这一份。'
+                        : '到期不会自动处理：工单不会因此自动取消；但期限一到这次申请就失效，需要重新申请。'
+                    }}
                   </span>
                 </dd>
               </dl>
