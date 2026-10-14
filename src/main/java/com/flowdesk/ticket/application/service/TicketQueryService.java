@@ -23,4 +23,12 @@ public interface TicketQueryService {
 
     /**查询转交候选人：仍可接收该工单的启用 IT 用户，排除提交人与当前负责人。*/
     List<TicketAssigneeOptionResult> transferCandidates(String ticketNo);
+
+    /**
+     * 查询某张工单的接替候选人（管理性交接，{@code docs/api-design.md} 8.3）。
+     *
+     * <p>资格与转交候选人共用同一条 SQL：启用、持有 {@code IT_SUPPORT}、不是提交人、不是当前负责人。
+     * 走 {@code TICKET_ADMIN_HANDOFF} 而不是工单可见性：管理员不必、也不允许先看到正文。</p>
+     */
+    List<TicketAssigneeOptionResult> handoffCandidates(String ticketNo);
 }

@@ -1,0 +1,1184 @@
+{
+    "_note":  "管理性交接（docs/api-design.md 8.3）真实栈验收；本文件由 scripts/admin-handoff-acceptance.ps1 生成，无 BOM 的 UTF-8",
+    "invocation":  "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\\admin-handoff-acceptance.ps1 -BaseUrl http://127.0.0.1:8092",
+    "script":  {
+                   "path":  "scripts/admin-handoff-acceptance.ps1",
+                   "evidencePath":  "docs/acceptance/2026-10-14-admin-handoff.json",
+                   "baseUrl":  "http://127.0.0.1:8092",
+                   "startedAt":  "2026-10-14T12:11:17+08:00",
+                   "finishedAt":  "2026-10-14T12:11:40+08:00",
+                   "durationSec":  23.2,
+                   "stamp":  "20261014-121117"
+               },
+    "target":  {
+                   "health":  "UP",
+                   "dbName":  "flowdesk_handoff_acc",
+                   "dbContainer":  "flowdesk-mysql-1",
+                   "flywayNote":  "独立空库 → Flyway V1..V8 + 演示种子（local profile 含 demo 组）",
+                   "adminUserId":  3
+               },
+    "preflight":  {
+                      "baseUrl":  "http://127.0.0.1:8092",
+                      "dbName":  "flowdesk_handoff_acc",
+                      "dbContainer":  "flowdesk-mysql-1",
+                      "healthStatus":  "UP",
+                      "adminUserId":  3,
+                      "employeeRoleId":  1,
+                      "itSupportRoleId":  2,
+                      "systemAdminRoleId":  3,
+                      "reusedCategoryId":  1,
+                      "fingerprintBefore":  "0 || 0 || 0 || 3 || 3 || 3 || 14 || 14 || - || - || - || ffebe09198ad11b1081760143bcdf766 || 020335f5021e2dbf332d191e88832710",
+                      "demoRowsAreUntouchedGoal":  "运行前存在的行在清理后逐项一致"
+                  },
+    "tempPrincipals":  {
+                           "usernamePrefix":  "ah-acc-20261014-121117",
+                           "employeeUserId":  14,
+                           "itAUserId":  15,
+                           "itBUserId":  16,
+                           "itCUserId":  17,
+                           "itDUserId":  18
+                       },
+    "fixtures":  {
+                     "stopPathTicket":  {
+                                            "assigneeUserId":  15,
+                                            "ticketNo":  "FD-20261014-009",
+                                            "initialVersion":  1
+                                        },
+                     "rolePathTicket":  {
+                                            "assigneeUserId":  17,
+                                            "ticketNo":  "FD-20261014-010",
+                                            "initialVersion":  1
+                                        },
+                     "rollbackTicketA":  {
+                                             "assigneeUserId":  18,
+                                             "ticketNo":  "FD-20261014-011",
+                                             "initialVersion":  1
+                                         },
+                     "rollbackTicketB":  {
+                                             "assigneeUserId":  18,
+                                             "ticketNo":  "FD-20261014-012",
+                                             "initialVersion":  1
+                                         }
+                 },
+    "handoffFacts":  {
+                         "ticketNo":  "FD-20261014-009",
+                         "userVersionFrom":  0,
+                         "userVersionTo":  1,
+                         "ticketVersionTo":  2,
+                         "newAssigneeId":  16,
+                         "reason":  "账号离职，工单转由 IT-B 续办（20261014-121117）",
+                         "timeline":  "CREATE\u003eCLAIM\u003eADMIN_HANDOFF",
+                         "sessionRevoked":  true
+                     },
+    "roleChangeFacts":  {
+                            "ticketNo":  "FD-20261014-010",
+                            "targetUserId":  17,
+                            "newAssigneeId":  16,
+                            "roleCodesAfter":  "EMPLOYEE",
+                            "sessionRevoked":  true,
+                            "reloginQueueStatus":  403,
+                            "keepItSupportStatus":  200
+                        },
+    "rollbackFacts":  {
+                          "ticketA":  "FD-20261014-011",
+                          "ticketB":  "FD-20261014-012",
+                          "attemptStatus":  409,
+                          "attemptCode":  "ADMIN_HANDOFF_CONFLICT",
+                          "ticketARolledBack":  true,
+                          "userStillEnabled":  true,
+                          "sessionKept":  true
+                      },
+    "fingerprints":  {
+                         "before":  "0 || 0 || 0 || 3 || 3 || 3 || 14 || 14 || - || - || - || ffebe09198ad11b1081760143bcdf766 || 020335f5021e2dbf332d191e88832710",
+                         "after":  "0 || 0 || 0 || 3 || 3 || 3 || 14 || 14 || - || - || - || ffebe09198ad11b1081760143bcdf766 || 020335f5021e2dbf332d191e88832710",
+                         "identical":  true
+                     },
+    "keyActions":  [
+                       {
+                           "name":  "停用账号并完成管理性交接",
+                           "detail":  "ticketNo=FD-20261014-009 itA=15 -\u003e itB=16",
+                           "httpStatus":  200,
+                           "traceId":  "ac332140-d6ad-4d61-8686-95d8a1e1454d",
+                           "code":  "OK"
+                       },
+                       {
+                           "name":  "替换角色并完成管理性交接",
+                           "detail":  "ticketNo=FD-20261014-010 itC=17 -\u003e itB=16",
+                           "httpStatus":  200,
+                           "traceId":  "24548513-7e53-46c5-a719-37e534b1e95d",
+                           "code":  "OK"
+                       }
+                   ],
+    "assertions":  [
+                       {
+                           "name":  "p1.health",
+                           "expected":  "200 且 status=UP",
+                           "actual":  "status=200 body={\"status\":\"UP\"}",
+                           "why":  "后端没起来/连不上时，后面所有断言都会退化成假失败",
+                           "httpStatus":  200,
+                           "traceId":  "52e118e3-5af5-4405-894f-c3f50d59ff3f",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "p2.login.admin",
+                           "expected":  "200 且返回 accessToken",
+                           "actual":  "token=OK",
+                           "why":  "管理性交接的四个端点都需要管理员身份，登录失败后面无法继续",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "p3.login.employee",
+                           "expected":  "200 且返回 accessToken",
+                           "actual":  "token=OK",
+                           "why":  "h1 要证明\"没有 TICKET_ADMIN_HANDOFF 的账号拿不到交接端点\"，需要这个身份",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "p4.db.reachable",
+                           "expected":  "能连上库并返回一行",
+                           "actual":  "dbAvailable=True",
+                           "why":  "库层断言（负责人、版本、记录、参与关系、会话撤销后的状态）是本脚本的主要证据",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "p5.create.employee",
+                           "expected":  "201 且 ENABLED / version=0",
+                           "actual":  "id=14 status=ENABLED version=0",
+                           "why":  "交接的目标用户与新负责人都要是启用状态，版本从 0 开始才能用乐观锁",
+                           "httpStatus":  201,
+                           "traceId":  "93805fd8-cce0-4f9d-ae2c-a2f49abcdd7c",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "p6.create.itA",
+                           "expected":  "201 且 ENABLED / version=0",
+                           "actual":  "id=15 status=ENABLED version=0",
+                           "why":  "交接的目标用户与新负责人都要是启用状态，版本从 0 开始才能用乐观锁",
+                           "httpStatus":  201,
+                           "traceId":  "1f6dd8e8-a2e6-42cc-98fb-dfd1a4ea9194",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "p7.create.itB",
+                           "expected":  "201 且 ENABLED / version=0",
+                           "actual":  "id=16 status=ENABLED version=0",
+                           "why":  "交接的目标用户与新负责人都要是启用状态，版本从 0 开始才能用乐观锁",
+                           "httpStatus":  201,
+                           "traceId":  "a54e3d84-de5f-4584-ac89-8b3503974b98",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "p8.create.itC",
+                           "expected":  "201 且 ENABLED / version=0",
+                           "actual":  "id=17 status=ENABLED version=0",
+                           "why":  "交接的目标用户与新负责人都要是启用状态，版本从 0 开始才能用乐观锁",
+                           "httpStatus":  201,
+                           "traceId":  "b2f6aa32-fbf7-4563-87cf-f68cc7445515",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "p9.create.itD",
+                           "expected":  "201 且 ENABLED / version=0",
+                           "actual":  "id=18 status=ENABLED version=0",
+                           "why":  "交接的目标用户与新负责人都要是启用状态，版本从 0 开始才能用乐观锁",
+                           "httpStatus":  201,
+                           "traceId":  "e603766c-abc2-4d11-a8d1-eaa7cc270556",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "p15.tempLogins",
+                           "expected":  "五个临时身份都能登录",
+                           "actual":  "emp=OK itA=OK itB=OK itC=OK itD=OK",
+                           "why":  "临时身份用于\"原负责人/接替人\"的真实 HTTP 侧观察",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "f1.claim",
+                           "expected":  "200 且 PROCESSING / version=1",
+                           "actual":  "ticketNo=FD-20261014-009 status=PROCESSING version=1",
+                           "why":  "领取后这张工单成为该 IT 用户的\"活动工单\"",
+                           "httpStatus":  200,
+                           "traceId":  "9f98416b-8aa8-4a4d-9c8f-cf195395152d",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "f2.claim",
+                           "expected":  "200 且 PROCESSING / version=1",
+                           "actual":  "ticketNo=FD-20261014-010 status=PROCESSING version=1",
+                           "why":  "领取后这张工单成为该 IT 用户的\"活动工单\"",
+                           "httpStatus":  200,
+                           "traceId":  "d5d461a8-d93e-4d28-b1a6-59e90aa1f4a9",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "f3.claim",
+                           "expected":  "200 且 PROCESSING / version=1",
+                           "actual":  "ticketNo=FD-20261014-011 status=PROCESSING version=1",
+                           "why":  "领取后这张工单成为该 IT 用户的\"活动工单\"",
+                           "httpStatus":  200,
+                           "traceId":  "93e62f91-0ce6-4932-b406-47efc9da14c9",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "f4.claim",
+                           "expected":  "200 且 PROCESSING / version=1",
+                           "actual":  "ticketNo=FD-20261014-012 status=PROCESSING version=1",
+                           "why":  "领取后这张工单成为该 IT 用户的\"活动工单\"",
+                           "httpStatus":  200,
+                           "traceId":  "cfba0c73-ee3a-4f45-82b0-24bee6a73b02",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h1.assignments.minimalFields",
+                           "expected":  "200，恰好 1 张，且不含 title/description/records/attachments",
+                           "actual":  "status=200 count=1 fields=ticketNo,status,assigneeId,assigneeDisplayName,version",
+                           "why":  "管理员只应看到交接所需的最小元数据，正文与记录必须留在工单权限之后",
+                           "httpStatus":  200,
+                           "traceId":  "8f009fd8-7b9e-4573-81cc-6b19336b3717",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h1.assignments.values",
+                           "expected":  "ticketNo=FD-20261014-009 status=PROCESSING assigneeId=15 version=1",
+                           "actual":  "ticketNo=FD-20261014-009 status=PROCESSING assigneeId=15 version=1",
+                           "why":  "客户端就是拿这份编号+版本去组 handoffs 的，错了后面必然 409",
+                           "httpStatus":  200,
+                           "traceId":  "8f009fd8-7b9e-4573-81cc-6b19336b3717",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h1.adminCannotReadTicketBody",
+                           "expected":  "404 / TICKET_NOT_FOUND",
+                           "actual":  "status=404 code=TICKET_NOT_FOUND",
+                           "why":  "交接权限不等于工单查看权：管理员拿不到标题/描述/记录/附件",
+                           "httpStatus":  404,
+                           "traceId":  "eb791278-8eb2-4e55-b560-5a0b47bbee82",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h1.employeeForbiddenOnAssignments",
+                           "expected":  "403 / ACCESS_DENIED",
+                           "actual":  "status=403 code=ACCESS_DENIED",
+                           "why":  "端点按 TICKET_ADMIN_HANDOFF 把关，普通工单权限不能替代",
+                           "httpStatus":  403,
+                           "traceId":  "4d5de3db-637d-485c-9ff6-c07f5de0c67b",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h1.candidates.excludeRequesterAndAssignee",
+                           "expected":  "含 IT-B(16)；不含原负责人 IT-A(15) 与提交人(14)",
+                           "actual":  "candidateIds=2,16,17,18",
+                           "why":  "候选人必须排除提交人与原负责人，否则交接会造出\"自己处理自己的单\"",
+                           "httpStatus":  200,
+                           "traceId":  "b970770f-9acc-4f6b-9cd4-214a94bffaee",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h1.employeeForbiddenOnCandidates",
+                           "expected":  "403 / ACCESS_DENIED",
+                           "actual":  "status=403 code=ACCESS_DENIED",
+                           "why":  "两个读取端点共用同一条权限口径",
+                           "httpStatus":  403,
+                           "traceId":  "f4d0d21c-1c60-40d2-b4c2-7c6015739925",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h2.missingPlanIsRequired",
+                           "expected":  "409 / ADMIN_HANDOFF_REQUIRED",
+                           "actual":  "status=409 code=ADMIN_HANDOFF_REQUIRED",
+                           "why":  "账号停用后他不能再处理工单；没有方案就停用会把工单悬在那儿",
+                           "httpStatus":  409,
+                           "traceId":  "748d562c-2e33-4e68-a7e4-1787cf348767",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h2.rejectedRequestChangesNothingUser",
+                           "expected":  "ENABLED / version=0",
+                           "actual":  "ENABLED / version=0",
+                           "why":  "被拒的请求不能留下\"半停用\"状态",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h2.rejectedRequestChangesNothingTicket",
+                           "expected":  "工单签名（状态/负责人/版本/记录序号/记录数/参与关系数）完全不变",
+                           "actual":  "PROCESSING|15|1|2|2|1",
+                           "why":  "校验失败必须发生在任何写入之前，工单一行都不许动",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h3.staleTicketVersionIsConflict",
+                           "expected":  "409 / ADMIN_HANDOFF_CONFLICT",
+                           "actual":  "status=409 code=ADMIN_HANDOFF_CONFLICT",
+                           "why":  "方案里的工单版本是乐观锁：客户端读到之后工单被推进过就必须重新组织方案",
+                           "httpStatus":  409,
+                           "traceId":  "616355ff-203e-45a2-89bd-a9deda99dddf",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h3.conflictCarriesTicketSnapshot",
+                           "expected":  "data.version=1 data.status=PROCESSING",
+                           "actual":  "data.version=1 data.status=PROCESSING",
+                           "why":  "冲突响应要带当前快照，前端才能刷新后重试",
+                           "httpStatus":  409,
+                           "traceId":  "616355ff-203e-45a2-89bd-a9deda99dddf",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h3.staleRejectedChangesNothing",
+                           "expected":  "工单签名不变且账号仍 ENABLED",
+                           "actual":  "PROCESSING|15|1|2|2|1 / ENABLED",
+                           "why":  "版本不符要在写库前被挡下",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h4.disableSucceeds",
+                           "expected":  "200 且 DISABLED / version=1",
+                           "actual":  "status=200 userStatus=DISABLED version=1",
+                           "why":  "停用与交接必须一起成功",
+                           "httpStatus":  200,
+                           "traceId":  "ac332140-d6ad-4d61-8686-95d8a1e1454d",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h4.db.userDisabled",
+                           "expected":  "DISABLED / version=1",
+                           "actual":  "row=[DISABLED\t1]",
+                           "why":  "库里的账号状态才是最终事实",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h4.db.ticketReassigned",
+                           "expected":  "PROCESSING / assignee=16 / version=2 / record_seq=3（领取时已写下 CREATE+CLAIM 两条）",
+                           "actual":  "row=[PROCESSING\t16\t2\t3]",
+                           "why":  "交接只换负责人：状态不变，版本与记录序号各推进一次",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h4.db.handoffRecord",
+                           "expected":  "ADMIN_HANDOFF / USER / actor=3 / from=15 / to=16 / PROCESSING\u003ePROCESSING / reason=handoffReason / sequence_no=3",
+                           "actual":  "row=[ADMIN_HANDOFF\tUSER\t3\t15\t16\tPROCESSING\tPROCESSING\t账号离职，工单转由 IT-B 续办（20261014-121117）\t3]",
+                           "why":  "没有专门的交接记录表：交接记录就是 ticket_record 里一条 ADMIN_HANDOFF，reason 承载 handoffReason",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h4.db.participantAdded",
+                           "expected":  "接替人 1 条参与关系；原负责人历史参与关系保留 1 条",
+                           "actual":  "row=[1\t1]",
+                           "why":  "接替人要能立刻看到这张工单；原负责人的历史参与关系不能删",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h4.sessionRevokedBeforeResponse",
+                           "expected":  "401 / AUTH_SESSION_INVALID",
+                           "actual":  "status=401 code=AUTH_SESSION_INVALID",
+                           "why":  "MySQL 与 Redis 没有天然原子事务：这条断言证明\"账号已变更却返回会话撤销成功\"没有发生",
+                           "httpStatus":  401,
+                           "traceId":  "508cf793-a564-4854-93d0-6eddc363c92e",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h4.noActiveAssignmentLeft",
+                           "expected":  "200 且数组为空",
+                           "actual":  "status=200 count=0",
+                           "why":  "停用后不能留下无效负责人：这份清单是\"还能不能停用\"的判据",
+                           "httpStatus":  200,
+                           "traceId":  "67d81195-ca78-43a7-83b3-a82c7f7a3674",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h4.newAssigneeSeesTicket",
+                           "expected":  "200 且列表含 FD-20261014-009",
+                           "actual":  "status=200 items=1 contains=True",
+                           "why":  "负责人替换 + 参与关系都生效，接替人才接得住这张工单",
+                           "httpStatus":  200,
+                           "traceId":  "3aff0840-941e-4f06-b85a-08b1fe234034",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h4.timelineShowsAdminHandoff",
+                           "expected":  "最后一条记录 ADMIN_HANDOFF，context 含 from=15 / to=16 / reason=交接原因；实际序列=",
+                           "actual":  "status=200 types=CREATE\u003eCLAIM\u003eADMIN_HANDOFF lastReason=账号离职，工单转由 IT-B 续办（20261014-121117） from=15 to=16",
+                           "why":  "交接要在不可变时间线上留痕，且对新的负责人可见",
+                           "httpStatus":  200,
+                           "traceId":  "2237134d-777a-4d85-94e8-9cb9f31edd7e",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h5.roleRemovalWithoutPlanIsRequired",
+                           "expected":  "409 / ADMIN_HANDOFF_REQUIRED",
+                           "actual":  "status=409 code=ADMIN_HANDOFF_REQUIRED",
+                           "why":  "摘掉 IT_SUPPORT 之后他不能再处理工单，触发条件与停用一致",
+                           "httpStatus":  409,
+                           "traceId":  "1783e2b8-b01c-4f4e-ba78-be1dab2a6ea3",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h5.rejectedRoleChangeChangesNothing",
+                           "expected":  "IT_SUPPORT 关系仍在（1）、账号 ENABLED、工单负责人仍是 IT-C",
+                           "actual":  "row=[1\tENABLED\t17]",
+                           "why":  "被拒的角色替换不能留下\"角色已摘、工单却没人\"的中间态",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h5.roleRemovalSucceeds",
+                           "expected":  "200，账号仍 ENABLED，角色集合不含 IT_SUPPORT；实际=[EMPLOYEE]",
+                           "actual":  "status=200 userStatus=ENABLED roles=EMPLOYEE",
+                           "why":  "角色替换是\"摘掉处理能力\"，不是停用账号",
+                           "httpStatus":  200,
+                           "traceId":  "24548513-7e53-46c5-a719-37e534b1e95d",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h5.db.itSupportRemovedAndTicketReassigned",
+                           "expected":  "IT_SUPPORT 关系 0 条、EMPLOYEE 关系 1 条、工单负责人=16、ADMIN_HANDOFF 记录 1 条",
+                           "actual":  "row=[0\t1\t16\t1]",
+                           "why":  "角色表、工单表、记录表三处必须在同一事务里一起变",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h5.roleChangeRevokesSession",
+                           "expected":  "401 / AUTH_SESSION_INVALID",
+                           "actual":  "status=401 code=AUTH_SESSION_INVALID",
+                           "why":  "摘掉 IT_SUPPORT 后旧 token 不能再带着旧权限继续用",
+                           "httpStatus":  401,
+                           "traceId":  "f7158d9b-69f6-4715-98f2-cd4afad39079",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h5.roleRemovalActuallyRemovesPermission",
+                           "expected":  "403（权限真的没了，不只是会话失效）",
+                           "actual":  "revokedTokenStatus=401；reloginStatus=403 code=ACCESS_DENIED",
+                           "why":  "摘掉 IT_SUPPORT 的效果必须是\"他再也进不了 IT 列表\"，而不只是\"旧 token 过期\"",
+                           "httpStatus":  403,
+                           "traceId":  "001a665b-3982-40af-a671-4dbd2e9ba76f",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h5.keepingItSupportNeedsNoPlan",
+                           "expected":  "200（幂等：集合未变，既不要求方案也不撤会话）",
+                           "actual":  "status=200 code=OK",
+                           "why":  "触发条件是\"摘掉 IT_SUPPORT\"，不是\"手上有工单\"；否则只是改个显示名都要组织交接",
+                           "httpStatus":  200,
+                           "traceId":  "6043938f-20f1-458a-8809-9a4d0ae0020e",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h5.unchangedRoleSetKeepsSession",
+                           "expected":  "200（会话保留）",
+                           "actual":  "status=200",
+                           "why":  "幂等请求不该有副作用：不撤会话、不改版本",
+                           "httpStatus":  200,
+                           "traceId":  "4712dbf8-96bb-467b-83ca-9e73933f7bac",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h6.oneStaleTicketFailsWholeRequest",
+                           "expected":  "409 / ADMIN_HANDOFF_CONFLICT",
+                           "actual":  "status=409 code=ADMIN_HANDOFF_CONFLICT",
+                           "why":  "任一张工单的版本变化都必须让整次停用失败",
+                           "httpStatus":  409,
+                           "traceId":  "932f6362-eb22-4d6f-9ae5-bd27754c5cfb",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h6.firstTicketRolledBack",
+                           "expected":  "第一张（按 id 序先被处理的那张）签名与请求前完全一致",
+                           "actual":  "PROCESSING|18|1|2|2|1",
+                           "why":  "这就是\"账号或角色变更、全部负责人替换、参与关系、交接记录必须共同成功或共同失败\"的直接证据",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h6.secondTicketUntouched",
+                           "expected":  "第二张签名不变",
+                           "actual":  "PROCESSING|18|1|2|2|1",
+                           "why":  "失败请求不能在工单上留痕",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h6.userStillEnabled",
+                           "expected":  "ENABLED / version=0",
+                           "actual":  "ENABLED / version=0",
+                           "why":  "交接失败时账号状态不能被单独改掉",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h6.db.noHandoffRecords",
+                           "expected":  "0 条交接记录",
+                           "actual":  "row=[0]",
+                           "why":  "记录与换人同事务：回滚之后一条都不能剩",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h6.failedHandoffDoesNotRevokeSession",
+                           "expected":  "200（会话仍有效）",
+                           "actual":  "status=200",
+                           "why":  "会话撤销在写库之后、提交之前；写库失败就没有撤销这一步",
+                           "httpStatus":  200,
+                           "traceId":  "9981a849-4bd4-4789-85b9-2426617d6d1f",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "cleanup.tempRowsRemoved",
+                           "expected":  "临时用户 0 行；临时工单 0 行",
+                           "actual":  "row=[0\t0\t0]",
+                           "why":  "清理干净才谈得上\"没碰运行前的数据\"",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "cleanup.fingerprintUnchanged",
+                           "expected":  "运行前与清理后的指纹完全相同（八项计数 + 五条聚合指纹）",
+                           "actual":  "before=0 || 0 || 0 || 3 || 3 || 3 || 14 || 14 || - || - || - || ffebe09198ad11b1081760143bcdf766 || 020335f5021e2dbf332d191e88832710\n         after =0 || 0 || 0 || 3 || 3 || 3 || 14 || 14 || - || - || - || ffebe09198ad11b1081760143bcdf766 || 020335f5021e2dbf332d191e88832710",
+                           "why":  "脚本只应动自己创建的行；指纹相同即证明既有数据一行未改",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       }
+                   ],
+    "dbChecks":  [
+                     {
+                         "name":  "h4.db.userDisabled",
+                         "sql":  "SELECT status, version FROM iam_user WHERE id = 15;",
+                         "raw":  "DISABLED\t1",
+                         "expected":  "DISABLED / version=1",
+                         "passed":  true
+                     },
+                     {
+                         "name":  "h4.db.ticketReassigned",
+                         "sql":  "SELECT status, assignee_id, version, record_seq FROM ticket WHERE ticket_no = \u0027FD-20261014-009\u0027;",
+                         "raw":  "PROCESSING\t16\t2\t3",
+                         "expected":  "PROCESSING / assignee=16 / version=2 / record_seq=3（领取时已写下 CREATE+CLAIM 两条）",
+                         "passed":  true
+                     },
+                     {
+                         "name":  "h4.db.handoffRecord",
+                         "sql":  "SELECT record_type, actor_type, actor_user_id, from_assignee_id, to_assignee_id, from_status, to_status, reason, sequence_no FROM ticket_record WHERE ticket_id = (SELECT id FROM ticket WHERE ticket_no = \u0027FD-20261014-009\u0027) ORDER BY sequence_no DESC LIMIT 1;",
+                         "raw":  "ADMIN_HANDOFF\tUSER\t3\t15\t16\tPROCESSING\tPROCESSING\t账号离职，工单转由 IT-B 续办（20261014-121117）\t3",
+                         "expected":  "ADMIN_HANDOFF / USER / actor=3 / from=15 / to=16 / PROCESSING\u003ePROCESSING / reason=handoffReason / sequence_no=3",
+                         "passed":  true
+                     },
+                     {
+                         "name":  "h4.db.participantAdded",
+                         "sql":  "SELECT (SELECT COUNT(*) FROM ticket_participant WHERE ticket_id = (SELECT id FROM ticket WHERE ticket_no = \u0027FD-20261014-009\u0027) AND user_id = 16), (SELECT COUNT(*) FROM ticket_participant WHERE ticket_id = (SELECT id FROM ticket WHERE ticket_no = \u0027FD-20261014-009\u0027) AND user_id = 15);",
+                         "raw":  "1\t1",
+                         "expected":  "接替人 1 条参与关系；原负责人历史参与关系保留 1 条",
+                         "passed":  true
+                     },
+                     {
+                         "name":  "h5.rejectedRoleChangeChangesNothing",
+                         "sql":  "SELECT (SELECT COUNT(*) FROM iam_user_role WHERE user_id = 17 AND role_id = 2), (SELECT status FROM iam_user WHERE id = 17), (SELECT assignee_id FROM ticket WHERE ticket_no = \u0027FD-20261014-010\u0027);",
+                         "raw":  "1\tENABLED\t17",
+                         "expected":  "IT_SUPPORT 关系仍在（1）、账号 ENABLED、工单负责人仍是 IT-C",
+                         "passed":  true
+                     },
+                     {
+                         "name":  "h5.db.itSupportRemovedAndTicketReassigned",
+                         "sql":  "SELECT (SELECT COUNT(*) FROM iam_user_role WHERE user_id = 17 AND role_id = 2), (SELECT COUNT(*) FROM iam_user_role WHERE user_id = 17 AND role_id = 1), (SELECT assignee_id FROM ticket WHERE ticket_no = \u0027FD-20261014-010\u0027), (SELECT COUNT(*) FROM ticket_record WHERE ticket_id = (SELECT id FROM ticket WHERE ticket_no = \u0027FD-20261014-010\u0027) AND record_type = \u0027ADMIN_HANDOFF\u0027);",
+                         "raw":  "0\t1\t16\t1",
+                         "expected":  "IT_SUPPORT 关系 0 条、EMPLOYEE 关系 1 条、工单负责人=16、ADMIN_HANDOFF 记录 1 条",
+                         "passed":  true
+                     },
+                     {
+                         "name":  "h6.db.noHandoffRecords",
+                         "sql":  "SELECT COUNT(*) FROM ticket_record WHERE record_type = \u0027ADMIN_HANDOFF\u0027 AND ticket_id IN (SELECT id FROM ticket WHERE ticket_no IN (\u0027FD-20261014-011\u0027, \u0027FD-20261014-012\u0027));",
+                         "raw":  "0",
+                         "expected":  "0 条交接记录",
+                         "passed":  true
+                     },
+                     {
+                         "name":  "cleanup.tempRowsRemoved",
+                         "sql":  "SELECT (SELECT COUNT(*) FROM iam_user WHERE username LIKE \u0027ah-acc-20261014-121117%\u0027), (SELECT COUNT(*) FROM ticket WHERE requester_id = 14), (SELECT COUNT(*) FROM ticket_record WHERE record_type = \u0027ADMIN_HANDOFF\u0027 AND actor_user_id = 3 AND ticket_id NOT IN (SELECT id FROM ticket));",
+                         "raw":  "0\t0\t0",
+                         "expected":  "临时用户 0 行；临时工单 0 行",
+                         "passed":  true
+                     }
+                 ],
+    "httpLog":  [
+                    {
+                        "step":  "p1.health",
+                        "actor":  "-",
+                        "note":  "前置：后端健康检查",
+                        "method":  "GET",
+                        "path":  "/actuator/health",
+                        "status":  200,
+                        "traceId":  "52e118e3-5af5-4405-894f-c3f50d59ff3f",
+                        "requestTraceId":  "52e118e3-5af5-4405-894f-c3f50d59ff3f",
+                        "detail":  "actor=-；前置：后端健康检查"
+                    },
+                    {
+                        "step":  "p2.login.admin",
+                        "actor":  "admin",
+                        "note":  "前置：管理员（SYSTEM_ADMIN，含 TICKET_ADMIN_HANDOFF + USER_MANAGE）登录",
+                        "method":  "POST",
+                        "path":  "/fd/v1/auth/login",
+                        "status":  200,
+                        "traceId":  "766bf998-d224-46d6-a55c-758980adcb71",
+                        "requestTraceId":  "766bf998-d224-46d6-a55c-758980adcb71",
+                        "detail":  "actor=admin；前置：管理员（SYSTEM_ADMIN，含 TICKET_ADMIN_HANDOFF + USER_MANAGE）登录"
+                    },
+                    {
+                        "step":  "p3.login.employee",
+                        "actor":  "employee",
+                        "note":  "前置：演示员工登录（只有 EMPLOYEE 角色，用于权限边界对照）",
+                        "method":  "POST",
+                        "path":  "/fd/v1/auth/login",
+                        "status":  200,
+                        "traceId":  "09a10a69-86a5-4219-a192-46d4a77f329d",
+                        "requestTraceId":  "09a10a69-86a5-4219-a192-46d4a77f329d",
+                        "detail":  "actor=employee；前置：演示员工登录（只有 EMPLOYEE 角色，用于权限边界对照）"
+                    },
+                    {
+                        "step":  "p5.create.employee",
+                        "actor":  "admin",
+                        "note":  "创建临时用户 ah-acc-20261014-121117-emp",
+                        "method":  "POST",
+                        "path":  "/fd/v1/users",
+                        "status":  201,
+                        "traceId":  "93805fd8-cce0-4f9d-ae2c-a2f49abcdd7c",
+                        "requestTraceId":  "93805fd8-cce0-4f9d-ae2c-a2f49abcdd7c",
+                        "detail":  "actor=admin；创建临时用户 ah-acc-20261014-121117-emp"
+                    },
+                    {
+                        "step":  "p6.create.itA",
+                        "actor":  "admin",
+                        "note":  "创建临时用户 ah-acc-20261014-121117-ita",
+                        "method":  "POST",
+                        "path":  "/fd/v1/users",
+                        "status":  201,
+                        "traceId":  "1f6dd8e8-a2e6-42cc-98fb-dfd1a4ea9194",
+                        "requestTraceId":  "1f6dd8e8-a2e6-42cc-98fb-dfd1a4ea9194",
+                        "detail":  "actor=admin；创建临时用户 ah-acc-20261014-121117-ita"
+                    },
+                    {
+                        "step":  "p7.create.itB",
+                        "actor":  "admin",
+                        "note":  "创建临时用户 ah-acc-20261014-121117-itb",
+                        "method":  "POST",
+                        "path":  "/fd/v1/users",
+                        "status":  201,
+                        "traceId":  "a54e3d84-de5f-4584-ac89-8b3503974b98",
+                        "requestTraceId":  "a54e3d84-de5f-4584-ac89-8b3503974b98",
+                        "detail":  "actor=admin；创建临时用户 ah-acc-20261014-121117-itb"
+                    },
+                    {
+                        "step":  "p8.create.itC",
+                        "actor":  "admin",
+                        "note":  "创建临时用户 ah-acc-20261014-121117-itc",
+                        "method":  "POST",
+                        "path":  "/fd/v1/users",
+                        "status":  201,
+                        "traceId":  "b2f6aa32-fbf7-4563-87cf-f68cc7445515",
+                        "requestTraceId":  "b2f6aa32-fbf7-4563-87cf-f68cc7445515",
+                        "detail":  "actor=admin；创建临时用户 ah-acc-20261014-121117-itc"
+                    },
+                    {
+                        "step":  "p9.create.itD",
+                        "actor":  "admin",
+                        "note":  "创建临时用户 ah-acc-20261014-121117-itd",
+                        "method":  "POST",
+                        "path":  "/fd/v1/users",
+                        "status":  201,
+                        "traceId":  "e603766c-abc2-4d11-a8d1-eaa7cc270556",
+                        "requestTraceId":  "e603766c-abc2-4d11-a8d1-eaa7cc270556",
+                        "detail":  "actor=admin；创建临时用户 ah-acc-20261014-121117-itd"
+                    },
+                    {
+                        "step":  "p10.login.emp",
+                        "actor":  "ah-acc-20261014-121117-emp",
+                        "note":  "前置：临时员工登录（提交工单的人）",
+                        "method":  "POST",
+                        "path":  "/fd/v1/auth/login",
+                        "status":  200,
+                        "traceId":  "8cc75c40-821d-4608-b7eb-3d86bc3c4e73",
+                        "requestTraceId":  "8cc75c40-821d-4608-b7eb-3d86bc3c4e73",
+                        "detail":  "actor=ah-acc-20261014-121117-emp；前置：临时员工登录（提交工单的人）"
+                    },
+                    {
+                        "step":  "p11.login.itA",
+                        "actor":  "ah-acc-20261014-121117-ita",
+                        "note":  "前置：IT-A 登录（交接的原负责人）",
+                        "method":  "POST",
+                        "path":  "/fd/v1/auth/login",
+                        "status":  200,
+                        "traceId":  "b28bb29d-b401-442f-9ace-a1a65b468ab2",
+                        "requestTraceId":  "b28bb29d-b401-442f-9ace-a1a65b468ab2",
+                        "detail":  "actor=ah-acc-20261014-121117-ita；前置：IT-A 登录（交接的原负责人）"
+                    },
+                    {
+                        "step":  "p12.login.itB",
+                        "actor":  "ah-acc-20261014-121117-itb",
+                        "note":  "前置：IT-B 登录（接替人）",
+                        "method":  "POST",
+                        "path":  "/fd/v1/auth/login",
+                        "status":  200,
+                        "traceId":  "c15f322d-9f86-48ab-bf5a-b69be6dd658e",
+                        "requestTraceId":  "c15f322d-9f86-48ab-bf5a-b69be6dd658e",
+                        "detail":  "actor=ah-acc-20261014-121117-itb；前置：IT-B 登录（接替人）"
+                    },
+                    {
+                        "step":  "p13.login.itC",
+                        "actor":  "ah-acc-20261014-121117-itc",
+                        "note":  "前置：IT-C 登录（角色替换路径的目标用户）",
+                        "method":  "POST",
+                        "path":  "/fd/v1/auth/login",
+                        "status":  200,
+                        "traceId":  "c39f4cde-d6b5-4fe2-82dd-30db9f24d864",
+                        "requestTraceId":  "c39f4cde-d6b5-4fe2-82dd-30db9f24d864",
+                        "detail":  "actor=ah-acc-20261014-121117-itc；前置：IT-C 登录（角色替换路径的目标用户）"
+                    },
+                    {
+                        "step":  "p14.login.itD",
+                        "actor":  "ah-acc-20261014-121117-itd",
+                        "note":  "前置：IT-D 登录（回滚路径的目标用户）",
+                        "method":  "POST",
+                        "path":  "/fd/v1/auth/login",
+                        "status":  200,
+                        "traceId":  "8bc5842a-ff85-4d1f-8c8f-e6e6453392c9",
+                        "requestTraceId":  "8bc5842a-ff85-4d1f-8c8f-e6e6453392c9",
+                        "detail":  "actor=ah-acc-20261014-121117-itd；前置：IT-D 登录（回滚路径的目标用户）"
+                    },
+                    {
+                        "step":  "f1.create",
+                        "actor":  "ah-acc-20261014-121117-emp",
+                        "note":  "临时员工提交工单：交接验收：停用账号路径",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets",
+                        "status":  201,
+                        "traceId":  "719cba6a-7371-4545-ae73-ba613ce0bfcd",
+                        "requestTraceId":  "719cba6a-7371-4545-ae73-ba613ce0bfcd",
+                        "detail":  "actor=ah-acc-20261014-121117-emp；临时员工提交工单：交接验收：停用账号路径；contentType=multipart/form-data"
+                    },
+                    {
+                        "step":  "f1.claim",
+                        "actor":  "IT-A",
+                        "note":  "由 IT-A 领取工单",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets/FD-20261014-009/actions/claim",
+                        "status":  200,
+                        "traceId":  "9f98416b-8aa8-4a4d-9c8f-cf195395152d",
+                        "requestTraceId":  "9f98416b-8aa8-4a4d-9c8f-cf195395152d",
+                        "detail":  "actor=IT-A；由 IT-A 领取工单"
+                    },
+                    {
+                        "step":  "f2.create",
+                        "actor":  "ah-acc-20261014-121117-emp",
+                        "note":  "临时员工提交工单：交接验收：角色替换路径",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets",
+                        "status":  201,
+                        "traceId":  "5b417b8c-e64e-4de8-a804-bb5792e46205",
+                        "requestTraceId":  "5b417b8c-e64e-4de8-a804-bb5792e46205",
+                        "detail":  "actor=ah-acc-20261014-121117-emp；临时员工提交工单：交接验收：角色替换路径；contentType=multipart/form-data"
+                    },
+                    {
+                        "step":  "f2.claim",
+                        "actor":  "IT-C",
+                        "note":  "由 IT-C 领取工单",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets/FD-20261014-010/actions/claim",
+                        "status":  200,
+                        "traceId":  "d5d461a8-d93e-4d28-b1a6-59e90aa1f4a9",
+                        "requestTraceId":  "d5d461a8-d93e-4d28-b1a6-59e90aa1f4a9",
+                        "detail":  "actor=IT-C；由 IT-C 领取工单"
+                    },
+                    {
+                        "step":  "f3.create",
+                        "actor":  "ah-acc-20261014-121117-emp",
+                        "note":  "临时员工提交工单：交接验收：回滚路径（一）",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets",
+                        "status":  201,
+                        "traceId":  "73ebaff1-044f-4263-9ca2-c5d99cd3add9",
+                        "requestTraceId":  "73ebaff1-044f-4263-9ca2-c5d99cd3add9",
+                        "detail":  "actor=ah-acc-20261014-121117-emp；临时员工提交工单：交接验收：回滚路径（一）；contentType=multipart/form-data"
+                    },
+                    {
+                        "step":  "f3.claim",
+                        "actor":  "IT-D",
+                        "note":  "由 IT-D 领取工单",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets/FD-20261014-011/actions/claim",
+                        "status":  200,
+                        "traceId":  "93e62f91-0ce6-4932-b406-47efc9da14c9",
+                        "requestTraceId":  "93e62f91-0ce6-4932-b406-47efc9da14c9",
+                        "detail":  "actor=IT-D；由 IT-D 领取工单"
+                    },
+                    {
+                        "step":  "f4.create",
+                        "actor":  "ah-acc-20261014-121117-emp",
+                        "note":  "临时员工提交工单：交接验收：回滚路径（二）",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets",
+                        "status":  201,
+                        "traceId":  "5d976da6-8340-4eff-adbd-e6e5630ea1d6",
+                        "requestTraceId":  "5d976da6-8340-4eff-adbd-e6e5630ea1d6",
+                        "detail":  "actor=ah-acc-20261014-121117-emp；临时员工提交工单：交接验收：回滚路径（二）；contentType=multipart/form-data"
+                    },
+                    {
+                        "step":  "f4.claim",
+                        "actor":  "IT-D",
+                        "note":  "由 IT-D 领取工单",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets/FD-20261014-012/actions/claim",
+                        "status":  200,
+                        "traceId":  "cfba0c73-ee3a-4f45-82b0-24bee6a73b02",
+                        "requestTraceId":  "cfba0c73-ee3a-4f45-82b0-24bee6a73b02",
+                        "detail":  "actor=IT-D；由 IT-D 领取工单"
+                    },
+                    {
+                        "step":  "h1.assignments",
+                        "actor":  "admin",
+                        "note":  "管理员读取待交接工单（最小元数据）",
+                        "method":  "GET",
+                        "path":  "/fd/v1/admin/users/15/active-ticket-assignments",
+                        "status":  200,
+                        "traceId":  "8f009fd8-7b9e-4573-81cc-6b19336b3717",
+                        "requestTraceId":  "8f009fd8-7b9e-4573-81cc-6b19336b3717",
+                        "detail":  "actor=admin；管理员读取待交接工单（最小元数据）"
+                    },
+                    {
+                        "step":  "h1.adminDetail",
+                        "actor":  "admin",
+                        "note":  "同一个管理员读工单详情（应被最小可见性挡住）",
+                        "method":  "GET",
+                        "path":  "/fd/v1/tickets/FD-20261014-009",
+                        "status":  404,
+                        "traceId":  "eb791278-8eb2-4e55-b560-5a0b47bbee82",
+                        "requestTraceId":  "eb791278-8eb2-4e55-b560-5a0b47bbee82",
+                        "detail":  "actor=admin；同一个管理员读工单详情（应被最小可见性挡住）"
+                    },
+                    {
+                        "step":  "h1.employeeAssignments",
+                        "actor":  "employee",
+                        "note":  "演示员工访问交接查询端点（应 403）",
+                        "method":  "GET",
+                        "path":  "/fd/v1/admin/users/15/active-ticket-assignments",
+                        "status":  403,
+                        "traceId":  "4d5de3db-637d-485c-9ff6-c07f5de0c67b",
+                        "requestTraceId":  "4d5de3db-637d-485c-9ff6-c07f5de0c67b",
+                        "detail":  "actor=employee；演示员工访问交接查询端点（应 403）"
+                    },
+                    {
+                        "step":  "h1.candidates",
+                        "actor":  "admin",
+                        "note":  "管理员读取接替候选人",
+                        "method":  "GET",
+                        "path":  "/fd/v1/admin/tickets/FD-20261014-009/handoff-candidates",
+                        "status":  200,
+                        "traceId":  "b970770f-9acc-4f6b-9cd4-214a94bffaee",
+                        "requestTraceId":  "b970770f-9acc-4f6b-9cd4-214a94bffaee",
+                        "detail":  "actor=admin；管理员读取接替候选人"
+                    },
+                    {
+                        "step":  "h1.employeeCandidates",
+                        "actor":  "employee",
+                        "note":  "演示员工访问候选人端点（应 403）",
+                        "method":  "GET",
+                        "path":  "/fd/v1/admin/tickets/FD-20261014-009/handoff-candidates",
+                        "status":  403,
+                        "traceId":  "f4d0d21c-1c60-40d2-b4c2-7c6015739925",
+                        "requestTraceId":  "f4d0d21c-1c60-40d2-b4c2-7c6015739925",
+                        "detail":  "actor=employee；演示员工访问候选人端点（应 403）"
+                    },
+                    {
+                        "step":  "h2.disable.noPlan",
+                        "actor":  "admin",
+                        "note":  "停用仍负责活动工单的账号，但不带交接方案",
+                        "method":  "POST",
+                        "path":  "/fd/v1/users/15/actions/disable",
+                        "status":  409,
+                        "traceId":  "748d562c-2e33-4e68-a7e4-1787cf348767",
+                        "requestTraceId":  "748d562c-2e33-4e68-a7e4-1787cf348767",
+                        "detail":  "actor=admin；停用仍负责活动工单的账号，但不带交接方案"
+                    },
+                    {
+                        "step":  "h3.disable.staleTicketVersion",
+                        "actor":  "admin",
+                        "note":  "带方案的停用，但 handoffs 里的 ticketVersion 比库里大 1",
+                        "method":  "POST",
+                        "path":  "/fd/v1/users/15/actions/disable",
+                        "status":  409,
+                        "traceId":  "616355ff-203e-45a2-89bd-a9deda99dddf",
+                        "requestTraceId":  "616355ff-203e-45a2-89bd-a9deda99dddf",
+                        "detail":  "actor=admin；带方案的停用，但 handoffs 里的 ticketVersion 比库里大 1"
+                    },
+                    {
+                        "step":  "h4.disable.withPlan",
+                        "actor":  "admin",
+                        "note":  "停用账号 + 完整交接方案（同事务：账号变更 + 换人 + 参与关系 + 交接记录）",
+                        "method":  "POST",
+                        "path":  "/fd/v1/users/15/actions/disable",
+                        "status":  200,
+                        "traceId":  "ac332140-d6ad-4d61-8686-95d8a1e1454d",
+                        "requestTraceId":  "ac332140-d6ad-4d61-8686-95d8a1e1454d",
+                        "detail":  "actor=admin；停用账号 + 完整交接方案（同事务：账号变更 + 换人 + 参与关系 + 交接记录）"
+                    },
+                    {
+                        "step":  "h4.itA.sessionRevoked",
+                        "actor":  "ah-acc-20261014-121117-ita",
+                        "note":  "被停用账号用旧 access token 再请求 /auth/me",
+                        "method":  "GET",
+                        "path":  "/fd/v1/auth/me",
+                        "status":  401,
+                        "traceId":  "508cf793-a564-4854-93d0-6eddc363c92e",
+                        "requestTraceId":  "508cf793-a564-4854-93d0-6eddc363c92e",
+                        "detail":  "actor=ah-acc-20261014-121117-ita；被停用账号用旧 access token 再请求 /auth/me"
+                    },
+                    {
+                        "step":  "h4.assignmentsAfter",
+                        "actor":  "admin",
+                        "note":  "交接后该用户名下已无待交接工单",
+                        "method":  "GET",
+                        "path":  "/fd/v1/admin/users/15/active-ticket-assignments",
+                        "status":  200,
+                        "traceId":  "67d81195-ca78-43a7-83b3-a82c7f7a3674",
+                        "requestTraceId":  "67d81195-ca78-43a7-83b3-a82c7f7a3674",
+                        "detail":  "actor=admin；交接后该用户名下已无待交接工单"
+                    },
+                    {
+                        "step":  "h4.itBSeesTicket",
+                        "actor":  "ah-acc-20261014-121117-itb",
+                        "note":  "接替人按\"我负责的\"列表查看",
+                        "method":  "GET",
+                        "path":  "/fd/v1/tickets?scope=ASSIGNED_TO_ME\u0026pageNo=1\u0026pageSize=50",
+                        "status":  200,
+                        "traceId":  "3aff0840-941e-4f06-b85a-08b1fe234034",
+                        "requestTraceId":  "3aff0840-941e-4f06-b85a-08b1fe234034",
+                        "detail":  "actor=ah-acc-20261014-121117-itb；接替人按\"我负责的\"列表查看"
+                    },
+                    {
+                        "step":  "h4.itBReadsTimeline",
+                        "actor":  "ah-acc-20261014-121117-itb",
+                        "note":  "接替人读取时间线，确认 ADMIN_HANDOFF 记录可见",
+                        "method":  "GET",
+                        "path":  "/fd/v1/tickets/FD-20261014-009/records?pageNo=1\u0026pageSize=50",
+                        "status":  200,
+                        "traceId":  "2237134d-777a-4d85-94e8-9cb9f31edd7e",
+                        "requestTraceId":  "2237134d-777a-4d85-94e8-9cb9f31edd7e",
+                        "detail":  "actor=ah-acc-20261014-121117-itb；接替人读取时间线，确认 ADMIN_HANDOFF 记录可见"
+                    },
+                    {
+                        "step":  "h5.roles.noPlan",
+                        "actor":  "admin",
+                        "note":  "替换角色摘掉 IT_SUPPORT，但不带交接方案",
+                        "method":  "PUT",
+                        "path":  "/fd/v1/users/17/roles",
+                        "status":  409,
+                        "traceId":  "1783e2b8-b01c-4f4e-ba78-be1dab2a6ea3",
+                        "requestTraceId":  "1783e2b8-b01c-4f4e-ba78-be1dab2a6ea3",
+                        "detail":  "actor=admin；替换角色摘掉 IT_SUPPORT，但不带交接方案"
+                    },
+                    {
+                        "step":  "h5.roles.withPlan",
+                        "actor":  "admin",
+                        "note":  "替换角色（摘掉 IT_SUPPORT）+ 完整交接方案",
+                        "method":  "PUT",
+                        "path":  "/fd/v1/users/17/roles",
+                        "status":  200,
+                        "traceId":  "24548513-7e53-46c5-a719-37e534b1e95d",
+                        "requestTraceId":  "24548513-7e53-46c5-a719-37e534b1e95d",
+                        "detail":  "actor=admin；替换角色（摘掉 IT_SUPPORT）+ 完整交接方案"
+                    },
+                    {
+                        "step":  "h5.itC.sessionRevoked",
+                        "actor":  "ah-acc-20261014-121117-itc",
+                        "note":  "角色被替换的账号用旧 token 再请求 /auth/me",
+                        "method":  "GET",
+                        "path":  "/fd/v1/auth/me",
+                        "status":  401,
+                        "traceId":  "f7158d9b-69f6-4715-98f2-cd4afad39079",
+                        "requestTraceId":  "f7158d9b-69f6-4715-98f2-cd4afad39079",
+                        "detail":  "actor=ah-acc-20261014-121117-itc；角色被替换的账号用旧 token 再请求 /auth/me"
+                    },
+                    {
+                        "step":  "h5.itCQueueForbidden",
+                        "actor":  "ah-acc-20261014-121117-itc",
+                        "note":  "失去 IT_SUPPORT 后访问待受理队列",
+                        "method":  "GET",
+                        "path":  "/fd/v1/tickets?scope=PENDING_QUEUE\u0026pageNo=1\u0026pageSize=10",
+                        "status":  401,
+                        "traceId":  "d5c8dbec-af8f-49c3-b5b2-2836613132b3",
+                        "requestTraceId":  "d5c8dbec-af8f-49c3-b5b2-2836613132b3",
+                        "detail":  "actor=ah-acc-20261014-121117-itc；失去 IT_SUPPORT 后访问待受理队列"
+                    },
+                    {
+                        "step":  "h5.itCRelogin",
+                        "actor":  "ah-acc-20261014-121117-itc",
+                        "note":  "失去 IT_SUPPORT 后重新登录（会话已撤销，需重新取票）",
+                        "method":  "POST",
+                        "path":  "/fd/v1/auth/login",
+                        "status":  200,
+                        "traceId":  "45f32df7-7673-40ef-a7df-d9b1351c06b7",
+                        "requestTraceId":  "45f32df7-7673-40ef-a7df-d9b1351c06b7",
+                        "detail":  "actor=ah-acc-20261014-121117-itc；失去 IT_SUPPORT 后重新登录（会话已撤销，需重新取票）"
+                    },
+                    {
+                        "step":  "h5.itCQueueForbiddenAfterRelogin",
+                        "actor":  "ah-acc-20261014-121117-itc",
+                        "note":  "重新登录后仍未持有 TICKET_VIEW_QUEUE",
+                        "method":  "GET",
+                        "path":  "/fd/v1/tickets?scope=PENDING_QUEUE\u0026pageNo=1\u0026pageSize=10",
+                        "status":  403,
+                        "traceId":  "001a665b-3982-40af-a671-4dbd2e9ba76f",
+                        "requestTraceId":  "001a665b-3982-40af-a671-4dbd2e9ba76f",
+                        "detail":  "actor=ah-acc-20261014-121117-itc；重新登录后仍未持有 TICKET_VIEW_QUEUE"
+                    },
+                    {
+                        "step":  "h5.keepItSupportNeedsNoPlan",
+                        "actor":  "admin",
+                        "note":  "IT-B 手上已有 2 张在办工单，但这次替换保留 IT_SUPPORT 且集合未变",
+                        "method":  "PUT",
+                        "path":  "/fd/v1/users/16/roles",
+                        "status":  200,
+                        "traceId":  "6043938f-20f1-458a-8809-9a4d0ae0020e",
+                        "requestTraceId":  "6043938f-20f1-458a-8809-9a4d0ae0020e",
+                        "detail":  "actor=admin；IT-B 手上已有 2 张在办工单，但这次替换保留 IT_SUPPORT 且集合未变"
+                    },
+                    {
+                        "step":  "h5.itBSessionKept",
+                        "actor":  "ah-acc-20261014-121117-itb",
+                        "note":  "集合未变时 IT-B 的会话不应被撤销",
+                        "method":  "GET",
+                        "path":  "/fd/v1/auth/me",
+                        "status":  200,
+                        "traceId":  "4712dbf8-96bb-467b-83ca-9e73933f7bac",
+                        "requestTraceId":  "4712dbf8-96bb-467b-83ca-9e73933f7bac",
+                        "detail":  "actor=ah-acc-20261014-121117-itb；集合未变时 IT-B 的会话不应被撤销"
+                    },
+                    {
+                        "step":  "h6.disable.partialPlan",
+                        "actor":  "admin",
+                        "note":  "两张工单的方案里第二张版本已过期：第一张会被先换人，用于验证整体回滚",
+                        "method":  "POST",
+                        "path":  "/fd/v1/users/18/actions/disable",
+                        "status":  409,
+                        "traceId":  "932f6362-eb22-4d6f-9ae5-bd27754c5cfb",
+                        "requestTraceId":  "932f6362-eb22-4d6f-9ae5-bd27754c5cfb",
+                        "detail":  "actor=admin；两张工单的方案里第二张版本已过期：第一张会被先换人，用于验证整体回滚"
+                    },
+                    {
+                        "step":  "h6.itDSessionKept",
+                        "actor":  "ah-acc-20261014-121117-itd",
+                        "note":  "失败的交接不应撤销会话（撤销排在成功写入之后）",
+                        "method":  "GET",
+                        "path":  "/fd/v1/auth/me",
+                        "status":  200,
+                        "traceId":  "9981a849-4bd4-4789-85b9-2426617d6d1f",
+                        "requestTraceId":  "9981a849-4bd4-4789-85b9-2426617d6d1f",
+                        "detail":  "actor=ah-acc-20261014-121117-itd；失败的交接不应撤销会话（撤销排在成功写入之后）"
+                    }
+                ],
+    "sqlExecuted":  [
+                        "SELECT 1;",
+                        "SET SESSION group_concat_max_len=1000000; SELECT CONCAT_WS(\u0027 || \u0027, (SELECT COUNT(*) FROM ticket), (SELECT COUNT(*) FROM ticket_record), (SELECT COUNT(*) FROM ticket_participant), (SELECT COUNT(*) FROM iam_user), (SELECT COUNT(*) FROM iam_user_role), (SELECT COUNT(*) FROM iam_role), (SELECT COUNT(*) FROM iam_permission), (SELECT COUNT(*) FROM iam_role_permission), IFNULL((SELECT MD5(GROUP_CONCAT(CONCAT_WS(\u0027:\u0027, id, ticket_no, status, IFNULL(assignee_id,-1), version, record_seq) ORDER BY id SEPARATOR \u0027|\u0027)) FROM ticket),\u0027-\u0027), IFNULL((SELECT MD5(GROUP_CONCAT(CONCAT_WS(\u0027:\u0027, id, ticket_id, sequence_no, record_type, IFNULL(actor_user_id,-1)) ORDER BY id SEPARATOR \u0027|\u0027)) FROM ticket_record),\u0027-\u0027), IFNULL((SELECT MD5(GROUP_CONCAT(CONCAT_WS(\u0027:\u0027, ticket_id, user_id) ORDER BY ticket_id, user_id SEPARATOR \u0027|\u0027)) FROM ticket_participant),\u0027-\u0027), IFNULL((SELECT MD5(GROUP_CONCAT(CONCAT_WS(\u0027:\u0027, id, username, status, version) ORDER BY id SEPARATOR \u0027|\u0027)) FROM iam_user),\u0027-\u0027), IFNULL((SELECT MD5(GROUP_CONCAT(CONCAT_WS(\u0027:\u0027, user_id, role_id) ORDER BY user_id, role_id SEPARATOR \u0027|\u0027)) FROM iam_user_role),\u0027-\u0027)) AS fingerprint;",
+                        "SELECT id FROM iam_role WHERE code = \u0027EMPLOYEE\u0027;",
+                        "SELECT id FROM iam_role WHERE code = \u0027IT_SUPPORT\u0027;",
+                        "SELECT id FROM iam_role WHERE code = \u0027SYSTEM_ADMIN\u0027;",
+                        "SELECT id FROM ticket_category ORDER BY sort_order, id LIMIT 1;",
+                        "SELECT id FROM iam_user WHERE username = \u0027admin\u0027;",
+                        "SELECT id, status, version FROM iam_user WHERE username = \u0027ah-acc-20261014-121117-ita\u0027;",
+                        "SET SESSION group_concat_max_len=1000000; SELECT CONCAT_WS(\u0027|\u0027, t.status, IFNULL(t.assignee_id,-1), t.version, t.record_seq, (SELECT COUNT(*) FROM ticket_record r WHERE r.ticket_id = t.id), (SELECT COUNT(*) FROM ticket_participant p WHERE p.ticket_id = t.id)) FROM ticket t WHERE t.ticket_no = \u0027FD-20261014-009\u0027;",
+                        "SELECT id, status, version FROM iam_user WHERE username = \u0027ah-acc-20261014-121117-ita\u0027;",
+                        "SET SESSION group_concat_max_len=1000000; SELECT CONCAT_WS(\u0027|\u0027, t.status, IFNULL(t.assignee_id,-1), t.version, t.record_seq, (SELECT COUNT(*) FROM ticket_record r WHERE r.ticket_id = t.id), (SELECT COUNT(*) FROM ticket_participant p WHERE p.ticket_id = t.id)) FROM ticket t WHERE t.ticket_no = \u0027FD-20261014-009\u0027;",
+                        "SET SESSION group_concat_max_len=1000000; SELECT CONCAT_WS(\u0027|\u0027, t.status, IFNULL(t.assignee_id,-1), t.version, t.record_seq, (SELECT COUNT(*) FROM ticket_record r WHERE r.ticket_id = t.id), (SELECT COUNT(*) FROM ticket_participant p WHERE p.ticket_id = t.id)) FROM ticket t WHERE t.ticket_no = \u0027FD-20261014-009\u0027;",
+                        "SET SESSION group_concat_max_len=1000000; SELECT CONCAT_WS(\u0027|\u0027, t.status, IFNULL(t.assignee_id,-1), t.version, t.record_seq, (SELECT COUNT(*) FROM ticket_record r WHERE r.ticket_id = t.id), (SELECT COUNT(*) FROM ticket_participant p WHERE p.ticket_id = t.id)) FROM ticket t WHERE t.ticket_no = \u0027FD-20261014-009\u0027;",
+                        "SELECT id, status, version FROM iam_user WHERE username = \u0027ah-acc-20261014-121117-ita\u0027;",
+                        "SET SESSION group_concat_max_len=1000000; SELECT CONCAT_WS(\u0027|\u0027, t.status, IFNULL(t.assignee_id,-1), t.version, t.record_seq, (SELECT COUNT(*) FROM ticket_record r WHERE r.ticket_id = t.id), (SELECT COUNT(*) FROM ticket_participant p WHERE p.ticket_id = t.id)) FROM ticket t WHERE t.ticket_no = \u0027FD-20261014-009\u0027;",
+                        "SELECT id, status, version FROM iam_user WHERE username = \u0027ah-acc-20261014-121117-ita\u0027;",
+                        "SELECT id, status, version FROM iam_user WHERE username = \u0027ah-acc-20261014-121117-ita\u0027;",
+                        "SELECT status, version FROM iam_user WHERE id = 15;",
+                        "SELECT status, assignee_id, version, record_seq FROM ticket WHERE ticket_no = \u0027FD-20261014-009\u0027;",
+                        "SELECT record_type, actor_type, actor_user_id, from_assignee_id, to_assignee_id, from_status, to_status, reason, sequence_no FROM ticket_record WHERE ticket_id = (SELECT id FROM ticket WHERE ticket_no = \u0027FD-20261014-009\u0027) ORDER BY sequence_no DESC LIMIT 1;",
+                        "SELECT (SELECT COUNT(*) FROM ticket_participant WHERE ticket_id = (SELECT id FROM ticket WHERE ticket_no = \u0027FD-20261014-009\u0027) AND user_id = 16), (SELECT COUNT(*) FROM ticket_participant WHERE ticket_id = (SELECT id FROM ticket WHERE ticket_no = \u0027FD-20261014-009\u0027) AND user_id = 15);",
+                        "SELECT id, status, version FROM iam_user WHERE username = \u0027ah-acc-20261014-121117-itc\u0027;",
+                        "SET SESSION group_concat_max_len=1000000; SELECT CONCAT_WS(\u0027|\u0027, t.status, IFNULL(t.assignee_id,-1), t.version, t.record_seq, (SELECT COUNT(*) FROM ticket_record r WHERE r.ticket_id = t.id), (SELECT COUNT(*) FROM ticket_participant p WHERE p.ticket_id = t.id)) FROM ticket t WHERE t.ticket_no = \u0027FD-20261014-010\u0027;",
+                        "SELECT (SELECT COUNT(*) FROM iam_user_role WHERE user_id = 17 AND role_id = 2), (SELECT status FROM iam_user WHERE id = 17), (SELECT assignee_id FROM ticket WHERE ticket_no = \u0027FD-20261014-010\u0027);",
+                        "SELECT (SELECT COUNT(*) FROM iam_user_role WHERE user_id = 17 AND role_id = 2), (SELECT COUNT(*) FROM iam_user_role WHERE user_id = 17 AND role_id = 1), (SELECT assignee_id FROM ticket WHERE ticket_no = \u0027FD-20261014-010\u0027), (SELECT COUNT(*) FROM ticket_record WHERE ticket_id = (SELECT id FROM ticket WHERE ticket_no = \u0027FD-20261014-010\u0027) AND record_type = \u0027ADMIN_HANDOFF\u0027);",
+                        "SELECT id, status, version FROM iam_user WHERE username = \u0027ah-acc-20261014-121117-itb\u0027;",
+                        "SELECT id, status, version FROM iam_user WHERE username = \u0027ah-acc-20261014-121117-itd\u0027;",
+                        "SET SESSION group_concat_max_len=1000000; SELECT CONCAT_WS(\u0027|\u0027, t.status, IFNULL(t.assignee_id,-1), t.version, t.record_seq, (SELECT COUNT(*) FROM ticket_record r WHERE r.ticket_id = t.id), (SELECT COUNT(*) FROM ticket_participant p WHERE p.ticket_id = t.id)) FROM ticket t WHERE t.ticket_no = \u0027FD-20261014-011\u0027;",
+                        "SET SESSION group_concat_max_len=1000000; SELECT CONCAT_WS(\u0027|\u0027, t.status, IFNULL(t.assignee_id,-1), t.version, t.record_seq, (SELECT COUNT(*) FROM ticket_record r WHERE r.ticket_id = t.id), (SELECT COUNT(*) FROM ticket_participant p WHERE p.ticket_id = t.id)) FROM ticket t WHERE t.ticket_no = \u0027FD-20261014-012\u0027;",
+                        "SET SESSION group_concat_max_len=1000000; SELECT CONCAT_WS(\u0027|\u0027, t.status, IFNULL(t.assignee_id,-1), t.version, t.record_seq, (SELECT COUNT(*) FROM ticket_record r WHERE r.ticket_id = t.id), (SELECT COUNT(*) FROM ticket_participant p WHERE p.ticket_id = t.id)) FROM ticket t WHERE t.ticket_no = \u0027FD-20261014-011\u0027;",
+                        "SET SESSION group_concat_max_len=1000000; SELECT CONCAT_WS(\u0027|\u0027, t.status, IFNULL(t.assignee_id,-1), t.version, t.record_seq, (SELECT COUNT(*) FROM ticket_record r WHERE r.ticket_id = t.id), (SELECT COUNT(*) FROM ticket_participant p WHERE p.ticket_id = t.id)) FROM ticket t WHERE t.ticket_no = \u0027FD-20261014-011\u0027;",
+                        "SET SESSION group_concat_max_len=1000000; SELECT CONCAT_WS(\u0027|\u0027, t.status, IFNULL(t.assignee_id,-1), t.version, t.record_seq, (SELECT COUNT(*) FROM ticket_record r WHERE r.ticket_id = t.id), (SELECT COUNT(*) FROM ticket_participant p WHERE p.ticket_id = t.id)) FROM ticket t WHERE t.ticket_no = \u0027FD-20261014-012\u0027;",
+                        "SET SESSION group_concat_max_len=1000000; SELECT CONCAT_WS(\u0027|\u0027, t.status, IFNULL(t.assignee_id,-1), t.version, t.record_seq, (SELECT COUNT(*) FROM ticket_record r WHERE r.ticket_id = t.id), (SELECT COUNT(*) FROM ticket_participant p WHERE p.ticket_id = t.id)) FROM ticket t WHERE t.ticket_no = \u0027FD-20261014-012\u0027;",
+                        "SELECT id, status, version FROM iam_user WHERE username = \u0027ah-acc-20261014-121117-itd\u0027;",
+                        "SELECT COUNT(*) FROM ticket_record WHERE record_type = \u0027ADMIN_HANDOFF\u0027 AND ticket_id IN (SELECT id FROM ticket WHERE ticket_no IN (\u0027FD-20261014-011\u0027, \u0027FD-20261014-012\u0027));",
+                        "SET SESSION group_concat_max_len=1000000; SELECT CONCAT_WS(\u0027|\u0027, t.status, IFNULL(t.assignee_id,-1), t.version, t.record_seq, (SELECT COUNT(*) FROM ticket_record r WHERE r.ticket_id = t.id), (SELECT COUNT(*) FROM ticket_participant p WHERE p.ticket_id = t.id)) FROM ticket t WHERE t.ticket_no = \u0027FD-20261014-011\u0027;",
+                        "DELETE FROM ticket_record WHERE ticket_id IN (SELECT id FROM ticket WHERE requester_id = 14);",
+                        "DELETE FROM ticket_participant WHERE ticket_id IN (SELECT id FROM ticket WHERE requester_id = 14);",
+                        "DELETE FROM ticket WHERE requester_id = 14;",
+                        "DELETE FROM iam_user_role WHERE user_id IN (14, 15, 16, 17, 18);",
+                        "DELETE FROM iam_user WHERE id IN (14, 15, 16, 17, 18);",
+                        "SELECT (SELECT COUNT(*) FROM iam_user WHERE username LIKE \u0027ah-acc-20261014-121117%\u0027), (SELECT COUNT(*) FROM ticket WHERE requester_id = 14), (SELECT COUNT(*) FROM ticket_record WHERE record_type = \u0027ADMIN_HANDOFF\u0027 AND actor_user_id = 3 AND ticket_id NOT IN (SELECT id FROM ticket));",
+                        "SET SESSION group_concat_max_len=1000000; SELECT CONCAT_WS(\u0027 || \u0027, (SELECT COUNT(*) FROM ticket), (SELECT COUNT(*) FROM ticket_record), (SELECT COUNT(*) FROM ticket_participant), (SELECT COUNT(*) FROM iam_user), (SELECT COUNT(*) FROM iam_user_role), (SELECT COUNT(*) FROM iam_role), (SELECT COUNT(*) FROM iam_permission), (SELECT COUNT(*) FROM iam_role_permission), IFNULL((SELECT MD5(GROUP_CONCAT(CONCAT_WS(\u0027:\u0027, id, ticket_no, status, IFNULL(assignee_id,-1), version, record_seq) ORDER BY id SEPARATOR \u0027|\u0027)) FROM ticket),\u0027-\u0027), IFNULL((SELECT MD5(GROUP_CONCAT(CONCAT_WS(\u0027:\u0027, id, ticket_id, sequence_no, record_type, IFNULL(actor_user_id,-1)) ORDER BY id SEPARATOR \u0027|\u0027)) FROM ticket_record),\u0027-\u0027), IFNULL((SELECT MD5(GROUP_CONCAT(CONCAT_WS(\u0027:\u0027, ticket_id, user_id) ORDER BY ticket_id, user_id SEPARATOR \u0027|\u0027)) FROM ticket_participant),\u0027-\u0027), IFNULL((SELECT MD5(GROUP_CONCAT(CONCAT_WS(\u0027:\u0027, id, username, status, version) ORDER BY id SEPARATOR \u0027|\u0027)) FROM iam_user),\u0027-\u0027), IFNULL((SELECT MD5(GROUP_CONCAT(CONCAT_WS(\u0027:\u0027, user_id, role_id) ORDER BY user_id, role_id SEPARATOR \u0027|\u0027)) FROM iam_user_role),\u0027-\u0027)) AS fingerprint;"
+                    ],
+    "cleanup":  {
+                    "sql":  [
+                                "DELETE FROM ticket_record WHERE ticket_id IN (SELECT id FROM ticket WHERE requester_id = 14);",
+                                "DELETE FROM ticket_participant WHERE ticket_id IN (SELECT id FROM ticket WHERE requester_id = 14);",
+                                "DELETE FROM ticket WHERE requester_id = 14;",
+                                "DELETE FROM iam_user_role WHERE user_id IN (14, 15, 16, 17, 18);",
+                                "DELETE FROM iam_user WHERE id IN (14, 15, 16, 17, 18);"
+                            ],
+                    "output":  [
+                                   "exit=0 sql=DELETE FROM ticket_record WHERE ticket_id IN (SELECT id FROM ticket WHERE requester_id = 14);",
+                                   "exit=0 sql=DELETE FROM ticket_participant WHERE ticket_id IN (SELECT id FROM ticket WHERE requester_id = 14);",
+                                   "exit=0 sql=DELETE FROM ticket WHERE requester_id = 14;",
+                                   "exit=0 sql=DELETE FROM iam_user_role WHERE user_id IN (14, 15, 16, 17, 18);",
+                                   "exit=0 sql=DELETE FROM iam_user WHERE id IN (14, 15, 16, 17, 18);"
+                               ],
+                    "note":  "按本次 stamp 创建的 5 个用户主键与其提交的工单精确删除；分类复用既有行，不删；ticket_daily_sequence 不回滚（见文件头\"已知残留\"）"
+                },
+    "safetyBoundary":  [
+                           "只创建并删除脚本自己创建的 5 个临时用户（ah-acc-\u003cstamp\u003e-*）与其提交的 4 张工单（含记录与参与关系）",
+                           "分类复用演示种子里的既有分类；不新建、不删除分类",
+                           "运行前与清理后各测一次指纹（八项计数 + 五条聚合指纹）并断言完全相同",
+                           "不执行 docker compose down、不删容器、不删卷、不停任何后端进程",
+                           "命令行与证据中不出现 root 口令、登录口令或 accessToken（错误正文截断到 200 字符并先脱敏）",
+                           "已知残留：ticket_daily_sequence 会因本次 4 张工单前进，脚本不回滚它（回滚会导致编号重复）"
+                       ],
+    "totals":  {
+                   "assertions":  51,
+                   "passed":  51,
+                   "failed":  0,
+                   "httpRequests":  43,
+                   "dbChecks":  8,
+                   "exitCode":  0
+               }
+}

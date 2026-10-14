@@ -3,14 +3,17 @@ package com.flowdesk.iam.application.service.impl;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.flowdesk.common.exception.ApiException;
 import com.flowdesk.common.web.PageResult;
+import com.flowdesk.iam.application.command.AdminHandoffInstruction;
 import com.flowdesk.iam.application.command.CreateUserCommand;
 import com.flowdesk.iam.application.command.ReplaceUserRolesCommand;
 import com.flowdesk.iam.application.command.ResetUserPasswordCommand;
 import com.flowdesk.iam.application.command.UpdateUserCommand;
 import com.flowdesk.iam.application.command.UserStatusChangeCommand;
+import com.flowdesk.iam.application.port.AdminHandoffPort;
 import com.flowdesk.iam.application.port.CurrentOperatorPort;
 import com.flowdesk.iam.application.port.SessionRevocationPort;
 import com.flowdesk.iam.application.query.UserQuery;
+import com.flowdesk.iam.application.result.AdminHandoffAssignmentResult;
 import com.flowdesk.iam.application.result.UserResult;
 import com.flowdesk.iam.domain.IamRole;
 import com.flowdesk.iam.domain.IamUser;
@@ -72,6 +75,8 @@ class IamUserServiceImplTest {
     private static final long SUPPORT_ROLE_ID = 20L;
     private static final String SYSTEM_ADMIN = "SYSTEM_ADMIN";
     private static final String ENCODED_PASSWORD = "$argon2id$encoded";
+    private static final String TICKET_NO = "FD-20261012-000001";
+    private static final String HANDOFF_REASON = "账号离职，工单转由他人续办";
 
     private final IamUserMapper userMapper = mock(IamUserMapper.class);
     private final IamUserRoleMapper userRoleMapper = mock(IamUserRoleMapper.class);
@@ -79,10 +84,11 @@ class IamUserServiceImplTest {
     private final PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
     private final CurrentOperatorPort currentOperatorPort = mock(CurrentOperatorPort.class);
     private final SessionRevocationPort sessionRevocationPort = mock(SessionRevocationPort.class);
+    private final AdminHandoffPort adminHandoffPort = mock(AdminHandoffPort.class);
 
     private final IamUserServiceImpl service = new IamUserServiceImpl(
             userMapper, userRoleMapper, roleMapper, passwordEncoder,
-            currentOperatorPort, sessionRevocationPort, CLOCK);
+            currentOperatorPort, sessionRevocationPort, adminHandoffPort, CLOCK);
 
     @BeforeAll
     static void initializeMybatisPlusMetadata() {
@@ -931,6 +937,302 @@ class IamUserServiceImplTest {
         verifyNoInteractions(sessionRevocationPort);
     }
 
+    // ---------- 管理性交接（docs/api-design.md 8.3） ----------
+
+    /**
+     * 目标用户仍负责活动工单时必须给出完整方案：账号停用后他不能再处理任何工单，
+     * 没有方案的停用会把工单悬在那儿。
+     */
+    @Test
+    void disableRequiresHandoffPlanWhenAssignmentsExist() {
+        when(roleMapper.selectByCodeForUpdate(SYSTEM_ADMIN)).thenReturn(null);
+        when(userMapper.selectById(USER_ID)).thenReturn(user(IamUserStatus.ENABLED, 0L));
+        when(currentOperatorPort.hasAuthority("TICKET_ADMIN_HANDOFF")).thenReturn(true);
+        when(adminHandoffPort.findActiveAssignments(USER_ID))
+                .thenReturn(List.of(assignment(TICKET_NO, 5L)));
+
+        assertApiException(() -> service.disable(USER_ID, new UserStatusChangeCommand(0L)),
+                HttpStatus.CONFLICT, "ADMIN_HANDOFF_REQUIRED");
+
+        verify(adminHandoffPort, never()).replaceAssignees(
+                anyLong(), anyLong(), anyString(), any(), any());
+        verify(userMapper, never()).update(any(), any());
+        verifyNoInteractions(sessionRevocationPort);
+    }
+
+    /** 交接需要工单侧的权限：只有 USER_MANAGE 的账号不能在目标还有在办工单时停用他。 */
+    @Test
+    void disableRequiresHandoffAuthorityBeforeChangingAccount() {
+        when(roleMapper.selectByCodeForUpdate(SYSTEM_ADMIN)).thenReturn(null);
+        when(userMapper.selectById(USER_ID)).thenReturn(user(IamUserStatus.ENABLED, 0L));
+        when(currentOperatorPort.hasAuthority("TICKET_ADMIN_HANDOFF")).thenReturn(false);
+        when(adminHandoffPort.findActiveAssignments(USER_ID))
+                .thenReturn(List.of(assignment(TICKET_NO, 5L)));
+
+        assertApiException(() -> service.disable(USER_ID, new UserStatusChangeCommand(0L)),
+                HttpStatus.FORBIDDEN, "ACCESS_DENIED");
+
+        verify(userMapper, never()).selectByIdForUpdate(anyLong());
+        verify(userMapper, never()).update(any(), any());
+        verifyNoInteractions(sessionRevocationPort);
+    }
+
+    /** 没有活动工单时既不要求交接权限，也不要求原因：8.2 的 USER_MANAGE 契约保持不变。 */
+    @Test
+    void disableSkipsHandoffWhenNoActiveAssignmentExists() {
+        when(roleMapper.selectByCodeForUpdate(SYSTEM_ADMIN)).thenReturn(null);
+        when(userMapper.selectById(USER_ID)).thenReturn(user(IamUserStatus.ENABLED, 0L));
+        when(adminHandoffPort.findActiveAssignments(USER_ID)).thenReturn(List.of());
+        when(userMapper.selectByIdForUpdate(USER_ID)).thenReturn(user(IamUserStatus.ENABLED, 0L));
+        when(userMapper.update(isNull(), any())).thenReturn(1);
+        when(userMapper.selectById(USER_ID)).thenReturn(user(IamUserStatus.DISABLED, 1L));
+        when(userRoleMapper.selectList(any())).thenReturn(List.of());
+
+        service.disable(USER_ID, new UserStatusChangeCommand(0L));
+
+        verify(adminHandoffPort, never()).replaceAssignees(
+                anyLong(), anyLong(), anyString(), any(), any());
+        verify(currentOperatorPort, never()).hasAuthority(anyString());
+        verify(sessionRevocationPort).revokeAll(USER_ID);
+    }
+
+    /**
+     * 交接的工单行锁必须排在目标用户行锁之前：工单模块所有动作以工单行写锁起手，
+     * 反序会与 {@code ticket_record} 外键申请的共享锁成环。
+     */
+    @Test
+    void disablePerformsHandoffBeforeLockingTargetUser() {
+        when(roleMapper.selectByCodeForUpdate(SYSTEM_ADMIN)).thenReturn(null);
+        when(userMapper.selectById(USER_ID)).thenReturn(user(IamUserStatus.ENABLED, 0L));
+        when(currentOperatorPort.hasAuthority("TICKET_ADMIN_HANDOFF")).thenReturn(true);
+        when(currentOperatorPort.currentUserId()).thenReturn(OPERATOR_ID);
+        when(adminHandoffPort.findActiveAssignments(USER_ID))
+                .thenReturn(List.of(assignment(TICKET_NO, 5L)));
+        when(userMapper.selectByIdForUpdate(USER_ID)).thenReturn(user(IamUserStatus.ENABLED, 0L));
+        when(userRoleMapper.selectCount(any())).thenReturn(0L);
+        when(userMapper.update(isNull(), any())).thenReturn(1);
+        // 同一个 selectById 先服务"停用前的无锁预读"（仍启用），再服务成功后的详情回读（已停用）
+        when(userMapper.selectById(USER_ID))
+                .thenReturn(user(IamUserStatus.ENABLED, 0L), user(IamUserStatus.DISABLED, 1L));
+        when(userRoleMapper.selectList(any())).thenReturn(List.of());
+
+        UserResult result = service.disable(USER_ID, new UserStatusChangeCommand(
+                0L, HANDOFF_REASON, List.of(handoffInstruction(TICKET_NO, 5L))));
+
+        assertThat(result.status()).isEqualTo(IamUserStatus.DISABLED);
+
+        verify(adminHandoffPort).replaceAssignees(
+                USER_ID, OPERATOR_ID, HANDOFF_REASON,
+                List.of(handoffInstruction(TICKET_NO, 5L)),
+                LocalDateTime.ofInstant(NOW, ZoneOffset.UTC));
+
+        InOrder order = inOrder(adminHandoffPort, userMapper);
+        order.verify(adminHandoffPort).replaceAssignees(
+                anyLong(), anyLong(), anyString(), any(), any());
+        order.verify(userMapper).selectByIdForUpdate(USER_ID);
+
+        verify(sessionRevocationPort).revokeAll(USER_ID);
+    }
+
+    /**
+     * 预读用的是无锁快照：如果最终状态显示"还需要交接"，就必须拒绝这次停用，
+     * 而不是让账号先变更、把无效负责人留在工单上。
+     */
+    @Test
+    void disableRechecksActiveAssignmentsBeforeWriting() {
+        when(roleMapper.selectByCodeForUpdate(SYSTEM_ADMIN)).thenReturn(null);
+        when(userMapper.selectById(USER_ID)).thenReturn(user(IamUserStatus.ENABLED, 0L));
+        when(adminHandoffPort.findActiveAssignments(USER_ID))
+                .thenReturn(List.of(), List.of(assignment(TICKET_NO, 5L)));
+        when(userMapper.selectByIdForUpdate(USER_ID)).thenReturn(user(IamUserStatus.ENABLED, 0L));
+
+        assertApiException(() -> service.disable(USER_ID, new UserStatusChangeCommand(0L)),
+                HttpStatus.CONFLICT, "ADMIN_HANDOFF_CONFLICT");
+
+        verify(userMapper, never()).update(any(), any());
+        verifyNoInteractions(sessionRevocationPort);
+    }
+
+    /** 保留 IT_SUPPORT 时他还能继续处理手上的工单：有活动工单也不需要交接。 */
+    @Test
+    void replaceRolesKeepsSupportRoleWithoutRequiringHandoff() {
+        when(roleMapper.selectOne(any()))
+                .thenReturn(role(SYSTEM_ADMIN_ROLE_ID, SYSTEM_ADMIN), role(SUPPORT_ROLE_ID, "IT_SUPPORT"));
+        when(roleMapper.selectByIdsForUpdate(
+                List.of(SYSTEM_ADMIN_ROLE_ID, EMPLOYEE_ROLE_ID, SUPPORT_ROLE_ID)))
+                .thenReturn(List.of(role(SYSTEM_ADMIN_ROLE_ID, SYSTEM_ADMIN),
+                        role(EMPLOYEE_ROLE_ID, "EMPLOYEE"), role(SUPPORT_ROLE_ID, "IT_SUPPORT")));
+        when(userRoleMapper.selectList(any())).thenReturn(List.of(grant(USER_ID, SUPPORT_ROLE_ID)));
+        when(userMapper.selectByIdForUpdate(USER_ID)).thenReturn(user(IamUserStatus.ENABLED, 0L));
+        when(userRoleMapper.selectByUserIdForUpdate(USER_ID))
+                .thenReturn(List.of(grant(USER_ID, SUPPORT_ROLE_ID)));
+        when(userMapper.update(isNull(), any())).thenReturn(1);
+        when(currentOperatorPort.currentUserId()).thenReturn(OPERATOR_ID);
+        when(userMapper.selectById(USER_ID)).thenReturn(user(IamUserStatus.ENABLED, 1L));
+        when(roleMapper.selectBatchIds(List.of(SUPPORT_ROLE_ID)))
+                .thenReturn(List.of(role(SUPPORT_ROLE_ID, "IT_SUPPORT")));
+
+        service.replaceRoles(USER_ID,
+                new ReplaceUserRolesCommand(0L, List.of(EMPLOYEE_ROLE_ID, SUPPORT_ROLE_ID)));
+
+        verify(adminHandoffPort, never()).findActiveAssignments(anyLong());
+        verify(adminHandoffPort, never()).replaceAssignees(
+                anyLong(), anyLong(), anyString(), any(), any());
+        verify(sessionRevocationPort).revokeAll(USER_ID);
+    }
+
+    /** 摘掉 IT_SUPPORT 且他还有活动工单：必须给出完整方案。 */
+    @Test
+    void replaceRolesRequiresHandoffPlanWhenSupportRoleIsRemoved() {
+        when(roleMapper.selectOne(any()))
+                .thenReturn(role(SYSTEM_ADMIN_ROLE_ID, SYSTEM_ADMIN), role(SUPPORT_ROLE_ID, "IT_SUPPORT"));
+        when(roleMapper.selectByIdsForUpdate(
+                List.of(SYSTEM_ADMIN_ROLE_ID, EMPLOYEE_ROLE_ID, SUPPORT_ROLE_ID)))
+                .thenReturn(List.of(role(SYSTEM_ADMIN_ROLE_ID, SYSTEM_ADMIN),
+                        role(EMPLOYEE_ROLE_ID, "EMPLOYEE"), role(SUPPORT_ROLE_ID, "IT_SUPPORT")));
+        when(userRoleMapper.selectList(any())).thenReturn(List.of(grant(USER_ID, SUPPORT_ROLE_ID)));
+        when(currentOperatorPort.hasAuthority("TICKET_ADMIN_HANDOFF")).thenReturn(true);
+        when(adminHandoffPort.findActiveAssignments(USER_ID))
+                .thenReturn(List.of(assignment(TICKET_NO, 5L)));
+
+        assertApiException(
+                () -> service.replaceRoles(USER_ID,
+                        new ReplaceUserRolesCommand(0L, List.of(EMPLOYEE_ROLE_ID))),
+                HttpStatus.CONFLICT,
+                "ADMIN_HANDOFF_REQUIRED");
+
+        verify(adminHandoffPort, never()).replaceAssignees(
+                anyLong(), anyLong(), anyString(), any(), any());
+        verify(userMapper, never()).update(any(), any());
+        verifyNoInteractions(sessionRevocationPort);
+    }
+
+    /** 摘掉 IT_SUPPORT 的替换：先在工单侧完成交接，再锁用户行改授权。 */
+    @Test
+    void replaceRolesPerformsHandoffBeforeLockingUser() {
+        when(roleMapper.selectOne(any()))
+                .thenReturn(role(SYSTEM_ADMIN_ROLE_ID, SYSTEM_ADMIN), role(SUPPORT_ROLE_ID, "IT_SUPPORT"));
+        when(roleMapper.selectByIdsForUpdate(
+                List.of(SYSTEM_ADMIN_ROLE_ID, EMPLOYEE_ROLE_ID, SUPPORT_ROLE_ID)))
+                .thenReturn(List.of(role(SYSTEM_ADMIN_ROLE_ID, SYSTEM_ADMIN),
+                        role(EMPLOYEE_ROLE_ID, "EMPLOYEE"), role(SUPPORT_ROLE_ID, "IT_SUPPORT")));
+        when(userRoleMapper.selectList(any())).thenReturn(List.of(grant(USER_ID, SUPPORT_ROLE_ID)));
+        when(currentOperatorPort.hasAuthority("TICKET_ADMIN_HANDOFF")).thenReturn(true);
+        when(currentOperatorPort.currentUserId()).thenReturn(OPERATOR_ID);
+        when(adminHandoffPort.findActiveAssignments(USER_ID))
+                .thenReturn(List.of(assignment(TICKET_NO, 5L)));
+        when(userMapper.selectByIdForUpdate(USER_ID)).thenReturn(user(IamUserStatus.ENABLED, 0L));
+        when(userRoleMapper.selectByUserIdForUpdate(USER_ID))
+                .thenReturn(List.of(grant(USER_ID, SUPPORT_ROLE_ID)));
+        when(userMapper.update(isNull(), any())).thenReturn(1);
+        when(userRoleMapper.delete(any())).thenReturn(1);
+        when(userMapper.selectById(USER_ID)).thenReturn(user(IamUserStatus.ENABLED, 1L));
+        when(roleMapper.selectBatchIds(List.of(SUPPORT_ROLE_ID)))
+                .thenReturn(List.of(role(SUPPORT_ROLE_ID, "IT_SUPPORT")));
+
+        service.replaceRoles(USER_ID,
+                new ReplaceUserRolesCommand(0L, List.of(EMPLOYEE_ROLE_ID),
+                        HANDOFF_REASON, List.of(handoffInstruction(TICKET_NO, 5L))));
+
+        verify(adminHandoffPort).replaceAssignees(
+                USER_ID, OPERATOR_ID, HANDOFF_REASON,
+                List.of(handoffInstruction(TICKET_NO, 5L)),
+                LocalDateTime.ofInstant(NOW, ZoneOffset.UTC));
+
+        InOrder order = inOrder(adminHandoffPort, userMapper);
+        order.verify(adminHandoffPort).replaceAssignees(
+                anyLong(), anyLong(), anyString(), any(), any());
+        order.verify(userMapper).selectByIdForUpdate(USER_ID);
+
+        verify(sessionRevocationPort).revokeAll(USER_ID);
+    }
+
+    /** 不摘 IT_SUPPORT 却带着交接方案：与"没有活动工单却给方案"同一条口径，直接拒绝。 */
+    @Test
+    void replaceRolesRejectsHandoffPlanWhenSupportRoleIsKept() {
+        when(roleMapper.selectOne(any()))
+                .thenReturn(role(SYSTEM_ADMIN_ROLE_ID, SYSTEM_ADMIN), role(SUPPORT_ROLE_ID, "IT_SUPPORT"));
+        when(roleMapper.selectByIdsForUpdate(List.of(SYSTEM_ADMIN_ROLE_ID, SUPPORT_ROLE_ID)))
+                .thenReturn(List.of(role(SYSTEM_ADMIN_ROLE_ID, SYSTEM_ADMIN),
+                        role(SUPPORT_ROLE_ID, "IT_SUPPORT")));
+        when(userRoleMapper.selectList(any())).thenReturn(List.of(grant(USER_ID, SUPPORT_ROLE_ID)));
+
+        assertApiException(
+                () -> service.replaceRoles(USER_ID,
+                        new ReplaceUserRolesCommand(0L, List.of(SUPPORT_ROLE_ID),
+                                HANDOFF_REASON, List.of(handoffInstruction(TICKET_NO, 5L)))),
+                HttpStatus.CONFLICT,
+                "ADMIN_HANDOFF_CONFLICT");
+
+        verify(userMapper, never()).selectByIdForUpdate(anyLong());
+        verifyNoInteractions(sessionRevocationPort);
+    }
+
+    /**
+     * 加锁后的差异才是权威依据：并发授权可能让"不会摘掉 IT_SUPPORT"变成"会摘掉"，
+     * 这时若他还有活动工单，就必须让调用方带着方案重来。
+     */
+    @Test
+    void replaceRolesBlocksSupportRemovalThatOnlyAppearsAfterLocking() {
+        when(roleMapper.selectOne(any()))
+                .thenReturn(role(SYSTEM_ADMIN_ROLE_ID, SYSTEM_ADMIN), role(SUPPORT_ROLE_ID, "IT_SUPPORT"));
+        when(roleMapper.selectByIdsForUpdate(
+                List.of(SYSTEM_ADMIN_ROLE_ID, EMPLOYEE_ROLE_ID, SUPPORT_ROLE_ID)))
+                .thenReturn(List.of(role(SYSTEM_ADMIN_ROLE_ID, SYSTEM_ADMIN),
+                        role(EMPLOYEE_ROLE_ID, "EMPLOYEE"), role(SUPPORT_ROLE_ID, "IT_SUPPORT")));
+        // 加锁前读到的授权关系里没有 IT_SUPPORT（并发授予刚好落在两次读之间）
+        when(userRoleMapper.selectList(any())).thenReturn(List.of());
+        when(userMapper.selectByIdForUpdate(USER_ID)).thenReturn(user(IamUserStatus.ENABLED, 0L));
+        when(userRoleMapper.selectByUserIdForUpdate(USER_ID))
+                .thenReturn(List.of(grant(USER_ID, SUPPORT_ROLE_ID)));
+        when(adminHandoffPort.findActiveAssignments(USER_ID))
+                .thenReturn(List.of(assignment(TICKET_NO, 5L)));
+
+        assertApiException(
+                () -> service.replaceRoles(USER_ID,
+                        new ReplaceUserRolesCommand(0L, List.of(EMPLOYEE_ROLE_ID))),
+                HttpStatus.CONFLICT,
+                "ADMIN_HANDOFF_CONFLICT");
+
+        verify(userMapper, never()).update(any(), any());
+        verifyNoInteractions(sessionRevocationPort);
+    }
+
+    // ---------- 待交接工单读取 ----------
+
+    @Test
+    void activeTicketAssignmentsReportsNotFoundForUnknownUser() {
+        when(userMapper.selectById(USER_ID)).thenReturn(null);
+
+        assertApiException(() -> service.activeTicketAssignments(USER_ID),
+                HttpStatus.NOT_FOUND, "USER_NOT_FOUND");
+
+        verifyNoInteractions(adminHandoffPort);
+    }
+
+    @Test
+    void activeTicketAssignmentsReturnsEmptyListWithoutActiveTickets() {
+        when(userMapper.selectById(USER_ID)).thenReturn(user(IamUserStatus.ENABLED, 0L));
+        when(adminHandoffPort.findActiveAssignments(USER_ID)).thenReturn(List.of());
+
+        assertThat(service.activeTicketAssignments(USER_ID)).isEmpty();
+    }
+
+    /** 读取侧原样透出工单侧的升序最小元数据：管理员看不到标题、描述、记录与附件。 */
+    @Test
+    void activeTicketAssignmentsReturnsMinimalMetadataInGivenOrder() {
+        when(userMapper.selectById(USER_ID)).thenReturn(user(IamUserStatus.ENABLED, 0L));
+        when(adminHandoffPort.findActiveAssignments(USER_ID)).thenReturn(List.of(
+                assignment(TICKET_NO, 5L),
+                new AdminHandoffAssignmentResult("FD-20261012-000002", "WAITING_FOR_CONFIRMATION",
+                        USER_ID, "演示 IT 支持人员", 9L)));
+
+        assertThat(service.activeTicketAssignments(USER_ID)).containsExactly(
+                assignment(TICKET_NO, 5L),
+                new AdminHandoffAssignmentResult("FD-20261012-000002", "WAITING_FOR_CONFIRMATION",
+                        USER_ID, "演示 IT 支持人员", 9L));
+    }
+
     // ---------- resetPassword ----------
 
     @Test
@@ -1010,6 +1312,16 @@ class IamUserServiceImplTest {
     }
 
     // ---------- 辅助 ----------
+
+    /** 待交接工单的最小元数据：只有编号、状态、当前负责人与版本。 */
+    private static AdminHandoffAssignmentResult assignment(String ticketNo, long version) {
+        return new AdminHandoffAssignmentResult(
+                ticketNo, "PROCESSING", USER_ID, "演示 IT 支持人员", version);
+    }
+
+    private static AdminHandoffInstruction handoffInstruction(String ticketNo, long ticketVersion) {
+        return new AdminHandoffInstruction(ticketNo, ticketVersion, SUPPORT_ROLE_ID);
+    }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
     private void stubPage(UserQuery query, List<IamUser> records, long total) {

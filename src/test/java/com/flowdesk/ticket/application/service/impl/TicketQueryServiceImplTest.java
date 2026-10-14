@@ -17,6 +17,7 @@ import com.flowdesk.ticket.application.result.TicketRecordResult;
 import com.flowdesk.ticket.application.result.TicketRelationResult;
 import com.flowdesk.ticket.application.result.TicketUserSummaryResult;
 import com.flowdesk.ticket.domain.TicketScope;
+import com.flowdesk.ticket.infrastructure.persistence.AdminHandoffTicketRow;
 import com.flowdesk.ticket.infrastructure.persistence.TicketAssigneeRow;
 import com.flowdesk.ticket.infrastructure.persistence.TicketDetailRow;
 import com.flowdesk.ticket.infrastructure.persistence.TicketListRow;
@@ -1485,6 +1486,92 @@ class TicketQueryServiceImplTest {
         assertThat(service.transferCandidates(TICKET_NO)).isEmpty();
     }
 
+    // ---------- handoffCandidates（管理性交接候选人） ----------
+
+    /**
+     * 管理性交接走 {@code TICKET_ADMIN_HANDOFF}，且<strong>不</strong>经过工单可见性：
+     * 管理员本来就没有 {@code TICKET_VIEW_*}，用可见性做闸门会把他挡成 404。
+     */
+    @Test
+    void handoffCandidatesRejectsActorWithoutHandoffAuthority() {
+        assertApiException(() -> service.handoffCandidates(TICKET_NO),
+                HttpStatus.FORBIDDEN, "ACCESS_DENIED");
+
+        verify(ticketMapper, never()).selectHandoffMetaByTicketNo(any());
+        verify(ticketMapper, never()).selectTransferCandidates(anyLong(), anyLong());
+        verifyNoInteractions(currentRequesterPort);
+    }
+
+    @Test
+    void handoffCandidatesReportsNotFoundWhenTicketDoesNotExist() {
+        grant("TICKET_ADMIN_HANDOFF");
+
+        assertApiException(() -> service.handoffCandidates(TICKET_NO),
+                HttpStatus.NOT_FOUND, "TICKET_NOT_FOUND");
+
+        verify(ticketMapper, never()).selectTransferCandidates(anyLong(), anyLong());
+    }
+
+    /** 待受理没有负责人，谈不到交班；带当前版本与状态快照，调用方刷新即可看到原因。 */
+    @Test
+    void handoffCandidatesReportsConflictWhenTicketHasNoAssignee() {
+        grant("TICKET_ADMIN_HANDOFF");
+        stubHandoffMeta(handoffRow(PENDING, null, 3L));
+
+        ApiException exception = assertApiException(
+                () -> service.handoffCandidates(TICKET_NO),
+                HttpStatus.CONFLICT, "ADMIN_HANDOFF_CONFLICT");
+
+        assertThat(exception.resourceVersion()).isEqualTo(3L);
+        assertThat(exception.resourceStatus()).isEqualTo(PENDING);
+        verify(ticketMapper, never()).selectTransferCandidates(anyLong(), anyLong());
+    }
+
+    @ParameterizedTest(name = "terminal status {0} cannot be handed off")
+    @ValueSource(strings = {COMPLETED, CANCELED, CLOSED})
+    void handoffCandidatesReportsConflictForTerminalTicket(String status) {
+        grant("TICKET_ADMIN_HANDOFF");
+        stubHandoffMeta(handoffRow(status, IT_USER_ID, 8L));
+
+        assertApiException(() -> service.handoffCandidates(TICKET_NO),
+                HttpStatus.CONFLICT, "ADMIN_HANDOFF_CONFLICT");
+
+        verify(ticketMapper, never()).selectTransferCandidates(anyLong(), anyLong());
+    }
+
+    /**
+     * 「待确认」也必须有接替人可选：球虽然在提交人手里，负责人仍是他，
+     * 停用账号同样会让这张单悬住——这一点与转交候选人接口（只允许处理中与待补充）不同。
+     */
+    @ParameterizedTest(name = "active status {0} allows handoff candidates")
+    @ValueSource(strings = {PROCESSING, WAITING_FOR_REQUESTER, WAITING_FOR_CONFIRMATION})
+    void handoffCandidatesReturnsCandidatesForEveryActiveStatus(String status) {
+        grant("TICKET_ADMIN_HANDOFF");
+        stubHandoffMeta(handoffRow(status, IT_USER_ID, 3L));
+        when(ticketMapper.selectTransferCandidates(REQUESTER_ID, IT_USER_ID))
+                .thenReturn(List.of(assigneeRow(NEW_IT_USER_ID, NEW_IT_DISPLAY_NAME)));
+
+        List<TicketAssigneeOptionResult> candidates = service.handoffCandidates(TICKET_NO);
+
+        // 候选资格与转交共用同一条 SQL；管理员也不需要工单可见性
+        verify(ticketMapper).selectTransferCandidates(REQUESTER_ID, IT_USER_ID);
+        verify(ticketMapper, never())
+                .selectVisibleDetail(any(), anyLong(), anyBoolean(), anyBoolean(), anyBoolean());
+        assertThat(candidates).containsExactly(
+                new TicketAssigneeOptionResult(NEW_IT_USER_ID, NEW_IT_DISPLAY_NAME));
+    }
+
+    /** 没有候选人时返回空数组：界面据此显示空态并禁止提交，而不是报错。 */
+    @Test
+    void handoffCandidatesReturnsEmptyListWhenNobodyIsEligible() {
+        grant("TICKET_ADMIN_HANDOFF");
+        stubHandoffMeta(handoffRow(PROCESSING, IT_USER_ID, 3L));
+        when(ticketMapper.selectTransferCandidates(REQUESTER_ID, IT_USER_ID))
+                .thenReturn(List.of());
+
+        assertThat(service.handoffCandidates(TICKET_NO)).isEmpty();
+    }
+
     // ---------- 事务边界 ----------
 
     /** 四个查询方法都只读：不写库，也不该在事务里拿写锁。 */
@@ -1494,6 +1581,7 @@ class TicketQueryServiceImplTest {
         assertReadOnly("detail", String.class);
         assertReadOnly("records", String.class, TicketRecordQuery.class);
         assertReadOnly("transferCandidates", String.class);
+        assertReadOnly("handoffCandidates", String.class);
     }
 
     // ---------- 辅助 ----------
@@ -1538,6 +1626,23 @@ class TicketQueryServiceImplTest {
         when(ticketMapper.selectVisibleDetail(
                 any(), anyLong(), anyBoolean(), anyBoolean(), anyBoolean()))
                 .thenReturn(row);
+    }
+
+    /** 管理性交接的最小元数据替身：不经可见性，只按编号读一行。 */
+    private void stubHandoffMeta(AdminHandoffTicketRow row) {
+        when(ticketMapper.selectHandoffMetaByTicketNo(TICKET_NO)).thenReturn(row);
+    }
+
+    private static AdminHandoffTicketRow handoffRow(String status, Long assigneeId, long version) {
+        AdminHandoffTicketRow row = new AdminHandoffTicketRow();
+        row.setId(TICKET_ID);
+        row.setTicketNo(TICKET_NO);
+        row.setStatus(status);
+        row.setRequesterId(REQUESTER_ID);
+        row.setAssigneeId(assigneeId);
+        row.setAssigneeDisplayName(IT_DISPLAY_NAME);
+        row.setVersion(version);
+        return row;
     }
 
     /** 列表中台替身：把传入的 Page 当作 MyBatis-Plus 分页插件回填后的结果返回。 */
