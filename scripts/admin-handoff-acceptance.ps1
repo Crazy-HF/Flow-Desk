@@ -8,9 +8,9 @@
 #   · docker compose up -d mysql redis（本脚本只对既有 mysql 容器执行 docker exec，不碰容器生命周期）
 #   · 目标后端必须是**已包含管理性交接的最新代码**，由调用方自己启动。脚本只发 HTTP 请求，不启动、
 #     不重启、不结束任何后端进程。
-#   · 推荐用**独立库**跑：本仓库分支只到 V8，而共享演示库已被后续批次迁到 V9，两者混跑会掩盖版本差异。
-#     做法：建一个空库（flowdesk_handoff_acc），把 .env 的 FLOWDESK_DB_NAME / FLOWDESK_DB_URL 指过去，
-#     用 local profile 启动（spring.profiles.group.local=demo 会带上演示种子 employee/it/admin，口令 123456）。
+#   · 推荐用**独立库**跑：脚本会自己创建并清理夹具，独立库既能保证种子确定（`local` profile 含 demo 组），
+#     也不会与并行工作树共享的演示库互相干扰。做法：建一个空库（flowdesk_handoff_acc），把 .env 的
+#     FLOWDESK_DB_NAME / FLOWDESK_DB_URL 指过去，用 local profile 启动（演示账号 employee/it/admin，口令 123456）。
 #
 # 运行
 #   pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\admin-handoff-acceptance.ps1
@@ -1182,7 +1182,7 @@ $evidence = [ordered]@{
         health       = $(if ($null -ne $healthJson) { $healthJson.status } else { 'UNKNOWN' })
         dbName       = $dbName
         dbContainer  = $DbContainer
-        flywayNote   = '独立空库 → Flyway V1..V8 + 演示种子（local profile 含 demo 组）'
+        flywayNote   = '独立空库 → Flyway 全量迁移（V1..V9）+ 演示种子（local profile 含 demo 组）'
         adminUserId  = $adminId
     }
     preflight        = $script:preflightInfo
