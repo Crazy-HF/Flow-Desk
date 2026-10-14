@@ -1,5 +1,18 @@
 # FlowDesk 项目状态
 
+## 2026-10-14 交付：管理性交接（分支 `admin-handover`，工作树 `D:\Idea\item\flow-Desk-admin-handover`）
+
+- **范围（完整版 backlog 第 4 项，`docs/api-design.md` 8.3）**：① 两个新查询端点 `GET /fd/v1/admin/users/{userId}/active-ticket-assignments`（待交接工单最小元数据）与 `GET /fd/v1/admin/tickets/{ticketNo}/handoff-candidates`（接替候选人，资格口径与转交候选人共用同一条 SQL）；② 扩展现有 `POST /fd/v1/users/{userId}/actions/disable` 与 `PUT /fd/v1/users/{userId}/roles`：目标用户仍负责活动工单时，请求必须携带 `handoffReason` + **完整**的 `handoffs`（每项 `ticketNo` / `ticketVersion` / `newAssigneeId`）。`IamUserServiceImpl` 原有的两处 `//TODO 工单模块未实现` 已由真实编排替换。**无需新迁移**（`ADMIN_HANDOFF` 已在 V1/V7/V8 白名单、`TICKET_ADMIN_HANDOFF` V2 已种给 `SYSTEM_ADMIN`），**不新增索引**（活动工单查询走既有 `idx_ticket_assignee_status_updated`）。
+- **三处关键设计（理由写在代码注释与 `docs/api-design.md` 8.3 的实现说明里）**：
+  1. **Redis/MySQL 顺序**：沿用 8.2.1 既有口径——全部 MySQL 写（换人 + 参与关系 + `ADMIN_HANDOFF` 记录 + 账号或角色变更）→ `sessionRevocationPort.revokeAll` → 提交。Redis 失败即整体回滚并返回 5xx，**不吞异常、不自动重放**；明确拒绝「先提交后撤销」，因为那会留下「账号已变更而旧 token 仍可用」的窗口。反向残留（已撤销但提交失败）是安全侧失败，如实登记、不做 un-revoke 补偿。
+  2. **跨模块端口**：`iam.application.port.AdminHandoffPort`（IAM 声明）+ `ticket.infrastructure.IamAdminHandoffAdapter`（工单模块实现），与 `SessionRevocationPort` + `IamSessionRevocationAdapter` 同形状。**没有**采用「接口放 ticket、实现放 iam」——那会与既有的 `ticket → iam`（`IamTicketClaimantAdapter`）形成双向依赖。
+  3. **固定锁顺序**：`iam_role(SYSTEM_ADMIN/IT_SUPPORT) → ticket(id 升序 FOR UPDATE) → iam_user(id 升序：目标用户 + 全部新负责人 + 操作人) → iam_user_role / ticket_participant / ticket_record`。为此 `disable` / `replaceRoles` 的目标用户行锁被推到交接之后（`TicketServiceImpl#transfer` 注释记录的"工单行锁 + 外键共享锁成环"场景）；`replaceRoles` 的「这次会不会摘掉 IT_SUPPORT」先无锁预读、加锁后以最终差异为准，两者不一致返回 `409/ADMIN_HANDOFF_CONFLICT`；锁等待/死锁同样映射为 409 且不重放。
+- **错误码口径**：纯请求缺陷（编号空白、版本为负、同一工单重复）→ `400/VALIDATION_FAILED`；缺方案或漏交 → `409/ADMIN_HANDOFF_REQUIRED`；多交、`userVersion`/`ticketVersion` 不符、候选人资格失效、条件更新命中 0 行 → `409/ADMIN_HANDOFF_CONFLICT`（带当前快照）；确实需要交接但缺 `TICKET_ADMIN_HANDOFF` → `403/ACCESS_DENIED`。权限是**条件性**的：目标用户没有活动工单时保持 8.2 的 `USER_MANAGE` 契约不变。
+- **验证（实跑）**：后端 `.\mvnw.cmd -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → 合并 `main` **之前** surefire **1139** + failsafe **172**（本轮记录基线 1094 + 168，+45 / +4，与新增用例数一致）；**合并 `main`（含附件批次 `V9`）之后复跑** → surefire **1157** + failsafe **172**、`Failures 0 / Errors 0`、`BUILD SUCCESS`（+18 来自附件批次，本分支的 45 项一条不少）。新增 `IamAdminHandoffAdapterTest`(11)、`AdminHandoffWebTest`(11)；扩写 `IamUserServiceImplTest`(58→71)、`TicketQueryServiceImplTest`(95→105)、`IamUserServiceIT`(24→28)。
+- **真实栈验收（实跑，51/51、退出码 0）**：新增 `scripts/admin-handoff-acceptance.ps1`，证据 `docs/acceptance/2026-10-14-admin-handoff.json`。运行口径：**独立空库 `flowdesk_handoff_acc`**（确定性种子、不触碰共享演示库，因此不受并行工作树影响）+ 8092 后端 `local` profile（含 demo 种子）；**合并 `main` 后用合并后的构建复跑空库（迁到 `V9`）仍 51/51**，证据为同一次复跑产出。运行前与清理后指纹（八项计数 + 五条聚合指纹）**完全一致**，4 张自建工单、5 个临时用户及其授权全部按主键清理；`ticket_daily_sequence` 前进属已知残留（脚本头已登记，回滚会导致编号重复）。六组断言：h1 最小元数据与权限边界（管理员读工单详情 404、只有 EMPLOYEE 的员工访问两个交接端点 403）、h2 缺方案 409 且库里零改动、h3 版本漂移 409 带快照、h4 停用 + 换人 + 参与关系 + 记录同事务成功且**成功响应前已完成 Redis 会话撤销**（被停用账号旧 token `/auth/me` → 401/`AUTH_SESSION_INVALID`；接替人可见该工单与时间线上的 `ADMIN_HANDOFF`）、h5 角色替换路径（摘 `IT_SUPPORT` 需要方案、成功后立刻失去 IT 列表权限；**保留 `IT_SUPPORT` 时无需方案也不撤会话**，证明触发条件是"摘角色"而非"手上有单"）、h6 多张工单里一张版本已变则**已经换过人的那张也随事务回滚**（账号仍启用、零交接记录、未撤会话、旧 token 仍有效）。
+- **已知边界（如实登记，本轮未修）**：① RBAC 三个撤销端点（单条撤销 / 批量撤销 / 清空全部）同样能摘掉 `IT_SUPPORT`，但 8.3 未把它们纳入交接要求，走那条路仍可能留下无效负责人；② 方案要求"完整、无重复"，因此请求规模就是该用户当前在办工单数，未设人为上限（完整性优先于防御性上限）；③ **前端管理页尚未接入交接弹窗**——目标有在办工单时停用 / 替换角色会拿到 `409/ADMIN_HANDOFF_REQUIRED`。前端侧工作（依赖环境修复 → `build` / 单测 / E2E + 截图自查 + 视觉契约产出）按用户指示留到 `main` 同步之后进行，**本文件与 `docs/` 的本轮同步不包含前端**。
+- **交接**：本轮改动（生产代码 + 测试 + 验收脚本与证据 + 文档同步）提交后推送 `admin-handover`，经 PR 合并 `main`；**PR 号、CI 运行号与合并提交按仓库惯例记录在下一分支的首个提交**。交接前先把 `main`（含 PR #23 附件批次与 `V9`）合并进本分支——两处冲突（本文件与 `AGENTS.md` 顶部的「当前分支」段）按"两个批次的记录都保留、新的在前"解决；**合并后重跑后端全量测试与真实栈脚本，数字以合并后的复跑为准**。
+
 ## 2026-10-13 交付：附件（独立通用模块 + 工单接入，步骤 1～7）
 
 - **范围与结果**：完整版 backlog 2 的「重」一侧全部落地，形态为**独立于工单、可跨项目复用的通用附件模块**（用户 2026-10-13 明确路径约定 `attachments/xx`，**不带 `/fd/v1` 前缀**；复用方式 = 拷 `com.flowdesk.attachment` 包 + `attachment` 表 + `flowdesk.attachment.root` 配置）：
@@ -1042,11 +1055,11 @@
 ## 当前任务必读
 
 1. AGENTS.md 与本文快速定位、下一步任务。
-2. docs/implementation-plan.md 第 6 节与 6.1（阶段 2 范围与验收顺序）。
-3. `.ui-craft/reviews/2026-09-29-tickets/report.md` 和 `docs/acceptance/`（页面、最终汇总、SQL 基线和真实栈验收证据）。
-4. docs/api-design.md 5.3（当前列表契约）；现有 TicketQuery、TicketMapper、TicketController 与 PageQuery/PageResult。
-5. docs/database-design.md 18/19；src/main/resources/db/migration/V1__create_schema.sql 的 ticket_category 表（不得修改历史迁移）。
-6. docs/technical-architecture.md 5.1 与现有 iam 的 Controller/Result/Service/Mapper 作为命名参考。
+2. **本文顶部「2026-10-14 交付：管理性交接」段** + `docs/api-design.md` 8.3 的实现说明 + `scripts/admin-handoff-acceptance.ps1` 与 `docs/acceptance/2026-10-14-admin-handoff.json`（改这条链路前先看这三处）。
+3. **`main` 同步之后的下一步（前端，尚未验收）**：修前端依赖环境 → `pnpm build` / 单测 / E2E + 截图自查 + 视觉契约产出。涉及 `frontend/` 前必读 `frontend/AGENTS.md`、`.ui-craft/frontend-redesign-handoff.md`，并实际查看 `.ui-craft/references/` 原图。
+4. `docs/implementation-plan.md` 9.3 末的「实施清单」与 9.4 的顺序（附件（重）→ 通知 / 通信通道 + 两个超时自动任务）。
+5. 改后端时：`docs/technical-architecture.md` 5.1（分层与命名，含跨模块 port 的落位约定）、`docs/modules/`（auth / rbac 的实现记录）、`src/main/resources/db/migration/`（V1～V8 已发布，不得修改历史迁移）。
+6. 前端页面契约与模板：`frontend/AGENTS.md` 与 `frontend/PAGE-TEMPLATE.md`。
 
 涉及前端时另读 frontend/AGENTS.md、.ui-craft/frontend-redesign-handoff.md，并实际查看 .ui-craft/references/ 原图。
 ## 文档索引

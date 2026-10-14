@@ -28,4 +28,25 @@ public class IamCurrentOperatorAdapter implements CurrentOperatorPort {
 
         return principal.userId();
     }
+
+    /**
+     * 当前请求是否持有某个业务权限。
+     *
+     * <p>与 {@code @PreAuthorize} 同源：都读认证对象里的授权集合，不另查数据库。
+     * 未认证或不是本系统的认证主体时返回 {@code false}，由调用方决定是 403 还是别的处置。</p>
+     */
+    @Override
+    public boolean hasAuthority(String authority) {
+        Authentication authentication =
+                SecurityContextHolder.getContext().getAuthentication();
+
+        if (authentication == null
+                || !authentication.isAuthenticated()
+                || authority == null) {
+            return false;
+        }
+
+        return authentication.getAuthorities().stream()
+                .anyMatch(granted -> authority.equals(granted.getAuthority()));
+    }
 }

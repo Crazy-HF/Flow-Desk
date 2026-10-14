@@ -14,6 +14,8 @@ import com.flowdesk.ticket.application.result.*;
 import com.flowdesk.ticket.application.service.TicketQueryService;
 import com.flowdesk.ticket.domain.CancelRequestPolicy;
 import com.flowdesk.ticket.domain.Ticket;
+import com.flowdesk.ticket.domain.TicketStatus;
+import com.flowdesk.ticket.infrastructure.persistence.AdminHandoffTicketRow;
 import com.flowdesk.ticket.infrastructure.persistence.TicketListRow;
 import com.flowdesk.ticket.infrastructure.persistence.TicketRecordRow;
 import com.flowdesk.ticket.mapper.TicketMapper;
@@ -30,6 +32,7 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -58,6 +61,14 @@ public class TicketQueryServiceImpl implements TicketQueryService {
     private static final String STATUS_WAITING_FOR_REQUESTER = "WAITING_FOR_REQUESTER";
     /** 转交工单权限：转交动作与候选人接口共用；与处理权限分开，可以单独授予一个角色。 */
     private static final String TICKET_TRANSFER = "TICKET_TRANSFER";
+
+    /**
+     * 管理性交接权限：管理员读取最小交接元数据、候选人与执行交接。
+     *
+     * <p>它<strong>不</strong>附带任何 {@code TICKET_VIEW_*}：交接只解决"谁负责"。管理员若同时具有 IT 角色，
+     * 也只能通过那份 IT 权限走普通工单接口读正文。</p>
+     */
+    private static final String TICKET_ADMIN_HANDOFF = "TICKET_ADMIN_HANDOFF";
 
     /** 关闭工单权限：与处理权限同时具备才能关闭（关闭是结束工单的处置动作）。 */
     private static final String TICKET_CLOSE = "TICKET_CLOSE";
@@ -264,6 +275,59 @@ public class TicketQueryServiceImpl implements TicketQueryService {
                         row.getId(),
                         row.getDisplayName()))
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * 查询某张工单的接替候选人（管理性交接读取侧，{@code docs/api-design.md} 8.3）。
+     *
+     * <p>与 {@link #transferCandidates(String)} 的关键差异：调用者是系统管理员，没有、也不应该有
+     * 工单正文查看权，因此<strong>不</strong>复用 {@code selectVisibleDetail}——那会把管理员挡成 404，
+     * 或者逼着系统管理员角色去拿 {@code TICKET_VIEW_*}。这里只读一行最小元数据，
+     * 候选资格仍走与转交完全相同的那条 SQL，避免出现两套"谁能接手"的标准。</p>
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<TicketAssigneeOptionResult> handoffCandidates(String ticketNo) {
+        //1.权限先于数据：管理员走交接权限，不看工单可见性
+        if (!ticketReadPermissionPort.hasAuthority(TICKET_ADMIN_HANDOFF)) {
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN,
+                    "ACCESS_DENIED",
+                    "无管理性交接权限");
+        }
+
+        //2.最小元数据（编号、状态、提交人、当前负责人、版本）
+        AdminHandoffTicketRow ticket = ticketMapper.selectHandoffMetaByTicketNo(ticketNo);
+        if (ticket == null) {
+            throw new ApiException(
+                    HttpStatus.NOT_FOUND,
+                    "TICKET_NOT_FOUND",
+                    "工单不存在");
+        }
+
+        //3.只有「有人负责且未终结」的工单才谈得上接替人：待受理没有负责人，终态不需要换人
+        if (ticket.getAssigneeId() == null || !isActiveAssignment(ticket.getStatus())) {
+            throw new ApiException(
+                    HttpStatus.CONFLICT,
+                    "ADMIN_HANDOFF_CONFLICT",
+                    "工单已不在需要交接的状态",
+                    ticket.getVersion(),
+                    ticket.getStatus());
+        }
+
+        //4.候选资格：启用 + IT_SUPPORT + 排除提交人与当前负责人（与转交共用同一条 SQL）
+        return ticketMapper.selectTransferCandidates(
+                        ticket.getRequesterId(), ticket.getAssigneeId()).stream()
+                .map(row -> new TicketAssigneeOptionResult(
+                        row.getId(),
+                        row.getDisplayName()))
+                .collect(Collectors.toList());
+    }
+
+    /** 状态名称 → 活动工单判定；取值域由 {@code ck_ticket_status} 约束，未知取值按不可交接处理。 */
+    private boolean isActiveAssignment(String status) {
+        return Arrays.stream(TicketStatus.values())
+                .anyMatch(value -> value.name().equals(status) && value.isActiveAssignment());
     }
 
     /**

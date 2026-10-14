@@ -27,6 +27,7 @@
 | HL-012 | 跨路径交叉死锁：从一次偶发并发失败到统一全模块的加锁起点 | **已实现，并有自动化与真实栈证据**（2026-10-07 发现、2026-10-08 片 D 修复；原先只作为 HL-011 的「已知边界」记录） | `TicketServiceIT`（转交 vs 撤回 / 转交 vs 关闭 / 领取 vs 撤销，**败者必为 409**）；`TicketServiceImplTest` 的加锁顺序与锁后版本复核用例；真实栈 `docs/acceptance/2026-10-08-slice-d-close-cancel.json`（182/182，含两组真并发） |
 | HL-013 | 两阶段撤销：不新增第 8 个状态，用三列请求表达「待批准」 | **已实现，并有自动化与真实栈双重证据**（2026-10-08；已随 [PR #18](https://github.com/Crazy-HF/Flow-Desk/pull/18) 合并 `main`，合并提交 `2cf1bc1`） | `DatabaseMigrationIT`（空库 `V7` 迁移与两条新 CHECK）；`TicketServiceIT`（真实 MySQL：发起 → 批准 / 拒绝 / 撤回、期限与请求三列同一条 UPDATE 清空、「关闭 vs 批准撤销」唯一胜者、`confirmResolution` 挂待决申请的组合）；`TicketQueryServiceImplTest` / `TicketQueryServiceIT`（`allowedActions` 三状态 × 两角色与 `cancelRequest`）；前端 4 格动作与详情「待批准」块的单测；E2E 两阶段两个场景；真实栈 `docs/acceptance/2026-10-08-slice-e-two-phase-cancel.json`（**178/178、退出码 0**）；全量 `clean verify` surefire 1070 + failsafe 158、前端单测 200 项、E2E 24 项 |
 | HL-014 | 穷尽 `switch` 的守卫必须配一条「真的读一次」的用例：一次时间线 500 的复盘 | **已实现并修复，并有回归守卫**（2026-10-12 缺陷随该批进入 `main`，2026-10-13 定位、修复并补用例） | 缺陷真实栈 traceId `360c7cba-2b1e-4958-b1cb-306004b75797`（`GET /fd/v1/tickets/{ticketNo}/records` → 500）；修复 `TicketQueryServiceImpl.toRecordContext` 的 `case "CANCELLATION_REQUEST_EXPIRED"`；回归守卫 `TicketQueryServiceIT.timelineTranslatesTheExpiredCancelRequestRecordInsteadOfFailing`（**首要断言是 `records()` 返回而不是抛异常**）与 `TicketQueryServiceImplTest.expiredCancelRequestRecordContextExposesOriginalRequestAndStatus`；`PROJECT_STATUS.md` / `docs/implementation-plan.md` 9.3 的交付记录已按实际改写 |
+| HL-015 | MySQL 与 Redis 没有原子事务：把会话撤销排进 MySQL 事务，并让"多张工单一起换人"真的整体回滚 | **已实现，并有自动化与真实栈双重证据**（2026-10-14，管理性交接） | `IamAdminHandoffAdapterTest`(11)、`AdminHandoffWebTest`(11)、`IamUserServiceImplTest`(71)、`TicketQueryServiceImplTest`(105)、`IamUserServiceIT`(28)；真实栈 `docs/acceptance/2026-10-14-admin-handoff.json`（**51/51、退出码 0**，含 h4「被停用账号旧 token `/auth/me` → 401」与 h6「一张工单版本变了则已换人的另一张一起回滚、且未撤会话」两组断言）；`clean verify` surefire 1139 + failsafe 172 |
 
 **对外表述口径**：HL-001～HL-010 全部可以作为“已实现并验证”的成果写入简历或面试讲解；其中 HL-007～HL-010 是 2026-10-06 阶段 3 收口与阶段 4 补测试后新增的证据，表述时必须带上对应的测试类名，不得只说“设计过”。
 
@@ -772,5 +773,44 @@ default -> throw new IllegalStateException("不支持的工单记录类型：" +
 ### 简历或面试表达参考
 
 "我用穷尽 `switch` 加 `default` 抛异常，把'新增记录类型忘了写投影'从静默显示空白变成当场失败。后来真的漏了一个类型——它的迁移、写入、前端标签都齐了，只有查询投影少一个 `case`，结果整条时间线 500。复盘发现：**守卫保证的是'不会静默错'，不是'有人会读到'**；当时的用例只断言了写入方写了什么，没有一条真的调 `records()` 去读。所以我补的回归守卫第一条断言就是'读得出来'，第二条才是字段对不对——这也让我把'断言写入'和'断言可读'当成了两件必须分别做的事。"
+
+## HL-015 MySQL 与 Redis 没有原子事务：把会话撤销排进 MySQL 事务，并让"多张工单一起换人"真的整体回滚（2026-10-14）
+
+### 当前状态
+
+**已实现，并有自动化与真实栈双重证据**。管理性交接（`docs/api-design.md` 8.3）：管理员停用账号或摘掉某人的 `IT_SUPPORT` 时，如果他还负责活动工单，必须在同一个请求里给出完整交接方案。真实栈 51/51（`docs/acceptance/2026-10-14-admin-handoff.json`），后端的 `clean verify` surefire 1139 + failsafe 172 全绿。
+
+### 问题背景：两个"没有天然事务"的地方
+
+1. **MySQL 与 Redis 之间没有原子事务**。契约要求"账号或角色变更、全部负责人替换、参与关系、交接记录同一事务成功；**成功响应前必须完成 Redis 会话撤销**"，同时禁止"账号已变更却返回会话撤销成功"。这是两个系统、两种失败模式，怎么排顺序都必须承认残留窗口。
+2. **交接天生是批量的**。一个人手上可能有多张活动工单，每张都要换人 + 补参与关系 + 写一条 `ADMIN_HANDOFF` 记录。任一环节失败时，"已经换过人的那张"必须跟着回滚，否则会留下一半新负责人、一半旧负责人的中间态。
+
+### 做法
+
+- **顺序固定为：全部 MySQL 写 → Redis 撤销 → 提交**。Redis 抛错就让整个 MySQL 事务回滚，接口返回 5xx；**不吞异常、不降级为"记个日志继续"、不自动重放**（撤销已经发生的副作用不该重放）。明确拒绝"先提交再撤销"：那会产生一个真实窗口——账号已停用、旧 access token 仍可用，正是契约禁止的结果。
+- **反向残留如实登记**：Redis 撤销成功但提交阶段失败（死锁、连接断）时，数据库未变更、用户被强制重登一次。这是**安全侧失败**，不提供 un-revoke 补偿。
+- **批量回滚靠"一个事务 + 条件更新"**：每张工单的换人是一条带 `version` + `assignee_id` + 状态白名单的条件更新，命中 0 行即抛 409；抛异常时同一事务里已经完成的那几张一起回滚，Redis 撤销还根本没被调用。
+- **锁顺序跨模块统一**：`iam_role → ticket(id 升序) → iam_user(id 升序) → iam_user_role / ticket_participant / ticket_record`。为此两个扩展端点（停用账号、替换角色）的目标用户行锁**被推到交接之后**——工单模块所有动作以工单行写锁起手，反序会与 `ticket_record` 外键申请的共享锁成环；同时把"目标用户 + 全部新负责人 + 操作人"一次性按 id 升序锁住，因为写记录时外键校验会隐式申请这些行的共享锁。
+- **跨模块接口放对方向**：端口 `iam.application.port.AdminHandoffPort` 由 IAM 声明、`ticket.infrastructure.IamAdminHandoffAdapter` 实现（与 `SessionRevocationPort` + `IamSessionRevocationAdapter` 同形状）。反方向（接口放 ticket、实现放 iam）会与既有的 `ticket → iam` 形成双向依赖。
+
+### 证据（都是"跑出来的"）
+
+| 断言 | 证明什么 |
+| --- | --- |
+| 交接成功后，用被停用账号的**旧 access token** 请求 `/auth/me` → `401/AUTH_SESSION_INVALID` | 成功响应确实发生在会话撤销之后 |
+| 两张工单的方案里第二张 `ticketVersion` 过期 → `409/ADMIN_HANDOFF_CONFLICT`，而**第一张（按 id 序先被处理）的负责人、版本、记录序号、参与关系、记录条数逐项不变** | 批量交接整体回滚，不是"尽力而为" |
+| 失败请求后目标账号仍 `ENABLED`、零 `ADMIN_HANDOFF` 记录、旧 token 仍有效 | 账号状态、记录、会话三者都没被单独改掉 |
+| 停用/摘角色但**不带方案** → `409/ADMIN_HANDOFF_REQUIRED`，且用户与工单签名逐项不变 | 校验失败发生在任何写入之前 |
+| 保留 `IT_SUPPORT` 的替换（集合未变）→ `200` 且会话保留 | 触发条件是"摘掉处理能力"，不是"手上有单"——幂等请求没有副作用 |
+
+### 诚实边界
+
+- **无法做到"两个系统同时提交"**：本实现选的是"宁可多撤一次会话，也不让账号变更后旧凭证继续可用"。这个方向的代价写进了文档，没有假装它不存在。
+- RBAC 的三个撤销入口（单条撤销 / 批量撤销 / 清空全部）同样能摘掉 `IT_SUPPORT`，但 8.3 没把它们纳入交接要求，走那条路仍可能留下无效负责人（已登记为已知边界，未在本轮扩大范围）。
+- 方案要求"完整、无重复"，所以请求规模等于该用户当前在办工单数，没有设人为上限——完整性优先于防御性上限，这个取舍也写在契约里。
+
+### 简历或面试表达参考
+
+"管理性交接要同时改两套系统：MySQL 里的账号/角色/工单负责人，和 Redis 里的登录会话。它们之间没有原子事务，所以我没有去'消除'这个窗口，而是明确选了方向：**所有数据库写先进同一个事务，会话撤销排在提交之前，撤销失败就让数据库一起回滚**——宁可让用户多登一次，也绝不出现'账号已停用但旧 token 还能用'。批量那一侧靠条件更新 + 单事务：两张工单里第二张版本过期时，第一张已经换过人的记录也跟着回滚，我用真实栈脚本把这一点做成了断言，而不是只在文档里写'支持回滚'。"
 
 

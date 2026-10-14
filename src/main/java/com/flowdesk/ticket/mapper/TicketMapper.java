@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.flowdesk.ticket.application.query.TicketQuery;
 import com.flowdesk.ticket.domain.Ticket;
+import com.flowdesk.ticket.infrastructure.persistence.AdminHandoffTicketRow;
 import com.flowdesk.ticket.infrastructure.persistence.TicketAssigneeRow;
 import com.flowdesk.ticket.infrastructure.persistence.TicketListRow;
 import com.flowdesk.ticket.infrastructure.persistence.TicketDetailRow;
@@ -410,6 +411,82 @@ public interface TicketMapper extends BaseMapper<Ticket> {
     List<TicketAssigneeRow> selectTransferCandidates(
             @Param("requesterId") long requesterId,
             @Param("currentAssigneeId") long currentAssigneeId);
+
+    /**
+     * 管理性交接：目标用户当前负责的活动工单最小元数据（{@code docs/api-design.md} 8.3）。
+     *
+     * <p>活动工单 = 有人负责且未终结的三个状态。这里带出负责人显示名称，供管理端确认"交的是谁的单"；
+     * 不返回标题、描述、分类、期限——管理员默认没有正文访问权。</p>
+     */
+    @Select("""
+            SELECT t.id AS id, t.ticket_no AS ticketNo, t.status AS status,
+                   t.requester_id AS requesterId, t.assignee_id AS assigneeId,
+                   assignee.display_name AS assigneeDisplayName, t.version AS version
+            FROM ticket t
+            LEFT JOIN iam_user assignee ON assignee.id = t.assignee_id
+            WHERE t.assignee_id = #{userId}
+              AND t.status IN ('PROCESSING', 'WAITING_FOR_REQUESTER', 'WAITING_FOR_CONFIRMATION')
+            ORDER BY t.ticket_no, t.id
+            """)
+    List<AdminHandoffTicketRow> selectActiveAssignments(@Param("userId") long userId);
+
+    /**
+     * 管理性交接的权威集合：按目标用户锁定其全部活动工单，返回加锁后的当前快照。
+     *
+     * <p>刻意<strong>不 JOIN {@code iam_user}</strong>：{@code SELECT ... FOR UPDATE} 会锁住语句读到的行，
+     * 带上 JOIN 就会在拿到工单行锁之前先锁用户行，把固定的「工单行 → 用户行」顺序变成反向。
+     * 显示名称只在上面那条无锁语句里查。</p>
+     */
+    @Select("""
+            SELECT t.id AS id, t.ticket_no AS ticketNo, t.status AS status,
+                   t.requester_id AS requesterId, t.assignee_id AS assigneeId, t.version AS version
+            FROM ticket t
+            WHERE t.assignee_id = #{userId}
+              AND t.status IN ('PROCESSING', 'WAITING_FOR_REQUESTER', 'WAITING_FOR_CONFIRMATION')
+            ORDER BY t.id
+            FOR UPDATE
+            """)
+    List<AdminHandoffTicketRow> selectActiveAssignmentsForUpdate(@Param("userId") long userId);
+
+    /**
+     * 管理性交接候选人接口的最小元数据：按编号读一行，不经过工单可见性。
+     *
+     * <p>调用者是系统管理员：他既没有 {@code TICKET_VIEW_*} 权限，也不应该为了选接替人而获得正文访问权，
+     * 因此不能复用 {@code selectVisibleDetail}（那会把管理员挡成 404）。</p>
+     */
+    @Select("""
+            SELECT t.id AS id, t.ticket_no AS ticketNo, t.status AS status,
+                   t.requester_id AS requesterId, t.assignee_id AS assigneeId, t.version AS version
+            FROM ticket t
+            WHERE t.ticket_no = #{ticketNo}
+            """)
+    AdminHandoffTicketRow selectHandoffMetaByTicketNo(@Param("ticketNo") String ticketNo);
+
+    /**
+     * 管理性交接换人：唯一胜者判定，同时兜住 {@code ck_ticket_assignee}（负责人 ≠ 提交人）。
+     *
+     * <p>状态、期限与撤销请求三列都不写：交接只解决"谁负责"，不改变工单所处的阶段
+     * （{@code docs/business-model.md} 12.1）。{@code version} 与 {@code record_seq} 各推进一次，
+     * 与 {@link #transfer} 同一口径。</p>
+     */
+    @Update("""
+            UPDATE ticket
+            SET assignee_id = #{newAssigneeId},
+                version = version + 1,
+                record_seq = record_seq + 1,
+                updated_at = #{now}
+            WHERE id = #{ticketId}
+              AND version = #{expectedVersion}
+              AND assignee_id = #{expectedAssigneeId}
+              AND status IN ('PROCESSING', 'WAITING_FOR_REQUESTER', 'WAITING_FOR_CONFIRMATION')
+              AND requester_id <> #{newAssigneeId}
+            """)
+    int handoffAssignee(
+            @Param("ticketId") long ticketId,
+            @Param("expectedVersion") long expectedVersion,
+            @Param("expectedAssigneeId") long expectedAssigneeId,
+            @Param("newAssigneeId") long newAssigneeId,
+            @Param("now") LocalDateTime now);
 
     /**当前负责人调整工单分类*/
     @Update("""
