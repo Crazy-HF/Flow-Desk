@@ -433,7 +433,7 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 - 分类管理、管理性交接和 RBAC 管理接口使用 `/fd/v1/admin` 前缀；用户管理接口统一使用 `/fd/v1/users`。两类接口均要求对应的管理员业务权限。
 - **版本边界**：本节系统管理接口整体属于完整版，均不阻塞求职 MVP。MVP 只使用 `EMPLOYEE`、`IT_SUPPORT`、`SYSTEM_ADMIN` 三种内置角色。**例外：8.2.1 的自定义 RBAC 已于 2026-09-21 经用户确认提前实施（先于阶段 2），阶段设计、任务拆分与验收标准见 `docs/implementation-plan.md` 9.1；2026-09-22 确认计入求职 MVP 演示范围，除后端接口、迁移与测试证据外还包含 RBAC 管理端页面（`TASK-060`）。8.2 用户管理已于 2026-09-24 经用户确认正式登记为阶段任务（`TASK-061` 后端、`TASK-062` 管理端页面）并计入求职 MVP 演示范围。**
 - 管理性交接（8.3）与数据概览（8.5）仍按原计划留到完整版，本次变更不放宽它们的边界；用户管理（8.2）与分类管理（8.4）已提前实施并从完整版 backlog 移出。
-- **实现状态（2026-09-28）**：8.2 用户管理八个端点与 8.2.1 四组 RBAC 端点（角色、权限、用户角色授权、角色权限授权，含批量授予、批量撤销、清空全部与一个角色授予多个用户，共 21 个端点）**均已完成并合并 `main`**（PR #8，合并提交 `f15468c`），管理端五页可走通真实闭环；测试与真实栈证据见 `docs/modules/rbac.md` 第 10、11 节与 `PROJECT_STATUS.md` 2026-09-28 记录。**8.3 管理性交接仍是 `TODO`，属完整版。**
+- **实现状态（2026-09-28）**：8.2 用户管理八个端点与 8.2.1 四组 RBAC 端点（角色、权限、用户角色授权、角色权限授权，含批量授予、批量撤销、清空全部与一个角色授予多个用户，共 21 个端点）**均已完成并合并 `main`**（PR #8，合并提交 `f15468c`），管理端五页可走通真实闭环；测试与真实栈证据见 `docs/modules/rbac.md` 第 10、11 节与 `PROJECT_STATUS.md` 2026-09-28 记录。**8.3 管理性交接仍是 `TODO`，属完整版。**（**2026-10-14 更新**：该句已失效——8.3 的两个查询端点与两个扩展端点的交接方案均已交付，见 8.3 的实现状态段；本行按惯例保留原文不追改。）
 - **实现状态（2026-09-28，分类管理）**：8.4 的六个 `/fd/v1/admin/categories` 端点与对应管理端页面（`/admin/categories`）经用户当轮指示提前实施，登记为 `TASK-063`（后端）与 `TASK-064`（页面）；契约本身不变。**分类管理后端与页面已完成运行时验收；HTTP 权限/参数/版本/重名/引用保护证据见 docs/acceptance/2026-09-29-category-ticket-scopes.json，页面 CRUD 与 1440/375 截图证据见 .ui-craft/reviews/2026-09-29-tickets/；本次纳入完整交接**，详见 `docs/implementation-plan.md` 9.2。
 - 若启用动态 RBAC，`SYSTEM_ADMIN` 必须是受保护的内置角色；角色或权限仍被授权关系引用时禁止删除。
 - 用户不提供物理删除接口，分类只有从未被工单引用时才允许删除。
@@ -526,6 +526,17 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 MySQL 与 Redis 之间不存在天然原子事务。工程准备阶段必须明确调用顺序、Redis 不可用时的失败策略和安全测试，保证接口不会在账号已变更后仍返回“会话撤销成功”的错误结果。
 
 管理员通过这些接口只能看到交接所需元数据，不能获得标题、问题描述、记录或附件。管理员若同时具有 IT 角色，也只能通过其 IT 身份对应的普通工单接口访问有权查看的内容。
+
+**实现状态（2026-10-14，已交付）**：本节两个查询端点与"停用账号 / 替换角色时的交接方案"已实现；交付记录见 `PROJECT_STATUS.md` 顶部「2026-10-14 交付：管理性交接」，真实栈证据 `docs/acceptance/2026-10-14-admin-handoff.json`（**51/51、退出码 0**）。落地口径与本节逐条对应：
+
+- **端点所有权**：`/fd/v1/admin/users/{userId}/active-ticket-assignments` 由 IAM 的 `AdminUserHandoffController` 提供（用户存在性判定在 IAM：不存在 `404/USER_NOT_FOUND`，无活动工单返回空数组）；`/fd/v1/admin/tickets/{ticketNo}/handoff-candidates` 由工单模块的 `AdminTicketHandoffController` 提供（非活动状态返回 `409/ADMIN_HANDOFF_CONFLICT` 带快照）。两个控制器都是类级 `TICKET_ADMIN_HANDOFF`，**不与** `IamUserController`（`/fd/v1/users` + `USER_MANAGE`）或 `TicketController`（工单可见性）合并注解；候选人查询**不经过工单可见性**，管理员因此不需要、也不会获得任何 `TICKET_VIEW_*`。
+- **请求体字段**：**8.3 所称 `userVersion` 就是这两个端点请求体里既有的 `version`**（8.2 表"携带版本"），没有引入第二个用户版本字段；逐工单版本在 `handoffs[].ticketVersion`。`handoffReason` 长度 1～1000（落进 `ticket_record.reason`），`handoffs` 每项为 `ticketNo` / `ticketVersion` / `newAssigneeId`。
+- **必填条件**：停用账号时，只要目标用户仍有活动工单就必须给出方案；替换角色时，只有**这次替换把 `IT_SUPPORT` 摘掉**且目标用户仍有活动工单才需要——仅新增角色、或保留 `IT_SUPPORT`，他仍能继续处理手上的工单，既不要求方案也不撤销会话（真实栈有反向对照断言）。活动工单 = `assignee_id = 目标用户` 且状态 ∈ `PROCESSING` / `WAITING_FOR_REQUESTER` / `WAITING_FOR_CONFIRMATION`（**含待确认**：球在提交人手里时负责人仍是他）。
+- **权限是条件性的**：确实发生交接时才要求 `TICKET_ADMIN_HANDOFF`，缺它返回 `403/ACCESS_DENIED`；目标用户没有活动工单时，8.2 的 `USER_MANAGE` 契约保持不变（为此 `CurrentOperatorPort` 新增 `hasAuthority`，由 `auth` 的 adapter 从认证对象读取，不另查库）。
+- **错误码**：纯请求缺陷（编号空白、版本为负、同一工单在方案里重复）→ `400/VALIDATION_FAILED`；缺方案、漏交某张活动工单 → `409/ADMIN_HANDOFF_REQUIRED`；多交（方案里出现不属于该用户的活动工单）、`userVersion` / `ticketVersion` 不符、候选人资格失效、条件更新命中 0 行、交接期间的锁等待或死锁 → `409/ADMIN_HANDOFF_CONFLICT`，其中工单版本/状态类冲突按 `ErrorDetails` 的 `version` / `status` 带当前快照。
+- **事务与顺序**：全部 MySQL 写（逐张换人 + `ticket_participant` + 一条 `ADMIN_HANDOFF` 记录 + 账号状态或角色集合 + 用户版本）在同一事务里；**Redis 会话撤销排在写库之后、提交之前**，撤销失败即整体回滚，因此不存在"账号已变更却返回会话撤销成功"。锁顺序固定为 `iam_role → ticket(id 升序) → iam_user(id 升序：目标用户 + 全部新负责人 + 操作人) → iam_user_role / ticket_participant / ticket_record`——交接的工单行锁必须排在用户行锁之前（与工单模块既有顺序一致，避免外键共享锁成环）；跨模块端口 `iam.application.port.AdminHandoffPort` 由 `ticket.infrastructure.IamAdminHandoffAdapter` 实现（与 `SessionRevocationPort` 同一落位约定）。
+- **记录形态**：没有专门的交接记录表——"交接记录"就是往 `ticket_record` 写一条 `ADMIN_HANDOFF`：`actor_user_id` 是管理员、`from_assignee_id` / `to_assignee_id` 是原/新负责人、`reason` 承载 `handoffReason`、前后状态相同（交接不改变状态、补充期限、确认期限与撤销请求三列），`version` 与 `record_seq` 各推进一次。
+- **已知边界（未修）**：`/fd/v1/admin/user-roles` 的三个撤销入口（单条撤销 / 批量撤销 / 清空全部）同样能摘掉 `IT_SUPPORT`，但本节未把它们纳入交接要求，走那条路仍可能留下无效负责人；方案要求"完整、无重复"，故请求规模等于该用户当前在办工单数，未设人为上限。
 
 ### 8.4 分类管理
 
