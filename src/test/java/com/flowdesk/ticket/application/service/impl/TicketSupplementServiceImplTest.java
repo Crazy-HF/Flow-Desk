@@ -1,5 +1,9 @@
 package com.flowdesk.ticket.application.service.impl;
 
+import com.flowdesk.attachment.application.AttachmentValidator;
+import com.flowdesk.attachment.config.AttachmentProperties;
+import com.flowdesk.attachment.infrastructure.AttachmentStorage;
+import com.flowdesk.attachment.mapper.AttachmentMapper;
 import com.flowdesk.common.exception.ApiException;
 import com.flowdesk.ticket.application.command.SupplementCommand;
 import com.flowdesk.ticket.application.port.CategoryAvailabilityPort;
@@ -12,6 +16,7 @@ import com.flowdesk.ticket.config.TicketProperties;
 import com.flowdesk.ticket.domain.Ticket;
 import com.flowdesk.ticket.domain.TicketRecord;
 import com.flowdesk.ticket.infrastructure.persistence.TicketDetailRow;
+import com.flowdesk.ticket.mapper.TicketAttachmentMapper;
 import com.flowdesk.ticket.mapper.TicketDailySequenceMapper;
 import com.flowdesk.ticket.mapper.TicketMapper;
 import com.flowdesk.ticket.mapper.TicketParticipantMapper;
@@ -30,12 +35,14 @@ import org.springframework.http.HttpStatus;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -87,6 +94,9 @@ class TicketSupplementServiceImplTest {
 
     private static final TicketProperties DEFAULT_PROPERTIES =
             new TicketProperties(Duration.ofDays(7), Duration.ofDays(7), Duration.ofDays(3));
+    private static final AttachmentProperties ATTACHMENT_PROPERTIES =
+            new AttachmentProperties(
+                    Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath(), null);
 
     @Mock
     private TicketMapper ticketMapper;
@@ -100,6 +110,13 @@ class TicketSupplementServiceImplTest {
     /** 片 D 的「重复工单」关闭要写 ticket_relation，构造签名随之多一个参数。 */
     @Mock
     private TicketRelationMapper ticketRelationMapper;
+    /** 附件与关联（2026-10-13）起，补充携带附件的构造依赖。 */
+    @Mock
+    private TicketAttachmentMapper ticketAttachmentMapper;
+    @Mock
+    private AttachmentStorage attachmentStorage;
+    @Mock
+    private AttachmentMapper attachmentMapper;
     @Mock
     private CurrentRequesterPort currentRequesterPort;
     @Mock
@@ -131,7 +148,7 @@ class TicketSupplementServiceImplTest {
 
         assertApiException(
                 () -> service.supplement(TICKET_NO,
-                        new SupplementCommand(5L, "已补充打印机型号")),
+                        new SupplementCommand(5L, "已补充打印机型号", List.of()), List.of()),
                 HttpStatus.FORBIDDEN, "TICKET_ACTION_FORBIDDEN");
 
         verify(ticketMapper, never()).selectVisibleDetail(
@@ -147,7 +164,7 @@ class TicketSupplementServiceImplTest {
 
         assertApiException(
                 () -> service.supplement(TICKET_NO,
-                        new SupplementCommand(5L, "已补充打印机型号")),
+                        new SupplementCommand(5L, "已补充打印机型号", List.of()), List.of()),
                 HttpStatus.NOT_FOUND, "TICKET_NOT_FOUND");
 
         verify(ticketMapper, never()).supplement(anyLong(), anyLong(), anyLong(), any());
@@ -161,7 +178,7 @@ class TicketSupplementServiceImplTest {
 
         ApiException exception = assertApiException(
                 () -> service.supplement(TICKET_NO,
-                        new SupplementCommand(5L, "已补充打印机型号")),
+                        new SupplementCommand(5L, "已补充打印机型号", List.of()), List.of()),
                 HttpStatus.CONFLICT, "TICKET_CONFLICT");
 
         assertThat(exception.resourceStatus()).isEqualTo(PROCESSING);
@@ -177,7 +194,7 @@ class TicketSupplementServiceImplTest {
 
         assertApiException(
                 () -> service.supplement(TICKET_NO,
-                        new SupplementCommand(5L, "已补充打印机型号")),
+                        new SupplementCommand(5L, "已补充打印机型号", List.of()), List.of()),
                 HttpStatus.CONFLICT, "TICKET_CONFLICT");
 
         verify(ticketMapper, never()).supplement(anyLong(), anyLong(), anyLong(), any());
@@ -190,7 +207,7 @@ class TicketSupplementServiceImplTest {
 
         ApiException exception = assertApiException(
                 () -> service.supplement(TICKET_NO,
-                        new SupplementCommand(5L, "已补充打印机型号")),
+                        new SupplementCommand(5L, "已补充打印机型号", List.of()), List.of()),
                 HttpStatus.CONFLICT, "TICKET_CONFLICT");
 
         assertThat(exception.resourceVersion()).as("响应携带当前版本供前端刷新").isEqualTo(6L);
@@ -207,7 +224,7 @@ class TicketSupplementServiceImplTest {
         stubVisible(detailRow(PROCESSING, 5L));
 
         assertApiException(
-                () -> service.supplement(TICKET_NO, new SupplementCommand(5L, "   ")),
+                () -> service.supplement(TICKET_NO, new SupplementCommand(5L, "   ", List.of()), List.of()),
                 HttpStatus.CONFLICT, "TICKET_CONFLICT");
     }
 
@@ -219,7 +236,7 @@ class TicketSupplementServiceImplTest {
         stubVisible(detailRow(WAITING_FOR_REQUESTER, 5L));
 
         assertApiException(
-                () -> service.supplement(TICKET_NO, new SupplementCommand(5L, "   ")),
+                () -> service.supplement(TICKET_NO, new SupplementCommand(5L, "   ", List.of()), List.of()),
                 HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
 
         verify(ticketMapper, never()).supplement(anyLong(), anyLong(), anyLong(), any());
@@ -235,7 +252,7 @@ class TicketSupplementServiceImplTest {
         stubVisible(detailRow(WAITING_FOR_REQUESTER, 5L));
 
         assertApiException(
-                () -> service.supplement(TICKET_NO, new SupplementCommand(5L, null)),
+                () -> service.supplement(TICKET_NO, new SupplementCommand(5L, null, List.of()), List.of()),
                 HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
     }
 
@@ -246,7 +263,7 @@ class TicketSupplementServiceImplTest {
 
         assertApiException(
                 () -> service.supplement(TICKET_NO,
-                        new SupplementCommand(5L, "补".repeat(10001))),
+                        new SupplementCommand(5L, "补".repeat(10001), List.of()), List.of()),
                 HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
     }
 
@@ -256,7 +273,7 @@ class TicketSupplementServiceImplTest {
         when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 7, 6L));
 
         TicketActionResult result = service.supplement(TICKET_NO,
-                new SupplementCommand(5L, "补".repeat(10000)));
+                new SupplementCommand(5L, "补".repeat(10000), List.of()), List.of());
 
         assertThat(result.status()).as("正文恰好 10000 字符是合法请求").isEqualTo(PROCESSING);
     }
@@ -269,7 +286,7 @@ class TicketSupplementServiceImplTest {
         when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 7, 6L));
 
         TicketActionResult result = service.supplement(TICKET_NO,
-                new SupplementCommand(5L, "  型号是 M404dn，错误码 E5  "));
+                new SupplementCommand(5L, "  型号是 M404dn，错误码 E5  ", List.of()), List.of());
 
         verify(ticketMapper).supplement(TICKET_ID, 5L, REQUESTER_ID, NOW_UTC);
 
@@ -313,7 +330,7 @@ class TicketSupplementServiceImplTest {
         stubVisible(overdue);
 
         TicketActionResult result = service.supplement(TICKET_NO,
-                new SupplementCommand(5L, "抱歉补晚了，型号是 M404dn"));
+                new SupplementCommand(5L, "抱歉补晚了，型号是 M404dn", List.of()), List.of());
 
         verify(ticketMapper).supplement(TICKET_ID, 5L, REQUESTER_ID, NOW_UTC);
         assertThat(result.status()).isEqualTo(PROCESSING);
@@ -332,7 +349,7 @@ class TicketSupplementServiceImplTest {
 
         ApiException exception = assertApiException(
                 () -> service.supplement(TICKET_NO,
-                        new SupplementCommand(5L, "已补充打印机型号")),
+                        new SupplementCommand(5L, "已补充打印机型号", List.of()), List.of()),
                 HttpStatus.CONFLICT, "TICKET_CONFLICT");
 
         assertThat(exception.resourceVersion()).as("携带读回的最新版本").isEqualTo(6L);
@@ -349,7 +366,7 @@ class TicketSupplementServiceImplTest {
         when(ticketMapper.selectClaimConflictSnapshotForUpdate(TICKET_ID)).thenReturn(null);
 
         assertThatThrownBy(() -> service.supplement(TICKET_NO,
-                new SupplementCommand(5L, "已补充打印机型号")))
+                new SupplementCommand(5L, "已补充打印机型号", List.of()), List.of()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("提交补充信息冲突后无法读取工单快照");
     }
@@ -360,7 +377,7 @@ class TicketSupplementServiceImplTest {
         when(ticketMapper.selectById(TICKET_ID)).thenReturn(null);
 
         assertThatThrownBy(() -> service.supplement(TICKET_NO,
-                new SupplementCommand(5L, "已补充打印机型号")))
+                new SupplementCommand(5L, "已补充打印机型号", List.of()), List.of()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("提交补充信息后无法读取工单快照");
 
@@ -373,7 +390,7 @@ class TicketSupplementServiceImplTest {
         when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, null, 6L));
 
         assertThatThrownBy(() -> service.supplement(TICKET_NO,
-                new SupplementCommand(5L, "已补充打印机型号")))
+                new SupplementCommand(5L, "已补充打印机型号", List.of()), List.of()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("提交补充信息后无法读取工单快照");
 
@@ -386,7 +403,7 @@ class TicketSupplementServiceImplTest {
         when(ticketMapper.selectById(TICKET_ID)).thenReturn(updatedTicket(TICKET_NO, 7, null));
 
         assertThatThrownBy(() -> service.supplement(TICKET_NO,
-                new SupplementCommand(5L, "已补充打印机型号")))
+                new SupplementCommand(5L, "已补充打印机型号", List.of()), List.of()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("提交补充信息后无法读取工单快照");
     }
@@ -402,7 +419,7 @@ class TicketSupplementServiceImplTest {
         when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(0);
 
         assertThatThrownBy(() -> service.supplement(TICKET_NO,
-                new SupplementCommand(5L, "已补充打印机型号")))
+                new SupplementCommand(5L, "已补充打印机型号", List.of()), List.of()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("补充记录插入失败");
     }
@@ -423,7 +440,12 @@ class TicketSupplementServiceImplTest {
                 ticketClaimPort,
                 ticketParticipantMapper,
                 ticketRelationMapper,
-                properties);
+                properties,
+                ticketAttachmentMapper,
+                new AttachmentValidator(),
+                attachmentStorage,
+                attachmentMapper,
+                ATTACHMENT_PROPERTIES);
     }
 
     private void stubRequesterActor() {

@@ -17,11 +17,22 @@ import com.flowdesk.ticket.domain.TicketPriority;
 import com.flowdesk.ticket.domain.TicketRecord;
 import com.flowdesk.ticket.infrastructure.persistence.TicketDetailRow;
 import com.flowdesk.ticket.infrastructure.persistence.TicketDuplicateTargetRow;
+import com.flowdesk.attachment.application.AttachmentValidator;
+import com.flowdesk.attachment.config.AttachmentProperties;
+import com.flowdesk.attachment.domain.Attachment;
+import com.flowdesk.attachment.domain.DetectedFileType;
+import com.flowdesk.attachment.infrastructure.AttachmentStorage;
+import com.flowdesk.attachment.infrastructure.AttachmentStorageException;
+import com.flowdesk.attachment.infrastructure.StagedAttachment;
+import com.flowdesk.attachment.mapper.AttachmentMapper;
+import com.flowdesk.ticket.mapper.TicketAttachmentMapper;
 import com.flowdesk.ticket.mapper.TicketMapper;
 import com.flowdesk.ticket.mapper.TicketDailySequenceMapper;
 import com.flowdesk.ticket.mapper.TicketParticipantMapper;
 import com.flowdesk.ticket.mapper.TicketRecordMapper;
 import com.flowdesk.ticket.mapper.TicketRelationMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -29,10 +40,15 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
@@ -70,6 +86,8 @@ public class TicketServiceImpl implements TicketService {
     /** 原因类动作（撤回、未解决、转交、调整、取消、关闭）的长度上限，与 @Size 一致。 */
     private static final int MAX_REASON_LENGTH = 1000;
 
+    private static final Logger log = LoggerFactory.getLogger(TicketServiceImpl.class);
+
     private static final ZoneId BUSINESS_ZONE =
             ZoneId.of("Asia/Shanghai");
 
@@ -87,6 +105,14 @@ public class TicketServiceImpl implements TicketService {
     private final TicketRelationMapper ticketRelationMapper;
     /** 确认期限来自配置，服务端计算，不接受客户端传入。 */
     private final TicketProperties ticketProperties;
+    /** 附件绑定（ticket_attachment）：创建/补充时把通用附件绑定到工单记录。 */
+    private final TicketAttachmentMapper ticketAttachmentMapper;
+    /** 附件模块的通用能力：校验、受控存储与元数据写入（2026-10-13 第 5 步接入）。 */
+    private final AttachmentValidator attachmentValidator;
+    private final AttachmentStorage attachmentStorage;
+    private final AttachmentMapper attachmentMapper;
+    /** 附件保留期：引用校验与对账任务共用同一口径（2026-10-13 第 7 步起单一来源）。 */
+    private final AttachmentProperties attachmentProperties;
 
 
     public TicketServiceImpl(
@@ -101,7 +127,12 @@ public class TicketServiceImpl implements TicketService {
             TicketClaimantPort ticketClaimPort,
             TicketParticipantMapper ticketParticipantMapper,
             TicketRelationMapper ticketRelationMapper,
-            TicketProperties ticketProperties) {
+            TicketProperties ticketProperties,
+            TicketAttachmentMapper ticketAttachmentMapper,
+            AttachmentValidator attachmentValidator,
+            AttachmentStorage attachmentStorage,
+            AttachmentMapper attachmentMapper,
+            AttachmentProperties attachmentProperties) {
         this.clock = clock;
         this.ticketMapper = ticketMapper;
         this.ticketDailySequenceMapper = ticketDailySequenceMapper;
@@ -113,6 +144,11 @@ public class TicketServiceImpl implements TicketService {
         this.ticketParticipantMapper = ticketParticipantMapper;
         this.ticketRelationMapper = ticketRelationMapper;
         this.ticketProperties = ticketProperties;
+        this.ticketAttachmentMapper = ticketAttachmentMapper;
+        this.attachmentValidator = attachmentValidator;
+        this.attachmentStorage = attachmentStorage;
+        this.attachmentMapper = attachmentMapper;
+        this.attachmentProperties = attachmentProperties;
 
         this.transactionTemplate =
                 new TransactionTemplate(transactionManager);
@@ -123,41 +159,46 @@ public class TicketServiceImpl implements TicketService {
     }
 
     /**
-     * 创建工单
-     * 同一用户、同一提交键返回首次创建结果。
+     * 创建工单（可携带新附件 files 或引用已上传附件 attachmentIds）。
+     * 同一用户、同一提交键返回首次创建结果；幂等重放时本轮新传的文件全部丢弃并清理暂存。
+     *
+     * <p>附件写入严格按 {@code docs/engineering-readiness.md} 7.2：暂存 → 校验 → 事务内写元数据
+     * → 逐个原子移动 → 提交；失败补偿删除暂存与已移动文件，补偿失败只告警（对账任务兜底）。</p>
      */
     @Override
-    public TicketCreatedResult create(CreateTicketCommand command) {
+    public TicketCreatedResult create(CreateTicketCommand command, List<MultipartFile> files) {
         //1.获取当前提交人
         Long requesterId = currentRequesterPort.currentUserId();
 
-        //2.处理用户submissionKey：HTTP 入口已由 Bean Validation 校验 UUID，这里兜底非 HTTP 调用方
-        String rawSubmissionKey = command.submissionKey();
-        if (rawSubmissionKey == null) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "提交键必须是 UUID");
-        }
-        String submissionKey;
-        try {
-            submissionKey = UUID.fromString(rawSubmissionKey).toString();
-        } catch (IllegalArgumentException exception) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "提交键必须是 UUID");
-        }
+        //2.处理用户submissionKey（HTTP 入口已由 Bean Validation 校验 UUID，这里兜底非 HTTP 调用方）
+        String submissionKey = normalizeSubmissionKey(command);
 
+        List<MultipartFile> uploads = files == null ? List.of() : files;
+
+        //3.先暂存并校验新附件（严格按 7.2：暂存 → 校验 → 开事务）；任一失败整单失败
+        PreparedAttachments prepared = prepareAttachments(uploads);
+        List<String> movedKeys = new ArrayList<>();
         try {
-            return Objects.requireNonNull(
+            TicketCreatedResult result = Objects.requireNonNull(
                     transactionTemplate.execute(transactionStatus -> {
-                        //3.根据唯一键处理已成功创建过的请求
+                        //4.根据唯一键处理已成功创建过的请求
                         Ticket existing = ticketMapper.selectCreationByRequesterAndSubmissionKey(requesterId, submissionKey);
 
-                        //4.存在则继续提交
+                        //5.存在则返回首次创建结果；幂等重放不消费附件（外层统一清理本轮暂存）
                         if (existing != null)
                             return toCreatedResult(existing);
 
-                        //5.首次提交才执行分类校验、创建
-                        return createTicket(command, requesterId, submissionKey);
+                        //6.首次提交才执行分类校验、创建与附件写入
+                        return createTicket(command, requesterId, submissionKey, prepared, movedKeys);
                     })
             );
+            //正常成功时暂存已被移动（删除为空操作）；幂等重放时把本轮新传的文件丢弃
+            deleteStagedQuietly(prepared);
+            return result;
         } catch (DuplicateKeyException exception) {
+            deleteStagedQuietly(prepared);
+            deleteMovedQuietly(movedKeys);
+
             //execute 抛出异常时创建事务已经回滚；用新事务查并发请求提交的原工单
             Ticket existing = transactionTemplate.execute(transactionStatus ->
                     ticketMapper.selectCreationByRequesterAndSubmissionKey(requesterId, submissionKey));
@@ -174,6 +215,24 @@ public class TicketServiceImpl implements TicketService {
                     "工单创建冲突，请重试");
             conflict.initCause(exception);
             throw conflict;
+        } catch (RuntimeException exception) {
+            //含“移动失败回滚”“提交失败”：删除暂存与已移动文件；补偿失败只告警，交由对账兜底
+            deleteStagedQuietly(prepared);
+            deleteMovedQuietly(movedKeys);
+            throw exception;
+        }
+    }
+
+    /** HTTP 入口已由 Bean Validation 校验 UUID；这里兜底非 HTTP 调用方。 */
+    private String normalizeSubmissionKey(CreateTicketCommand command) {
+        String rawSubmissionKey = command.submissionKey();
+        if (rawSubmissionKey == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "提交键必须是 UUID");
+        }
+        try {
+            return UUID.fromString(rawSubmissionKey).toString();
+        } catch (IllegalArgumentException exception) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "提交键必须是 UUID");
         }
     }
 
@@ -934,10 +993,9 @@ public class TicketServiceImpl implements TicketService {
                 instant.atOffset(ZoneOffset.UTC));
     }
 
-    /** 提交人补充信息：回到「处理中」，原补充期限失效，原负责人继续处理。 */
+    /** 提交人补充信息（正文与附件至少一项）：回到「处理中」，原补充期限失效，原负责人继续处理。 */
     @Override
-    @Transactional
-    public TicketActionResult supplement(String ticketNo, SupplementCommand command) {
+    public TicketActionResult supplement(String ticketNo, SupplementCommand command, List<MultipartFile> files) {
         // 1. 身份与提交人动作权限
         long actorId = currentRequesterPort.currentUserId();
         if (!ticketReadPermissionPort.hasAuthority(TICKET_REQUESTER_ACTION)) {
@@ -974,74 +1032,103 @@ public class TicketServiceImpl implements TicketService {
             throw conflict(visible.getVersion(), visible.getStatus());
         }
 
-        /**
-         * 5. 补充正文：本版本只接受正文，附件属完整版 backlog 第 2 项（用户 2026-10-06 裁决）。
-         *
-         * <p><strong>刻意不判定"是否已过 `action_deadline_at`"</strong>：本版本没有超时自动关闭
-         * （自动任务属 backlog 第 3 项），期限只用于界面展示。若在这里拒绝过期提交，等于把
-         * "系统还没实现自动关闭"变成"员工连信息都补不进来"，比不做更糟。</p>
-         */
+        // 5. 正文与附件至少存在一项；正文长度沿用旧口径。
+        //    刻意不判定"是否已过 action_deadline_at"：本版本没有超时自动关闭（backlog 第 3 项），
+        //    在那里拒绝过期提交等于把"系统还没实现自动关闭"变成"员工连信息都补不进来"。
         String content = command.content();
-        if (content == null || content.isEmpty() || content.length() > MAX_CONTENT_LENGTH) {
+        if (content != null && content.length() > MAX_CONTENT_LENGTH) {
             throw new ApiException(
                     HttpStatus.BAD_REQUEST,
                     "VALIDATION_FAILED",
                     "补充内容长度必须在 1 到 10000 之间");
         }
-
-        Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
-        LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
-
-        // 6. 条件更新：清空补充期限、回到处理中；assignee_id 不动（补充不等于换人）
-        int updatedRows = ticketMapper.supplement(
-                visible.getId(),
-                command.version(),
-                actorId,
-                now);
-
-        if (updatedRows != 1) {
-            Ticket current = ticketMapper.selectClaimConflictSnapshotForUpdate(visible.getId());
-            if (current == null) {
-                throw new IllegalStateException("提交补充信息冲突后无法读取工单快照");
-            }
-            throw conflict(current.getVersion(), current.getStatus());
+        boolean hasContent = content != null && !content.isEmpty();
+        List<MultipartFile> uploads = files == null ? List.of() : files;
+        if (!hasContent && uploads.isEmpty() && command.attachmentIds().isEmpty()) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_FAILED",
+                    "补充内容至少包含文字或附件");
         }
 
-        Ticket updated = ticketMapper.selectById(visible.getId());
-        if (updated == null
-                || updated.getRecordSeq() == null
-                || updated.getVersion() == null) {
-            throw new IllegalStateException("提交补充信息后无法读取工单快照");
+        // 6. 先暂存并校验新附件（严格按 7.2 的顺序：暂存 → 校验 → 开事务）
+        PreparedAttachments prepared = prepareAttachments(uploads);
+        List<String> movedKeys = new ArrayList<>();
+        try {
+            TicketActionResult result = Objects.requireNonNull(transactionTemplate.execute(transactionStatus -> {
+                Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
+                LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+
+                // 6.1 条件更新：清空补充期限、回到处理中；assignee_id 不动（补充不等于换人）
+                int updatedRows = ticketMapper.supplement(
+                        visible.getId(),
+                        command.version(),
+                        actorId,
+                        now);
+
+                if (updatedRows != 1) {
+                    Ticket current = ticketMapper.selectClaimConflictSnapshotForUpdate(visible.getId());
+                    if (current == null) {
+                        throw new IllegalStateException("提交补充信息冲突后无法读取工单快照");
+                    }
+                    throw conflict(current.getVersion(), current.getStatus());
+                }
+
+                Ticket updated = ticketMapper.selectById(visible.getId());
+                if (updated == null
+                        || updated.getRecordSeq() == null
+                        || updated.getVersion() == null) {
+                    throw new IllegalStateException("提交补充信息后无法读取工单快照");
+                }
+
+                // 6.2 不可变时间线：补充正文与状态迁移；期限已失效，因此不写 deadline_at
+                TicketRecord record = new TicketRecord();
+                record.setTicketId(updated.getId());
+                record.setSequenceNo(updated.getRecordSeq());
+                record.setRecordType("REQUESTER_SUPPLEMENT");
+                record.setActorType("USER");
+                record.setActorUserId(actorId);
+                record.setContent(content);
+                record.setFromStatus(WAITING_FOR_REQUESTER);
+                record.setToStatus(PROCESSING);
+                record.setCreatedAt(now);
+
+                if (ticketRecordMapper.insert(record) != 1) {
+                    throw new IllegalStateException("补充记录插入失败");
+                }
+
+                // 6.3 附件：新文件写元数据并绑定本条补充记录；引用附件复核后绑定（同事务）
+                bindNewAttachments(prepared, record, actorId, now);
+                bindReferencedAttachments(command.attachmentIds(), record, actorId, now);
+
+                // 6.4 逐个原子移动到最终目录；任一失败抛出 → 外层回滚并补偿
+                for (PreparedAttachment preparedFile : prepared.files()) {
+                    attachmentStorage.moveToFinal(preparedFile.staged().storageKey());
+                    movedKeys.add(preparedFile.staged().storageKey());
+                }
+
+                // 7. 负责人没变、期限已清空，摘要直接取本事务读到的可见快照
+                TicketUserSummaryResult assignee = new TicketUserSummaryResult(
+                        visible.getAssigneeId(),
+                        visible.getAssigneeDisplayName());
+
+                return new TicketActionResult(
+                        updated.getTicketNo(),
+                        PROCESSING,
+                        assignee,
+                        null,
+                        updated.getVersion(),
+                        instant.atOffset(ZoneOffset.UTC));
+            }));
+            //正常成功时暂存已被移动（删除为空操作）
+            deleteStagedQuietly(prepared);
+            return result;
+        } catch (RuntimeException exception) {
+            //含“移动失败回滚”“提交失败”：删除暂存与已移动文件；补偿失败只告警，交由对账兜底
+            deleteStagedQuietly(prepared);
+            deleteMovedQuietly(movedKeys);
+            throw exception;
         }
-
-        // 7. 不可变时间线：补充正文与状态迁移；期限已失效，因此不写 deadline_at
-        TicketRecord record = new TicketRecord();
-        record.setTicketId(updated.getId());
-        record.setSequenceNo(updated.getRecordSeq());
-        record.setRecordType("REQUESTER_SUPPLEMENT");
-        record.setActorType("USER");
-        record.setActorUserId(actorId);
-        record.setContent(content);
-        record.setFromStatus(WAITING_FOR_REQUESTER);
-        record.setToStatus(PROCESSING);
-        record.setCreatedAt(now);
-
-        if (ticketRecordMapper.insert(record) != 1) {
-            throw new IllegalStateException("补充记录插入失败");
-        }
-
-        // 8. 负责人没变、期限已清空，摘要直接取本事务读到的可见快照
-        TicketUserSummaryResult assignee = new TicketUserSummaryResult(
-                visible.getAssigneeId(),
-                visible.getAssigneeDisplayName());
-
-        return new TicketActionResult(
-                updated.getTicketNo(),
-                PROCESSING,
-                assignee,
-                null,
-                updated.getVersion(),
-                instant.atOffset(ZoneOffset.UTC));
     }
 
     /** 当前负责人调整分类：状态、负责人与期限都不变，只替换分类并留下调整记录。 */
@@ -2216,7 +2303,8 @@ public class TicketServiceImpl implements TicketService {
 
 
     /** 创建工单 */
-    private TicketCreatedResult createTicket(CreateTicketCommand command, Long requesterId, String submissionKey) {
+    private TicketCreatedResult createTicket(CreateTicketCommand command, Long requesterId, String submissionKey,
+            PreparedAttachments prepared, List<String> movedKeys) {
         //1.校验分类
         if (!categoryAvailabilityPort.isEnabled(command.categoryId())) {
             throw new ApiException(
@@ -2303,6 +2391,17 @@ public class TicketServiceImpl implements TicketService {
             throw new IllegalStateException("创建记录插入失败");
         }
 
+        //7.附件：新文件写元数据并绑定到创建记录；引用附件复核后绑定（同事务；失败整体回滚）
+        // record.getId() 由 MyBatis-Plus 在 insert 后回填；在辅助方法内部惰性读取，无附件时不触碰
+        bindNewAttachments(prepared, record, requesterId, record.getCreatedAt());
+        bindReferencedAttachments(command.attachmentIds(), record, requesterId, record.getCreatedAt());
+
+        //7.1 逐个原子移动到最终目录：全部成功才允许提交（7.2）；任一失败抛出后外层统一回滚并补偿
+        for (PreparedAttachment preparedFile : prepared.files()) {
+            attachmentStorage.moveToFinal(preparedFile.staged().storageKey());
+            movedKeys.add(preparedFile.staged().storageKey());
+        }
+
         //8.写「后续工单」关联：source = 新工单，target = 原工单（本方法内是同事务写入，失败整体回滚）。
         //  不写时间线事件：关联只在详情 relations[] 里返回
         if (sourceTicket != null ) {
@@ -2325,6 +2424,119 @@ public class TicketServiceImpl implements TicketService {
                 PENDING,
                 0L,
                 ticket.getCreatedAt().atOffset(ZoneOffset.UTC));
+    }
+
+    // ---------- 附件接入（2026-10-13 第 5 步） ----------
+
+    /** 声明预检 + 暂存 + 暂存后复核；任一步失败先清理已暂存文件再抛出（校验异常由附件模块 advice 映射）。 */
+    private PreparedAttachments prepareAttachments(List<MultipartFile> uploads) {
+        if (uploads.isEmpty()) {
+            return new PreparedAttachments(List.of());
+        }
+        attachmentValidator.validateFileCount(uploads.size());
+        List<PreparedAttachment> staged = new ArrayList<>();
+        try {
+            long declaredTotal = 0;
+            for (MultipartFile file : uploads) {
+                String originalName = attachmentValidator.validateOriginalName(file.getOriginalFilename());
+                attachmentValidator.validateFileSize(originalName, file.getSize());
+                declaredTotal += file.getSize();
+                staged.add(stageOne(originalName, file));
+            }
+            attachmentValidator.validateTotalSize(declaredTotal);
+            long actualTotal = staged.stream()
+                    .mapToLong(item -> item.staged().sizeBytes())
+                    .sum();
+            attachmentValidator.validateTotalSize(actualTotal);
+            return new PreparedAttachments(List.copyOf(staged));
+        } catch (RuntimeException exception) {
+            staged.forEach(item -> deleteStagedQuietlyOne(item.staged().storageKey()));
+            throw exception;
+        }
+    }
+
+    private PreparedAttachment stageOne(String originalName, MultipartFile file) {
+        StagedAttachment staged;
+        try {
+            staged = attachmentStorage.stage(file.getInputStream());
+        } catch (IOException exception) {
+            throw new UncheckedIOException("读取上传内容失败：" + originalName, exception);
+        }
+        attachmentValidator.validateFileSize(originalName, staged.sizeBytes());
+        DetectedFileType type = attachmentValidator.validateContent(
+                originalName, file.getContentType(), attachmentStorage.stagedPath(staged.storageKey()));
+        return new PreparedAttachment(originalName, staged, type);
+    }
+
+    /** 新附件：写 attachment 元数据并绑定到指定记录（同一事务）；recordId 由插入后回填，惰性读取。 */
+    private void bindNewAttachments(PreparedAttachments prepared, TicketRecord record, long requesterId,
+            LocalDateTime createdAt) {
+        for (PreparedAttachment preparedFile : prepared.files()) {
+            Attachment attachment = new Attachment();
+            attachment.setStorageKey(preparedFile.staged().storageKey());
+            attachment.setOriginalName(preparedFile.originalName());
+            attachment.setContentType(preparedFile.type().contentType());
+            attachment.setSizeBytes(preparedFile.staged().sizeBytes());
+            attachment.setSha256(preparedFile.staged().sha256());
+            attachment.setUploadedBy(requesterId);
+            attachment.setCreatedAt(createdAt);
+            if (attachmentMapper.insert(attachment) != 1) {
+                throw new IllegalStateException("附件元数据插入失败");
+            }
+            if (ticketAttachmentMapper.insertBinding(attachment.getId(), record.getId(), createdAt) != 1) {
+                throw new IllegalStateException("附件绑定写入失败");
+            }
+        }
+    }
+
+    /**
+     * 引用附件：同一事务内复核「本人 + 未绑定 + 未过期」（{@code FOR UPDATE} 对齐并发），
+     * 整体通过才绑定；数量不符统一 400，不泄露他人附件是否存在。
+     */
+    private void bindReferencedAttachments(List<Long> attachmentIds, TicketRecord record, long requesterId,
+            LocalDateTime createdAt) {
+        if (attachmentIds.isEmpty()) {
+            return;
+        }
+        List<Long> usable = ticketAttachmentMapper.selectUsableForBinding(
+                attachmentIds, requesterId, createdAt.minus(attachmentProperties.retention()));
+        if (usable.size() != attachmentIds.size()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "附件引用无效");
+        }
+        for (Long attachmentId : attachmentIds) {
+            if (ticketAttachmentMapper.insertBinding(attachmentId, record.getId(), createdAt) != 1) {
+                throw new IllegalStateException("附件绑定写入失败");
+            }
+        }
+    }
+
+    private void deleteStagedQuietly(PreparedAttachments prepared) {
+        prepared.files().forEach(item -> deleteStagedQuietlyOne(item.staged().storageKey()));
+    }
+
+    private void deleteStagedQuietlyOne(String storageKey) {
+        try {
+            attachmentStorage.deleteStaged(storageKey);
+        } catch (AttachmentStorageException exception) {
+            log.warn("附件补偿删除暂存文件失败，交由对账处理 storageKey={}", storageKey, exception);
+        }
+    }
+
+    private void deleteMovedQuietly(List<String> movedKeys) {
+        movedKeys.forEach(storageKey -> {
+            try {
+                attachmentStorage.deleteFinal(storageKey);
+            } catch (AttachmentStorageException exception) {
+                log.warn("附件补偿删除最终文件失败，交由对账处理 storageKey={}", storageKey, exception);
+            }
+        });
+    }
+
+    /** 已暂存并校验通过的新附件（含服务端识别类型，写给 attachment.content_type）。 */
+    private record PreparedAttachment(String originalName, StagedAttachment staged, DetectedFileType type) {
+    }
+
+    private record PreparedAttachments(List<PreparedAttachment> files) {
     }
 
     /** 冲突响应统一携带当前快照，供前端刷新后重试。 */

@@ -1,11 +1,13 @@
 package com.flowdesk.support;
 
+import com.flowdesk.attachment.mapper.AttachmentMapper;
 import com.flowdesk.category.mapper.TicketCategoryMapper;
 import com.flowdesk.iam.mapper.IamPermissionMapper;
 import com.flowdesk.iam.mapper.IamRoleMapper;
 import com.flowdesk.iam.mapper.IamRolePermissionMapper;
 import com.flowdesk.iam.mapper.IamUserMapper;
 import com.flowdesk.iam.mapper.IamUserRoleMapper;
+import com.flowdesk.ticket.mapper.TicketAttachmentMapper;
 import com.flowdesk.ticket.mapper.TicketDailySequenceMapper;
 import com.flowdesk.ticket.mapper.TicketMapper;
 import com.flowdesk.ticket.mapper.TicketParticipantMapper;
@@ -107,5 +109,17 @@ public class MockedPersistenceConfiguration {
     @Bean
     TicketRelationMapper ticketRelationMapper() {
         return Mockito.mock(TicketRelationMapper.class);
+    }
+
+    /** 工单附件绑定（2026-10-13 第 5 步：创建/补充携带附件与下载可见性）依赖。 */
+    @Bean
+    TicketAttachmentMapper ticketAttachmentMapper() {
+        return Mockito.mock(TicketAttachmentMapper.class);
+    }
+
+    /** 通用附件服务（2026-10-13 第 3 步：上传/下载端点）依赖。 */
+    @Bean
+    AttachmentMapper attachmentMapper() {
+        return Mockito.mock(AttachmentMapper.class);
     }
 }

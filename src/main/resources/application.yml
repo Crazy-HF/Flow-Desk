@@ -33,6 +33,12 @@ spring:
   mvc:
     problemdetails:
       enabled: false
+  servlet:
+    multipart:
+      # 附件契约（docs/api-design.md 7.1）：单文件 ≤ 10 MiB、单次 ≤ 5 个且总计 ≤ 25 MiB。
+      # 这一层是外层闸（Boot 的 MB 即 MiB）；应用层 AttachmentValidator 仍是权威口径。
+      max-file-size: 10MB
+      max-request-size: 30MB
 
 server:
   port: 8081
@@ -58,7 +64,13 @@ springdoc:
     enabled: false
 
 flowdesk:
-  attachment-root: ${FLOWDESK_ATTACHMENT_ROOT}
+  attachment:
+    # 附件受控目录：必须位于 Web 根目录之外、使用绝对路径、可写且持久化（docs/engineering-readiness.md 第 5 节）。
+    # staging/ 与 files/ 子目录由存储组件启动时校验并自动创建。
+    root: ${FLOWDESK_ATTACHMENT_ROOT}
+    # 暂存文件与「上传后未绑定」附件的保留期；对账任务清理与工单侧引用校验共用同一口径
+    # （docs/api-design.md 7.1 默认 24 小时）。缺失时取默认值 24h。
+    retention: 24h
   ticket:
     # 员工确认期限：IT 提交解决结果后 7×24 小时（docs/kickoff.md 已确认规则）。
     confirmation-window: 7d

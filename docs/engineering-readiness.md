@@ -265,6 +265,7 @@ MySQL 是业务事实权威来源。Redis 和文件系统不参与 MySQL 事务�
 对账与清理规则：
 
 - 定时清理超过约定保留时间且没有活动请求引用的暂存文件。
+- 独立上传后超过保留期（默认 24 小时）仍未绑定到任何业务对象的附件进入清理流程；未绑定附件只有上传者本人可下载。
 - 扫描最终目录时，以数据库 `storage_key` 为权威；不存在对应已提交附件记录的文件进入隔离/删除流程。
 - 数据库存在元数据但文件缺失属于完整性事故：记录告警，不自动删除元数据或伪造成功文件。
 - 清理任务必须防止路径穿越，只处理解析后仍位于配置根目录内的随机存储名。
@@ -400,10 +401,11 @@ pnpm --dir frontend dev
 | `GET /fd/v1/tickets` | `/tickets`；创建后续工单时由 `/tickets/new` 复用本人范围 |
 | `GET /fd/v1/tickets?scope=REQUESTED_BY_ME` | `/tickets/new` 的后续工单选择器 |
 | `POST /fd/v1/tickets` | `/tickets/new` |
+| `POST /attachments/upload` | 附件独立上传（**已实现**，2026-10-13；公共路径约定 `attachments/xx`，不带 `/fd/v1` 前缀） |
 | `GET /fd/v1/tickets/{ticketNo}` | `/tickets/:ticketNo` |
 | `GET /fd/v1/tickets/{ticketNo}/records` | `/tickets/:ticketNo` 时间线 |
 | `POST /fd/v1/tickets/{ticketNo}/actions/{action}` | `/tickets/:ticketNo`；按权限、关系、状态和版本展示动作 |
-| `GET /fd/v1/tickets/{ticketNo}/attachments/{attachmentId}/content` | `/tickets/:ticketNo` 附件下载 |
+| `GET /attachments/download/{attachmentId}` | 附件下载（**已实现**，2026-10-13；工单嵌套路径已推翻，UI 复用该公共路径） |
 | `GET /fd/v1/categories/options` | `/tickets/new`，以及详情中的分类调整 |
 | `GET /fd/v1/tickets/{ticketNo}/transfer-candidates` | `/tickets/:ticketNo` 转交对话框 |
 | `GET /fd/v1/admin/users` | `/admin/users` 用户列表 |
@@ -435,7 +437,7 @@ pnpm --dir frontend dev
 | --- | --- | --- |
 | 依赖版本明确且一致 | 通过 | 第 3 节；非 BOM 与前端直接依赖需锁定 |
 | 敏感配置边界清晰 | 通过 | 第 5 节；仓库只保留 `.env.example` |
-| 空数据库可完整迁移 | 通过 | `DatabaseMigrationIT` 在 MySQL 8.4.11 Testcontainers 空库执行全部迁移（当前基线 `1,2,4,5,6,7`）、`validate`、关键约束与 demo 数据幂等性 |
+| 空数据库可完整迁移 | 通过 | `DatabaseMigrationIT` 在 MySQL 8.4.11 Testcontainers 空库执行全部迁移（当前基线 `1,2,4,5,6,7,8,9`）、`validate`、关键约束与 demo 数据幂等性 |
 | 测试工具与关键场景明确 | 通过 | 第 7、8 节 |
 | CI 可从干净检出运行 | 通过 | `.github/workflows/ci.yml` 固定 JDK 21、Node 24.20.0、pnpm 12.3.4，并分为 backend、frontend、core E2E 三个 Job；同等本地命令已通过，且 PR #5、#6、#7、#8 上三个 job 均全绿 |
 | 前端样式闸门可执行 | 通过 | `frontend/stylelint.config.js` 已挂进 `pnpm lint`（2026-09-23），设计 token 六轴从书面约定变为可执行规则；CI 的 `frontend-verify` job 未改动即获得覆盖 |

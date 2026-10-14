@@ -9,9 +9,25 @@
   3. **固定锁顺序**：`iam_role(SYSTEM_ADMIN/IT_SUPPORT) → ticket(id 升序 FOR UPDATE) → iam_user(id 升序：目标用户 + 全部新负责人 + 操作人) → iam_user_role / ticket_participant / ticket_record`。为此 `disable` / `replaceRoles` 的目标用户行锁被推到交接之后（`TicketServiceImpl#transfer` 注释记录的"工单行锁 + 外键共享锁成环"场景）；`replaceRoles` 的「这次会不会摘掉 IT_SUPPORT」先无锁预读、加锁后以最终差异为准，两者不一致返回 `409/ADMIN_HANDOFF_CONFLICT`；锁等待/死锁同样映射为 409 且不重放。
 - **错误码口径**：纯请求缺陷（编号空白、版本为负、同一工单重复）→ `400/VALIDATION_FAILED`；缺方案或漏交 → `409/ADMIN_HANDOFF_REQUIRED`；多交、`userVersion`/`ticketVersion` 不符、候选人资格失效、条件更新命中 0 行 → `409/ADMIN_HANDOFF_CONFLICT`（带当前快照）；确实需要交接但缺 `TICKET_ADMIN_HANDOFF` → `403/ACCESS_DENIED`。权限是**条件性**的：目标用户没有活动工单时保持 8.2 的 `USER_MANAGE` 契约不变。
 - **验证（实跑）**：后端 `.\mvnw.cmd -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → surefire **1139** + failsafe **172**、`Failures 0 / Errors 0`、`BUILD SUCCESS`（本轮记录基线 1094 + 168，+45 / +4，与新增用例数一致）。新增 `IamAdminHandoffAdapterTest`(11)、`AdminHandoffWebTest`(11)；扩写 `IamUserServiceImplTest`(58→71)、`TicketQueryServiceImplTest`(95→105)、`IamUserServiceIT`(24→28)。
-- **真实栈验收（实跑，51/51、退出码 0）**：新增 `scripts/admin-handoff-acceptance.ps1`，证据 `docs/acceptance/2026-10-14-admin-handoff.json`。运行口径：**独立空库 `flowdesk_handoff_acc`**（本分支只到 V8，共享演示库已被后续批次迁到 V9，混跑会掩盖版本差异）+ 8092 后端 `local` profile（含 demo 种子）；运行前与清理后指纹（八项计数 + 五条聚合指纹）**完全一致**，4 张自建工单、5 个临时用户及其授权全部按主键清理；`ticket_daily_sequence` 前进属已知残留（脚本头已登记，回滚会导致编号重复）。六组断言：h1 最小元数据与权限边界（管理员读工单详情 404、只有 EMPLOYEE 的员工访问两个交接端点 403）、h2 缺方案 409 且库里零改动、h3 版本漂移 409 带快照、h4 停用 + 换人 + 参与关系 + 记录同事务成功且**成功响应前已完成 Redis 会话撤销**（被停用账号旧 token `/auth/me` → 401/`AUTH_SESSION_INVALID`；接替人可见该工单与时间线上的 `ADMIN_HANDOFF`）、h5 角色替换路径（摘 `IT_SUPPORT` 需要方案、成功后立刻失去 IT 列表权限；**保留 `IT_SUPPORT` 时无需方案也不撤会话**，证明触发条件是"摘角色"而非"手上有单"）、h6 多张工单里一张版本已变则**已经换过人的那张也随事务回滚**（账号仍启用、零交接记录、未撤会话、旧 token 仍有效）。
+- **真实栈验收（实跑，51/51、退出码 0）**：新增 `scripts/admin-handoff-acceptance.ps1`，证据 `docs/acceptance/2026-10-14-admin-handoff.json`。运行口径：**独立空库 `flowdesk_handoff_acc`**（确定性种子、不触碰共享演示库，因此不受并行工作树影响）+ 8092 后端 `local` profile（含 demo 种子）；运行前与清理后指纹（八项计数 + 五条聚合指纹）**完全一致**，4 张自建工单、5 个临时用户及其授权全部按主键清理；`ticket_daily_sequence` 前进属已知残留（脚本头已登记，回滚会导致编号重复）。六组断言：h1 最小元数据与权限边界（管理员读工单详情 404、只有 EMPLOYEE 的员工访问两个交接端点 403）、h2 缺方案 409 且库里零改动、h3 版本漂移 409 带快照、h4 停用 + 换人 + 参与关系 + 记录同事务成功且**成功响应前已完成 Redis 会话撤销**（被停用账号旧 token `/auth/me` → 401/`AUTH_SESSION_INVALID`；接替人可见该工单与时间线上的 `ADMIN_HANDOFF`）、h5 角色替换路径（摘 `IT_SUPPORT` 需要方案、成功后立刻失去 IT 列表权限；**保留 `IT_SUPPORT` 时无需方案也不撤会话**，证明触发条件是"摘角色"而非"手上有单"）、h6 多张工单里一张版本已变则**已经换过人的那张也随事务回滚**（账号仍启用、零交接记录、未撤会话、旧 token 仍有效）。
 - **已知边界（如实登记，本轮未修）**：① RBAC 三个撤销端点（单条撤销 / 批量撤销 / 清空全部）同样能摘掉 `IT_SUPPORT`，但 8.3 未把它们纳入交接要求，走那条路仍可能留下无效负责人；② 方案要求"完整、无重复"，因此请求规模就是该用户当前在办工单数，未设人为上限（完整性优先于防御性上限）；③ **前端管理页尚未接入交接弹窗**——目标有在办工单时停用 / 替换角色会拿到 `409/ADMIN_HANDOFF_REQUIRED`。前端侧工作（依赖环境修复 → `build` / 单测 / E2E + 截图自查 + 视觉契约产出）按用户指示留到 `main` 同步之后进行，**本文件与 `docs/` 的本轮同步不包含前端**。
-- **交接**：本轮改动（生产代码 + 测试 + 验收脚本与证据 + 文档同步）提交后推送 `admin-handover`，经 PR 合并 `main`；**PR 号、CI 运行号与合并提交按仓库惯例记录在下一分支的首个提交**。
+- **交接**：本轮改动（生产代码 + 测试 + 验收脚本与证据 + 文档同步）提交后推送 `admin-handover`，经 PR 合并 `main`；**PR 号、CI 运行号与合并提交按仓库惯例记录在下一分支的首个提交**。交接前先把 `main`（含 PR #23 附件批次与 `V9`）合并进本分支——两处冲突（本文件与 `AGENTS.md` 顶部的「当前分支」段）按"两个批次的记录都保留、新的在前"解决；**合并后重跑后端全量测试与真实栈脚本，数字以合并后的复跑为准**。
+
+## 2026-10-13 交付：附件（独立通用模块 + 工单接入，步骤 1～7）
+
+- **范围与结果**：完整版 backlog 2 的「重」一侧全部落地，形态为**独立于工单、可跨项目复用的通用附件模块**（用户 2026-10-13 明确路径约定 `attachments/xx`，**不带 `/fd/v1` 前缀**；复用方式 = 拷 `com.flowdesk.attachment` 包 + `attachment` 表 + `flowdesk.attachment.root` 配置）：
+  - 存储与校验：受控目录（staging/files 同卷 + 启动可写与原子移动探针）、魔数嗅探与「扩展名 + 声明类型 + 识别结果」三重一致（OOXML 按中央目录枚举、不展开数据防压缩炸弹；TXT 按前 8 KiB 无 NUL 判定）；
+  - 端点：`POST /attachments/upload`、`GET /attachments/download/{attachmentId}`（认证链作用域同步覆盖 `/attachments/**`；Vite dev/preview 代理同步）；可见性 = 上传者本人或经业务授权端口判定，统一 404；
+  - 工单侧接入：创建/补充支持 `files`（重复 part）与 `attachmentIds`（先传后绑，`FOR UPDATE` 复核「本人 + 未绑定 + 未过期」）；绑定写 `ticket_attachment`；下载可见性谓词**逐字复用详情可见性 SQL**；
+  - 提交顺序与失败补偿：`engineering-readiness` 7.2 在三处写入口（独立上传/创建/补充）全实现（暂存 → 校验 → 事务内写元数据与绑定 → 逐个原子移动 → 提交；失败删暂存/已移动文件；提交失败 `afterCompletion` 兜底）；
+  - 孤儿对账：每小时三段（超期暂存清理、最终目录以数据库为权威、超期未绑定清理「先删元数据再删文件、靠下一轮自愈」、缺失文件只告警）；保留期统一为 `flowdesk.attachment.retention`（默认 24h，与工单侧引用校验同源）。
+- **迁移**：`V9__generalize_attachment.sql`（通用 `attachment` 表 + `ticket_attachment` 重建为绑定表；**原编号 V8，因撤销到期批次已占用 V8 而改号**；`V1` 旧表从未投入使用、直接重建）。
+- **契约落点**：`docs/api-design.md` 7.1/7.2/7.6 与 6.2/6.4、`docs/database-design.md` 6.3/19.3、`docs/technical-architecture.md` 第 4 节/6.3、`docs/engineering-readiness.md` 7.2/11.2；实施入口与分步记录 `docs/modules/ticket-attachments.md`。
+- **验证（实跑）**：合并 `main`（`3d8de14`）后 `.\mvnw.cmd -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → surefire **1112** + failsafe **168**、`Failures 0 / Errors 0`、`BUILD SUCCESS`；测试适配：既有用例改用新签名/新行为（两个旧「files 即 400」控制器用例改为透传断言；`DatabaseMigrationIT` 基线合并为 `1..9`）。
+- **交接**：提交 `84223ff`（实现）与 `8a5edee`（清理误入的探针文件），合并主干得合并提交 `dc414dd`（并入 `main` `3d8de14`）；推送后经 PR 合并 `main`（**PR 号、CI 运行号与合并提交按仓库惯例记录在下一分支首个提交**）。
+- **本轮环境事件（如实记录）**：本工作树分支引用曾被外部删除（unborn + 整树暂存、工作区无损）；按「恢复引用到基点 → 提交 → 合并 `main` → 就地解决 2 处冲突（`TicketMapper`、`DatabaseMigrationIT`）」恢复。仓库再次出现检查点引用与探针文件痕迹（`.git-probe.txt` 已清理），**建议避免多代理并发操作同一仓库**。
+- **未跑项（如实记录）**：附件的前端界面（上传控件、详情附件块）与前端全量 E2E、8092 真实栈验收脚本均未做——建议随下一分支一并补（前端需接线 `/attachments`，代理已就位）。
+- **下一步**：管理性交接（backlog 4）→ 通知 / 通信通道 + 两个超时自动任务（backlog 3）。
 
 ## 2026-10-13 缺陷修复：撤销请求过期留痕导致时间线 500（工作树 `D:\Idea\item\flow-Desk-cancel-expiry-filter`）
 

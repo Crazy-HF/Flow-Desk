@@ -12,7 +12,7 @@
 - **前端外壳与页面骨架**已完成，经 PR #6 合并 `main`。
 - **第 3 步 完整动态 RBAC**（`TASK-055`～`TASK-062`，本文件 9.1）已完成：后端四组接口与用户管理八个端点、`V5` 迁移、管理端五页（角色 / 权限 / 用户角色授权 / 角色权限授权 / 用户管理）、`frontend/src/views/admin/` 页面与真实闭环 E2E 全部交付；验收标准第 4 条的四条手工真实栈链路已于 2026-09-28 在 `local` profile 真实栈上执行并通过（逐条 `traceId` 见 `docs/modules/rbac.md` 11.2），经 PR #8 合并 `main`（合并提交 `f15468c`）。
 - **阶段 3 IT 处理闭环已完成**（已经 [PR #10](https://github.com/Crazy-HF/Flow-Desk/pull/10) 合并 `main`；工作分支 `flow-desk/ticket-it-flow`）。步骤① IT 领取、步骤② 追加处理记录、步骤③ 提交解决结果与员工确认均已实现并**通过真实栈验收（77/77，2026-10-06）**，验收证据 `docs/acceptance/2026-10-06-stage3-claim-process-resolution-confirm.json`；步骤④ IT/员工页面与端到端主链**已于 2026-10-06 完成并在真实栈跑通**（`frontend/e2e/ticket-it-flow.spec.ts`，报告与截图见 `.ui-craft/reviews/2026-10-06-ticket-it-flow/`），阶段 3 四步全部完成并已合并。阶段 2（`TASK-020`～`TASK-023-MVP`）已验收并经 PR #9 合并 `main`（最终证据 `docs/acceptance/stage2-closeout-20260929.json`）。
-- **完整版 backlog 第 1 项「完整工单状态机」已交付**：片 A～片 D 经 [PR #14](https://github.com/Crazy-HF/Flow-Desk/pull/14)～[PR #17](https://github.com/Crazy-HF/Flow-Desk/pull/17)，两阶段撤销规则变更经 [PR #18](https://github.com/Crazy-HF/Flow-Desk/pull/18)；前端**页模板与页面契约**经 [PR #19](https://github.com/Crazy-HF/Flow-Desk/pull/19) 合并 `main`。当前分支 `flow-desk/attachments-and-relations` 推进 backlog 第 2 项「附件与关联」。
+- **完整版 backlog 第 1 项「完整工单状态机」已交付**：片 A～片 D 经 [PR #14](https://github.com/Crazy-HF/Flow-Desk/pull/14)～[PR #17](https://github.com/Crazy-HF/Flow-Desk/pull/17)，两阶段撤销规则变更经 [PR #18](https://github.com/Crazy-HF/Flow-Desk/pull/18)；前端**页模板与页面契约**经 [PR #19](https://github.com/Crazy-HF/Flow-Desk/pull/19) 合并 `main`。**backlog 第 2 项的「关联（轻）」已交付并经 [PR #21](https://github.com/Crazy-HF/Flow-Desk/pull/21) 合并 `main`（合并提交 `7c7807d`）**；附件（重）按 2026-10-12 用户确认的**方案 B** 独立化（通用附件模块 + 两表 + 独立端点），当前分支 `flow-desk/ticket-attachments`。
 - 第 1 节原先"不提供角色、权限及授权关系的在线 CRUD"这一表述已被 2026-09-21 的确认取代：三种内置角色仍是权限基线，同时在 9.1 范围内开放了动态 RBAC 与用户管理的在线维护。
 
 ## 2. 两个版本的边界
@@ -75,7 +75,7 @@ M0 工程底座（已完成，PR #4）
   → 阶段 3 IT 处理闭环（已完成，PR #10）
   → 阶段 4 MVP 验收与求职展示收口（已完成，PR #11～#13）
   → 完整版 backlog 第 1 项「完整工单状态机」（已交付，PR #14～#18）
-  → 完整版 backlog 第 2 项「附件与关联」（进行中，分支 flow-desk/attachments-and-relations）
+  → 完整版 backlog 第 2 项「附件与关联」（关联已交付，PR #21；附件独立化进行中，分支 flow-desk/ticket-attachments）
 ```
 
 每个阶段必须先完成后端业务规则和自动化测试，再接页面。阶段完成后同步 `PROJECT_STATUS.md`，经用户确认才执行提交、推送或 PR。
@@ -300,7 +300,7 @@ MVP 最终完成定义：
 完整版在 MVP 通过验收后再排期，建议顺序如下：
 
 1. **完整工单状态机**：请求补充、员工补充、撤回请求、未解决退回、员工撤销、IT 转交和异常关闭。**2026-10-08 追加规则变更**：员工撤销由「四种非终态直接撤销」改为**两阶段**（待受理直接撤销；处理中/待补充/待确认由提交人发起、当前负责人批准或拒绝，提交人可撤回），见 9.3 末的交付记录。
-2. **附件与关联**（**当前进行中**）：受控上传/下载、类型与大小限制、临时文件原子移动、失败补偿、孤儿对账、后续/重复工单关系。**2026-10-10 用户裁决：先做关联（轻）、再做附件（重）**——`ticket_relation` 与 `ticket_attachment` 两张表都已在 `V1` 就位，关系一侧不涉及文件存储、暂存目录与失败补偿，先做可以把「新建工单引用原工单」与关系读写打通，附件随后按 `docs/engineering-readiness.md` 7.2 的本地受控目录方案落地。**2026-10-12 进展：关联（轻）已交付**——创建后续工单的 `sourceTicketNo`（可见性校验、`FOLLOW_UP` 同事务写入、幂等重放不重复写）、详情 `relations[]`（`OUTGOING`/`INCOMING` 方向、对端摘要、固定排序、无关联返回空数组）、前端（新建页原工单搜索选择器、详情「关联工单」面板、`constants/tickets.ts` 四格标签）、E2E 一条与真实栈验收（**43/43、退出码 0**，证据 `docs/acceptance/2026-10-12-ticket-relations.json`）全部完成；**附件（重）仍未开始**。
+2. **附件与关联**（**当前进行中**）：受控上传/下载、类型与大小限制、临时文件原子移动、失败补偿、孤儿对账、后续/重复工单关系。**2026-10-10 用户裁决：先做关联（轻）、再做附件（重）**——`ticket_relation` 与 `ticket_attachment` 两张表都已在 `V1` 就位，关系一侧不涉及文件存储、暂存目录与失败补偿，先做可以把「新建工单引用原工单」与关系读写打通，附件随后按 `docs/engineering-readiness.md` 7.2 的本地受控目录方案落地。**2026-10-12 进展：关联（轻）已交付**——创建后续工单的 `sourceTicketNo`（可见性校验、`FOLLOW_UP` 同事务写入、幂等重放不重复写）、详情 `relations[]`（`OUTGOING`/`INCOMING` 方向、对端摘要、固定排序、无关联返回空数组）、前端（新建页原工单搜索选择器、详情「关联工单」面板、`constants/tickets.ts` 四格标签）、E2E 一条与真实栈验收（**43/43、退出码 0**，证据 `docs/acceptance/2026-10-12-ticket-relations.json`）全部完成；**附件（重）一侧同日按方案 B 独立化（2026-10-12 用户确认）**：通用附件模块（`com.flowdesk.attachment`，独立于工单）+ 两表（通用 `attachment` / 工单绑定 `ticket_attachment`，`V9` 重建；原编号 V8，因 main 的撤销到期迁移占用 V8 而改号）+ 独立端点（上传 `POST /attachments/upload`、下载 `GET /attachments/download/{attachmentId}`，公共路径不带 `/fd/v1` 前缀）+ 创建/补充支持 `files` 与 `attachmentIds`。契约更新见 `docs/api-design.md` 7.1/7.2/7.6、`docs/database-design.md` 6.3/19.3、`docs/technical-architecture.md` 第 4 节/6.3、`docs/engineering-readiness.md` 7.2/11.2；实施入口见 `docs/modules/ticket-attachments.md`。**已落地**：存储类迁入 `com.flowdesk.attachment`、`V9` 迁移（原 V8）、嗅探校验、通用上传/下载端点（`attachments/xx` 公共路径）、授权端口与异常映射、创建/补充两个入口接入（`files` + `attachmentIds`、`ticket_attachment` 绑定）与契约文档同步；**待办**：对账任务、测试与前端。
 3. **自动化**：待确认自动完成、待补充自动关闭、停机恢复和幂等扫描。**2026-10-10 用户裁决**：本项的**扫描与自动处置部分与通知 / 通信通道一并落地**（通道是其前置，见 9.4 第 1 项），不单独排期；在此之前期限只用于展示，界面必须写明"到期不会自动处理"。**同日另一条裁决**：原先记在本项的**撤销请求到期即失效移出本项**，与第 7 项合成同一批——它不需要定时扫描就能落地（三条条件更新加期限条件、覆盖过期请求时补写记录）；只有「到期前提醒」依赖通道，仍随本项的通道一起做。
 4. **系统管理**：~~用户与固定角色分配、账号启停、管理员重置密码~~、~~活动工单管理性交接~~（**2026-10-10 补充**：撤销请求只由当前负责人批准，负责人账号被停用或失去 `IT_SUPPORT` 后请求会悬置在「待批准」，管理性交接是该场景的既有出口）、~~分类管理~~。**其中用户管理（列表、详情、创建、改资料、启停、替换角色、重置密码）已于 2026-09-24 随第 3 步提前实施并计入 MVP 演示范围（`TASK-061` 后端 / `TASK-062` 管理端页面）；分类管理已于 2026-09-28 经用户当轮指示提前实施（`TASK-063` 后端 / `TASK-064` 管理端页面，见 9.2）；管理性交接仍留完整版，**2026-10-10 用户裁决：排在撤销语义收口（第 7 项那一批）之后**。**（2026-10-14 已交付）**：8.3 的两个查询端点与"停用账号 / 替换角色时的交接方案"已实现并完成真实栈验收（**51/51、退出码 0**，证据 `docs/acceptance/2026-10-14-admin-handoff.json`；交付记录与已知边界见 `PROJECT_STATUS.md` 顶部与 `docs/api-design.md` 8.3 的实现状态段）。**前端管理页的交接弹窗仍未做**，随本轮之后的前端批次一起验收。**
 5. **数据概览**：IT 权限范围内的状态、优先级、分类和负责人统计。

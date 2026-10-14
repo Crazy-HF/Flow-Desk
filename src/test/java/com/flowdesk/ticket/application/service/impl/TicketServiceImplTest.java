@@ -1,5 +1,9 @@
 package com.flowdesk.ticket.application.service.impl;
 
+import com.flowdesk.attachment.application.AttachmentValidator;
+import com.flowdesk.attachment.config.AttachmentProperties;
+import com.flowdesk.attachment.infrastructure.AttachmentStorage;
+import com.flowdesk.attachment.mapper.AttachmentMapper;
 import com.flowdesk.common.exception.ApiException;
 import com.flowdesk.ticket.application.command.AddProcessingRecordCommand;
 import com.flowdesk.ticket.application.command.ApproveCancelCommand;
@@ -31,6 +35,7 @@ import com.flowdesk.ticket.domain.Ticket;
 import com.flowdesk.ticket.domain.TicketRecord;
 import com.flowdesk.ticket.infrastructure.persistence.TicketDetailRow;
 import com.flowdesk.ticket.infrastructure.persistence.TicketDuplicateTargetRow;
+import com.flowdesk.ticket.mapper.TicketAttachmentMapper;
 import com.flowdesk.ticket.mapper.TicketDailySequenceMapper;
 import com.flowdesk.ticket.mapper.TicketMapper;
 import com.flowdesk.ticket.mapper.TicketParticipantMapper;
@@ -55,6 +60,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -62,6 +68,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 
@@ -179,6 +186,9 @@ class TicketServiceImplTest {
     private static final String SUBMISSION_KEY = "3f1c9f4e-2a6b-4b7c-8d9e-0a1b2c3d4e5f";
     private static final TicketProperties DEFAULT_PROPERTIES =
             new TicketProperties(Duration.ofDays(7), Duration.ofDays(7), Duration.ofDays(3));
+    private static final AttachmentProperties ATTACHMENT_PROPERTIES =
+            new AttachmentProperties(
+                    Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath(), null);
 
     @Mock
     private TicketMapper ticketMapper;
@@ -192,6 +202,13 @@ class TicketServiceImplTest {
     /** 片 D 的「重复工单」关闭要写 ticket_relation，构造签名随之多一个参数。 */
     @Mock
     private TicketRelationMapper ticketRelationMapper;
+    /** 附件与关联（2026-10-13）起，创建/补充携带附件的构造依赖。 */
+    @Mock
+    private TicketAttachmentMapper ticketAttachmentMapper;
+    @Mock
+    private AttachmentStorage attachmentStorage;
+    @Mock
+    private AttachmentMapper attachmentMapper;
     @Mock
     private CurrentRequesterPort currentRequesterPort;
     @Mock
@@ -220,7 +237,7 @@ class TicketServiceImplTest {
         when(ticketMapper.selectCreationByRequesterAndSubmissionKey(REQUESTER_ID, SUBMISSION_KEY))
                 .thenReturn(existingTicket("FD-20261001-004", createdAt, COMPLETED, 9L));
 
-        TicketCreatedResult result = service.create(createCommand(SUBMISSION_KEY));
+        TicketCreatedResult result = service.create(createCommand(SUBMISSION_KEY), List.of());
 
         assertThat(result.ticketNo()).as("重复提交返回首次创建的工单编号")
                 .isEqualTo("FD-20261001-004");
@@ -246,7 +263,7 @@ class TicketServiceImplTest {
                 .thenReturn(existingTicket("FD-20261001-004",
                         LocalDateTime.of(2026, 10, 1, 1, 0), COMPLETED, 9L));
 
-        service.create(createCommand(upperCaseKey));
+        service.create(createCommand(upperCaseKey), List.of());
 
         verify(ticketMapper).selectCreationByRequesterAndSubmissionKey(REQUESTER_ID, SUBMISSION_KEY);
     }
@@ -258,7 +275,7 @@ class TicketServiceImplTest {
                 .thenReturn(null);
         when(categoryAvailabilityPort.isEnabled(CATEGORY_ID)).thenReturn(false);
 
-        assertApiException(() -> service.create(createCommand(SUBMISSION_KEY)),
+        assertApiException(() -> service.create(createCommand(SUBMISSION_KEY), List.of()),
                 HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
 
         verifyNoInteractions(ticketDailySequenceMapper, ticketRecordMapper);
@@ -271,7 +288,7 @@ class TicketServiceImplTest {
         ArgumentCaptor<Ticket> tickets = ArgumentCaptor.forClass(Ticket.class);
         ArgumentCaptor<TicketRecord> records = ArgumentCaptor.forClass(TicketRecord.class);
 
-        TicketCreatedResult result = service.create(createCommand(SUBMISSION_KEY));
+        TicketCreatedResult result = service.create(createCommand(SUBMISSION_KEY), List.of());
 
         verify(ticketMapper).insert(tickets.capture());
         Ticket ticket = tickets.getValue();
@@ -315,7 +332,7 @@ class TicketServiceImplTest {
         stubFirstCreation(1L);
 
         TicketCreatedResult result = service(shanghaiMidnight, DEFAULT_PROPERTIES)
-                .create(createCommand(SUBMISSION_KEY));
+                .create(createCommand(SUBMISSION_KEY), List.of());
 
         assertThat(result.ticketNo()).as("北京时间 2026-10-07 00:30 应使用业务日 20261007")
                 .isEqualTo("FD-20261007-001");
@@ -335,7 +352,7 @@ class TicketServiceImplTest {
         stubFirstCreation(7L);
 
         TicketCreatedResult result = service(shanghaiDaytime, DEFAULT_PROPERTIES)
-                .create(createCommand(SUBMISSION_KEY));
+                .create(createCommand(SUBMISSION_KEY), List.of());
 
         assertThat(result.ticketNo()).as("北京时间 10:00 与 UTC 同一业务日，序号补零到三位")
                 .isEqualTo("FD-20261006-007");
@@ -349,7 +366,7 @@ class TicketServiceImplTest {
     void createFailsWhenDailySequenceIsMissing() {
         stubFirstCreation(null);
 
-        assertThatThrownBy(() -> service.create(createCommand(SUBMISSION_KEY)))
+        assertThatThrownBy(() -> service.create(createCommand(SUBMISSION_KEY), List.of()))
                 .as("序号读不到不能退化成无编号工单")
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("工单每日序号分配失败");
@@ -362,7 +379,7 @@ class TicketServiceImplTest {
     void createFailsWhenDailySequenceIsNotPositive() {
         stubFirstCreation(0L);
 
-        assertThatThrownBy(() -> service.create(createCommand(SUBMISSION_KEY)))
+        assertThatThrownBy(() -> service.create(createCommand(SUBMISSION_KEY), List.of()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("工单每日序号分配失败");
 
@@ -374,7 +391,7 @@ class TicketServiceImplTest {
         stubFirstCreation(1L);
         when(ticketMapper.insert(any(Ticket.class))).thenReturn(0);
 
-        assertThatThrownBy(() -> service.create(createCommand(SUBMISSION_KEY)))
+        assertThatThrownBy(() -> service.create(createCommand(SUBMISSION_KEY), List.of()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("工单插入失败");
 
@@ -386,7 +403,7 @@ class TicketServiceImplTest {
         stubFirstCreation(1L);
         when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(0);
 
-        assertThatThrownBy(() -> service.create(createCommand(SUBMISSION_KEY)))
+        assertThatThrownBy(() -> service.create(createCommand(SUBMISSION_KEY), List.of()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("创建记录插入失败");
     }
@@ -403,7 +420,7 @@ class TicketServiceImplTest {
         doThrow(new DuplicateKeyException("duplicate submission key"))
                 .when(ticketMapper).insert(any(Ticket.class));
 
-        TicketCreatedResult result = service.create(createCommand(SUBMISSION_KEY));
+        TicketCreatedResult result = service.create(createCommand(SUBMISSION_KEY), List.of());
 
         assertThat(result.ticketNo()).isEqualTo("FD-20261001-004");
         assertThat(result.status()).as("并发兜底同样返回首次创建快照").isEqualTo(PENDING);
@@ -429,7 +446,7 @@ class TicketServiceImplTest {
         doThrow(duplicate).when(ticketMapper).insert(any(Ticket.class));
 
         ApiException exception = assertApiException(
-                () -> service.create(createCommand(SUBMISSION_KEY)),
+                () -> service.create(createCommand(SUBMISSION_KEY), List.of()),
                 HttpStatus.CONFLICT, "TICKET_CREATE_CONFLICT");
 
         assertThat(exception).as("编号冲突不能被当作幂等命中").hasCause(duplicate);
@@ -443,7 +460,7 @@ class TicketServiceImplTest {
         when(currentRequesterPort.currentUserId()).thenReturn(REQUESTER_ID);
 
         assertApiException(
-                () -> service.create(createCommand(null)),
+                () -> service.create(createCommand(null), List.of()),
                 HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
 
         verifyNoInteractions(ticketMapper, ticketDailySequenceMapper, ticketRecordMapper);
@@ -455,7 +472,7 @@ class TicketServiceImplTest {
         when(currentRequesterPort.currentUserId()).thenReturn(REQUESTER_ID);
 
         assertApiException(
-                () -> service.create(createCommand("not-a-uuid")),
+                () -> service.create(createCommand("not-a-uuid"), List.of()),
                 HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
 
         verifyNoInteractions(ticketMapper, ticketDailySequenceMapper, ticketRecordMapper);
@@ -474,7 +491,7 @@ class TicketServiceImplTest {
         when(ticketRelationMapper.recordFollowUp(anyLong(), anyLong(), anyLong(), any()))
                 .thenReturn(1);
 
-        TicketCreatedResult result = service.create(createCommand(SUBMISSION_KEY, SOURCE_TICKET_NO));
+        TicketCreatedResult result = service.create(createCommand(SUBMISSION_KEY, SOURCE_TICKET_NO), List.of());
 
         assertThat(result.ticketNo()).isEqualTo(TICKET_NO);
         verify(ticketRelationMapper).recordFollowUp(
@@ -496,7 +513,7 @@ class TicketServiceImplTest {
                 .thenReturn(null);
 
         assertApiException(
-                () -> service.create(createCommand(SUBMISSION_KEY, SOURCE_TICKET_NO)),
+                () -> service.create(createCommand(SUBMISSION_KEY, SOURCE_TICKET_NO), List.of()),
                 HttpStatus.BAD_REQUEST, "VALIDATION_FAILED");
 
         verifyNoInteractions(ticketDailySequenceMapper, ticketRecordMapper, ticketRelationMapper);
@@ -508,7 +525,7 @@ class TicketServiceImplTest {
     void createWithoutSourceTicketDoesNotWriteRelation() {
         stubFirstCreation(1L);
 
-        service.create(createCommand(SUBMISSION_KEY));
+        service.create(createCommand(SUBMISSION_KEY), List.of());
 
         verifyNoInteractions(ticketRelationMapper);
     }
@@ -521,7 +538,7 @@ class TicketServiceImplTest {
                 .thenReturn(existingTicket("FD-20261001-004",
                         LocalDateTime.of(2026, 10, 1, 1, 0), COMPLETED, 9L));
 
-        TicketCreatedResult result = service.create(createCommand(SUBMISSION_KEY, SOURCE_TICKET_NO));
+        TicketCreatedResult result = service.create(createCommand(SUBMISSION_KEY, SOURCE_TICKET_NO), List.of());
 
         assertThat(result.ticketNo()).isEqualTo("FD-20261001-004");
         verify(ticketMapper, never())
@@ -539,7 +556,7 @@ class TicketServiceImplTest {
         when(ticketRelationMapper.recordFollowUp(anyLong(), anyLong(), anyLong(), any()))
                 .thenReturn(0);
 
-        assertThatThrownBy(() -> service.create(createCommand(SUBMISSION_KEY, SOURCE_TICKET_NO)))
+        assertThatThrownBy(() -> service.create(createCommand(SUBMISSION_KEY, SOURCE_TICKET_NO), List.of()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("后续工单关联写入失败");
     }
@@ -4617,7 +4634,7 @@ class TicketServiceImplTest {
                 .isAnnotationPresent(Transactional.class))
                 .as("confirmResolution 由声明式事务包住条件更新与时间线写入").isTrue();
         assertThat(TicketServiceImpl.class
-                .getMethod("create", CreateTicketCommand.class)
+                .getMethod("create", CreateTicketCommand.class, List.class)
                 .isAnnotationPresent(Transactional.class))
                 .as("create 用 REQUIRES_NEW 的 TransactionTemplate 自行管理事务边界").isFalse();
     }
@@ -4644,9 +4661,9 @@ class TicketServiceImplTest {
                 .isAnnotationPresent(Transactional.class))
                 .as("requestSupplement 由声明式事务包住条件更新与时间线写入").isTrue();
         assertThat(TicketServiceImpl.class
-                .getMethod("supplement", String.class, SupplementCommand.class)
+                .getMethod("supplement", String.class, SupplementCommand.class, List.class)
                 .isAnnotationPresent(Transactional.class))
-                .as("supplement 由声明式事务包住条件更新与时间线写入").isTrue();
+                .as("supplement 改用 TransactionTemplate 自行管理事务边界（先暂存附件、后开事务）").isFalse();
     }
 
     /**
@@ -4706,7 +4723,12 @@ class TicketServiceImplTest {
                 ticketClaimPort,
                 ticketParticipantMapper,
                 ticketRelationMapper,
-                properties);
+                properties,
+                ticketAttachmentMapper,
+                new AttachmentValidator(),
+                attachmentStorage,
+                attachmentMapper,
+                ATTACHMENT_PROPERTIES);
     }
 
     private static CreateTicketCommand createCommand(String submissionKey) {
@@ -4717,7 +4739,7 @@ class TicketServiceImplTest {
     private static CreateTicketCommand createCommand(String submissionKey, String sourceTicketNo) {
         return new CreateTicketCommand(
                 submissionKey, "  打印机无法连接  ", " 三楼打印机离线 ",
-                CATEGORY_ID, HIGH, sourceTicketNo);
+                CATEGORY_ID, HIGH, sourceTicketNo, List.of());
     }
 
     /** 首次创建路径：分类启用、序号可用、插入成功并回填工单 ID。 */

@@ -6,6 +6,8 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 
+import java.util.List;
+
 public record CreateTicketCommand(
         @NotBlank
         @Pattern(
@@ -39,7 +41,14 @@ public record CreateTicketCommand(
          * 校验失败统一 `400/VALIDATION_FAILED`，不向调用方回显他人工单是否存在。
          */
         @Size(max = 32, message = "原工单编号最长 32 个字符")
-        String sourceTicketNo
+        String sourceTicketNo,
+
+        /**
+         * 可选：引用当前提交人已上传、尚未绑定的附件（先传后绑，`docs/api-design.md` 6.2/7.1）。
+         * 引用失败统一 `400/VALIDATION_FAILED`，不泄露他人附件是否存在。
+         */
+        @Size(max = 5, message = "一次最多引用 5 个附件")
+        List<@Positive(message = "附件标识必须为正数") Long> attachmentIds
 ) {
     public CreateTicketCommand {
         title = title == null ? null : title.strip();
@@ -49,5 +58,6 @@ public record CreateTicketCommand(
         sourceTicketNo = sourceTicketNo == null || sourceTicketNo.isEmpty()
                 ? null
                 : sourceTicketNo;
+        attachmentIds = attachmentIds == null ? List.of() : List.copyOf(attachmentIds);
     }
 }

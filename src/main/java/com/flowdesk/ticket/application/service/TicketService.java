@@ -20,11 +20,14 @@ import com.flowdesk.ticket.application.command.WithdrawCancelRequestCommand;
 import com.flowdesk.ticket.application.command.WithdrawSupplementRequestCommand;
 import com.flowdesk.ticket.application.result.TicketActionResult;
 import com.flowdesk.ticket.application.result.TicketCreatedResult;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.util.List;
 
 public interface TicketService {
 
-    /** 创建工单 */
-    TicketCreatedResult create(CreateTicketCommand command);
+    /** 创建工单（可携带新附件 files 或引用已上传附件 attachmentIds）。 */
+    TicketCreatedResult create(CreateTicketCommand command, List<MultipartFile> files);
 
     /** 领取工单。 */
     TicketActionResult claim(String ticketNo, ClaimTicketCommand command);
@@ -51,9 +54,9 @@ public interface TicketService {
     TicketActionResult requestSupplement(
             String ticketNo, RequestSupplementCommand command);
 
-    /** 提交人补充信息；回到处理中并让原补充期限失效，负责人保留。 */
+    /** 提交人补充信息（正文与附件至少一项）；回到处理中并让原补充期限失效，负责人保留。 */
     TicketActionResult supplement(
-            String ticketNo, SupplementCommand command);
+            String ticketNo, SupplementCommand command, List<MultipartFile> files);
 
     /** 当前负责人调整工单分类；状态、负责人与期限都不变。 */
     TicketActionResult changeCategory(
