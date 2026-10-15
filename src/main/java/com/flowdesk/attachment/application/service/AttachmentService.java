@@ -31,4 +31,18 @@ public interface AttachmentService {
      * 绝不改成签名 URL 重定向——那等于绕过应用授权，URL 一泄露就是公开文件。</p>
      */
     AttachmentDownloadResult preview(long attachmentId);
+
+    /**
+     * 删除一个**尚未绑定**的附件：同时删除元数据与最终存储里的文件。
+     *
+     * <p>三条规则（{@code docs/api-design.md} 7.1）：只有上传者本人可删；附件不存在、归属不符
+     * 或不可见统一抛 {@link com.flowdesk.attachment.domain.AttachmentNotFoundException}（404，
+     * 不泄露他人附件是否存在）；已绑定到业务对象的附件不允许删除，抛
+     * {@link com.flowdesk.attachment.domain.AttachmentAlreadyBoundException}（409）——
+     * 记录不可变是审计前提，删除已绑定附件会破坏追溯链。</p>
+     *
+     * <p>元数据是权威：先删元数据再删文件。文件删除失败只告警，留下的孤儿对象由对账任务
+     * 在下一轮清除（与 {@code AttachmentReconciliationTask} 同一自愈口径）。</p>
+     */
+    void delete(long attachmentId);
 }

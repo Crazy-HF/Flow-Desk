@@ -4,7 +4,13 @@ import { ElMessage } from 'element-plus'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 
-import { MAX_ATTACHMENTS_PER_REQUEST, uploadAttachment } from '@/api/attachments'
+import {
+  ACCEPTED_ATTACHMENT_EXTENSIONS,
+  MAX_ATTACHMENT_FILE_SIZE_BYTES,
+  MAX_ATTACHMENTS_PER_REQUEST,
+  deleteAttachment,
+  uploadAttachment,
+} from '@/api/attachments'
 import type { AttachmentUploadResult, UploadAttachmentOptions } from '@/api/attachments'
 import AttachmentUpload from './AttachmentUpload.vue'
 
@@ -14,11 +20,15 @@ import AttachmentUpload from './AttachmentUpload.vue'
  * <p>这一组盯的是"逐文件"这条设计：进度、取消、失败都按文件独立，失败文案里带文件名，
  * 数量上限只拦超出部分而不是整批拒绝。它们正是"把 5 个文件拼进一个请求"做不到的部分，
  * 所以每条都值得单独钉住。</p>
+ *
+ * <p>另外两条钉住"上传前就失败"和"移除即释放"：本地预检只判大小（类型白名单只在后端一处），
+ * 拦下的文件根本不发请求；移除一个已上传成功的文件会调 `DELETE /attachments/{id}`，
+ * 失败（含已绑定的 409）不打扰用户。</p>
  */
 
 vi.mock('@/api/attachments', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/api/attachments')>()
-  return { ...actual, uploadAttachment: vi.fn() }
+  return { ...actual, uploadAttachment: vi.fn(), deleteAttachment: vi.fn() }
 })
 
 interface PendingUpload {
@@ -82,6 +92,7 @@ describe('附件上传控件', () => {
     pending.length = 0
     vi.spyOn(ElMessage, 'warning').mockReturnValue({ close: () => {} } as never)
     vi.spyOn(ElMessage, 'info').mockReturnValue({ close: () => {} } as never)
+    vi.spyOn(ElMessage, 'error').mockReturnValue({ close: () => {} } as never)
   })
 
   it('一个文件一次请求，进度按文件独立，全部成功后按顺序回传 attachmentIds', async () => {
@@ -209,5 +220,76 @@ describe('附件上传控件', () => {
     await flushPromises()
 
     expect(wrapper.emitted('update:uploading')?.at(-1)?.[0]).toBe(false)
+  })
+
+  it('文件选择框用 accept 做软过滤，但不自己维护类型白名单', () => {
+    const wrapper = makeWrapper()
+
+    expect(wrapper.find('input[type="file"]').attributes('accept')).toBe(
+      ACCEPTED_ATTACHMENT_EXTENSIONS,
+    )
+  })
+
+  it('超过单文件上限的文件不发请求，并在列表里说明原因', async () => {
+    holdUploads()
+    const wrapper = makeWrapper()
+    const oversized = new File([new Uint8Array(MAX_ATTACHMENT_FILE_SIZE_BYTES + 1)], 'huge.pdf', {
+      type: 'application/pdf',
+    })
+
+    await selectFiles(wrapper, [oversized, file('ok.txt', 'text/plain')])
+
+    // 10 MiB 要传很久，传完再收到 413 是最差的顺序：本地先拦下，只有正常的那个发请求
+    expect(vi.mocked(uploadAttachment)).toHaveBeenCalledTimes(1)
+    expect(pending[0]?.file.name).toBe('ok.txt')
+    expect(wrapper.text()).toContain('huge.pdf')
+    expect(wrapper.text()).toContain('未上传')
+    expect(wrapper.text()).toContain('超过单个附件')
+  })
+
+  it('移除已上传成功的文件会顺手释放服务端存储', async () => {
+    holdUploads()
+    vi.mocked(deleteAttachment).mockResolvedValue()
+    const wrapper = makeWrapper()
+
+    await selectFiles(wrapper, [file('a.png', 'image/png')])
+    pending[0]?.resolve(uploadResult(51, 'a.png', 'image/png'))
+    await flushPromises()
+
+    await buttonByLabel(wrapper, '移除')?.trigger('click')
+    await flushPromises()
+
+    expect(vi.mocked(deleteAttachment)).toHaveBeenCalledWith(51)
+    expect(lastModelValue(wrapper)).toEqual([])
+  })
+
+  it('释放失败（例如附件已随工单提交）不打扰用户，移除照样生效', async () => {
+    holdUploads()
+    vi.mocked(deleteAttachment).mockRejectedValue({
+      response: { data: { code: 'ATTACHMENT_ALREADY_BOUND' } },
+    })
+    const wrapper = makeWrapper()
+
+    await selectFiles(wrapper, [file('a.png', 'image/png')])
+    pending[0]?.resolve(uploadResult(52, 'a.png', 'image/png'))
+    await flushPromises()
+
+    await buttonByLabel(wrapper, '移除')?.trigger('click')
+    await flushPromises()
+
+    expect(lastModelValue(wrapper)).toEqual([])
+    // 已绑定的附件本来就该留着，其余失败由服务端对账兜底：都不需要弹提示
+    expect(ElMessage.error).not.toHaveBeenCalled()
+  })
+
+  it('移除还没上传完成的文件不会去调删除接口', async () => {
+    holdUploads()
+    const wrapper = makeWrapper()
+
+    await selectFiles(wrapper, [file('a.png', 'image/png')])
+    await buttonByLabel(wrapper, '移除')?.trigger('click')
+    await flushPromises()
+
+    expect(vi.mocked(deleteAttachment)).not.toHaveBeenCalled()
   })
 })

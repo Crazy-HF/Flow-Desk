@@ -40,6 +40,24 @@ export interface UploadAttachmentOptions {
 export const MAX_ATTACHMENTS_PER_REQUEST = 5
 
 /**
+ * 单文件大小上限，与后端 `flowdesk.attachment.max-file-size` 默认值一致（10 MiB）。
+ *
+ * <p>**这是唯一一处被复制到前端的限额**，用途只有一个：在发请求之前拦掉必然被
+ * `413/ATTACHMENT_TOO_LARGE` 拒绝的文件，不让用户白等一次上传。真正的边界始终在后端，
+ * 前端拦截失败也只是"少提示一次"，不会放行任何后端不接受的内容。</p>
+ */
+export const MAX_ATTACHMENT_FILE_SIZE_BYTES = 10 * 1024 * 1024
+
+/**
+ * 文件选择框的 `accept` 值：**软过滤，不是安全边界**。
+ *
+ * <p>它只影响系统文件选择框默认列出的条目，拖放与粘贴都能绕过；真正决定"能不能存"的
+ * 是后端对「扩展名 + 声明类型 + 服务端识别结果」的三重一致校验。这里刻意不复制白名单判定
+ * 逻辑（例如"是不是真的 OOXML 容器"），类型裁决只在后端一处，避免两份规则漂移。</p>
+ */
+export const ACCEPTED_ATTACHMENT_EXTENSIONS = '.jpg,.jpeg,.png,.pdf,.txt,.docx,.xlsx'
+
+/**
  * 上传单个附件。
  *
  * <p>批量由调用方**逐文件调用**本函数：这样进度、取消与失败都天然按文件独立，
@@ -84,6 +102,17 @@ export async function fetchAttachmentContent(id: number, inline: boolean): Promi
     responseType: 'blob',
   })
   return response.data as Blob
+}
+
+/**
+ * 删除一个**尚未绑定**的附件（`DELETE /attachments/{id}`）。
+ *
+ * <p>只对「上传成功、还没随工单提交」的附件有效。已绑定到工单记录的附件会得到
+ * `409/ATTACHMENT_ALREADY_BOUND`——那种情况下文件本来就该留下，调用方按正常路径处理，
+ * 不要当成失败提示给用户。</p>
+ */
+export async function deleteAttachment(id: number): Promise<void> {
+  await publicHttp.delete(`/attachments/${id}`)
 }
 
 /** 用已授权的 Blob 触发浏览器下载/另存；不用直链，因此不会丢掉令牌。 */

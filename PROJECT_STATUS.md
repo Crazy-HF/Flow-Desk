@@ -1,5 +1,15 @@
 # FlowDesk 项目状态
 
+## 2026-10-15 交付：附件修复批（分支 `flow-desk/attachment-fix`）
+
+- **分支起点**：`ec17717`（= `main`，含附件完善批并入 `main` 与 CI `core-e2e` 修复），从最新 `main` 创建，**不需要先合并 `main`**；创建分支前工作区干净、无 `stash`。
+- **用户三项裁决（2026-10-15，均按推荐执行）**：① **删除附件** —— 只允许删除**未绑定**附件（不动「记录不可变」）；② **客户端预校验** —— 只复制「大小 / 数量」这类数值上限，**类型只用 `accept` 软过滤、不复制白名单**；③ **预签名直传** —— **不做**（由"候选批"正式收口）。
+- **后端**：新增 `DELETE /attachments/{attachmentId}`（公共路径，不带 `/fd/v1` 前缀），成功 `200` 空信封；新增 `AttachmentMapper.selectByIdForUpdate`（锁 `attachment` 行，与工单侧 `selectUsableForBinding` **同一把行锁**，消除"判定未绑定"与"写入绑定"交错的窗口）；新增 `domain/AttachmentAlreadyBoundException` → `409/ATTACHMENT_ALREADY_BOUND`；`AttachmentServiceImpl.delete` 顺序为 **锁行 → 归属不符 `404` → 引用判定端口缺失拒绝删除 → 已引用 `409` → 先删元数据再删文件**（文件删除失败只告警，交对账自愈）。
+- **前端**：`api/attachments.ts` 新增 `MAX_ATTACHMENT_FILE_SIZE_BYTES`（10 MiB）、`ACCEPTED_ATTACHMENT_EXTENSIONS`、`deleteAttachment(id)`；`api/errorMessages.ts` 补 `ATTACHMENT_ALREADY_BOUND`；`AttachmentUpload.vue` 加 `accept`、超限文件本地拦截（新增 `rejected` 状态，后缀「未上传」，**不发请求、不占名额**）、`remove()` 对已上传成功的文件调删除接口立即释放存储（失败静默，含已绑定的 `409`）、提示文案补单文件上限。**类型白名单没有复制到前端**。
+- **验证（本轮实跑）**：后端 `./mvnw.cmd -B -q compile` 通过；`./mvnw.cmd -B test "-DargLine=-Djdk.attach.allowAttachSelf=true"` → **surefire 1187 项全绿**（`Failures 0 / Errors 0`、`BUILD SUCCESS`；本批新增 8 项：`AttachmentServiceImplTest` 5 + `AttachmentControllerWebTest` 3）；**新增 `AttachmentServiceIT`（Testcontainers `mysql:8.4.11`）4 项全绿**——删除成功（元数据与最终文件都消失）、已绑定拒绝且两者原样保留、他人附件 404、不存在 404，同时是 `selectByIdForUpdate` 这条原生 `FOR UPDATE` SQL 的唯一实证；前端 `npx vue-tsc -b` 0 error、`npx eslint . --max-warnings=0` 与 `npx stylelint "src/**/*.{css,scss,vue}" --max-warnings=0` 通过、`npx vitest run` → **27 套件 / 253 项全绿**（基线 248，本批 +5）、`npx vite build` 成功。**本轮未跑（不视为已通过）**：后端全量 `clean verify`（只跑了定向 surefire + `AttachmentServiceIT`，未跑既有全部集成测试）、前端全量 E2E、8092 真实栈验收脚本。
+- **文档同步**：`docs/api-design.md`（7.1 新增删除段与并发口径、7.6 第 5 条、10.2 新增 `409/ATTACHMENT_ALREADY_BOUND`）、`docs/engineering-readiness.md` 7.2（删除顺序 + 必须覆盖清单）、`docs/modules/attachment-storage-and-preview.md`（§5 收口为「不做」、新增 6.2 交付记录）、`docs/modules/ticket-attachments.md`（做 / 不做清单与阶段状态）、`docs/implementation-plan.md` 9.3 第 3 项（修复批子条）、`AGENTS.md` 与本文件。
+- **下一步**：补后端 `clean verify` 与前端全量 E2E / 真实栈验收 → 通知 / 通信通道 + 两个超时自动任务（backlog 3）。
+
 ## 2026-10-15 交接：附件完善批并入 `main`（身份改写）+ CI `core-e2e` 修复
 
 - **合并方式（用户 2026-10-15 授权「推送并合并」，未走 PR）**：`flow-desk/attachment-batch-redo`（`88367b8`，作者 Crazy-HF）推送远程后，用 `--force-with-lease`（旧值 `54ef9d8`）**直接改写远程 `main`**。原因：`88367b8` 与远程 main 上的 `54ef9d8` **同父（`cfc23b0`）、同树（内容零差异）**，唯一差别是提交身份——`54ef9d8` 来自恢复克隆（全新 `git init`，本机全局身份 `maxiaobin`），`88367b8` 是身份正确的重提，两者不存在快进路径。远程旧分支 `flow-desk/attachment-storage-recovered`（= `54ef9d8`）已删除；本地同名分支与两个 `stash` 一并清理；本地 `main` / `origin/main` / 分支均 = `88367b8`（`ls-remote` 复核）。

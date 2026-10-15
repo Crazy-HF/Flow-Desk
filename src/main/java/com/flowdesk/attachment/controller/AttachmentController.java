@@ -12,6 +12,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -91,6 +92,20 @@ public class AttachmentController {
     @GetMapping("/download/{attachmentId}")
     public ResponseEntity<Resource> download(@PathVariable long attachmentId) {
         return fileResponse(attachmentService.download(attachmentId));
+    }
+
+    /**
+     * 删除一个**尚未绑定**的附件（{@code docs/api-design.md} 7.1）：元数据与文件一并删除，
+     * 成功返回 {@code 200} 与空数据信封（删除类端点统一 {@code R<Void>}，与其它模块一致）。
+     *
+     * <p>只允许上传者本人删除；他人附件与不存在的附件统一 {@code 404/ATTACHMENT_NOT_FOUND}。
+     * 已绑定到工单记录的附件不允许删除（{@code 409/ATTACHMENT_ALREADY_BOUND}）——
+     * 记录不可变是审计前提。判定由服务层在行锁下完成，控制器不做业务判断。</p>
+     */
+    @DeleteMapping("/{attachmentId}")
+    public R<Void> delete(@PathVariable long attachmentId) {
+        attachmentService.delete(attachmentId);
+        return R.success();
     }
 
     private static ResponseEntity<Resource> fileResponse(AttachmentDownloadResult result) {

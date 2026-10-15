@@ -8,6 +8,7 @@ import com.flowdesk.attachment.application.result.AttachmentDownloadResult;
 import com.flowdesk.attachment.application.result.AttachmentUploadResult;
 import com.flowdesk.attachment.application.service.AttachmentService;
 import com.flowdesk.attachment.domain.Attachment;
+import com.flowdesk.attachment.domain.AttachmentAlreadyBoundException;
 import com.flowdesk.attachment.domain.AttachmentNotFoundException;
 import com.flowdesk.attachment.domain.AttachmentValidationException;
 import com.flowdesk.attachment.domain.AttachmentValidationException.Violation;
@@ -120,6 +121,39 @@ public class AttachmentServiceImpl implements AttachmentService {
     @Override
     public AttachmentDownloadResult preview(long attachmentId) {
         return open(attachmentId, true);
+    }
+
+    /**
+     * 删除未绑定附件：锁定元数据行 → 判定归属 → 判定未被引用 → 先删元数据、再删文件。
+     *
+     * <p>锁定用的是 {@code selectByIdForUpdate}，与工单侧引用附件的 {@code FOR UPDATE} 同一把行锁，
+     * 因此「判定未绑定」与「写入绑定」不会交错（详见该 Mapper 方法的说明）。</p>
+     *
+     * <p>文件删除走 {@code deleteFinalQuietly}：元数据已删是本操作的权威结果，文件删失败留下的
+     * 孤儿对象由对账任务清除；若反过来先删文件而元数据删除失败，会变成「记录在而文件缺失」
+     * ——那是只告警不修（对账只当完整性事故处理）的更差状态。</p>
+     */
+    @Override
+    @Transactional
+    public void delete(long attachmentId) {
+        Attachment row = attachmentMapper.selectByIdForUpdate(attachmentId);
+        if (row == null) {
+            throw new AttachmentNotFoundException();
+        }
+        if (row.getUploadedBy() == null || row.getUploadedBy() != currentUploaderPort.currentUserId()) {
+            // 归属不符与不存在对外同为 404：能删别人的附件本身就是信息泄露。
+            throw new AttachmentNotFoundException();
+        }
+        // 没有引用判定实现时拒绝删除：无法证明「未绑定」，宁可让文件留到保留期由对账清理。
+        AttachmentAccessPort port = accessPort.orElseThrow(() -> new IllegalStateException(
+                "缺少附件引用判定实现（AttachmentAccessPort），拒绝删除以避免误删已绑定附件"));
+        if (port.isReferenced(attachmentId)) {
+            throw new AttachmentAlreadyBoundException();
+        }
+        if (attachmentMapper.deleteById(attachmentId) != 1) {
+            throw new AttachmentNotFoundException();
+        }
+        deleteFinalQuietly(row.getStorageKey(), "删除未绑定附件");
     }
 
     /**

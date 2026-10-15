@@ -1,5 +1,6 @@
 package com.flowdesk.attachment.controller;
 
+import com.flowdesk.attachment.domain.AttachmentAlreadyBoundException;
 import com.flowdesk.attachment.domain.AttachmentNotFoundException;
 import com.flowdesk.attachment.domain.AttachmentValidationException;
 import com.flowdesk.common.exception.ApiErrorWriter;
@@ -54,6 +55,15 @@ public class AttachmentExceptionHandler {
     @ExceptionHandler(AttachmentNotFoundException.class)
     ResponseEntity<R<ErrorDetails>> handleNotFound(AttachmentNotFoundException exception) {
         return failure(HttpStatus.NOT_FOUND, "ATTACHMENT_NOT_FOUND", "附件不存在");
+    }
+
+    /**
+     * 已绑定附件不允许删除：这是状态冲突而不是参数错误（附件确实存在、也确实属于调用者），
+     * 按 409 返回，前端据此说明"已随工单提交，不能删除"。
+     */
+    @ExceptionHandler(AttachmentAlreadyBoundException.class)
+    ResponseEntity<R<ErrorDetails>> handleAlreadyBound(AttachmentAlreadyBoundException exception) {
+        return failure(HttpStatus.CONFLICT, "ATTACHMENT_ALREADY_BOUND", "附件已随业务记录提交，不能删除");
     }
 
     private ResponseEntity<R<ErrorDetails>> failure(HttpStatus status, String code, String message) {

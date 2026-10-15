@@ -28,7 +28,8 @@
 
 **不做**（越界即停）：
 
-- 不做附件替换、删除接口；不做病毒扫描、断点续传、分片上传。
+- **删除（2026-10-15 追加，属修复批）**：`DELETE /attachments/{attachmentId}`，**只允许删未绑定附件**（已绑定按 `409/ATTACHMENT_ALREADY_BOUND` 拒绝）。原「不做删除接口」的边界由此收窄为「不做附件**替换 / 重命名**接口」。
+- 不做病毒扫描、断点续传、分片上传。
 - 不做附件的签名 URL 重定向预览——**预览必须留在「后端授权 → 后端代理内容」这条路上**，URL 一泄露就是公开文件。
 - 不引入消息队列、分布式任务平台；对账仍是单实例 `@Scheduled`。
 - 不改已发布的历史迁移（本批**不新增迁移**：表结构无需变化）。
@@ -162,16 +163,21 @@
 | **批 1** | 存储抽象 + 对象存储驱动 | `AttachmentStorage`（接口调整）、`LocalAttachmentStorage`（改名 `promote`、保留同卷探针）、`S3AttachmentStorage`（新增）、`AttachmentStorageConfiguration`（按配置装配）、`AttachmentProperties`（`storage` / `s3` 段）、`compose.yaml`（MinIO + 建桶）、`pom.xml`（AWS SDK v2）、`AttachmentReconciliationTask`（开关）、`application*.yml` |
 | **批 2** | 内联预览 | `AttachmentController`（`/content` 端点）、`AttachmentService` / `AttachmentServiceImpl`（`open(id, disposition)`）、`domain` 新增内联白名单判定、安全响应头、前端附件区 + 图片灯箱 + PDF 预览 + 文本内联 |
 | **批 3** | 批量 + 前端体验 + 限额可配 | `UploadAttachmentCommand`（多文件）、`AttachmentValidator`（改读 properties）、`AttachmentProperties`（限额段）、`application.yml`（multipart 外层闸）、前端多选/进度/取消/粘贴/逐条失败 |
-| **可选** | 预签名直传 | 见 §5 |
+| **可选** | 预签名直传 | 2026-10-15 用户裁决**不做**，见 §5 |
 
-## 5. 可选批（预签名直传）的取舍
+## 5. 预签名直传：2026-10-15 用户裁决「不做」
 
-**倾向不做，登记为候选**，理由是它和本项目的核心纪律冲突：
+**已裁决：不做**（用户 2026-10-15 明确「按推荐进行」，本项由"倾向不做、登记为候选"正式收口为**不做**）。理由不变：
 
 - 直传把内容写进对象存储，**服务端没有经过 `stagedPath`**，三重一致校验要么放弃、要么回读对象重做。
 - 回读校验需要「下载对象 → 本地临时文件 → 魔数 + OOXML 中央目录枚举」，**带宽与当前方案基本等价**，
   只在「不做服务端校验」时才有收益——而那正是本项目刻意保留的安全边界。
-- 结论：真要省带宽，代价是放弃「服务端识别结果」这一重校验，属于安全口径变更，应单独立项并显式取舍。
+- 单文件上限 10 MiB，收益本来就小；真要省带宽，代价是放弃「服务端识别结果」这一重校验，
+  属安全口径变更，须单独立项并显式取舍。
+
+**因此本项不再是候选批**：`docs/modules/ticket-attachments.md` 第 1 节的「不做」清单与
+`docs/implementation-plan.md` 9.3 的未完成项同步为「已裁决不做」。上传仍走
+`POST /attachments/upload` 的服务端代理路径，内容不进浏览器直连对象存储。
 
 ## 6. 待确认决策点（2026-10-14 已由用户裁决）
 
@@ -210,6 +216,36 @@
 | 前端单测 | `npx vitest run` | 见下方「验证口径」执行记录 |
 | 后端附件单测 | `sh /tmp/mvnx.sh -B -q test ...` | 附件四个测试类 40 项全绿 |
 | 后端 S3 集成测试 | `S3AttachmentStorageIT` | **未真正执行**：本机镜像仓库无法提供 `minio/minio`（`免费节点当前繁忙`），用例按 `Assumptions.abort` 主动跳过而非通过。需在可用镜像的环境补跑。 |
+
+## 6.2 本轮交付记录（2026-10-15 附件修复批，分支 `flow-desk/attachment-fix`）
+
+**用户三项裁决（2026-10-15，均按推荐执行）**：① 删除附件 —— 只允许删除**未绑定**附件（不动「记录不可变」）；② 客户端预校验 —— 只复制「大小 / 数量」这类数值上限，**类型只用 `accept` 软过滤、不复制白名单**；③ 预签名直传 —— **不做**（见 §5）。
+
+### 后端：删除未绑定附件
+
+- 新端点 `DELETE /attachments/{attachmentId}`（公共路径，不带 `/fd/v1` 前缀），成功 `200` 与空数据信封（删除类端点统一 `R<Void>`，与其它模块一致）。
+- 新增 `AttachmentMapper.selectByIdForUpdate`：锁定 `attachment` 行，与工单侧 `selectUsableForBinding` 争**同一把行锁**，消除「判定未绑定」与「写入绑定」交错的窗口。
+- 新增 `domain/AttachmentAlreadyBoundException` → `409/ATTACHMENT_ALREADY_BOUND`（`AttachmentExceptionHandler` 映射；`docs/api-design.md` 10.2 已补该行）。
+- `AttachmentServiceImpl.delete`：锁行 → 归属不符按 `404`（不泄露他人附件是否存在）→ **引用判定端口缺失时拒绝删除**（无法证明"未绑定"，宁可让文件留到保留期由对账清理）→ 已引用按 `409` → 先删元数据、再删文件（文件删除失败只告警，交对账自愈）。
+
+### 前端：上传前预校验 + 移除即释放
+
+- `api/attachments.ts` 新增 `MAX_ATTACHMENT_FILE_SIZE_BYTES`（10 MiB，与 `flowdesk.attachment.max-file-size` 同值）、`ACCEPTED_ATTACHMENT_EXTENSIONS`（`accept` 软过滤值）与 `deleteAttachment(id)`；`api/errorMessages.ts` 补 `ATTACHMENT_ALREADY_BOUND`。
+- `AttachmentUpload.vue`：文件选择框加 `accept`；`addFiles` 对超限文件**不发请求**，直接以新增的 `rejected` 状态列出并说明原因（状态后缀「未上传」，不占名额）；`remove()` 对**已上传成功**的文件调 `DELETE /attachments/{id}` 立即释放存储，失败（含已绑定的 409）**静默**——文件仍由保留期对账清理；提示文案补上单文件上限。
+- 类型白名单**没有**复制到前端：`accept` 只影响系统选择框的默认过滤，拖放与粘贴都能绕过，真正裁决仍在后端三重一致校验。
+
+### 验证（本轮实跑）
+
+| 项 | 命令 | 结果 |
+| --- | --- | --- |
+| 后端编译 | `./mvnw.cmd -B -q compile` | 通过 |
+| 后端全量单元/Web | `./mvnw.cmd -B test "-DargLine=-Djdk.attach.allowAttachSelf=true"` | **1187 项全绿**（`Failures 0 / Errors 0`、`BUILD SUCCESS`）；本批新增 8 项——`AttachmentServiceImplTest` 5（删除成功 / 已绑定 409 / 他人 404 / 不存在 404 / 端口缺失拒绝）、`AttachmentControllerWebTest` 3（`200` 空信封、`409`、`404`） |
+| 前端类型检查 | `npx vue-tsc -b` | 0 error |
+| 前端 Lint | `npx eslint . --max-warnings=0` + `npx stylelint "src/**/*.{css,scss,vue}" --max-warnings=0` | 通过 |
+| 前端单测 | `npx vitest run` | **27 套件 / 253 项全绿**（基线 248，本批 +5：超限不发请求、`accept` 存在、移除即释放、释放失败不打扰用户、未上传文件不调删除） |
+| 前端构建 | `npx vite build` | 成功（仅有既存的 chunk 体积提示） |
+
+**本轮未跑（不视为已通过）**：后端全量 `clean verify`（本批只跑了定向的 surefire + `AttachmentServiceIT`，未跑既有全部集成测试）、前端全量 E2E、8092 真实栈验收脚本。
 
 ## 7. 文档影响面（实施时同步）
 

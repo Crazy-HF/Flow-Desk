@@ -4,7 +4,10 @@ import { ElMessage } from 'element-plus'
 import { computed, onBeforeUnmount, ref } from 'vue'
 
 import {
+  ACCEPTED_ATTACHMENT_EXTENSIONS,
+  MAX_ATTACHMENT_FILE_SIZE_BYTES,
   MAX_ATTACHMENTS_PER_REQUEST,
+  deleteAttachment,
   formatFileSize,
   isUploadCanceled,
   uploadAttachment,
@@ -23,8 +26,9 @@ import { describeError } from '@/api/errorMessages'
  * 也无法只重试那一个。逐文件请求让这三件事天然按文件独立，失败文案里可以直接写出文件名。
  * 服务端真正的上限（数量、单文件大小、单次总量）仍由后端裁定，这里只是不提前制造模糊。</p>
  * <p>2. **只回传 `attachmentIds`**，不回传文件本身。附件在"先上传、后绑定"的两段式里
- * 先落库、拿到 id，再随工单提交时绑定；未绑定的附件按保留期由对账任务清理，
- * 所以用户在这里删掉一个已上传的文件不需要、也没有删除接口——它自然过期。</p>
+ * 先落库、拿到 id，再随工单提交时绑定。用户在这里移除一个已上传成功的文件会顺手调
+ * `DELETE /attachments/{id}` 立即释放存储；服务端只允许删除**未绑定**的附件，所以已随
+ * 工单提交过的附件会拿到 `409`——那时文件本来就该留下，按正常路径静默处理。</p>
  * <p>3. **粘贴上传**是这个控件存在的理由之一：截图没有"文件路径"，用户按 Ctrl+V 就该能传。
  * 但粘贴监听挂在控件自己身上（`tabindex="0"`），不挂 `document`——挂全局会抢掉页面上
  * 其它输入框的粘贴。</p>
@@ -48,7 +52,7 @@ const props = withDefaults(
   { max: MAX_ATTACHMENTS_PER_REQUEST, disabled: false },
 )
 
-type UploadStatus = 'uploading' | 'success' | 'error' | 'canceled'
+type UploadStatus = 'uploading' | 'success' | 'error' | 'canceled' | 'rejected'
 
 /**
  * 一个文件在界面上的全部状态。
@@ -115,6 +119,9 @@ function statusText(task: UploadTask): string {
       return '· 已上传'
     case 'canceled':
       return '· 已取消'
+    case 'rejected':
+      // 本地预检拦下的文件根本没发过请求，说"上传失败"不准确
+      return '· 未上传'
     default:
       return '· 上传失败'
   }
@@ -194,9 +201,31 @@ function addFiles(incoming: readonly File[]): void {
       attachmentId: null,
       controller: null,
     }
+    // 明显会被服务端拒掉的先在这里拦下：10 MiB 要传很久，传完再收到 413 是最差的顺序。
+    const rejected = oversizeMessage(file)
+    if (rejected) {
+      task.status = 'rejected'
+      task.message = rejected
+    }
     tasks.value.push(task)
-    void startUpload(task.uid)
+    if (!rejected) {
+      void startUpload(task.uid)
+    }
   }
+}
+
+/**
+ * 单个文件是否超过上限：超了返回给用户看的说明，没超返回空串。
+ *
+ * <p>只判大小，不判类型——类型白名单（含"是不是真的 OOXML 容器"）只在后端一处维护，
+ * 前端只用 `accept` 做软过滤。这里拦下的是"必然被 413 拒绝"的情况，属于体验优化，
+ * 不是安全边界：拦不住也不放行任何后端不接受的内容。</p>
+ */
+function oversizeMessage(file: File): string {
+  if (file.size <= MAX_ATTACHMENT_FILE_SIZE_BYTES) {
+    return ''
+  }
+  return `${file.name}：超过单个附件 ${formatFileSize(MAX_ATTACHMENT_FILE_SIZE_BYTES)} 的上限，没有上传`
 }
 
 function openPicker(): void {
@@ -268,6 +297,23 @@ function remove(uid: number): void {
   tasks.value = tasks.value.filter((candidate) => candidate.uid !== uid)
   syncModelValue()
   syncUploading()
+  if (task.attachmentId !== null) {
+    void releaseUploaded(task.attachmentId)
+  }
+}
+
+/**
+ * 移除一个已上传成功的文件时，顺手释放服务端存储。
+ *
+ * <p>失败一律不打扰用户：已绑定的附件（`409`）本来就该留着，其余失败也只是让文件多留到
+ * 保留期、由对账任务清理。两种情况都不是用户需要处理的错误，弹提示只会制造噪音。</p>
+ */
+async function releaseUploaded(attachmentId: number): Promise<void> {
+  try {
+    await deleteAttachment(attachmentId)
+  } catch {
+    // 见上：服务端会兜底清理，这里不需要用户介入。
+  }
 }
 
 onBeforeUnmount(() => {
@@ -301,7 +347,8 @@ onBeforeUnmount(() => {
         点击选择文件，或把文件拖到这里
       </p>
       <p class="attachment-upload__hint">
-        最多 {{ max }} 个；支持图片、PDF、纯文本与 Word / Excel 文档。
+        最多 {{ max }} 个，单个不超过 {{ formatFileSize(MAX_ATTACHMENT_FILE_SIZE_BYTES) }}；
+        支持图片、PDF、纯文本与 Word / Excel 文档。
         光标停在这块区域时，可以直接按 Ctrl+V 粘贴截图。
       </p>
     </div>
@@ -311,6 +358,7 @@ onBeforeUnmount(() => {
       class="attachment-upload__input"
       type="file"
       multiple
+      :accept="ACCEPTED_ATTACHMENT_EXTENSIONS"
       aria-hidden="true"
       @change="onPick"
     >
@@ -352,7 +400,7 @@ onBeforeUnmount(() => {
             :show-text="false"
           />
           <p
-            v-if="task.status === 'error'"
+            v-if="task.status === 'error' || task.status === 'rejected'"
             class="attachment-upload__error"
             role="alert"
           >

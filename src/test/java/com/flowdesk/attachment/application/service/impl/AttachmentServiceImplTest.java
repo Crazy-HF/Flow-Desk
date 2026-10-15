@@ -2,10 +2,12 @@ package com.flowdesk.attachment.application.service.impl;
 
 import com.flowdesk.attachment.application.AttachmentValidator;
 import com.flowdesk.attachment.application.command.UploadAttachmentCommand;
+import com.flowdesk.attachment.application.port.AttachmentAccessPort;
 import com.flowdesk.attachment.application.result.AttachmentDownloadResult;
 import com.flowdesk.attachment.application.result.AttachmentUploadResult;
 import com.flowdesk.attachment.config.AttachmentProperties;
 import com.flowdesk.attachment.domain.Attachment;
+import com.flowdesk.attachment.domain.AttachmentAlreadyBoundException;
 import com.flowdesk.attachment.domain.AttachmentNotFoundException;
 import com.flowdesk.attachment.domain.AttachmentValidationException;
 import com.flowdesk.attachment.domain.AttachmentValidationException.Violation;
@@ -25,6 +27,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -35,6 +38,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.LongPredicate;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -90,6 +94,12 @@ class AttachmentServiceImplTest {
         when(attachmentMapper.selectById(any())).thenAnswer(invocation -> {
             Object id = invocation.getArgument(0);
             return inserted.stream().filter(row -> row.getId().equals(id)).findFirst().orElse(null);
+        });
+        // 删除同样落在 inserted 上：删完之后再读就该读不到了，这与真实数据库一致。
+        // 必须显式指定 Serializable 重载：BaseMapper 另有 deleteById(T)，无参匹配会二义。
+        when(attachmentMapper.deleteById(any(Serializable.class))).thenAnswer(invocation -> {
+            Object id = invocation.getArgument(0);
+            return inserted.removeIf(row -> row.getId().equals(id)) ? 1 : 0;
         });
         service = new AttachmentServiceImpl(new AttachmentValidator(properties), localStorage, attachmentMapper,
                 () -> UPLOADER_ID, Optional.empty(), Clock.fixed(NOW, ZoneOffset.UTC));
@@ -260,6 +270,59 @@ class AttachmentServiceImplTest {
         }
     }
 
+    @Test
+    void deleteRemovesMetadataAndStoredFileOfOwnUnboundAttachment() {
+        long id = store(1, "draft.png", "image/png", PNG);
+        String storageKey = inserted.get(0).getStorageKey();
+
+        serviceWithPort(attachmentId -> false).delete(id);
+
+        assertThat(inserted).isEmpty();
+        assertThat(localStorage.finalExists(storageKey)).isFalse();
+        assertThat(localStorage.listFinal()).isEmpty();
+    }
+
+    @Test
+    void deleteRefusesAttachmentsThatAreStillReferenced() {
+        long id = store(1, "bound.png", "image/png", PNG);
+
+        assertThatThrownBy(() -> serviceWithPort(attachmentId -> true).delete(id))
+                .isInstanceOf(AttachmentAlreadyBoundException.class);
+
+        // 已绑定附件是审计链的一部分：元数据与文件都必须原样保留
+        assertThat(inserted).hasSize(1);
+        assertThat(localStorage.listFinal()).hasSize(1);
+    }
+
+    @Test
+    void deleteHidesAttachmentsUploadedByOthers() {
+        long id = store(1, "other.png", "image/png", PNG);
+        inserted.get(0).setUploadedBy(UPLOADER_ID + 1);
+
+        assertThatThrownBy(() -> serviceWithPort(attachmentId -> false).delete(id))
+                .isInstanceOf(AttachmentNotFoundException.class);
+        assertThat(inserted).hasSize(1);
+        assertThat(localStorage.listFinal()).hasSize(1);
+    }
+
+    @Test
+    void deleteReportsUnknownIdAsNotFound() {
+        when(attachmentMapper.selectByIdForUpdate(404L)).thenReturn(null);
+
+        assertThatThrownBy(() -> serviceWithPort(attachmentId -> false).delete(404L))
+                .isInstanceOf(AttachmentNotFoundException.class);
+    }
+
+    @Test
+    void deleteRefusesWhenNoReferencePortIsAvailable() {
+        long id = store(1, "draft.png", "image/png", PNG);
+
+        // 没有引用判定就无法证明"未绑定"：宁可让文件留到保留期由对账清理，也不能冒险误删
+        assertThatThrownBy(() -> service.delete(id)).isInstanceOf(IllegalStateException.class);
+        assertThat(inserted).hasSize(1);
+        assertThat(localStorage.listFinal()).hasSize(1);
+    }
+
     private long store(long id, String originalName, String contentType, byte[] content) {
         StagedAttachment staged = localStorage.stage(new ByteArrayInputStream(content));
         localStorage.promote(staged.storageKey(), contentType);
@@ -274,7 +337,30 @@ class AttachmentServiceImplTest {
         row.setCreatedAt(LocalDateTime.ofInstant(NOW, ZoneOffset.UTC));
         inserted.add(row);
         when(attachmentMapper.selectById(id)).thenReturn(row);
+        // 删除走加锁读：同一个替身对象，晚些时候对 uploadedBy 的改动也能被看到。
+        when(attachmentMapper.selectByIdForUpdate(id)).thenReturn(row);
         return id;
+    }
+
+    /**
+     * 带引用判定端口的服务实例；{@code referenced} 决定"这个附件是否已被业务对象绑定"。
+     *
+     * <p>生产里端口由工单模块实现；这里用最小替身，只为了把"已绑定 / 未绑定"两条路径分开。</p>
+     */
+    private AttachmentServiceImpl serviceWithPort(LongPredicate referenced) {
+        AttachmentAccessPort port = new AttachmentAccessPort() {
+            @Override
+            public boolean isVisibleTo(long attachmentId, long userId) {
+                return false;
+            }
+
+            @Override
+            public boolean isReferenced(long attachmentId) {
+                return referenced.test(attachmentId);
+            }
+        };
+        return new AttachmentServiceImpl(new AttachmentValidator(properties), localStorage, attachmentMapper,
+                () -> UPLOADER_ID, Optional.of(port), Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private byte[] readFinal(String storageKey) throws IOException {

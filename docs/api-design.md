@@ -381,7 +381,19 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 
 **引用规则（**已实现**，2026-10-13/2026-10-14）**：`attachmentIds` 只能引用当前用户上传、尚未绑定、且未超过保留期（默认 24 小时）的附件；引用他人附件、已绑定附件或不存在/不可见的附件时按统一 `404/ATTACHMENT_NOT_FOUND` 或 `400/VALIDATION_FAILED` 处理，不泄露他人附件是否存在。超期未绑定的附件由对账任务清理（`docs/engineering-readiness.md` 7.2）。
 
-v1 仍不提供附件替换、删除与分片上传接口；**预览见 7.2**（2026-10-14 起提供）。
+v1 仍不提供附件替换与分片上传接口；**删除见下方**，**预览见 7.2**（2026-10-14 起提供）。
+
+**删除未绑定附件（**已实现**，2026-10-15）**：`DELETE /attachments/{attachmentId}` 删除一个**尚未绑定**的附件，元数据与文件一并删除，成功返回 `200` 与空数据信封。
+
+| 情形 | 结果 |
+| --- | --- |
+| 上传者本人 + 未被任何业务对象引用 | `200`，元数据与最终文件都删除 |
+| 附件不存在，或调用者不是上传者 | `404/ATTACHMENT_NOT_FOUND`（两者对外同码，不泄露他人附件是否存在） |
+| 附件已绑定到工单记录 | `409/ATTACHMENT_ALREADY_BOUND` |
+
+**为什么只允许删未绑定**：工单记录不可变，已绑定附件是审计链的一部分，删除会破坏可追溯性。需要"换掉一个附件"时，正确做法是重新上传并在新记录里引用，而不是改写历史记录。
+
+**并发口径**：删除与工单侧引用附件（`selectUsableForBinding`）**争同一把 `attachment` 行锁**（两处都是该行的 `FOR UPDATE`），因此不存在"判定未绑定"与"写入绑定"交错的窗口——并发下要么删除被拒（`409`），要么引用整体失败（`400/VALIDATION_FAILED`），不会出现引用一个已删除附件的 `500`。删除顺序是**先删元数据、再删文件**：文件删除失败只告警，留下的孤儿对象由对账任务清理（`docs/engineering-readiness.md` 7.2）。
 
 ### 7.2 附件下载与内联预览
 
@@ -448,7 +460,7 @@ v1 仍不提供附件替换、删除与分片上传接口；**预览见 7.2**（
 2. 白名单只包含 JPEG、PNG、PDF、TXT、DOCX 和 XLSX。
 3. 内容端点使用公共路径（**不带 `/fd/v1` 前缀**）：规范路径 `GET /attachments/{attachmentId}/content?disposition=`，别名 `GET /attachments/download/{attachmentId}`（deprecated）。**均已实现**（2026-10-13 下载、2026-10-14 预览）；权限口径见 7.2。
 4. 分类选项和转交候选人使用最小字段专用接口，不开放通用用户搜索。
-5. v1 提供独立附件上传（`POST /attachments/upload`，`files` 可重复 part）、下载与内联预览（**均已实现**，2026-10-14），仍不提供替换、删除与分片上传。
+5. v1 提供独立附件上传（`POST /attachments/upload`，`files` 可重复 part）、下载与内联预览（**均已实现**，2026-10-14）以及**未绑定附件的删除**（`DELETE /attachments/{attachmentId}`，**已实现**，2026-10-15；已绑定附件返回 `409/ATTACHMENT_ALREADY_BOUND`），仍不提供替换、重命名与分片上传。
 
 附件与辅助查询接口组就绪状态：**Ready**。
 
@@ -669,6 +681,7 @@ MySQL 与 Redis 之间不存在天然原子事务。工程准备阶段必须明�
 | `409` | `CATEGORY_NAME_CONFLICT` | 分类名称已存在 |
 | `409` | `CATEGORY_IN_USE` | 删除仍被工单引用的分类 |
 | `409` | `CATEGORY_CONFLICT` | 分类版本或状态已变化 |
+| `409` | `ATTACHMENT_ALREADY_BOUND` | 删除仍被工单记录引用的附件（记录不可变，只允许删除未绑定附件） |
 | `409` | `ROLE_CODE_CONFLICT` | 角色编码已存在 |
 | `409` | `PERMISSION_CODE_CONFLICT` | 权限编码已存在 |
 | `409` | `RBAC_CONFLICT` | 违反内置管理员保护或授权引用约束（删除 `SYSTEM_ADMIN`、删除 `RBAC_MANAGE`、删除仍被引用的角色或权限、撤销或清空 `SYSTEM_ADMIN` 的 `RBAC_MANAGE`），或 RBAC 写事务发生锁等待超时/死锁及批量删除行数与请求不一致 |

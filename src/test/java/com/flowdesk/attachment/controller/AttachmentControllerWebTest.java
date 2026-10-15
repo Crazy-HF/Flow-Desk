@@ -5,6 +5,7 @@ import com.flowdesk.attachment.application.command.UploadAttachmentCommand;
 import com.flowdesk.attachment.application.result.AttachmentDownloadResult;
 import com.flowdesk.attachment.application.result.AttachmentUploadResult;
 import com.flowdesk.attachment.application.service.AttachmentService;
+import com.flowdesk.attachment.domain.AttachmentAlreadyBoundException;
 import com.flowdesk.attachment.domain.AttachmentNotFoundException;
 import com.flowdesk.attachment.domain.AttachmentValidationException;
 import com.flowdesk.attachment.domain.AttachmentValidationException.Violation;
@@ -30,8 +31,10 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -61,6 +64,7 @@ class AttachmentControllerWebTest {
     private static final String CONTENT = "/attachments/1/content";
     private static final String DOWNLOAD = "/attachments/download/1";
     private static final String UPLOAD = "/attachments/upload";
+    private static final String DELETE = "/attachments/1";
     private static final byte[] PNG = {(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 1};
     private static final byte[] PDF = "%PDF-1.7".getBytes(StandardCharsets.UTF_8);
 
@@ -188,6 +192,39 @@ class AttachmentControllerWebTest {
                 .andExpect(status().isUnsupportedMediaType())
                 .andExpect(jsonPath("$.code").value("ATTACHMENT_TYPE_UNSUPPORTED"))
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("payload.exe")));
+    }
+
+    @Test
+    void deleteReturnsEmptySuccessEnvelope() throws Exception {
+        mockMvc.perform(delete(DELETE).with(authenticatedUser()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
+    void deleteMapsBoundAttachmentToConflict() throws Exception {
+        // 已绑定附件不允许删除：这是状态冲突，不是参数错误
+        doThrow(new AttachmentAlreadyBoundException()).when(attachmentService).delete(1L);
+
+        mockMvc.perform(delete(DELETE).with(authenticatedUser()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ATTACHMENT_ALREADY_BOUND"));
+    }
+
+    @Test
+    void deleteHidesMissingOrForeignAttachmentAsNotFound() throws Exception {
+        doThrow(new AttachmentNotFoundException()).when(attachmentService).delete(1L);
+
+        mockMvc.perform(delete(DELETE).with(authenticatedUser()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ATTACHMENT_NOT_FOUND"));
+    }
+
+    @Test
+    void unauthenticatedDeleteIsRejectedBeforeTouchingTheService() throws Exception {
+        mockMvc.perform(delete(DELETE))
+                .andExpect(status().isUnauthorized());
     }
 
     private static AttachmentDownloadResult download(String name, String contentType, byte[] content,
