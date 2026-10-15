@@ -2143,3 +2143,234 @@ h1 {
     margin-left: 0;
   }
 }
+
+/* ============================================================
+ * 附件：上传控件（AttachmentUpload）与详情附件区（AttachmentList）。
+ *
+ * 两块共用一套"文件行"的观感：左侧固定尺寸的缩略位（图片是缩略图、其余是类型图标），
+ * 中间是可换行的名字与次要信息，右侧是图标操作。缩略位固定宽度是必要的——
+ * 没有它，有图和没图的行会让名字列的左缘各走各的，读起来像两张不同的列表。
+ * ============================================================ */
+
+.attachment-upload {
+  display: grid;
+  gap: var(--fd-space-3);
+}
+
+/* 拖放区：虚线框是"这里可以放东西"的既有说法，不用彩色底或图标堆叠去强调它。
+   聚焦后可直接粘贴截图，所以它必须可聚焦，焦点环用项目统一的 --fd-focus-ring。 */
+.attachment-upload__dropzone {
+  display: grid;
+  gap: var(--fd-space-1);
+  justify-items: center;
+  padding: var(--fd-space-6) var(--fd-space-5);
+  border: thin dashed var(--fd-color-border-strong);
+  border-radius: var(--fd-radius-md);
+  background: var(--fd-color-surface-subtle);
+  color: var(--fd-color-text-subtle);
+  cursor: pointer;
+  transition:
+    border-color var(--fd-duration-fast) var(--fd-ease-standard),
+    background-color var(--fd-duration-fast) var(--fd-ease-standard);
+}
+
+.attachment-upload__dropzone:hover,
+.attachment-upload__dropzone:focus-visible,
+.attachment-upload__dropzone--active {
+  border-color: var(--fd-color-primary);
+  background: var(--fd-color-primary-soft);
+  outline: none;
+}
+
+.attachment-upload__dropzone[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.attachment-upload__icon {
+  color: var(--fd-color-text-faint);
+  font-size: var(--fd-font-size-xl);
+}
+
+.attachment-upload__title {
+  margin: 0;
+  color: var(--fd-color-text);
+  font-size: var(--fd-font-size-base);
+  font-weight: var(--fd-font-weight-medium);
+}
+
+.attachment-upload__hint {
+  margin: 0;
+  max-width: 30rem;
+  font-size: var(--fd-font-size-sm);
+  line-height: var(--fd-line-height-base);
+  text-align: center;
+}
+
+/* 原生文件选择器只作为"点一下就能选文件"的载体：观感由上面的拖放区承担，
+   所以它不参与布局，也不进入 Tab 序列。 */
+.attachment-upload__input {
+  display: none;
+}
+
+.attachment-upload__count {
+  margin: 0;
+  color: var(--fd-color-text-subtle);
+  font-size: var(--fd-font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.attachment-upload__list,
+.attachment-list {
+  display: grid;
+  gap: var(--fd-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.attachment-upload__item,
+.attachment-list__item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--fd-space-3);
+  padding: var(--fd-space-3) var(--fd-space-4);
+  border: 1px solid var(--fd-color-border-subtle);
+  border-radius: var(--fd-radius-sm);
+  background: var(--fd-color-surface);
+}
+
+.attachment-upload__file-icon,
+.attachment-list__icon {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--fd-radius-xs);
+  background: var(--fd-color-surface-subtle);
+  color: var(--fd-color-text-faint);
+  font-size: var(--fd-font-size-md);
+}
+
+.attachment-upload__meta,
+.attachment-list__meta {
+  display: grid;
+  gap: var(--fd-space-hairline);
+  min-width: 0;
+}
+
+/* 文件名可能很长（原始名不截断保存）：换行而不是省略号——
+   省略号会让两个只差尾部的文件看起来一模一样，而附件恰恰常靠尾部区分版本。 */
+.attachment-upload__name,
+.attachment-list__name {
+  margin: 0;
+  color: var(--fd-color-text);
+  font-size: var(--fd-font-size-base);
+  overflow-wrap: anywhere;
+}
+
+.attachment-upload__sub,
+.attachment-list__sub {
+  margin: 0;
+  color: var(--fd-color-text-subtle);
+  font-size: var(--fd-font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.attachment-upload__progress {
+  margin-top: var(--fd-space-1);
+}
+
+.attachment-upload__error {
+  margin: var(--fd-space-1) 0 0;
+  color: var(--fd-color-danger);
+  font-size: var(--fd-font-size-sm);
+}
+
+.attachment-upload__note {
+  margin: var(--fd-space-1) 0 0;
+  color: var(--fd-color-text-subtle);
+  font-size: var(--fd-font-size-sm);
+}
+
+.attachment-upload__actions,
+.attachment-list__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--fd-space-1);
+}
+
+/* 行内操作按钮之间不留 Element Plus 默认的兄弟间距：它们是一组图标操作，
+   间距由 gap 统一给，默认的 margin-left 会让组内忽宽忽窄。 */
+.attachment-upload__actions .el-button + .el-button,
+.attachment-list__actions .el-button + .el-button {
+  margin-left: 0;
+}
+
+.attachment-list__thumb {
+  display: grid;
+  place-items: center;
+}
+
+.attachment-list__image {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--fd-radius-xs);
+  background: var(--fd-color-surface-subtle);
+}
+
+/* 预览弹窗：PDF 与纯文本共用一个框，高度固定，避免打开时对话框从一行跳到半屏。 */
+.attachment-preview__body {
+  min-height: 20rem;
+}
+
+.attachment-preview__note {
+  margin: var(--fd-space-2) 0 0;
+  color: var(--fd-color-text-subtle);
+  font-size: var(--fd-font-size-sm);
+}
+
+.attachment-preview__error {
+  margin: 0;
+  color: var(--fd-color-danger);
+  font-size: var(--fd-font-size-base);
+}
+
+.attachment-preview__frame {
+  width: 100%;
+  height: 60vh;
+  border: 1px solid var(--fd-color-border-subtle);
+  border-radius: var(--fd-radius-sm);
+  background: var(--fd-color-surface);
+}
+
+.attachment-preview__text {
+  max-height: 60vh;
+  margin: 0;
+  padding: var(--fd-space-4);
+  overflow: auto;
+  border: 1px solid var(--fd-color-border-subtle);
+  border-radius: var(--fd-radius-sm);
+  background: var(--fd-color-surface-subtle);
+  color: var(--fd-color-text);
+  font-family: var(--fd-font-family-mono);
+  font-size: var(--fd-font-size-sm);
+  line-height: var(--fd-line-height-relaxed);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 52rem) {
+  /* 窄屏把操作挪到第二行右对齐：三列挤在一行时，文件名只剩下十几个像素宽。 */
+  .attachment-upload__item,
+  .attachment-list__item {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .attachment-upload__actions,
+  .attachment-list__actions {
+    grid-column: 2;
+    justify-content: flex-end;
+  }
+}

@@ -192,6 +192,8 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 
 无查看权限时统一返回 `404` 和 `TICKET_NOT_FOUND`，不向调用方确认该编号对应的工单是否存在。系统管理员仅有管理员角色时同样不能调用普通详情接口。
 
+- **2026-10-14 补充（附件，已实现）**：详情返回 `attachments` 数组，元素为 `id`、`originalName`、`contentType`、`sizeBytes`、`uploadedBy`（`id` + `displayName`）、`createdAt`、`inlinePreviewable`；**没有附件时为空数组**。排序固定为 `created_at` 升序、`id` 升序（同一秒上传时按插入顺序）。`inlinePreviewable` 由服务端按 7.2 的内联白名单给出，界面据此决定是否摆出「预览」入口——**前端不复制一份类型白名单**，否则白名单一改，界面就会出现一个点了必然失败的入口。内容本身仍走 7.2 的授权代理端点，详情里不含任何 URL 或存储路径。
+
 ### 5.5 工单时间线
 
 - 按 `sequenceNo` 正序分页，保证业务事实顺序稳定。
@@ -243,7 +245,7 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 - `categoryId`：必填且必须指向启用分类。
 - `priority`：必填，`LOW`、`MEDIUM` 或 `HIGH`。
 - `sourceTicketNo`：可选；必须是当前提交人有权查看的原工单，且不能形成自引用。
-- `attachmentIds`：可选；引用当前提交人已上传且尚未绑定的附件（见 7.1），与 `files` part 可同时出现（**待实现**，2026-10-12 方案 B）。
+- `attachmentIds`：可选；引用当前提交人已上传且尚未绑定的附件（见 7.1），与 `files` part 可同时出现（**已实现**，2026-10-12 方案 B，2026-10-14 落地）。
 
 **已确认**：`submissionKey` 由 Vue 在用户开始一次提交时生成，同一用户使用同一键重复请求时返回首次创建结果。`ticket` 表使用对应字段及 `(requester_id, submission_key)` 唯一约束，不增加独立幂等表。
 
@@ -251,7 +253,7 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 
 **关联补充（2026-10-12，已实现）**：`sourceTicketNo` 随同一个 multipart 的 `ticket` part 提交，不设独立 part；它必须是当前提交人有权查看的工单——服务端复用详情的同一条可见性 SQL（5.1），**无权查看与编号不存在统一返回 `400/VALIDATION_FAILED`「原工单编号无效」**，不向调用方回显他人工单是否存在；校验先于每日编号分配，被拒绝的创建不消耗当日序号、不落工单。首次创建在同一事务内写一条 `ticket_relation`（`relation_type = FOLLOW_UP`，source = 新工单、target = 原工单）；**不新增时间线事件、不提供独立建链/删链接口**，同一 `submissionKey` 重放不重复写关联。原工单可以是任意状态——终态工单正是「问题再次出现」时的主要引用对象（`docs/kickoff.md` 4.10）。
 
-**附件独立化（2026-10-12 用户确认，方案 B，待实现）**：附件改由独立的通用附件模块承载，见 7.1——创建工单可携带新文件（multipart `files` part）与引用已上传附件的 `attachmentIds`；限制、校验与失败补偿见 7.1 与 `docs/engineering-readiness.md` 7.2。仍不引入分片上传。
+**附件独立化（2026-10-12 用户确认，方案 B，**已实现** 2026-10-14）**：附件改由独立的通用附件模块承载，见 7.1——创建工单可携带新文件（multipart `files` part）与引用已上传附件的 `attachmentIds`；限制、校验与失败补偿见 7.1 与 `docs/engineering-readiness.md` 7.2。仍不引入分片上传。前端对应落点：新建页的附件区（逐文件上传、进度、取消、粘贴、失败带文件名），上传未完成时提交按钮禁用。
 
 ### 6.3 IT 支持人员动作
 
@@ -326,7 +328,7 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
   - 待受理本来没有负责人，`ck_ticket_status_assignee` 对「已取消」带不带负责人都允许。撤销**不写** `completion_method` / `close_method` / `close_reason`，因此「已取消」与「已完成」「已关闭」在库层面可区分（`docs/kickoff.md` 4.7：已取消不等于 IT 解决了问题）。
   - 直接撤销的原因只存在于不可变时间线的 `CANCELLATION` 记录里；两阶段路径的说明存在 `ticket.cancel_request_reason`，批准进入终态时随请求三列一并清空，说明本身仍留在 `CANCELLATION_REQUEST` 记录上。**v1 不支持恢复**，员工仍需处理时应新建工单。
 
-**范围裁决（2026-10-06，用户确认；2026-10-12 方向更新）**：附件上传/下载、文件与数据库提交顺序、失败补偿与孤儿对账属完整版 backlog 第 2 项；附件已按方案 B 独立化（见 7.1），`supplement` 的旧「正文版」限制（出现文件 part 即 `400`）随之失效——改为接受 `files` part 与 `attachmentIds`，正文和附件至少存在一项（**待实现**；附件代码落地前，现行实现仍会拒绝文件 part）。
+**范围裁决（2026-10-06，用户确认；2026-10-12 方向更新；2026-10-14 落地）**：附件上传/下载、文件与数据库提交顺序、失败补偿与孤儿对账属完整版 backlog 第 2 项；附件已按方案 B 独立化（见 7.1），`supplement` 的旧「正文版」限制（出现文件 part 即 `400`）随之失效——改为接受 `files` part 与 `attachmentIds`，**正文和附件至少存在一项**（**已实现**，2026-10-14）。前端对应落点：详情页动作弹窗里的附件槽，正文留空但至少有一个附件时放行，两者都空则拦下且不关弹窗。
 
 ### 6.5 非公开系统动作
 
@@ -359,14 +361,14 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 
 **方向确认（2026-10-12 用户确认；2026-10-13 公共路径约定 `attachments/xx` 更新并落地上传与下载）**：附件由独立的通用附件模块承载（模块边界见 `docs/technical-architecture.md` 第 4 节，表结构见 `docs/database-design.md` 6.3/19.3），不再要求「只随工单动作上传」。v1 提供两类上传路径：
 
-- **独立上传**：`POST /attachments/upload`，`multipart/form-data` 单文件 `file` part；成功返回附件标识与元数据；上传者为当前登录用户，**未绑定的附件只有上传者本人可下载**（**已实现**，2026-10-13；公共路径约定 `attachments/xx`，**不带 `/fd/v1` 前缀**——2026-10-13 用户明确；认证链作用域已同步覆盖 `/attachments/**`）。
+- **独立上传**：`POST /attachments/upload`，`multipart/form-data`，part 名 `files`（**可重复，1～5 个**）；成功返回数组，每个元素是附件标识与元数据；上传者为当前登录用户，**未绑定的附件只有上传者本人可下载**（**已实现**，2026-10-13；公共路径约定 `attachments/xx`，**不带 `/fd/v1` 前缀**——2026-10-13 用户明确；认证链作用域已同步覆盖 `/attachments/**`。2026-10-14 起 part 名由单文件 `file` 改为可重复的 `files`，与「随动作上传」统一）。
 - **随动作上传**：创建工单（6.2）与员工补充（6.4）可携带 `files`（重复 part 名，多个文件）或 `attachmentIds`（引用先传后绑的附件）。
 
-**已确认**：两类路径共用同一套限制与校验：
+**已确认**：两类路径共用同一套限制与校验（**2026-10-14 起限额由配置给出，调整不再改代码**，见 `flowdesk.attachment.*`）：
 
-- 单个文件最大 10 MiB。
-- 单次请求最多 5 个文件，文件总大小最大 25 MiB。
-- 原始文件名去首尾空白后 1～255 个字符；空文件拒绝上传。
+- 单个文件默认最大 10 MiB（`max-file-size`）。
+- 单次请求默认最多 5 个文件（`max-files-per-request`），文件总大小默认最大 25 MiB（`max-request-total-size`）。
+- 原始文件名去首尾空白后 1～255 个字符（`max-original-name-length`）；空文件拒绝上传。
 - 允许 JPEG、PNG、PDF、TXT、DOCX 和 XLSX。
 - 同时校验扩展名、声明的媒体类型和服务端识别结果，不能只相信客户端 `Content-Type`。
 - 拒绝可执行文件、脚本、HTML、SVG、压缩包和其他未列入白名单的格式。
@@ -375,19 +377,35 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 
 文件使用服务端随机存储标识，保存在 Web 根目录之外；数据库只保存元数据，客户端文件名不得参与真实磁盘路径拼接。附件元数据保存在通用 `attachment` 表；与工单的归属保存在 `ticket_attachment` 绑定表，只允许绑定创建记录或员工补充记录（跨表类型约束由工单事务用例校验）。
 
-**引用规则（待实现）**：`attachmentIds` 只能引用当前用户上传、尚未绑定、且未超过保留期（默认 24 小时）的附件；引用他人附件、已绑定附件或不存在/不可见的附件时按统一 `404/ATTACHMENT_NOT_FOUND` 或 `400/VALIDATION_FAILED` 处理，不泄露他人附件是否存在。超期未绑定的附件由对账任务清理（`docs/engineering-readiness.md` 7.2）。
+**最终存储（2026-10-14 结论变更）**：内容写入哪个存储由 `flowdesk.attachment.storage` 选择——`local`（开发 / 测试，本地持久化目录）或 `s3`（S3 兼容对象存储：开发 / 演示用 MinIO，生产可换任意 S3 / OSS，应用代码不变）。**暂存一律落在本地磁盘**（类型识别需要可随机访问的本地文件），差异只在「暂存 → 最终存储」这一步。详见 `docs/technical-architecture.md` 6.3。
 
-v1 仍不提供附件替换、删除、预览或分片上传接口。
+**引用规则（**已实现**，2026-10-13/2026-10-14）**：`attachmentIds` 只能引用当前用户上传、尚未绑定、且未超过保留期（默认 24 小时）的附件；引用他人附件、已绑定附件或不存在/不可见的附件时按统一 `404/ATTACHMENT_NOT_FOUND` 或 `400/VALIDATION_FAILED` 处理，不泄露他人附件是否存在。超期未绑定的附件由对账任务清理（`docs/engineering-readiness.md` 7.2）。
 
-### 7.2 附件下载
+v1 仍不提供附件替换、删除与分片上传接口；**预览见 7.2**（2026-10-14 起提供）。
+
+### 7.2 附件下载与内联预览
+
+**2026-10-14 结论变更**：内容端点从「只有强制下载」扩为「下载 / 预览同一端点」，由 `disposition` 参数选择；原 `download` 路径保留为**别名**（标记 deprecated），不改已发布契约的调用方。
 
 | 项目 | 契约 |
 | --- | --- |
-| 方法与路径 | `GET /attachments/download/{attachmentId}`（2026-10-13 公共路径约定 `attachments/xx`，**不带 `/fd/v1` 前缀**，**已实现**；此前的工单嵌套路径已按同日约定推翻） |
+| 方法与路径 | `GET /attachments/{attachmentId}/content?disposition=attachment\|inline`（**规范路径**，**已实现**，2026-10-14）；`disposition` 缺省为 `attachment` |
+| 别名 | `GET /attachments/download/{attachmentId}`（**已实现**，2026-10-13；标记 deprecated，行为等同 `disposition=attachment`） |
 | 响应 | 原始文件流，不使用 `R<T>` |
-| 权限 | 调用者是上传者本人，或附件经业务授权端口判定对调用者可见（工单绑定可见性在步骤 5 接入） |
+| 权限 | 调用者是上传者本人，或附件经业务授权端口判定对调用者可见；**预览与下载走同一条授权判定，没有例外** |
 
-下载响应设置服务端确认的 `Content-Type`、文件长度、经过安全编码的 `Content-Disposition: attachment` 和 `X-Content-Type-Options: nosniff`。
+下载响应设置服务端确认的 `Content-Type`、文件长度、经过安全编码的 `Content-Disposition` 和 `X-Content-Type-Options: nosniff`。
+
+**内联白名单（`disposition=inline` 时）**：
+
+- 只有 JPEG、PNG、PDF、TXT 会以 `Content-Disposition: inline` 返回。
+- **HTML、SVG 一律不内联**；Office 文档（DOCX / XLSX）与未知类型**降级为 `attachment`**——请求内联也不会放行。
+- 判定依据是服务端识别出的类型（`DetectedFileType`），不是请求参数或客户端声明。
+
+**内联响应头**：`X-Content-Type-Options: nosniff`、`Content-Security-Policy: default-src 'none'; sandbox`、`Cross-Origin-Resource-Policy: same-origin`、`Cache-Control: private, no-store`。
+
+- **PDF 内联是唯一例外：不下发 CSP**。沙箱化上下文会屏蔽浏览器内置的 PDF 查看器，加上 CSP 会让预览直接打不开；其余安全头照常下发。该例外在控制器里有断言（`inlinePdfSkipsContentSecurityPolicyBecauseItWouldBlockTheViewer`）。
+- **预览不使用预签名 URL 重定向**：那等于绕过应用授权，URL 一旦泄露就是公开文件。内容必须留在「后端授权 → 后端代理输出」这条路上；前端取回 Blob 后用对象 URL 渲染。
 
 附件不存在、归属不符或不可见时统一返回 `404/ATTACHMENT_NOT_FOUND`。不能只根据 `attachmentId` 读取文件，也不能暴露真实磁盘路径。
 
@@ -426,11 +444,11 @@ v1 仍不提供附件替换、删除、预览或分片上传接口。
 
 **已确认**：
 
-1. 单文件 10 MiB、单次最多 5 个且总计不超过 25 MiB。
+1. 单文件默认 10 MiB、单次默认最多 5 个且总计不超过 25 MiB（**2026-10-14 起由 `flowdesk.attachment.*` 配置给出**，调整不再改代码）。
 2. 白名单只包含 JPEG、PNG、PDF、TXT、DOCX 和 XLSX。
-3. 附件下载使用公共路径 `GET /attachments/download/{attachmentId}`（强制下载、复核权限，**已实现**，2026-10-13；工单嵌套路径已按同日约定推翻）；权限口径见 7.2。
+3. 内容端点使用公共路径（**不带 `/fd/v1` 前缀**）：规范路径 `GET /attachments/{attachmentId}/content?disposition=`，别名 `GET /attachments/download/{attachmentId}`（deprecated）。**均已实现**（2026-10-13 下载、2026-10-14 预览）；权限口径见 7.2。
 4. 分类选项和转交候选人使用最小字段专用接口，不开放通用用户搜索。
-5. v1 提供独立附件上传（`POST /attachments/upload`）与下载（**均已实现**，2026-10-13），仍不提供替换、删除、预览或分片上传。
+5. v1 提供独立附件上传（`POST /attachments/upload`，`files` 可重复 part）、下载与内联预览（**均已实现**，2026-10-14），仍不提供替换、删除与分片上传。
 
 附件与辅助查询接口组就绪状态：**Ready**。
 

@@ -2380,7 +2380,8 @@ class TicketControllerWebTest {
                 CREATED_AT,
                 UPDATED_AT,
                 List.of("claim"),
-                relations);
+                relations,
+                List.of());
     }
 
     private static TicketRecordResult sampleRecord() {

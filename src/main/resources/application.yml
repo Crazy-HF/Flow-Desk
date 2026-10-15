@@ -35,8 +35,9 @@ spring:
       enabled: false
   servlet:
     multipart:
-      # 附件契约（docs/api-design.md 7.1）：单文件 ≤ 10 MiB、单次 ≤ 5 个且总计 ≤ 25 MiB。
-      # 这一层是外层闸（Boot 的 MB 即 MiB）；应用层 AttachmentValidator 仍是权威口径。
+      # 附件外层闸（Boot 的 MB 即 MiB）：应用层 AttachmentValidator 才是权威口径，这里只是提前拒绝超大请求。
+      # 必须 ≥ flowdesk.attachment.max-file-size / max-request-total-size，否则调高应用层限额也不会生效。
+      # 默认值对应 7.1 的「单文件 ≤ 10 MiB、单次 ≤ 5 个且总计 ≤ 25 MiB」（外层留出 multipart 边界开销）。
       max-file-size: 10MB
       max-request-size: 30MB
 
@@ -65,12 +66,33 @@ springdoc:
 
 flowdesk:
   attachment:
-    # 附件受控目录：必须位于 Web 根目录之外、使用绝对路径、可写且持久化（docs/engineering-readiness.md 第 5 节）。
-    # staging/ 与 files/ 子目录由存储组件启动时校验并自动创建。
+    # 附件本地暂存根目录：必须位于 Web 根目录之外、使用绝对路径、可写且持久化（docs/engineering-readiness.md 第 5 节）。
+    # 两种驱动都用它承载暂存；local 驱动在 root 下再建 files/ 最终目录（两者必须同卷，启动时校验），
+    # s3 驱动的最终存储在对象存储里，root 下只保留 staging/。子目录不单独配置。
     root: ${FLOWDESK_ATTACHMENT_ROOT}
     # 暂存文件与「上传后未绑定」附件的保留期；对账任务清理与工单侧引用校验共用同一口径
     # （docs/api-design.md 7.1 默认 24 小时）。缺失时取默认值 24h。
     retention: 24h
+    # 存储驱动：local（开发/测试，本地受控目录）| s3（生产，任意 S3 兼容对象存储：MinIO / 阿里云 OSS）。
+    # 两种驱动都做启动自检，配置错误在启动阶段暴露；缺配置时取 local，因此测试与 CI 不依赖对象存储。
+    storage: ${FLOWDESK_ATTACHMENT_STORAGE:local}
+    # 限额（docs/api-design.md 7.1/7.6 的默认值）：可配置，改配置即可生效，不再改代码。
+    # 注意 spring.servlet.multipart.* 是外层闸且为静态配置，调高这里必须同步调高外层闸，否则请求进不了应用层。
+    max-file-size: 10MB
+    max-files-per-request: 5
+    max-request-total-size: 25MB
+    max-original-name-length: 255
+    # 孤儿对账任务开关（每小时整点）；测试与本地调试可置 false。
+    reconciliation-enabled: true
+    # S3 兼容对象存储（storage=s3 时必填 bucket / access-key / secret-key；建议用环境变量注入，不写入仓库）。
+    # endpoint 留空表示使用官方 AWS S3；MinIO 与 OSS 必须给出。path-style 默认开启（MinIO 必须）。
+    s3:
+      endpoint: ${FLOWDESK_ATTACHMENT_S3_ENDPOINT:}
+      bucket: ${FLOWDESK_ATTACHMENT_S3_BUCKET:}
+      region: ${FLOWDESK_ATTACHMENT_S3_REGION:us-east-1}
+      access-key: ${FLOWDESK_ATTACHMENT_S3_ACCESS_KEY:}
+      secret-key: ${FLOWDESK_ATTACHMENT_S3_SECRET_KEY:}
+      path-style: true
   ticket:
     # 员工确认期限：IT 提交解决结果后 7×24 小时（docs/kickoff.md 已确认规则）。
     confirmation-window: 7d

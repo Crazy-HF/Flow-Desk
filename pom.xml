@@ -25,7 +25,21 @@
         <jacoco.version>0.8.15</jacoco.version>
         <maven-wrapper.version>3.3.4</maven-wrapper.version>
         <bouncycastle.version>1.85.2</bouncycastle.version>
+        <!-- S3 兼容对象存储客户端（AWS SDK v2）：MinIO / 阿里云 OSS / 任意 S3 兼容实现共用同一套代码。 -->
+        <awssdk.version>2.55.16</awssdk.version>
     </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>software.amazon.awssdk</groupId>
+                <artifactId>bom</artifactId>
+                <version>${awssdk.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <dependency>
@@ -60,6 +74,17 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- 附件 S3 驱动（flowdesk.attachment.storage=s3）；local 驱动不依赖它，但依赖本身始终在类路径上，
+             驱动选择只影响装配哪个 Bean。apache-client 是同步客户端实现，显式声明避免运行时缺 HTTP client。 -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>apache-client</artifactId>
         </dependency>
 
         <dependency>

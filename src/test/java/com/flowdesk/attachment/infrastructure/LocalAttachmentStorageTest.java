@@ -1,6 +1,6 @@
 package com.flowdesk.attachment.infrastructure;
 
-import com.flowdesk.attachment.config.AttachmentProperties;
+import com.flowdesk.attachment.support.AttachmentPropertiesFixture;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -25,7 +25,7 @@ class LocalAttachmentStorageTest {
     Path tempDir;
 
     private LocalAttachmentStorage newStorage() {
-        return new LocalAttachmentStorage(new AttachmentProperties(tempDir.resolve("attachments"), null));
+        return new LocalAttachmentStorage(AttachmentPropertiesFixture.local(tempDir.resolve("attachments")));
     }
 
     @Test
@@ -41,7 +41,7 @@ class LocalAttachmentStorageTest {
         Path existingFile = tempDir.resolve("not-a-directory");
         Files.writeString(existingFile, "x");
 
-        assertThatThrownBy(() -> new LocalAttachmentStorage(new AttachmentProperties(existingFile, null)))
+        assertThatThrownBy(() -> new LocalAttachmentStorage(AttachmentPropertiesFixture.local(existingFile)))
                 .isInstanceOf(IllegalStateException.class);
     }
 
@@ -69,12 +69,12 @@ class LocalAttachmentStorageTest {
     }
 
     @Test
-    void moveToFinalRemovesStagingCopyAndStaysReadable() throws IOException {
+    void promoteRemovesStagingCopyAndStaysReadable() throws IOException {
         LocalAttachmentStorage storage = newStorage();
         byte[] content = "data".getBytes(StandardCharsets.UTF_8);
         StagedAttachment staged = storage.stage(new ByteArrayInputStream(content));
 
-        storage.moveToFinal(staged.storageKey());
+        storage.promote(staged.storageKey(), "application/octet-stream");
 
         assertThat(storage.stagedPath(staged.storageKey())).doesNotExist();
         try (InputStream in = storage.openFinal(staged.storageKey())) {
@@ -92,7 +92,7 @@ class LocalAttachmentStorageTest {
         assertThat(storage.stagedPath(staged.storageKey())).doesNotExist();
 
         StagedAttachment moved = storage.stage(new ByteArrayInputStream(new byte[] {9}));
-        storage.moveToFinal(moved.storageKey());
+        storage.promote(moved.storageKey(), "application/octet-stream");
         storage.deleteFinal(moved.storageKey());
         storage.deleteFinal(moved.storageKey());
         assertThatThrownBy(() -> storage.openFinal(moved.storageKey()))
@@ -120,7 +120,7 @@ class LocalAttachmentStorageTest {
         for (String invalidKey : invalidKeys) {
             assertThatThrownBy(() -> storage.stagedPath(invalidKey))
                     .isInstanceOf(AttachmentStorageException.class);
-            assertThatThrownBy(() -> storage.moveToFinal(invalidKey))
+            assertThatThrownBy(() -> storage.promote(invalidKey, "application/octet-stream"))
                     .isInstanceOf(AttachmentStorageException.class);
             assertThatThrownBy(() -> storage.deleteFinal(invalidKey))
                     .isInstanceOf(AttachmentStorageException.class);

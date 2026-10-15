@@ -2,6 +2,7 @@ package com.flowdesk.ticket.application.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.flowdesk.attachment.domain.DetectedFileType;
 import com.flowdesk.auth.domain.AuthSession;
 import com.flowdesk.common.exception.ApiException;
 import com.flowdesk.common.utils.StringUtils;
@@ -18,6 +19,7 @@ import com.flowdesk.ticket.domain.TicketStatus;
 import com.flowdesk.ticket.infrastructure.persistence.AdminHandoffTicketRow;
 import com.flowdesk.ticket.infrastructure.persistence.TicketListRow;
 import com.flowdesk.ticket.infrastructure.persistence.TicketRecordRow;
+import com.flowdesk.ticket.mapper.TicketAttachmentMapper;
 import com.flowdesk.ticket.mapper.TicketMapper;
 import com.flowdesk.ticket.mapper.TicketRecordMapper;
 import com.flowdesk.ticket.mapper.TicketRelationMapper;
@@ -80,6 +82,8 @@ public class TicketQueryServiceImpl implements TicketQueryService {
     private final TicketClaimantPort ticketClaimantPort;
     /** 工单有向关联：详情返回关联摘要，方向（OUTGOING/INCOMING）由 SQL 相对本单生成。 */
     private final TicketRelationMapper ticketRelationMapper;
+    /** 工单附件绑定：详情返回附件摘要（谁上传、多大、什么时候、能否内联预览）。 */
+    private final TicketAttachmentMapper ticketAttachmentMapper;
     /**
      * 判定用的时钟：撤销请求是否已过期（决定批准 / 拒绝 / 撤回三个入口与「已过期」展示）与写库时的
      * {@code #{now}} 同源，一律取应用注入的 UTC 时钟，不引入数据库时钟作为第二个真相来源。
@@ -93,7 +97,8 @@ public class TicketQueryServiceImpl implements TicketQueryService {
             TicketReadPermissionPort ticketReadPermissionPort,
             TicketRecordMapper ticketRecordMapper,
             TicketClaimantPort ticketClaimantPort,
-            TicketRelationMapper ticketRelationMapper) {
+            TicketRelationMapper ticketRelationMapper,
+            TicketAttachmentMapper ticketAttachmentMapper) {
         this.clock = clock;
         this.ticketMapper = ticketMapper;
         this.currentRequesterPort = currentRequesterPort;
@@ -101,6 +106,7 @@ public class TicketQueryServiceImpl implements TicketQueryService {
         this.ticketRecordMapper = ticketRecordMapper;
         this.ticketClaimantPort = ticketClaimantPort;
         this.ticketRelationMapper = ticketRelationMapper;
+        this.ticketAttachmentMapper = ticketAttachmentMapper;
     }
 
     /**
@@ -654,6 +660,23 @@ public class TicketQueryServiceImpl implements TicketQueryService {
                         relation.getStatus()))
                 .collect(Collectors.toList());
 
+        // 本单附件摘要：只给展示与入口信息，能不能内联预览由后端按白名单给出，
+        // 前端不必复制一份白名单；真正的内联裁决在预览端点还会再做一次
+        List<TicketAttachmentResult> attachments = ticketAttachmentMapper
+                .selectAttachmentsByTicketId(row.getId())
+                .stream()
+                .map(attachment -> new TicketAttachmentResult(
+                        attachment.getId(),
+                        attachment.getOriginalName(),
+                        attachment.getContentType(),
+                        attachment.getSizeBytes() == null ? 0L : attachment.getSizeBytes(),
+                        new TicketUserSummaryResult(
+                                attachment.getUploadedById(),
+                                attachment.getUploadedByName()),
+                        toOffsetDateTime(attachment.getCreatedAt()),
+                        isInlinePreviewable(attachment.getContentType())))
+                .collect(Collectors.toList());
+
         return new TicketDetailResult(
                 row.getTicketNo(),
                 row.getTitle(),
@@ -673,7 +696,17 @@ public class TicketQueryServiceImpl implements TicketQueryService {
                 toOffsetDateTime(row.getCreatedAt()),
                 toOffsetDateTime(row.getUpdatedAt()),
                 allowedActions,
-                relations);
+                relations,
+                attachments);
+    }
+
+    /**
+     * 附件能否内联预览：与附件模块同一份白名单（{@code DetectedFileType}），不另写一份判断。
+     * 前端据此决定是否提供「预览」入口，后端预览端点仍会独立裁决一次。
+     */
+    private static boolean isInlinePreviewable(String contentType) {
+        DetectedFileType type = DetectedFileType.fromContentType(contentType);
+        return type != null && type.inlinePreviewable();
     }
 
     /**

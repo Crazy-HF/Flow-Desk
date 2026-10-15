@@ -1103,7 +1103,7 @@ public class TicketServiceImpl implements TicketService {
 
                 // 6.4 逐个原子移动到最终目录；任一失败抛出 → 外层回滚并补偿
                 for (PreparedAttachment preparedFile : prepared.files()) {
-                    attachmentStorage.moveToFinal(preparedFile.staged().storageKey());
+                    attachmentStorage.promote(preparedFile.staged().storageKey(), preparedFile.type().contentType());
                     movedKeys.add(preparedFile.staged().storageKey());
                 }
 
@@ -2398,7 +2398,7 @@ public class TicketServiceImpl implements TicketService {
 
         //7.1 逐个原子移动到最终目录：全部成功才允许提交（7.2）；任一失败抛出后外层统一回滚并补偿
         for (PreparedAttachment preparedFile : prepared.files()) {
-            attachmentStorage.moveToFinal(preparedFile.staged().storageKey());
+            attachmentStorage.promote(preparedFile.staged().storageKey(), preparedFile.type().contentType());
             movedKeys.add(preparedFile.staged().storageKey());
         }
 
@@ -2462,10 +2462,16 @@ public class TicketServiceImpl implements TicketService {
         } catch (IOException exception) {
             throw new UncheckedIOException("读取上传内容失败：" + originalName, exception);
         }
-        attachmentValidator.validateFileSize(originalName, staged.sizeBytes());
-        DetectedFileType type = attachmentValidator.validateContent(
-                originalName, file.getContentType(), attachmentStorage.stagedPath(staged.storageKey()));
-        return new PreparedAttachment(originalName, staged, type);
+        try {
+            attachmentValidator.validateFileSize(originalName, staged.sizeBytes());
+            DetectedFileType type = attachmentValidator.validateContent(
+                    originalName, file.getContentType(), attachmentStorage.stagedPath(staged.storageKey()));
+            return new PreparedAttachment(originalName, staged, type);
+        } catch (RuntimeException exception) {
+            // 复核失败时必须删掉本文件自己的暂存副本：它还没进 staged 列表，外层补偿看不到它。
+            deleteStagedQuietlyOne(staged.storageKey());
+            throw exception;
+        }
     }
 
     /** 新附件：写 attachment 元数据并绑定到指定记录（同一事务）；recordId 由插入后回填，惰性读取。 */

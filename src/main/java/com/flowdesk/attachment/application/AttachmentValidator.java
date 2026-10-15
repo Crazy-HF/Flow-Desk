@@ -1,6 +1,6 @@
 package com.flowdesk.attachment.application;
 
-import com.flowdesk.attachment.domain.AttachmentLimits;
+import com.flowdesk.attachment.config.AttachmentProperties;
 import com.flowdesk.attachment.domain.AttachmentValidationException;
 import com.flowdesk.attachment.domain.AttachmentValidationException.Violation;
 import com.flowdesk.attachment.domain.DetectedFileType;
@@ -18,6 +18,9 @@ import java.util.zip.ZipFile;
 /**
  * 附件校验：限额、文件名与「扩展名 + 声明媒体类型 + 服务端识别结果」三重一致性
  * （{@code docs/api-design.md} 7.1；两类上传路径共用同一实例）。
+ *
+ * <p>限额来自 {@code flowdesk.attachment.max-*} 配置（不再硬编码）：调整限额只改配置、不改代码。
+ * 注意 Spring 的 {@code spring.servlet.multipart.*} 是外层闸且为静态配置，调高这里必须同步调高外层闸。</p>
  *
  * <p>调用顺序配合 {@code docs/engineering-readiness.md} 7.2 的写入顺序：先做廉价的声明校验
  * （数量、文件名、声明大小与总量），流式写暂存后对**暂存内容**做尺寸复核与嗅探；
@@ -46,46 +49,54 @@ public class AttachmentValidator {
     private static final String WORD_DOCUMENT_ENTRY = "word/document.xml";
     private static final String WORKBOOK_ENTRY = "xl/workbook.xml";
 
+    private final AttachmentProperties properties;
+
+    public AttachmentValidator(AttachmentProperties properties) {
+        this.properties = properties;
+    }
+
     /** 单次请求的文件数量上限；声明阶段预检与暂存后复核共用。 */
     public void validateFileCount(int fileCount) {
-        if (fileCount > AttachmentLimits.MAX_FILES_PER_REQUEST) {
+        int max = properties.maxFilesPerRequest();
+        if (fileCount > max) {
             throw new AttachmentValidationException(Violation.TOO_MANY_FILES,
-                    "单次最多上传 " + AttachmentLimits.MAX_FILES_PER_REQUEST + " 个附件，当前 " + fileCount + " 个");
+                    "单次最多上传 " + max + " 个附件，当前 " + fileCount + " 个");
         }
     }
 
     /**
-     * 原始文件名：去首尾空白后 1～255 个字符。
+     * 原始文件名：去首尾空白后 1～{@code max-original-name-length} 个字符。
      *
      * @return 去首尾空白后的文件名，供元数据保存与展示使用
      */
     public String validateOriginalName(String originalName) {
+        int maxLength = properties.maxOriginalNameLength();
         String trimmed = originalName == null ? "" : originalName.strip();
-        if (trimmed.isEmpty() || trimmed.length() > AttachmentLimits.MAX_ORIGINAL_NAME_LENGTH) {
+        if (trimmed.isEmpty() || trimmed.length() > maxLength) {
             throw new AttachmentValidationException(Violation.INVALID_NAME,
-                    "原始文件名去首尾空白后必须为 1～" + AttachmentLimits.MAX_ORIGINAL_NAME_LENGTH + " 个字符");
+                    "原始文件名去首尾空白后必须为 1～" + maxLength + " 个字符");
         }
         return trimmed;
     }
 
-    /**
-     * 单文件大小：空文件拒绝，最大 10 MiB；声明大小与暂存后的实际大小使用同一判定。
-     */
+    /** 单文件大小：空文件拒绝，最大 {@code max-file-size}；声明大小与暂存后的实际大小使用同一判定。 */
     public void validateFileSize(String trimmedName, long sizeBytes) {
         if (sizeBytes == 0) {
             throw new AttachmentValidationException(Violation.EMPTY_FILE, "空文件不允许上传：" + trimmedName);
         }
-        if (sizeBytes > AttachmentLimits.MAX_FILE_SIZE_BYTES) {
+        long maxBytes = properties.maxFileSize().toBytes();
+        if (sizeBytes > maxBytes) {
             throw new AttachmentValidationException(Violation.FILE_TOO_LARGE,
-                    "单个附件最大 " + AttachmentLimits.MAX_FILE_SIZE_BYTES / 1024 / 1024 + " MiB：" + trimmedName);
+                    "单个附件最大 " + describe(maxBytes) + "：" + trimmedName);
         }
     }
 
-    /** 单次请求总大小：最大 25 MiB；声明总量与实际暂存总量使用同一判定。 */
+    /** 单次请求总大小：最大 {@code max-request-total-size}；声明总量与实际暂存总量使用同一判定。 */
     public void validateTotalSize(long totalBytes) {
-        if (totalBytes > AttachmentLimits.MAX_REQUEST_TOTAL_BYTES) {
+        long maxBytes = properties.maxRequestTotalSize().toBytes();
+        if (totalBytes > maxBytes) {
             throw new AttachmentValidationException(Violation.TOTAL_TOO_LARGE,
-                    "单次上传附件总大小最大 " + AttachmentLimits.MAX_REQUEST_TOTAL_BYTES / 1024 / 1024 + " MiB");
+                    "单次上传附件总大小最大 " + describe(maxBytes));
         }
     }
 
@@ -115,6 +126,11 @@ public class AttachmentValidator {
     private static AttachmentValidationException unsupported(String trimmedName, String reason) {
         return new AttachmentValidationException(Violation.UNSUPPORTED_TYPE,
                 "附件类型不受支持（" + reason + "；允许 JPEG、PNG、PDF、TXT、DOCX、XLSX）：" + trimmedName);
+    }
+
+    /** 以 MiB 为单位描述限额，便于与配置值对照（配置的 MB 即 MiB）。 */
+    private static String describe(long bytes) {
+        return (bytes / 1024 / 1024) + " MiB";
     }
 
     private DetectedFileType sniff(Path stagedFile) {

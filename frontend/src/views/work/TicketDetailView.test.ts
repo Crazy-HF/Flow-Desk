@@ -6,6 +6,7 @@ import { nextTick } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { AuthUser } from '@/api/auth'
+import { uploadAttachment } from '@/api/attachments'
 import { listCategoryOptions } from '@/api/categories'
 import {
   addProcessingRecord,
@@ -59,6 +60,17 @@ vi.mock('@/api/tickets', () => ({
 vi.mock('@/api/categories', () => ({
   listCategoryOptions: vi.fn(),
 }))
+
+/**
+ * 附件接口同理：确认框里的上传控件会真实发出上传请求。
+ *
+ * <p>只替掉网络出口，`formatFileSize` / `isUploadCanceled` / 数量上限这些纯函数仍用真实实现——
+ * 它们是界面文案与判定的一部分，替掉就等于把被测逻辑一起换掉了。</p>
+ */
+vi.mock('@/api/attachments', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/api/attachments')>()
+  return { ...actual, uploadAttachment: vi.fn(), fetchAttachmentContent: vi.fn(), saveBlob: vi.fn() }
+})
 
 /** 确认框替身：真实挂载弹窗，用例按"打开 → 填内容 → 点确认"的真人顺序驱动。 */
 const messageBox = createMessageBoxHarness()
@@ -122,6 +134,8 @@ const detail: TicketDetail = {
   allowedActions: [],
   // 没有关联时是空数组（不是缺键）：下面对应的断言是"关联块整块不出现"
   relations: [],
+  // 同上：没有附件时是空数组，附件块整块不出现（附件区自身的用例见 AttachmentList.test.ts）
+  attachments: [],
 }
 
 const createRecord: TicketRecord = {
@@ -229,6 +243,12 @@ async function typeIntoConditional(text: string): Promise<void> {
 
 async function acceptActionBox(): Promise<void> {
   await messageBox.current()?.accept()
+  await flushPromises()
+}
+
+/** 在确认框里选文件上传（只有带附件槽的动作有这一步）。 */
+async function attachToActionBox(files: File[]): Promise<void> {
+  await messageBox.current()?.attach(files)
   await flushPromises()
 }
 
@@ -650,6 +670,69 @@ describe('TicketDetailView', () => {
     expect(wrapper.get('.ticket-meta').text()).toContain('处理中')
     // 补充完成后提交人不再有任何动作
     expect(actionLabels(wrapper)).toEqual([])
+  })
+
+  /**
+   * 「正文与附件至少一项」是服务端的跨字段规则（`SupplementCommand` 自己不做正文必填）。
+   * 界面必须按同一条口径放行，否则"只补一张截图"这条最自然的用法会被前端自己挡住。
+   */
+  it('补充信息可以只带附件：正文留空也放行，请求里带上 attachmentIds', async () => {
+    useAuthStore().user = requester
+    vi.mocked(getTicket).mockResolvedValue({
+      ...detail,
+      status: 'WAITING_FOR_REQUESTER',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      actionDeadlineAt: '2026-10-13T02:00:00Z',
+      version: 5,
+      allowedActions: ['supplement'],
+    })
+    vi.mocked(uploadAttachment).mockResolvedValue({
+      id: 88,
+      originalName: 'screenshot.png',
+      contentType: 'image/png',
+      sizeBytes: 1024,
+      createdAt: '2026-09-29T07:00:00Z',
+    })
+    vi.mocked(supplementTicket).mockResolvedValue({
+      ticketNo: detail.ticketNo,
+      status: 'PROCESSING',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      actionDeadlineAt: undefined,
+      version: 6,
+      actionTime: '2026-09-29T07:00:00Z',
+    })
+
+    const { wrapper } = await mountPage()
+    await openActionBox(wrapper, '提交补充信息')
+    await attachToActionBox([new File(['x'], 'screenshot.png', { type: 'image/png' })])
+    // 正文一个字都不写：附件就是这次补充的全部内容
+    await acceptActionBox()
+
+    expect(supplementTicket).toHaveBeenCalledWith('FD-20260929-001', {
+      version: 5,
+      content: '',
+      attachmentIds: [88],
+    })
+  })
+
+  it('补充信息正文与附件都为空时被拦下，弹窗留在原处', async () => {
+    useAuthStore().user = requester
+    vi.mocked(getTicket).mockResolvedValue({
+      ...detail,
+      status: 'WAITING_FOR_REQUESTER',
+      assignee: { id: 2, displayName: '演示 IT 支持人员' },
+      actionDeadlineAt: '2026-10-13T02:00:00Z',
+      version: 5,
+      allowedActions: ['supplement'],
+    })
+
+    const { wrapper } = await mountPage()
+    await openActionBox(wrapper, '提交补充信息')
+    await acceptActionBox()
+
+    expect(supplementTicket).not.toHaveBeenCalled()
+    // 先关掉再提示的话，用户得重新点一次按钮、重写一遍；这里要求弹窗还在
+    expect(messageBox.current()).not.toBeNull()
   })
 
   it('待补充时属性栏写"补充截止时间"，并说明到期不会自动处理', async () => {

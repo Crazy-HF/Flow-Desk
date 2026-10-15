@@ -1,6 +1,7 @@
 package com.flowdesk.attachment.application;
 
-import com.flowdesk.attachment.domain.AttachmentLimits;
+import com.flowdesk.attachment.config.AttachmentProperties;
+import com.flowdesk.attachment.support.AttachmentPropertiesFixture;
 import com.flowdesk.attachment.domain.AttachmentValidationException;
 import com.flowdesk.attachment.domain.AttachmentValidationException.Violation;
 import com.flowdesk.attachment.domain.DetectedFileType;
@@ -30,7 +31,9 @@ class AttachmentValidatorTest {
     @TempDir
     Path tempDir;
 
-    private final AttachmentValidator validator = new AttachmentValidator();
+    private final AttachmentProperties properties =
+            AttachmentPropertiesFixture.local(Path.of(System.getProperty("java.io.tmpdir")));
+    private final AttachmentValidator validator = new AttachmentValidator(properties);
 
     @Test
     void trimsOriginalNameAndEnforcesLengthBounds() {
@@ -48,9 +51,9 @@ class AttachmentValidatorTest {
 
     @Test
     void enforcesFileCountLimit() {
-        assertThatCode(() -> validator.validateFileCount(AttachmentLimits.MAX_FILES_PER_REQUEST))
+        assertThatCode(() -> validator.validateFileCount(properties.maxFilesPerRequest()))
                 .doesNotThrowAnyException();
-        assertThatThrownBy(() -> validator.validateFileCount(AttachmentLimits.MAX_FILES_PER_REQUEST + 1))
+        assertThatThrownBy(() -> validator.validateFileCount(properties.maxFilesPerRequest() + 1))
                 .isInstanceOfSatisfying(AttachmentValidationException.class,
                         ex -> assertThat(ex.violation()).isEqualTo(Violation.TOO_MANY_FILES));
     }
@@ -60,14 +63,14 @@ class AttachmentValidatorTest {
         assertThatThrownBy(() -> validator.validateFileSize("a.txt", 0))
                 .isInstanceOfSatisfying(AttachmentValidationException.class,
                         ex -> assertThat(ex.violation()).isEqualTo(Violation.EMPTY_FILE));
-        assertThatCode(() -> validator.validateFileSize("a.txt", AttachmentLimits.MAX_FILE_SIZE_BYTES))
+        assertThatCode(() -> validator.validateFileSize("a.txt", properties.maxFileSize().toBytes()))
                 .doesNotThrowAnyException();
-        assertThatThrownBy(() -> validator.validateFileSize("a.txt", AttachmentLimits.MAX_FILE_SIZE_BYTES + 1))
+        assertThatThrownBy(() -> validator.validateFileSize("a.txt", properties.maxFileSize().toBytes() + 1))
                 .isInstanceOfSatisfying(AttachmentValidationException.class,
                         ex -> assertThat(ex.violation()).isEqualTo(Violation.FILE_TOO_LARGE));
-        assertThatCode(() -> validator.validateTotalSize(AttachmentLimits.MAX_REQUEST_TOTAL_BYTES))
+        assertThatCode(() -> validator.validateTotalSize(properties.maxRequestTotalSize().toBytes()))
                 .doesNotThrowAnyException();
-        assertThatThrownBy(() -> validator.validateTotalSize(AttachmentLimits.MAX_REQUEST_TOTAL_BYTES + 1))
+        assertThatThrownBy(() -> validator.validateTotalSize(properties.maxRequestTotalSize().toBytes() + 1))
                 .isInstanceOfSatisfying(AttachmentValidationException.class,
                         ex -> assertThat(ex.violation()).isEqualTo(Violation.TOTAL_TOO_LARGE));
     }

@@ -33,7 +33,27 @@ export const http = axios.create({
   withCredentials: true,
 })
 
+/**
+ * 公共路径实例：附件上传/下载/预览使用 `attachments/xx`，**不带 `/fd/v1` 前缀**。
+ *
+ * <p>复用同一套拦截器（注入令牌、401 后单次刷新并重放），只是 baseURL 为空；
+ * 超时放宽到 60s，因为上传大文件与后端代理输出文件流都比普通接口慢。</p>
+ */
+export const publicHttp = axios.create({
+  baseURL: '',
+  timeout: 60_000,
+  withCredentials: true,
+})
+
 http.interceptors.request.use((config) => {
+  const accessToken = accessor?.getAccessToken()
+  if (accessToken) {
+    config.headers.Authorization = `Bearer ${accessToken}`
+  }
+  return config
+})
+
+publicHttp.interceptors.request.use((config) => {
   const accessToken = accessor?.getAccessToken()
   if (accessToken) {
     config.headers.Authorization = `Bearer ${accessToken}`
@@ -89,6 +109,28 @@ http.interceptors.response.use(undefined, async (error: AxiosError) => {
     const accessToken = await refreshAccessToken()
     config.headers.Authorization = `Bearer ${accessToken}`
     return await http.request(config)
+  } catch (refreshError) {
+    accessor?.onSessionLost()
+    throw refreshError
+  }
+})
+
+/** 公共路径实例的同一套 401 重试：登录令牌过期时的行为必须与 `/fd/v1` 一致。 */
+publicHttp.interceptors.response.use(undefined, async (error: AxiosError) => {
+  const config = error.config as RetriableConfig | undefined
+  if (!config || error.response?.status !== 401 || config[RETRIED_FLAG]) {
+    throw error
+  }
+  const hadToken = accessor?.getAccessToken() != null
+  if (!hadToken) {
+    throw error
+  }
+
+  config[RETRIED_FLAG] = true
+  try {
+    const accessToken = await refreshAccessToken()
+    config.headers.Authorization = `Bearer ${accessToken}`
+    return await publicHttp.request(config)
   } catch (refreshError) {
     accessor?.onSessionLost()
     throw refreshError

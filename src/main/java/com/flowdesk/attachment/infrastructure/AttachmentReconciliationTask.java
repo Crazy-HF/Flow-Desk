@@ -6,6 +6,7 @@ import com.flowdesk.attachment.domain.Attachment;
 import com.flowdesk.attachment.mapper.AttachmentMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -21,16 +22,22 @@ import java.util.Set;
 
 /**
  * 附件孤儿对账任务（{@code docs/engineering-readiness.md} 7.2；无 HTTP 入口）：
- * 超期暂存清理、最终目录以数据库为权威对账、超期未绑定附件清理、元数据在而文件缺失告警。
+ * 超期暂存清理、最终存储以数据库为权威对账、超期未绑定附件清理、元数据在而文件缺失告警。
  *
- * <p>三条纪律：只处理受控形状的随机存储名（穿越防护由存储层在列举时完成）；
+ * <p>三条纪律：只处理受控形状的随机存储名（穿越防护与对象名过滤由存储层在列举时完成）；
  * 元数据在而文件缺失属完整性事故——只告警，不删元数据、不伪造文件；
  * 未绑定附件清理要求存在业务授权端口实现（缺省时整段跳过，宁可堆积也不误删）。
  * v1 单实例：上传使用随机新键、清理只处理超过保留期的键，两者不会处理同一个暂存标识。</p>
  *
+ * <p>存储驱动无关：本地目录与对象存储的差异被 {@code AttachmentStorage} 吸收——
+ * 三段对账只依赖「列举最终存储 / 探测存在 / 删除」这三个原语，因此换成 S3 驱动后本类逻辑不变。</p>
+ *
  * <p>每个条目独立尽力而为：单项失败只记告警并继续，不打断整轮对账。</p>
+ *
+ * <p>可用 {@code flowdesk.attachment.reconciliation-enabled=false} 关闭（测试与本地调试）。</p>
  */
 @Component
+@ConditionalOnProperty(name = "flowdesk.attachment.reconciliation-enabled", havingValue = "true", matchIfMissing = true)
 public class AttachmentReconciliationTask {
 
     /** 每小时整点执行一轮；v1 演示规模下成本可忽略。 */

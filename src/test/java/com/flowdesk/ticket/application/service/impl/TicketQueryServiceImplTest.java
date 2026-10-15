@@ -23,6 +23,7 @@ import com.flowdesk.ticket.infrastructure.persistence.TicketDetailRow;
 import com.flowdesk.ticket.infrastructure.persistence.TicketListRow;
 import com.flowdesk.ticket.infrastructure.persistence.TicketRecordRow;
 import com.flowdesk.ticket.infrastructure.persistence.TicketRelationRow;
+import com.flowdesk.ticket.mapper.TicketAttachmentMapper;
 import com.flowdesk.ticket.mapper.TicketMapper;
 import com.flowdesk.ticket.mapper.TicketRecordMapper;
 import com.flowdesk.ticket.mapper.TicketRelationMapper;
@@ -162,6 +163,8 @@ class TicketQueryServiceImplTest {
     private TicketClaimantPort ticketClaimantPort;
     @Mock
     private TicketRelationMapper ticketRelationMapper;
+    @Mock
+    private TicketAttachmentMapper ticketAttachmentMapper;
 
     private TicketQueryServiceImpl service;
 
@@ -174,7 +177,8 @@ class TicketQueryServiceImplTest {
                 ticketReadPermissionPort,
                 ticketRecordMapper,
                 ticketClaimantPort,
-                ticketRelationMapper);
+                ticketRelationMapper,
+                ticketAttachmentMapper);
     }
 
     // ---------- page ----------
