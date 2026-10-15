@@ -25,3 +25,6 @@ attachments/
 *.iml
 .DS_Store
 Thumbs.db
+
+# 外部代理工具的工作目录（不纳入版本库）
+.workbuddy-ai/

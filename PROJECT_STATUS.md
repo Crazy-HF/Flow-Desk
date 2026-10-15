@@ -1,6 +1,14 @@
 # FlowDesk 项目状态
 
-## 2026-10-14 交付：附件完善（存储抽象 + 对象存储 + 内联预览 + 批量 + 前端；分支 `flow-desk/attachment-storage-recovered`）
+## 2026-10-15 交接：附件完善批并入 `main`（身份改写）+ CI `core-e2e` 修复
+
+- **合并方式（用户 2026-10-15 授权「推送并合并」，未走 PR）**：`flow-desk/attachment-batch-redo`（`88367b8`，作者 Crazy-HF）推送远程后，用 `--force-with-lease`（旧值 `54ef9d8`）**直接改写远程 `main`**。原因：`88367b8` 与远程 main 上的 `54ef9d8` **同父（`cfc23b0`）、同树（内容零差异）**，唯一差别是提交身份——`54ef9d8` 来自恢复克隆（全新 `git init`，本机全局身份 `maxiaobin`），`88367b8` 是身份正确的重提，两者不存在快进路径。远程旧分支 `flow-desk/attachment-storage-recovered`（= `54ef9d8`）已删除；本地同名分支与两个 `stash` 一并清理；本地 `main` / `origin/main` / 分支均 = `88367b8`（`ls-remote` 复核）。
+- **本工作区（`D:\Idea\item\flow-Desk`）修复**：合并前发现磁盘上缺少 **252 个已跟踪文件**（`src/` 下只剩附件批改动的 33 个文件，`auth`/`iam`/`category`/`common` 整包缺失），而索引与 HEAD 一致——**提交完整、仅工作区被清**；已 `git restore --source=HEAD --worktree -- .` 复原，工作区干净。`.workbuddy-ai/`（外部代理工具目录）已加入 `.gitignore`。
+- **CI 缺陷（本轮实测定位并修复；main 自 run #54 起一直红）**：`core-e2e` 的 `Start dependencies and backend with demo fixtures` 第 0 秒失败，两条叠加原因——① 附件批给 `compose.yaml` 新增的 `minio` / `minio-init` 用必填插值 `${FLOWDESK_MINIO_ROOT_USER:?…}` / `${FLOWDESK_MINIO_ROOT_PASSWORD:?…}`，而 `ci.yml` 的 `core-e2e` env **没有**这两个变量（本机有未跟踪的 `.env`，所以本地与恢复克隆都跑得通，干净 CI 检出必炸）；② `docker compose up --detach --wait` 遇到**一次性退出容器也会失败**（`minio-init` 退出码 0 同样算失败），此前绿的三次 main 只有 mysql/redis 长驻服务。修复：`ci.yml` 补两个 MinIO 变量（compose 对整个文件插值，与选中哪些服务无关，必须补）+ 启动命令改为 `docker compose up --detach --wait mysql redis`（demo profile 默认 `storage=local`，不需要 MinIO）。
+- **本轮验证（实测）**：`docker compose --env-file <空文件> config` 在缺变量时报 `required variable FLOWDESK_MINIO_ROOT_USER is missing a value`（复现 CI 失败），补齐后 `exit 0`；scratch compose 实测 `up --detach --wait <长驻服务>` 在文件内存在一次性服务时 `exit 0`，且**未选中**服务的必填变量缺失仍会阻止启动（证明两处修改都必要）。**本轮未跑**：后端全量 `clean verify`、前端全量 E2E、真实栈验收脚本；CI 复跑结论见下一行。
+- **下一步**：确认新 main 的 CI 三个 job 结果 → 补 `S3AttachmentStorageIT` 在真实 MinIO 上实跑、前端全量 E2E 与真实栈验收脚本 → 通知 / 通信通道 + 两个超时自动任务（backlog 3）。
+
+## 2026-10-14 交付：附件完善（存储抽象 + 对象存储 + 内联预览 + 批量 + 前端；分支 `flow-desk/attachment-storage-recovered`，2026-10-15 重建并改名为 `flow-desk/attachment-batch-redo`）
 
 
 - **分支起点**：基点 `023c2fb`（= `main`，PR #23 合并提交），**不需要先合并 `main`**；旧主题分支 `flow-desk/ticket-attachments` 已合并，按仓库惯例不在其上继续。**（2026-10-14 恢复说明：原 `flow-desk/attachment-storage-preview` 工作区被另一会话的 git 操作清空，本批经 `stash`（`bcfa52a2`）完整恢复，并基于最新 `main`（`cfc23b0`，含管理性交接 PR #25）重建为分支 `flow-desk/attachment-storage-recovered`；证据备份 `D:\flow-desk-attachment-batch-backup-20261014.bundle`。）**

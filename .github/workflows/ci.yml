@@ -70,6 +70,10 @@ jobs:
       FLOWDESK_ATTACHMENT_ROOT: ${{ github.workspace }}/.flowdesk/attachments
       FLOWDESK_COOKIE_SECURE: 'false'
       FLOWDESK_JWT_SECRET: Y2ktb25seS1ub3QtYS1wcm9kdWN0aW9uLXNlY3JldC0zMi1ieXRlcw==
+      # compose.yaml 的 minio / minio-init 用必填插值（:?）读取这两个变量；缺失会让
+      # `docker compose up` 在启动任何服务之前就整体失败（MySQL/Redis 的变量上面已给）。
+      FLOWDESK_MINIO_ROOT_USER: ci-only-minio-user
+      FLOWDESK_MINIO_ROOT_PASSWORD: ci-only-minio-password
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v5
@@ -88,7 +92,10 @@ jobs:
       - name: Start dependencies and backend with demo fixtures
         run: |
           chmod +x mvnw
-          docker compose up --detach --wait
+          # 只等 mysql/redis：demo profile 用 local 附件驱动，不需要 MinIO；而 minio-init 是跑完即退出的
+          # 一次性服务，`up --wait` 遇到退出容器（哪怕退出码 0）会整体失败。上面 env 里的 MinIO 变量仍必须
+          # 保留——compose 对整个文件做插值，与本次选中了哪些服务无关，缺变量会在启动前直接报错。
+          docker compose up --detach --wait mysql redis
           ./mvnw --batch-mode spring-boot:run -Dspring-boot.run.profiles=demo > backend.log 2>&1 &
           for attempt in {1..30}; do
             curl --fail --silent http://127.0.0.1:8081/actuator/health && exit 0
