@@ -434,6 +434,37 @@ v1 仍不提供附件替换、删除、预览或分片上传接口。
 
 附件与辅助查询接口组就绪状态：**Ready**。
 
+### 7.7 站内信（应用内通知）
+
+**2026-10-14 落地（模块 `com.flowdesk.notification`）**：站内信是「发给某个用户的一条消息」，**只按收件人本人范围读写**，不参与跨用户可见性；与附件下载、`/auth/me` 同口径，**不设权限编码，接口只要求已认证**（认证链 `securityMatcher("/fd/v1/**")` 已覆盖，无需改安全配置）。通知的写入发生在业务动作自身的写事务内（见本节末的发布语义）。
+
+| 用例 | 方法与路径 | 主要结果 |
+| --- | --- | --- |
+| 本人通知列表 | `GET /fd/v1/notifications` | `R<PageResult<NotificationResult>>`，分页 `page`/`size`，可选 `unreadOnly` |
+| 本人未读条数 | `GET /fd/v1/notifications/unread-count` | `R<NotificationUnreadCountResult>`（`unreadCount`） |
+| 标记单条已读 | `POST /fd/v1/notifications/{notificationId}/read` | `R<Void>`，幂等 |
+| 全部标记已读 | `POST /fd/v1/notifications/actions/read-all` | `R<Void>`，幂等 |
+
+- **列表**：只返回当前用户的记录，`page` 从 1 开始、`size` 默认 20、最大 100（照工单列表口径）；`unreadOnly` 缺省返回全部（传 `true` 只看未读）。**排序固定为 `id` 倒序**，不接受客户端自选排序——传入非空 `orderBy` 或 `desc` 一律 `400/VALIDATION_FAILED`。
+- **标记已读**：`{notificationId}` 指向他人或不存在时统一 `404/NOTIFICATION_NOT_FOUND`（不暴露存在性）；重复调用幂等。`actions/read-all` 对没有未读的调用方同样幂等成功。
+- 列表与未读计数都只按当前登录用户过滤，不对不存在的 `notificationId` 作任何存在性回显。
+
+**发布语义（本轮 5 类事件）**：通知由工单流程模块在**自身写事务内**发布（经 `ticket.application.port.NotificationPort`，实现落在工单模块 `infrastructure`），动作回滚则通知一并回滚：
+
+| 工单动作 | 收件人 | `category` |
+| --- | --- | --- |
+| `request-supplement` | 提交人 | `SUPPLEMENT_REQUESTED` |
+| `submit-resolution` | 提交人 | `RESOLUTION_SUBMITTED` |
+| `request-cancel` | 当前负责人 | `CANCEL_REQUESTED` |
+| `approve-cancel` | 提交人 | `CANCEL_APPROVED` |
+| `reject-cancel` | 提交人 | `CANCEL_REJECTED` |
+
+其它动作（`claim` / `supplement` / `confirm-resolution` / `report-unresolved` / `transfer` / `withdraw-cancel-request` / `withdraw-supplement-request` / `close` / 追加处理记录）**本轮不发通知**。
+
+**保留与清理**：已读通知由后台清理任务按 `flowdesk.notification.retention`（默认 `90d`，下限 `1h`）删除，**未读永不清理**（表与索引见 `docs/database-design.md` 19.6 与 `V10` 变更说明，调度见 `docs/technical-architecture.md` 第 9 节）。`dedup_key` 列与其唯一索引是**为后续「到期前提醒」（按「工单 + 期限」去重）预留**，普通通知不填该列；**本轮没有实现到期提醒**。
+
+**前端**：顶栏铃铛（未读徽标 + 最近 5 条下拉 + 「查看全部」）与收件箱页 `/notifications`（分页列表、`只看未读` 开关、单条与全部标记已读、点行深链到工单详情）**已实现**；未读数 60s 轮询，失败静默。**未跑**前端全量 E2E 与渲染截图自查。
+
 ## 8. 系统管理与数据概览接口草案
 
 ### 8.1 管理接口通用规则
@@ -596,7 +627,7 @@ MySQL 与 Redis 之间不存在天然原子事务。工程准备阶段必须明�
 | `CATEGORY_MANAGE` | 分类管理 | 分类版本、名称唯一和引用约束 |
 | `DASHBOARD_VIEW` | 工单数据概览 | 复用 IT 工单可见范围 |
 
-附件下载和关联摘要不单设权限编码：附件下载按 7.2 的「上传者本人或业务授权」口径判定，工单可见性经业务授权端口接入（步骤 5 实现）。认证接口只要求相应的匿名、Refresh Cookie 或已登录状态。
+附件下载和关联摘要不单设权限编码：附件下载按 7.2 的「上传者本人或业务授权」口径判定，工单可见性经业务授权端口接入（步骤 5 实现）。站内信同样不设权限编码：只按收件人本人范围读写，接口只要求已认证（见 7.7）。认证接口只要求相应的匿名、Refresh Cookie 或已登录状态。
 
 ## 10. 统一错误契约
 
@@ -628,6 +659,7 @@ MySQL 与 Redis 之间不存在天然原子事务。工程准备阶段必须明�
 | `404` | `PERMISSION_NOT_FOUND` | 权限不存在，或 `permissionId` 非正整数 |
 | `404` | `GRANT_NOT_FOUND` | 要撤销的授权关系不存在 |
 | `404` | `ATTACHMENT_NOT_FOUND` | 附件不存在、归属不符或不可见（两条下载路径统一） |
+| `404` | `NOTIFICATION_NOT_FOUND` | 站内信不存在或不属于当前用户（不暴露存在性） |
 | `404` | `RESOURCE_NOT_FOUND` | 请求路径未匹配任何接口（Spring MVC 兜底，非业务语义；业务 404 使用各自编码） |
 | `409` | `TICKET_CONFLICT` | 工单版本、状态或负责人已变化 |
 | `409` | `TICKET_CREATE_CONFLICT` | 创建工单命中非提交键的唯一约束（如工单编号冲突），可重试；原始数据库异常保留为 cause |
@@ -663,7 +695,7 @@ MySQL 与 Redis 之间不存在天然原子事务。工程准备阶段必须明�
 
 已完成以下检查：
 
-- 认证、工单查询、创建、全部人工状态动作、附件、管理性交接、用户、分类和数据概览均有接口归属。
+- 认证、工单查询、创建、全部人工状态动作、附件、管理性交接、用户、分类、数据概览和站内信均有接口归属。
 - 每个工单动作都能追溯到已确认状态迁移，没有开放通用状态修改入口。
 - RBAC、工单可见性、当前负责人、状态和版本的校验层次明确。
 - 请求校验、分页筛选、错误结构、HTTP 状态、幂等和并发行为明确。

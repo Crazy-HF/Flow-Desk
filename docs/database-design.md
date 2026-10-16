@@ -302,6 +302,7 @@ v1 暂不建立以下实体：
 | `ticket_relation` | 工单关联 | 后续引用和重复指向 |
 | `ticket_participant` | 工单参与者 | 历史负责人访问关系 |
 | `ticket_daily_sequence` | 工单日序号 | 按业务日原子递增的工单编号序号（`V6`） |
+| `notification` | 站内信（应用内通知） | 发给某个用户的应用内通知，只按收件人本人范围读写（`V10`） |
 
 ## 17. 身份与访问表
 
@@ -557,6 +558,33 @@ v1 暂不建立以下实体：
 复合主键为 `(ticket_id, user_id)`；增加 `(user_id, ticket_id)` 反向索引支持历史参与者列表查询。两个外键均限制删除。
 
 领取、业务转交或管理性交接成功时插入或更新该关系；管理员只是执行管理性交接时不成为参与者。
+
+### 19.6 站内信表（`notification`）
+
+站内信（应用内通知）保存「发给某个用户的一条消息」，只按收件人本人范围读写，属于独立 `notification` 模块（`com.flowdesk.notification`）。`recipient_id` 是收件人（工单提交人或当前负责人）；`ticket_id` 用限制删除外键保留与工单的引用完整性，`ticket_no` 冗余保存编号使收件箱列表不必 join `ticket`；`read_at` 为空即未读。
+
+| 字段 | 建议类型 | 空值 | 约束与含义 |
+| --- | --- | --- | --- |
+| `id` | `BIGINT UNSIGNED` | 否 | 主键，自增 |
+| `recipient_id` | `BIGINT UNSIGNED` | 否 | 外键指向 `iam_user.id`，收件人（工单提交人或当前负责人） |
+| `category` | `VARCHAR(32)` | 否 | 通知类型（固定枚举，与业务动作一一对应） |
+| `title` | `VARCHAR(200)` | 否 | 通知标题 |
+| `body` | `VARCHAR(1000)` | 是 | 通知正文 |
+| `ticket_id` | `BIGINT UNSIGNED` | 是 | 外键指向 `ticket.id`，关联工单 |
+| `ticket_no` | `VARCHAR(32)` | 是 | 冗余保存的工单编号，供收件箱直接展示与深链 |
+| `dedup_key` | `VARCHAR(128)` | 是 | 提醒去重键（同一工单 + 同一期限）；普通通知为空（`V10` 预留，见下） |
+| `read_at` | `DATETIME(3)` | 是 | 已读时间；为空即未读 |
+| `created_at` | `DATETIME(3)` | 否 | UTC 创建时间 |
+
+约束与索引：
+
+- 唯一约束：`(recipient_id, dedup_key)`（`uk_notification_recipient_dedup`）——去重按收件人隔离，MySQL 允许多个 `NULL`，普通通知不填该列、不受唯一键影响。
+- 检查约束：`ck_notification_category`，`category` ∈ {`SUPPLEMENT_REQUESTED`、`RESOLUTION_SUBMITTED`、`CANCEL_REQUESTED`、`CANCEL_APPROVED`、`CANCEL_REJECTED`}。
+- 未读列表与未读计数：`(recipient_id, read_at, id)`（`idx_notification_recipient_read`）——收件人定值 + `read_at IS NULL` + 按 `id` 倒序。
+- 清理任务：`(read_at)`（`idx_notification_read_at`）——按 `read_at` 范围删除已读通知。
+- `recipient_id` 与 `ticket_id` 均使用限制删除外键。
+
+**`V10` 变更说明（2026-10-14 站内信应用内通知通道，`V10__create_notification.sql`）**：新增 `notification` 表；外键总数由 **23 → 25**（`recipient_id` → `iam_user`、`ticket_id` → `ticket`）。`dedup_key` 列与其 `(recipient_id, dedup_key)` 唯一索引是**为后续「到期前提醒」预留**的去重位（按「工单 + 期限」），**本轮没有实现到期提醒**，普通业务通知一律填 `NULL`。清理任务只删除「已读且 `read_at` 早于保留期（`flowdesk.notification.retention`，默认 `90d`，下限 `1h`）」的行，**未读永不清理**。
 
 ## 20. 预置枚举编码
 
