@@ -352,6 +352,15 @@ export interface TicketActionMeta {
   }
   /** 原因类说明输入：与后端 `@Size(max=1000)` 对齐。 */
   reason?: { label: string; placeholder: string; maxLength: number }
+  /**
+   * 这个动作可以附上附件（当前只有 `supplement`，`docs/api-design.md` 6.4）。
+   *
+   * <p>登记成槽位而不是让页面按动作名分支：将来再有动作要带附件时，只改这张表。
+   * 出现这个槽位时，**正文与附件至少要有一样**——这是服务端的跨字段规则
+   * （`SupplementCommand` 自身不做正文必填），界面必须按同一条口径校验，
+   * 否则用户会写出"两样都空"的请求，然后收到一个 `400`。</p>
+   */
+  attachments?: { label: string; hint: string }
   /** 执行前是否必须确认。影响工单终态的动作不能一点就走。 */
   destructive: boolean
 }
@@ -564,6 +573,10 @@ export const TICKET_ACTIONS: Record<TicketActionName, TicketActionMeta> = {
       label: '补充内容',
       placeholder: '请按 IT 的请求补充信息，例如完整的报错文字、设备编号或复现步骤',
       maxLength: ACTION_CONTENT_MAX_LENGTH,
+    },
+    attachments: {
+      label: '附件',
+      hint: '补充内容与附件至少要有一样。附件会绑到这张工单上，IT 与你都能在详情里看到。',
     },
     destructive: false,
   },

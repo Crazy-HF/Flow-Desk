@@ -1,5 +1,6 @@
 package com.flowdesk.ticket.mapper;
 
+import com.flowdesk.ticket.infrastructure.persistence.TicketAttachmentRow;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -69,4 +70,27 @@ public interface TicketAttachmentMapper {
             )
             """)
     boolean existsBinding(@Param("attachmentId") long attachmentId);
+
+    /**
+     * 工单详情用的附件摘要：绑定到本单（任一记录）的通用附件 + 上传人显示名。
+     *
+     * <p>固定排序（创建时间升序、同秒按主键升序）保证详情页两次打开的顺序一致。
+     * 可见性不再单独判定——能看到工单详情即能看到本单附件；下载与预览仍由附件端点独立授权。</p>
+     */
+    @Select("""
+            SELECT a.id AS id,
+                   a.original_name AS originalName,
+                   a.content_type AS contentType,
+                   a.size_bytes AS sizeBytes,
+                   a.uploaded_by AS uploadedById,
+                   uploader.display_name AS uploadedByName,
+                   a.created_at AS createdAt
+            FROM ticket_attachment ta
+            JOIN ticket_record r ON r.id = ta.record_id
+            JOIN attachment a ON a.id = ta.attachment_id
+            JOIN iam_user uploader ON uploader.id = a.uploaded_by
+            WHERE r.ticket_id = #{ticketId}
+            ORDER BY a.created_at ASC, a.id ASC
+            """)
+    List<TicketAttachmentRow> selectAttachmentsByTicketId(@Param("ticketId") long ticketId);
 }

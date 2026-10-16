@@ -36,6 +36,7 @@ const messages: Record<string, string> = {
   NOTIFICATION_NOT_FOUND: '通知不存在或已不属于你',
   ATTACHMENT_TOO_LARGE: '上传内容超过大小限制',
   ATTACHMENT_TYPE_UNSUPPORTED: '不支持的文件类型',
+  ATTACHMENT_ALREADY_BOUND: '附件已随工单提交，不能删除',
   RESOURCE_NOT_FOUND: '请求的资源不存在',
   INTERNAL_ERROR: '系统暂时无法处理该请求，请稍后重试',
 }

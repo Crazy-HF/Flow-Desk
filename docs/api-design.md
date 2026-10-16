@@ -192,6 +192,8 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 
 无查看权限时统一返回 `404` 和 `TICKET_NOT_FOUND`，不向调用方确认该编号对应的工单是否存在。系统管理员仅有管理员角色时同样不能调用普通详情接口。
 
+- **2026-10-14 补充（附件，已实现）**：详情返回 `attachments` 数组，元素为 `id`、`originalName`、`contentType`、`sizeBytes`、`uploadedBy`（`id` + `displayName`）、`createdAt`、`inlinePreviewable`；**没有附件时为空数组**。排序固定为 `created_at` 升序、`id` 升序（同一秒上传时按插入顺序）。`inlinePreviewable` 由服务端按 7.2 的内联白名单给出，界面据此决定是否摆出「预览」入口——**前端不复制一份类型白名单**，否则白名单一改，界面就会出现一个点了必然失败的入口。内容本身仍走 7.2 的授权代理端点，详情里不含任何 URL 或存储路径。
+
 ### 5.5 工单时间线
 
 - 按 `sequenceNo` 正序分页，保证业务事实顺序稳定。
@@ -243,7 +245,7 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 - `categoryId`：必填且必须指向启用分类。
 - `priority`：必填，`LOW`、`MEDIUM` 或 `HIGH`。
 - `sourceTicketNo`：可选；必须是当前提交人有权查看的原工单，且不能形成自引用。
-- `attachmentIds`：可选；引用当前提交人已上传且尚未绑定的附件（见 7.1），与 `files` part 可同时出现（**待实现**，2026-10-12 方案 B）。
+- `attachmentIds`：可选；引用当前提交人已上传且尚未绑定的附件（见 7.1），与 `files` part 可同时出现（**已实现**，2026-10-12 方案 B，2026-10-14 落地）。
 
 **已确认**：`submissionKey` 由 Vue 在用户开始一次提交时生成，同一用户使用同一键重复请求时返回首次创建结果。`ticket` 表使用对应字段及 `(requester_id, submission_key)` 唯一约束，不增加独立幂等表。
 
@@ -251,7 +253,7 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 
 **关联补充（2026-10-12，已实现）**：`sourceTicketNo` 随同一个 multipart 的 `ticket` part 提交，不设独立 part；它必须是当前提交人有权查看的工单——服务端复用详情的同一条可见性 SQL（5.1），**无权查看与编号不存在统一返回 `400/VALIDATION_FAILED`「原工单编号无效」**，不向调用方回显他人工单是否存在；校验先于每日编号分配，被拒绝的创建不消耗当日序号、不落工单。首次创建在同一事务内写一条 `ticket_relation`（`relation_type = FOLLOW_UP`，source = 新工单、target = 原工单）；**不新增时间线事件、不提供独立建链/删链接口**，同一 `submissionKey` 重放不重复写关联。原工单可以是任意状态——终态工单正是「问题再次出现」时的主要引用对象（`docs/kickoff.md` 4.10）。
 
-**附件独立化（2026-10-12 用户确认，方案 B，待实现）**：附件改由独立的通用附件模块承载，见 7.1——创建工单可携带新文件（multipart `files` part）与引用已上传附件的 `attachmentIds`；限制、校验与失败补偿见 7.1 与 `docs/engineering-readiness.md` 7.2。仍不引入分片上传。
+**附件独立化（2026-10-12 用户确认，方案 B，**已实现** 2026-10-14）**：附件改由独立的通用附件模块承载，见 7.1——创建工单可携带新文件（multipart `files` part）与引用已上传附件的 `attachmentIds`；限制、校验与失败补偿见 7.1 与 `docs/engineering-readiness.md` 7.2。仍不引入分片上传。前端对应落点：新建页的附件区（逐文件上传、进度、取消、粘贴、失败带文件名），上传未完成时提交按钮禁用。
 
 ### 6.3 IT 支持人员动作
 
@@ -326,7 +328,7 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
   - 待受理本来没有负责人，`ck_ticket_status_assignee` 对「已取消」带不带负责人都允许。撤销**不写** `completion_method` / `close_method` / `close_reason`，因此「已取消」与「已完成」「已关闭」在库层面可区分（`docs/kickoff.md` 4.7：已取消不等于 IT 解决了问题）。
   - 直接撤销的原因只存在于不可变时间线的 `CANCELLATION` 记录里；两阶段路径的说明存在 `ticket.cancel_request_reason`，批准进入终态时随请求三列一并清空，说明本身仍留在 `CANCELLATION_REQUEST` 记录上。**v1 不支持恢复**，员工仍需处理时应新建工单。
 
-**范围裁决（2026-10-06，用户确认；2026-10-12 方向更新）**：附件上传/下载、文件与数据库提交顺序、失败补偿与孤儿对账属完整版 backlog 第 2 项；附件已按方案 B 独立化（见 7.1），`supplement` 的旧「正文版」限制（出现文件 part 即 `400`）随之失效——改为接受 `files` part 与 `attachmentIds`，正文和附件至少存在一项（**待实现**；附件代码落地前，现行实现仍会拒绝文件 part）。
+**范围裁决（2026-10-06，用户确认；2026-10-12 方向更新；2026-10-14 落地）**：附件上传/下载、文件与数据库提交顺序、失败补偿与孤儿对账属完整版 backlog 第 2 项；附件已按方案 B 独立化（见 7.1），`supplement` 的旧「正文版」限制（出现文件 part 即 `400`）随之失效——改为接受 `files` part 与 `attachmentIds`，**正文和附件至少存在一项**（**已实现**，2026-10-14）。前端对应落点：详情页动作弹窗里的附件槽，正文留空但至少有一个附件时放行，两者都空则拦下且不关弹窗。
 
 ### 6.5 非公开系统动作
 
@@ -359,14 +361,14 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 
 **方向确认（2026-10-12 用户确认；2026-10-13 公共路径约定 `attachments/xx` 更新并落地上传与下载）**：附件由独立的通用附件模块承载（模块边界见 `docs/technical-architecture.md` 第 4 节，表结构见 `docs/database-design.md` 6.3/19.3），不再要求「只随工单动作上传」。v1 提供两类上传路径：
 
-- **独立上传**：`POST /attachments/upload`，`multipart/form-data` 单文件 `file` part；成功返回附件标识与元数据；上传者为当前登录用户，**未绑定的附件只有上传者本人可下载**（**已实现**，2026-10-13；公共路径约定 `attachments/xx`，**不带 `/fd/v1` 前缀**——2026-10-13 用户明确；认证链作用域已同步覆盖 `/attachments/**`）。
+- **独立上传**：`POST /attachments/upload`，`multipart/form-data`，part 名 `files`（**可重复，1～5 个**）；成功返回数组，每个元素是附件标识与元数据；上传者为当前登录用户，**未绑定的附件只有上传者本人可下载**（**已实现**，2026-10-13；公共路径约定 `attachments/xx`，**不带 `/fd/v1` 前缀**——2026-10-13 用户明确；认证链作用域已同步覆盖 `/attachments/**`。2026-10-14 起 part 名由单文件 `file` 改为可重复的 `files`，与「随动作上传」统一）。
 - **随动作上传**：创建工单（6.2）与员工补充（6.4）可携带 `files`（重复 part 名，多个文件）或 `attachmentIds`（引用先传后绑的附件）。
 
-**已确认**：两类路径共用同一套限制与校验：
+**已确认**：两类路径共用同一套限制与校验（**2026-10-14 起限额由配置给出，调整不再改代码**，见 `flowdesk.attachment.*`）：
 
-- 单个文件最大 10 MiB。
-- 单次请求最多 5 个文件，文件总大小最大 25 MiB。
-- 原始文件名去首尾空白后 1～255 个字符；空文件拒绝上传。
+- 单个文件默认最大 10 MiB（`max-file-size`）。
+- 单次请求默认最多 5 个文件（`max-files-per-request`），文件总大小默认最大 25 MiB（`max-request-total-size`）。
+- 原始文件名去首尾空白后 1～255 个字符（`max-original-name-length`）；空文件拒绝上传。
 - 允许 JPEG、PNG、PDF、TXT、DOCX 和 XLSX。
 - 同时校验扩展名、声明的媒体类型和服务端识别结果，不能只相信客户端 `Content-Type`。
 - 拒绝可执行文件、脚本、HTML、SVG、压缩包和其他未列入白名单的格式。
@@ -375,19 +377,47 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 
 文件使用服务端随机存储标识，保存在 Web 根目录之外；数据库只保存元数据，客户端文件名不得参与真实磁盘路径拼接。附件元数据保存在通用 `attachment` 表；与工单的归属保存在 `ticket_attachment` 绑定表，只允许绑定创建记录或员工补充记录（跨表类型约束由工单事务用例校验）。
 
-**引用规则（待实现）**：`attachmentIds` 只能引用当前用户上传、尚未绑定、且未超过保留期（默认 24 小时）的附件；引用他人附件、已绑定附件或不存在/不可见的附件时按统一 `404/ATTACHMENT_NOT_FOUND` 或 `400/VALIDATION_FAILED` 处理，不泄露他人附件是否存在。超期未绑定的附件由对账任务清理（`docs/engineering-readiness.md` 7.2）。
+**最终存储（2026-10-14 结论变更）**：内容写入哪个存储由 `flowdesk.attachment.storage` 选择——`local`（开发 / 测试，本地持久化目录）或 `s3`（S3 兼容对象存储：开发 / 演示用 MinIO，生产可换任意 S3 / OSS，应用代码不变）。**暂存一律落在本地磁盘**（类型识别需要可随机访问的本地文件），差异只在「暂存 → 最终存储」这一步。详见 `docs/technical-architecture.md` 6.3。
 
-v1 仍不提供附件替换、删除、预览或分片上传接口。
+**引用规则（**已实现**，2026-10-13/2026-10-14）**：`attachmentIds` 只能引用当前用户上传、尚未绑定、且未超过保留期（默认 24 小时）的附件；引用他人附件、已绑定附件或不存在/不可见的附件时按统一 `404/ATTACHMENT_NOT_FOUND` 或 `400/VALIDATION_FAILED` 处理，不泄露他人附件是否存在。超期未绑定的附件由对账任务清理（`docs/engineering-readiness.md` 7.2）。
 
-### 7.2 附件下载
+v1 仍不提供附件替换与分片上传接口；**删除见下方**，**预览见 7.2**（2026-10-14 起提供）。
+
+**删除未绑定附件（**已实现**，2026-10-15）**：`DELETE /attachments/{attachmentId}` 删除一个**尚未绑定**的附件，元数据与文件一并删除，成功返回 `200` 与空数据信封。
+
+| 情形 | 结果 |
+| --- | --- |
+| 上传者本人 + 未被任何业务对象引用 | `200`，元数据与最终文件都删除 |
+| 附件不存在，或调用者不是上传者 | `404/ATTACHMENT_NOT_FOUND`（两者对外同码，不泄露他人附件是否存在） |
+| 附件已绑定到工单记录 | `409/ATTACHMENT_ALREADY_BOUND` |
+
+**为什么只允许删未绑定**：工单记录不可变，已绑定附件是审计链的一部分，删除会破坏可追溯性。需要"换掉一个附件"时，正确做法是重新上传并在新记录里引用，而不是改写历史记录。
+
+**并发口径**：删除与工单侧引用附件（`selectUsableForBinding`）**争同一把 `attachment` 行锁**（两处都是该行的 `FOR UPDATE`），因此不存在"判定未绑定"与"写入绑定"交错的窗口——并发下要么删除被拒（`409`），要么引用整体失败（`400/VALIDATION_FAILED`），不会出现引用一个已删除附件的 `500`。删除顺序是**先删元数据、再删文件**：文件删除失败只告警，留下的孤儿对象由对账任务清理（`docs/engineering-readiness.md` 7.2）。
+
+### 7.2 附件下载与内联预览
+
+**2026-10-14 结论变更**：内容端点从「只有强制下载」扩为「下载 / 预览同一端点」，由 `disposition` 参数选择；原 `download` 路径保留为**别名**（标记 deprecated），不改已发布契约的调用方。
 
 | 项目 | 契约 |
 | --- | --- |
-| 方法与路径 | `GET /attachments/download/{attachmentId}`（2026-10-13 公共路径约定 `attachments/xx`，**不带 `/fd/v1` 前缀**，**已实现**；此前的工单嵌套路径已按同日约定推翻） |
+| 方法与路径 | `GET /attachments/{attachmentId}/content?disposition=attachment\|inline`（**规范路径**，**已实现**，2026-10-14）；`disposition` 缺省为 `attachment` |
+| 别名 | `GET /attachments/download/{attachmentId}`（**已实现**，2026-10-13；标记 deprecated，行为等同 `disposition=attachment`） |
 | 响应 | 原始文件流，不使用 `R<T>` |
-| 权限 | 调用者是上传者本人，或附件经业务授权端口判定对调用者可见（工单绑定可见性在步骤 5 接入） |
+| 权限 | 调用者是上传者本人，或附件经业务授权端口判定对调用者可见；**预览与下载走同一条授权判定，没有例外** |
 
-下载响应设置服务端确认的 `Content-Type`、文件长度、经过安全编码的 `Content-Disposition: attachment` 和 `X-Content-Type-Options: nosniff`。
+下载响应设置服务端确认的 `Content-Type`、文件长度、经过安全编码的 `Content-Disposition` 和 `X-Content-Type-Options: nosniff`。
+
+**内联白名单（`disposition=inline` 时）**：
+
+- 只有 JPEG、PNG、PDF、TXT 会以 `Content-Disposition: inline` 返回。
+- **HTML、SVG 一律不内联**；Office 文档（DOCX / XLSX）与未知类型**降级为 `attachment`**——请求内联也不会放行。
+- 判定依据是服务端识别出的类型（`DetectedFileType`），不是请求参数或客户端声明。
+
+**内联响应头**：`X-Content-Type-Options: nosniff`、`Content-Security-Policy: default-src 'none'; sandbox`、`Cross-Origin-Resource-Policy: same-origin`、`Cache-Control: private, no-store`。
+
+- **PDF 内联是唯一例外：不下发 CSP**。沙箱化上下文会屏蔽浏览器内置的 PDF 查看器，加上 CSP 会让预览直接打不开；其余安全头照常下发。该例外在控制器里有断言（`inlinePdfSkipsContentSecurityPolicyBecauseItWouldBlockTheViewer`）。
+- **预览不使用预签名 URL 重定向**：那等于绕过应用授权，URL 一旦泄露就是公开文件。内容必须留在「后端授权 → 后端代理输出」这条路上；前端取回 Blob 后用对象 URL 渲染。
 
 附件不存在、归属不符或不可见时统一返回 `404/ATTACHMENT_NOT_FOUND`。不能只根据 `attachmentId` 读取文件，也不能暴露真实磁盘路径。
 
@@ -426,11 +456,11 @@ v1 仍不提供附件替换、删除、预览或分片上传接口。
 
 **已确认**：
 
-1. 单文件 10 MiB、单次最多 5 个且总计不超过 25 MiB。
+1. 单文件默认 10 MiB、单次默认最多 5 个且总计不超过 25 MiB（**2026-10-14 起由 `flowdesk.attachment.*` 配置给出**，调整不再改代码）。
 2. 白名单只包含 JPEG、PNG、PDF、TXT、DOCX 和 XLSX。
-3. 附件下载使用公共路径 `GET /attachments/download/{attachmentId}`（强制下载、复核权限，**已实现**，2026-10-13；工单嵌套路径已按同日约定推翻）；权限口径见 7.2。
+3. 内容端点使用公共路径（**不带 `/fd/v1` 前缀**）：规范路径 `GET /attachments/{attachmentId}/content?disposition=`，别名 `GET /attachments/download/{attachmentId}`（deprecated）。**均已实现**（2026-10-13 下载、2026-10-14 预览）；权限口径见 7.2。
 4. 分类选项和转交候选人使用最小字段专用接口，不开放通用用户搜索。
-5. v1 提供独立附件上传（`POST /attachments/upload`）与下载（**均已实现**，2026-10-13），仍不提供替换、删除、预览或分片上传。
+5. v1 提供独立附件上传（`POST /attachments/upload`，`files` 可重复 part）、下载与内联预览（**均已实现**，2026-10-14）以及**未绑定附件的删除**（`DELETE /attachments/{attachmentId}`，**已实现**，2026-10-15；已绑定附件返回 `409/ATTACHMENT_ALREADY_BOUND`），仍不提供替换、重命名与分片上传。
 
 附件与辅助查询接口组就绪状态：**Ready**。
 
@@ -472,7 +502,7 @@ v1 仍不提供附件替换、删除、预览或分片上传接口。
 - 分类管理、管理性交接和 RBAC 管理接口使用 `/fd/v1/admin` 前缀；用户管理接口统一使用 `/fd/v1/users`。两类接口均要求对应的管理员业务权限。
 - **版本边界**：本节系统管理接口整体属于完整版，均不阻塞求职 MVP。MVP 只使用 `EMPLOYEE`、`IT_SUPPORT`、`SYSTEM_ADMIN` 三种内置角色。**例外：8.2.1 的自定义 RBAC 已于 2026-09-21 经用户确认提前实施（先于阶段 2），阶段设计、任务拆分与验收标准见 `docs/implementation-plan.md` 9.1；2026-09-22 确认计入求职 MVP 演示范围，除后端接口、迁移与测试证据外还包含 RBAC 管理端页面（`TASK-060`）。8.2 用户管理已于 2026-09-24 经用户确认正式登记为阶段任务（`TASK-061` 后端、`TASK-062` 管理端页面）并计入求职 MVP 演示范围。**
 - 管理性交接（8.3）与数据概览（8.5）仍按原计划留到完整版，本次变更不放宽它们的边界；用户管理（8.2）与分类管理（8.4）已提前实施并从完整版 backlog 移出。
-- **实现状态（2026-09-28）**：8.2 用户管理八个端点与 8.2.1 四组 RBAC 端点（角色、权限、用户角色授权、角色权限授权，含批量授予、批量撤销、清空全部与一个角色授予多个用户，共 21 个端点）**均已完成并合并 `main`**（PR #8，合并提交 `f15468c`），管理端五页可走通真实闭环；测试与真实栈证据见 `docs/modules/rbac.md` 第 10、11 节与 `PROJECT_STATUS.md` 2026-09-28 记录。**8.3 管理性交接仍是 `TODO`，属完整版。**
+- **实现状态（2026-09-28）**：8.2 用户管理八个端点与 8.2.1 四组 RBAC 端点（角色、权限、用户角色授权、角色权限授权，含批量授予、批量撤销、清空全部与一个角色授予多个用户，共 21 个端点）**均已完成并合并 `main`**（PR #8，合并提交 `f15468c`），管理端五页可走通真实闭环；测试与真实栈证据见 `docs/modules/rbac.md` 第 10、11 节与 `PROJECT_STATUS.md` 2026-09-28 记录。**8.3 管理性交接仍是 `TODO`，属完整版。**（**2026-10-14 更新**：该句已失效——8.3 的两个查询端点与两个扩展端点的交接方案均已交付，见 8.3 的实现状态段；本行按惯例保留原文不追改。）
 - **实现状态（2026-09-28，分类管理）**：8.4 的六个 `/fd/v1/admin/categories` 端点与对应管理端页面（`/admin/categories`）经用户当轮指示提前实施，登记为 `TASK-063`（后端）与 `TASK-064`（页面）；契约本身不变。**分类管理后端与页面已完成运行时验收；HTTP 权限/参数/版本/重名/引用保护证据见 docs/acceptance/2026-09-29-category-ticket-scopes.json，页面 CRUD 与 1440/375 截图证据见 .ui-craft/reviews/2026-09-29-tickets/；本次纳入完整交接**，详见 `docs/implementation-plan.md` 9.2。
 - 若启用动态 RBAC，`SYSTEM_ADMIN` 必须是受保护的内置角色；角色或权限仍被授权关系引用时禁止删除。
 - 用户不提供物理删除接口，分类只有从未被工单引用时才允许删除。
@@ -565,6 +595,17 @@ v1 仍不提供附件替换、删除、预览或分片上传接口。
 MySQL 与 Redis 之间不存在天然原子事务。工程准备阶段必须明确调用顺序、Redis 不可用时的失败策略和安全测试，保证接口不会在账号已变更后仍返回“会话撤销成功”的错误结果。
 
 管理员通过这些接口只能看到交接所需元数据，不能获得标题、问题描述、记录或附件。管理员若同时具有 IT 角色，也只能通过其 IT 身份对应的普通工单接口访问有权查看的内容。
+
+**实现状态（2026-10-14，已交付）**：本节两个查询端点与"停用账号 / 替换角色时的交接方案"已实现；交付记录见 `PROJECT_STATUS.md` 顶部「2026-10-14 交付：管理性交接」，真实栈证据 `docs/acceptance/2026-10-14-admin-handoff.json`（**51/51、退出码 0**）。落地口径与本节逐条对应：
+
+- **端点所有权**：`/fd/v1/admin/users/{userId}/active-ticket-assignments` 由 IAM 的 `AdminUserHandoffController` 提供（用户存在性判定在 IAM：不存在 `404/USER_NOT_FOUND`，无活动工单返回空数组）；`/fd/v1/admin/tickets/{ticketNo}/handoff-candidates` 由工单模块的 `AdminTicketHandoffController` 提供（非活动状态返回 `409/ADMIN_HANDOFF_CONFLICT` 带快照）。两个控制器都是类级 `TICKET_ADMIN_HANDOFF`，**不与** `IamUserController`（`/fd/v1/users` + `USER_MANAGE`）或 `TicketController`（工单可见性）合并注解；候选人查询**不经过工单可见性**，管理员因此不需要、也不会获得任何 `TICKET_VIEW_*`。
+- **请求体字段**：**8.3 所称 `userVersion` 就是这两个端点请求体里既有的 `version`**（8.2 表"携带版本"），没有引入第二个用户版本字段；逐工单版本在 `handoffs[].ticketVersion`。`handoffReason` 长度 1～1000（落进 `ticket_record.reason`），`handoffs` 每项为 `ticketNo` / `ticketVersion` / `newAssigneeId`。
+- **必填条件**：停用账号时，只要目标用户仍有活动工单就必须给出方案；替换角色时，只有**这次替换把 `IT_SUPPORT` 摘掉**且目标用户仍有活动工单才需要——仅新增角色、或保留 `IT_SUPPORT`，他仍能继续处理手上的工单，既不要求方案也不撤销会话（真实栈有反向对照断言）。活动工单 = `assignee_id = 目标用户` 且状态 ∈ `PROCESSING` / `WAITING_FOR_REQUESTER` / `WAITING_FOR_CONFIRMATION`（**含待确认**：球在提交人手里时负责人仍是他）。
+- **权限是条件性的**：确实发生交接时才要求 `TICKET_ADMIN_HANDOFF`，缺它返回 `403/ACCESS_DENIED`；目标用户没有活动工单时，8.2 的 `USER_MANAGE` 契约保持不变（为此 `CurrentOperatorPort` 新增 `hasAuthority`，由 `auth` 的 adapter 从认证对象读取，不另查库）。
+- **错误码**：纯请求缺陷（编号空白、版本为负、同一工单在方案里重复）→ `400/VALIDATION_FAILED`；缺方案、漏交某张活动工单 → `409/ADMIN_HANDOFF_REQUIRED`；多交（方案里出现不属于该用户的活动工单）、`userVersion` / `ticketVersion` 不符、候选人资格失效、条件更新命中 0 行、交接期间的锁等待或死锁 → `409/ADMIN_HANDOFF_CONFLICT`，其中工单版本/状态类冲突按 `ErrorDetails` 的 `version` / `status` 带当前快照。
+- **事务与顺序**：全部 MySQL 写（逐张换人 + `ticket_participant` + 一条 `ADMIN_HANDOFF` 记录 + 账号状态或角色集合 + 用户版本）在同一事务里；**Redis 会话撤销排在写库之后、提交之前**，撤销失败即整体回滚，因此不存在"账号已变更却返回会话撤销成功"。锁顺序固定为 `iam_role → ticket(id 升序) → iam_user(id 升序：目标用户 + 全部新负责人 + 操作人) → iam_user_role / ticket_participant / ticket_record`——交接的工单行锁必须排在用户行锁之前（与工单模块既有顺序一致，避免外键共享锁成环）；跨模块端口 `iam.application.port.AdminHandoffPort` 由 `ticket.infrastructure.IamAdminHandoffAdapter` 实现（与 `SessionRevocationPort` 同一落位约定）。
+- **记录形态**：没有专门的交接记录表——"交接记录"就是往 `ticket_record` 写一条 `ADMIN_HANDOFF`：`actor_user_id` 是管理员、`from_assignee_id` / `to_assignee_id` 是原/新负责人、`reason` 承载 `handoffReason`、前后状态相同（交接不改变状态、补充期限、确认期限与撤销请求三列），`version` 与 `record_seq` 各推进一次。
+- **已知边界（未修）**：`/fd/v1/admin/user-roles` 的三个撤销入口（单条撤销 / 批量撤销 / 清空全部）同样能摘掉 `IT_SUPPORT`，但本节未把它们纳入交接要求，走那条路仍可能留下无效负责人；方案要求"完整、无重复"，故请求规模等于该用户当前在办工单数，未设人为上限。
 
 ### 8.4 分类管理
 
@@ -672,6 +713,7 @@ MySQL 与 Redis 之间不存在天然原子事务。工程准备阶段必须明�
 | `409` | `CATEGORY_NAME_CONFLICT` | 分类名称已存在 |
 | `409` | `CATEGORY_IN_USE` | 删除仍被工单引用的分类 |
 | `409` | `CATEGORY_CONFLICT` | 分类版本或状态已变化 |
+| `409` | `ATTACHMENT_ALREADY_BOUND` | 删除仍被工单记录引用的附件（记录不可变，只允许删除未绑定附件） |
 | `409` | `ROLE_CODE_CONFLICT` | 角色编码已存在 |
 | `409` | `PERMISSION_CODE_CONFLICT` | 权限编码已存在 |
 | `409` | `RBAC_CONFLICT` | 违反内置管理员保护或授权引用约束（删除 `SYSTEM_ADMIN`、删除 `RBAC_MANAGE`、删除仍被引用的角色或权限、撤销或清空 `SYSTEM_ADMIN` 的 `RBAC_MANAGE`），或 RBAC 写事务发生锁等待超时/死锁及批量删除行数与请求不一致 |

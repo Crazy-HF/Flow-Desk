@@ -3,43 +3,55 @@
 > 本文件是「附件（完整版 backlog 第 2 项的「重」一侧）」的实施入口文档，记录已确认规则、
 > 分步计划与**当前步骤**，写给实现与 review 用。
 > 契约上限是 `docs/api-design.md` 7.1/7.2/7.6；失败顺序与对账口径是 `docs/engineering-readiness.md` 7.2；
-> 存储方案（本地受控目录，非对象存储）是 `docs/technical-architecture.md` 6.3；表结构是 `docs/database-design.md` 6.3/19.3。
+> 存储方案（`AttachmentStorage` 抽象：`local` / `s3` 两个驱动，2026-10-14 结论变更）是 `docs/technical-architecture.md` 6.3；表结构是 `docs/database-design.md` 6.3/19.3。
 > 三者与本文件冲突时，以已确认的契约文档为准，并先修正本文件。
 >
 > **形态（2026-10-12 用户确认，方案 B）**：附件做成**独立于工单、可跨项目复用的通用附件模块**
 > （类 RuoYi 的独立上传/下载形态），工单侧只保留绑定与归属校验；跨项目复用 = 拷走
-> `com.flowdesk.attachment` 包 + `attachment` 表 + `flowdesk.attachment.root` 配置，
+> `com.flowdesk.attachment` 包 + `attachment` 表 + `flowdesk.attachment.*` 配置，
 > 新项目只需写自己的绑定表与授权端口实现。
 >
-> **阶段状态（2026-10-13）**：第 1～7 步的代码已全部落地——存储与校验组件、通用上传/下载端点
-> （公共路径 `attachments/xx`，**不带 `/fd/v1` 前缀**：`POST /attachments/upload`、`GET /attachments/download/{attachmentId}`）、
-> 实体/Mapper、授权端口与异常映射、multipart 限额、工单侧接入（`files` + `attachmentIds`、`ticket_attachment` 绑定、
-> `AttachmentAccessPort` 的 ticket 实现）、提交顺序/失败补偿与**孤儿对账任务**（每小时，含超期暂存、
-> 最终目录对账、超期未绑定清理与缺失文件告警）均已写入并编译通过；
-> **测试、前端与收口仍待做**。
-> 当前步骤：**第 8 步「测试与真实栈验收」待测试统一发起后推进**（见 §4）。
+> **阶段状态（2026-10-14）**：第 1～7 步已落地（存储与校验组件、通用上传/下载端点、实体/Mapper、
+> 授权端口与异常映射、multipart 限额、工单侧接入、提交顺序/失败补偿与孤儿对账任务）。
+> **本轮「附件完善」批 1～批 3 也已交付**（见 `docs/modules/attachment-storage-and-preview.md` 6.1）：
+> 存储抽象 + S3 驱动、内联预览端点（规范路径 `GET /attachments/{id}/content?disposition=`，
+> 原 `download` 保留为 deprecated 别名）、批量上传（重复 `files` part 1～5）、限额可配、
+> 前端附件区（缩略图 / 灯箱 / PDF 预览 / 文本内联 / 下载）与上传控件（逐文件进度、取消、粘贴、失败带文件名），
+> 创建与补充两个入口均已接线。
+> **仍未完成**：`S3AttachmentStorageIT` 未在真实 MinIO 上执行（本机镜像仓库无法提供镜像，用例主动跳过而非通过）；
+> 前端全量 E2E 未补；真实栈验收脚本未跑。
+>
+> **修复批（2026-10-15，分支 `flow-desk/attachment-fix`）**：按用户三项裁决落地「删除未绑定附件」端点、
+> 前端上传前大小预校验（`accept` 软过滤、不复制类型白名单）与「移除即释放」；预签名直传**裁决不做**。
+> 交付记录见 `docs/modules/attachment-storage-and-preview.md` 6.2。
 
 ## 1. 目标与边界
 
 **目标**：实现受控的附件上传与下载，且附件能力**独立于工单**——通用附件模块（`com.flowdesk.attachment`）
-负责文件存储、校验、上传/下载端点与对账；工单模块只声明「附件绑定到哪个记录」并复用自身权限。
+负责文件存储、校验、上传/下载/预览端点与对账；工单模块只声明「附件绑定到哪个记录」并复用自身权限。
 
 **做**：
 
-- 通用上传端点 `POST /attachments/upload`（单文件）与通用下载端点 `GET /attachments/download/{attachmentId}`（公共路径不带 `/fd/v1` 前缀）。
+- 通用上传端点 `POST /attachments/upload`（`files` 可重复 part，1～5 个）与通用内容端点
+  `GET /attachments/{attachmentId}/content?disposition=attachment|inline`（公共路径不带 `/fd/v1` 前缀；
+  `GET /attachments/download/{attachmentId}` 保留为 deprecated 别名）。
+- **删除未绑定附件** `DELETE /attachments/{attachmentId}`（2026-10-15 落地）：只允许上传者本人删除
+  **尚未被任何业务对象引用**的附件，元数据与文件一并删除；已绑定按 `409/ATTACHMENT_ALREADY_BOUND`
+  拒绝（记录不可变，已绑定附件是审计链的一部分）。
 - 两个业务入口接入：创建工单、员工补充（`files` part + `attachmentIds` 引用）。
 - 服务端校验与内容嗅探（扩展名 + 声明媒体类型 + 服务端识别结果三重一致）。
-- 本地受控目录存储：暂存与最终目录同卷、原子移动、失败补偿、孤儿对账。
-- 工单侧授权端口：依附件的 `ticket_attachment` 绑定校验工单可见性，供公共下载端点复用（步骤 5 实现；工单嵌套下载路径已推翻）。
-- 授权端口（`AttachmentAccessPort`）：通用模块定义、工单侧实现（业务可见性与被引用判定）。
+- 存储抽象 `AttachmentStorage` 与两个驱动：`local`（暂存与最终目录同卷、原子移动）、`s3`（S3 兼容对象存储）；失败补偿与孤儿对账驱动无关。
+- 内联预览白名单（JPEG/PNG/PDF/TXT）与安全响应头；HTML / SVG 一律不内联。
+- 工单侧授权端口：依附件的 `ticket_attachment` 绑定校验工单可见性，供公共内容端点复用。
 - 测试、真实栈验收、前端上传与下载界面。
 
 **不做**（越界即停）：
 
-- 不做附件替换、删除接口；不做在线预览、图片处理、病毒扫描、断点续传和分片上传（`docs/kickoff.md` 3.3）。
-- 不引入对象存储或任何外部服务（`docs/technical-architecture.md` 6.3）。
+- 不做附件替换、重命名接口；不做图片处理、病毒扫描、断点续传和分片上传（`docs/kickoff.md` 3.3）。**删除已按 2026-10-15 裁决落地，但只允许删「未绑定」附件**（见上文「做」清单）。
+- **不做预签名直传（2026-10-15 用户裁决，已由"候选"收口为"不做"）**：服务端不做校验才有带宽收益，与本项目「服务端识别结果」纪律冲突，见 `docs/modules/attachment-storage-and-preview.md` §5。
+- 不自建对象存储集群；使用 S3 兼容的服务化存储（本地 MinIO、生产任意 S3 / OSS），见 `docs/technical-architecture.md` 6.3/13。
 - 不改已发布的历史迁移；两表由 `V9` 建立（原编号 V8，2026-10-13 因 main 的撤销到期迁移已占用 V8 而改号；`ticket_attachment` 为 `V9` 重建的绑定表）。
-- 不新增权限码：下载按「上传者本人或业务授权」判定（`docs/api-design.md` 第 9 节）。
+- 不新增权限码：下载与预览按「上传者本人或业务授权」判定（`docs/api-design.md` 第 9 节）。
 
 ## 2. 已确认的规则（来自既有契约，不再重议）
 

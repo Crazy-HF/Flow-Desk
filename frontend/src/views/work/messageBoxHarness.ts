@@ -31,6 +31,15 @@ export interface MessageBoxHandle {
   typeConditional: (text: string) => Promise<void>
   /** 确认框里的目标值选择器；不需要先选目标值的动作没有这个元素。 */
   select: () => HTMLElement | null
+  /**
+   * 确认框里的附件上传控件（登记表声明了 `attachments` 槽的动作才有）。
+   *
+   * <p>「提交补充信息」允许"正文与附件至少一项"，用例必须能走到"只补附件"这条路，
+   * 否则那条跨字段规则只能靠读代码确认。</p>
+   */
+  attachmentInput: () => HTMLInputElement | null
+  /** 选文件并触发上传（走 `change` 事件，等同用户在原生选择器里选了文件）。 */
+  attach: (files: File[]) => Promise<void>
   /** 展开目标值下拉，返回可选的文案（真人要先点开下拉才看得到选项）。 */
   openSelect: () => Promise<string[]>
   /** 展开下拉并选中一项（按文案点，等同用户点那一行）。 */
@@ -56,6 +65,8 @@ interface Host {
   textarea: () => HTMLTextAreaElement | null
   conditionalInput: () => HTMLInputElement | null
   select: () => HTMLElement | null
+  attachmentInput: () => HTMLInputElement | null
+  attach: (files: File[]) => Promise<void>
   openSelect: () => Promise<string[]>
   choose: (label: string) => Promise<void>
   text: () => string
@@ -162,6 +173,21 @@ export function createMessageBoxHarness(): MessageBoxHarness {
           container.querySelector<HTMLInputElement>('#ticket-action-conditional-text'),
         select: () => container.querySelector<HTMLElement>('.el-select__wrapper'),
         /**
+         * 按 `input[type=file]` 找上传控件：确认框里只有附件槽会渲染它，
+         * 而 `el-select` 内部的 input 是文本类型，不会混进来。
+         */
+        attachmentInput: () => container.querySelector<HTMLInputElement>('input[type="file"]'),
+        attach: async (files: File[]) => {
+          const input = host.attachmentInput()
+          if (!input) {
+            throw new Error('这个确认框没有附件上传控件')
+          }
+          Object.defineProperty(input, 'files', { value: files, configurable: true })
+          input.dispatchEvent(new Event('change', { bubbles: true }))
+          // 上传是异步的：等被测组件把"已上传的附件标识"写回自己的状态
+          await Promise.resolve()
+        },
+        /**
          * 目标值下拉由 `el-select` teleport 到 `body`（默认行为），所以只能从 `document.body` 找，
          * 不在 `container` 里——这也是这个替身要提供"展开下拉"这件事的原因：
          * 从 `wrapper` 出发的用例看不到它，只能靠猜选项。
@@ -246,6 +272,8 @@ export function createMessageBoxHarness(): MessageBoxHarness {
           await Promise.resolve()
         },
         select: () => host.select(),
+        attachmentInput: () => host.attachmentInput(),
+        attach: (files: File[]) => host.attach(files),
         openSelect: () => host.openSelect(),
         choose: (label: string) => host.choose(label),
         text: () => host.text(),

@@ -37,6 +37,8 @@ import type {
   TicketRecord,
 } from '@/api/tickets'
 import AppPage from '@/components/AppPage.vue'
+import AttachmentList from '@/components/AttachmentList.vue'
+import AttachmentUpload from '@/components/AttachmentUpload.vue'
 import {
   describeRecordContext,
   permittedActions,
@@ -380,6 +382,17 @@ const actionConditionalText = ref('')
 /** 弹窗里的一个可选项。值可能是分类 / 用户 id 或优先级编码。 */
 type ActionSelectChoice = { value: string | number; label: string }
 
+/**
+ * 弹窗里已经上传成功、等待随本次动作绑定的附件（当前只有「提交补充信息」用）。
+ *
+ * <p>与新建页同一套两段式：附件先经 `/attachments/upload` 落库拿 id，动作提交时再把 id 放进
+ * `attachmentIds`。登记表里的 `attachments` 槽决定它是否出现在这个弹窗里。</p>
+ */
+const actionAttachmentIds = ref<number[]>([])
+
+/** 弹窗里还有附件在上传：此时不允许提交，理由与新建页相同。 */
+const actionAttachmentsUploading = ref(false)
+
 /** 条件输入的登记信息（`TicketActionMeta.conditionalText` 声明了才有）。 */
 type ConditionalTextField = NonNullable<TicketActionMeta['conditionalText']>
 
@@ -563,7 +576,16 @@ const actionRequests: Record<
       description: content,
       ...(conditionalText === '' ? {} : { duplicateTicketNo: conditionalText }),
     }),
-  supplement: (ticketNo, payload, content) => supplementTicket(ticketNo, { ...payload, content }),
+  supplement: (ticketNo, payload, content) =>
+    supplementTicket(ticketNo, {
+      ...payload,
+      content,
+      // 只补附件、正文留空是契约允许的（正文与附件至少一项），所以空数组时**不带这个键**，
+      // 而不是送一个空数组让服务端去猜
+      ...(actionAttachmentIds.value.length === 0
+        ? {}
+        : { attachmentIds: actionAttachmentIds.value }),
+    }),
   cancel: (ticketNo, payload, content) => cancelTicket(ticketNo, { ...payload, reason: content }),
   /**
    * 两阶段撤销的四个动作（2026-10-08 规则变更）。
@@ -624,10 +646,34 @@ async function performAction(name: TicketActionName, content: string): Promise<v
 }
 
 /**
- * 确认框的内容：说明 + 需要先选的目标值 + 条件下出现的第二个输入 + 要写的那段说明。
+ * 弹窗里的附件槽（登记表里声明了 `attachments` 才有，当前只有「提交补充信息」）。
  *
- * <p>三个输入都是独立的单文件组件（`TicketActionSelectField.vue` /
- * `TicketActionTextField.vue` / `TicketActionContentField.vue`），不是在这里用渲染函数拼出来的：
+ * <p>复用新建页同一个上传控件：逐文件上传、逐文件进度与取消、失败带文件名。
+ * 单独抽一个构建函数，是为了让 `buildActionDialog` 保持"按登记表顺序摆字段"这一条读法。</p>
+ */
+function buildAttachmentField(field: NonNullable<TicketActionMeta['attachments']>) {
+  return h('div', { class: 'ticket-action-dialog__field' }, [
+    h('span', { class: 'ticket-action-dialog__label' }, field.label),
+    h(AttachmentUpload, {
+      modelValue: actionAttachmentIds.value,
+      'onUpdate:modelValue': (value: number[]) => {
+        actionAttachmentIds.value = value
+      },
+      uploading: actionAttachmentsUploading.value,
+      'onUpdate:uploading': (value: boolean) => {
+        actionAttachmentsUploading.value = value
+      },
+    }),
+    h('span', { class: 'ticket-action-dialog__hint' }, field.hint),
+  ])
+}
+
+/**
+ * 确认框的内容：说明 + 需要先选的目标值 + 条件下出现的第二个输入 + 要写的那段说明 + 附件槽。
+ *
+ * <p>四个输入都是独立的单文件组件（`TicketActionSelectField.vue` /
+ * `TicketActionTextField.vue` / `TicketActionContentField.vue` / `AttachmentUpload.vue`），
+ * 不是在这里用渲染函数拼出来的：
  * 应用按运行时版 Vue 打包，`template` 选项不会被编译，而 `ElInput` / `ElSelect` 的
  * `modelValue` / `update:modelValue` 又是 props 而不是事件，渲染函数里写 `onUpdate:modelValue`
  * 只会得到一个普通 prop，输入不会回流——那会变成"填了原因却提交空正文"。单文件组件里的
@@ -683,6 +729,7 @@ function buildActionDialog(meta: TicketActionMeta) {
           },
         })
       : null,
+    meta.attachments ? buildAttachmentField(meta.attachments) : null,
   ])
 }
 
@@ -703,6 +750,8 @@ async function runAction(name: TicketActionName): Promise<void> {
   actionContent.value = ''
   actionTarget.value = undefined
   actionConditionalText.value = ''
+  actionAttachmentIds.value = []
+  actionAttachmentsUploading.value = false
 
   /**
    * 选项与弹窗同时开始：先取完再弹窗，用户会先看到一段没有任何反馈的等待；
@@ -761,8 +810,28 @@ async function runAction(name: TicketActionName): Promise<void> {
 
         const text = actionContent.value.trim()
         const textField = meta.content ?? meta.reason
-        if (textField && text === '') {
-          ElMessage.warning(`请先填写${textField.label}`)
+
+        /**
+         * 附件还在传就拦下：与新建页同一条理由——没传完就提交，用户以为带上了、实际没带上。
+         * 排在正文校验之前，因为此时正文是否为空都不是用户此刻该处理的事。
+         */
+        if (meta.attachments && actionAttachmentsUploading.value) {
+          ElMessage.warning('附件还在上传，等它传完再提交')
+          return
+        }
+
+        /**
+         * 带附件槽的动作允许正文为空，前提是至少有一个附件——与服务端的跨字段规则
+         * 「正文和附件至少存在一项」保持一致（`SupplementCommand` 自身不做正文必填）。
+         */
+        const textOptional =
+          meta.attachments !== undefined && actionAttachmentIds.value.length > 0
+        if (textField && text === '' && !textOptional) {
+          ElMessage.warning(
+            meta.attachments
+              ? `请先填写${textField.label}，或至少上传一个附件`
+              : `请先填写${textField.label}`,
+          )
           return
         }
 
@@ -968,6 +1037,29 @@ async function runAction(name: TicketActionName): Promise<void> {
               <p class="ticket-description">
                 {{ detail.description }}
               </p>
+            </div>
+          </section>
+
+          <!--
+            附件紧跟在问题描述后面：截图与日志是描述的一部分，读描述时就要能看到它们，
+            而不是翻到页面底部才发现还有东西。没有附件时整块不出现（与「关联工单」同一处理），
+            不摆一个空面板占位。
+          -->
+          <section
+            v-if="detail.attachments.length > 0"
+            class="ticket-panel"
+            aria-labelledby="ticket-attachments-heading"
+          >
+            <header class="ticket-panel__header">
+              <h2 id="ticket-attachments-heading">
+                附件
+              </h2>
+              <p class="ticket-panel__count">
+                共 {{ detail.attachments.length }} 个；预览与下载都经后端授权校验
+              </p>
+            </header>
+            <div class="ticket-panel__body">
+              <AttachmentList :attachments="detail.attachments" />
             </div>
           </section>
 

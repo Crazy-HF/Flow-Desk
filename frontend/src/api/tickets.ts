@@ -1,5 +1,6 @@
 import { http } from './http'
 import type { ApiEnvelope } from './http'
+import type { TicketAttachmentSummary } from './attachments'
 import { DEFAULT_PAGE_SIZE } from './pagination'
 import type { PageResult } from './pagination'
 
@@ -175,6 +176,13 @@ export interface TicketDetail extends TicketListItem {
    */
   relations: TicketRelation[]
   /**
+   * 绑定到本单的附件（`docs/api-design.md` 5.4）。
+   *
+   * <p>**没有附件时是空数组**，不是缺键。`inlinePreviewable` 由后端按内联白名单给出，
+   * 界面据此决定是否摆出「预览」入口，不自行复制一份类型白名单。</p>
+   */
+  attachments: TicketAttachmentSummary[]
+  /**
    * 后端按当前用户、角色、工单关系与状态计算的可用动作。
    *
    * <p>动作名与接口路径末段**逐字一致**（`TicketQueryServiceImpl.toDetail` 的构造注释）；
@@ -256,6 +264,14 @@ export interface CreateTicketPayload {
    * 原工单本身保持不变，两张单会互相显示关联关系。</p>
    */
   sourceTicketNo?: string
+  /**
+   * 可选：先上传后绑定的附件标识（`docs/api-design.md` 7.1 的「引用规则」）。
+   *
+   * <p>只能引用**本人上传、尚未绑定、未超保留期**的附件；不满足时整个创建失败返回
+   * `400/VALIDATION_FAILED`，不会只丢附件而留下工单。界面因此把"附件全部上传成功"
+   * 作为允许提交的前置条件。</p>
+   */
+  attachmentIds?: number[]
 }
 
 /** 领取：只需要客户端最后读到的版本，服务端用它做乐观锁与并发资格判断。 */
@@ -307,6 +323,13 @@ export interface RequestSupplementPayload {
 export interface SupplementPayload {
   version: number
   content: string
+  /**
+   * 可选：引用本人已上传、尚未绑定的附件（`docs/api-design.md` 6.4/7.1 的先传后绑）。
+   *
+   * <p>服务端的跨字段规则是**正文与附件至少存在一项**，所以只补附件、正文留空是合法的；
+   * 两者都空会被判 `400/VALIDATION_FAILED`。界面对应地允许正文为空——前提是至少有一个附件。</p>
+   */
+  attachmentIds?: number[]
 }
 
 /** 调整分类（`docs/api-design.md` 6.3）：目标分类必须存在且启用，原因 strip 后 1～1000 字符。 */
@@ -643,8 +666,9 @@ export async function requestSupplementTicket(
  * <p>工单从「待员工补充」回到「处理中」，原补充期限由服务端清空，原负责人继续处理。
  * 请求是 `multipart/form-data`，写法与 {@link createTicket} 完全一致：只发送 `ticket` 部件，
  * **该部件必须自带 `application/json` 类型**，否则 `@RequestPart` 会按部件自己的 Content-Type
- * 选转换器并给出 `415`。附件（`files` 部件）属完整版 backlog 第 2 项，本版本传文件 part 会得到
- * `400/VALIDATION_FAILED`，因此这里不拼任何文件字段。</p>
+ * 选转换器并给出 `415`。附件走**先上传后绑定**：文件先由 `/attachments/upload` 落库拿到 id，
+ * 再放进 `ticket` 部件的 `attachmentIds`；这里不拼任何文件 part，因为逐文件上传才能给出
+ * 逐文件的进度、取消与失败原因（见 `components/AttachmentUpload.vue`）。</p>
  */
 export async function supplementTicket(
   ticketNo: string,

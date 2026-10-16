@@ -1,6 +1,7 @@
 package com.flowdesk.ticket.application.service.impl;
 
 import com.flowdesk.attachment.application.AttachmentValidator;
+import com.flowdesk.attachment.support.AttachmentPropertiesFixture;
 import com.flowdesk.attachment.config.AttachmentProperties;
 import com.flowdesk.attachment.infrastructure.AttachmentStorage;
 import com.flowdesk.attachment.mapper.AttachmentMapper;
@@ -96,8 +97,8 @@ class TicketSupplementServiceImplTest {
     private static final TicketProperties DEFAULT_PROPERTIES =
             new TicketProperties(Duration.ofDays(7), Duration.ofDays(7), Duration.ofDays(3));
     private static final AttachmentProperties ATTACHMENT_PROPERTIES =
-            new AttachmentProperties(
-                    Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath(), null);
+            AttachmentPropertiesFixture.local(
+                    Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath());
 
     @Mock
     private TicketMapper ticketMapper;
@@ -445,7 +446,7 @@ class TicketSupplementServiceImplTest {
                 ticketRelationMapper,
                 properties,
                 ticketAttachmentMapper,
-                new AttachmentValidator(),
+                new AttachmentValidator(ATTACHMENT_PROPERTIES),
                 attachmentStorage,
                 attachmentMapper,
                 ATTACHMENT_PROPERTIES,

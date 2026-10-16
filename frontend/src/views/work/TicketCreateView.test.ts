@@ -6,6 +6,7 @@ import { defineComponent, h, nextTick } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { AuthUser } from '@/api/auth'
+import { uploadAttachment } from '@/api/attachments'
 import { listCategoryOptions } from '@/api/categories'
 import { createSubmissionKey, createTicket, listTickets } from '@/api/tickets'
 import { useAuthStore } from '@/stores/auth'
@@ -14,6 +15,22 @@ import TicketCreateView from './TicketCreateView.vue'
 vi.mock('@/api/categories', () => ({
   listCategoryOptions: vi.fn(),
 }))
+
+/**
+ * 附件接口：上传控件会真实发出上传请求。
+ *
+ * <p>只替网络出口，`formatFileSize` / `isUploadCanceled` / 数量上限仍用真实实现——
+ * 它们是界面文案与判定的一部分。</p>
+ */
+vi.mock('@/api/attachments', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/api/attachments')>()
+  return {
+    ...actual,
+    uploadAttachment: vi.fn(),
+    fetchAttachmentContent: vi.fn(),
+    saveBlob: vi.fn(),
+  }
+})
 
 vi.mock('@/api/tickets', () => ({
   createTicket: vi.fn(),
@@ -283,5 +300,57 @@ describe('TicketCreateView', () => {
 
     expect(submittedPayload(1)?.submissionKey).toBe('key-2')
     expect(submittedPayload(1)?.title).toBe('改过的标题')
+  })
+
+  /** 附件走"先上传后绑定"：上传拿到的 id 进 `attachmentIds`，没有附件时**不带这个键**。 */
+  it('上传成功的附件随创建请求一起绑定', async () => {
+    vi.mocked(uploadAttachment).mockResolvedValue({
+      id: 55,
+      originalName: 'log.txt',
+      contentType: 'text/plain',
+      sizeBytes: 8,
+      createdAt: '2026-10-14T01:00:00Z',
+    })
+    vi.mocked(createTicket).mockResolvedValue(createdTicket)
+    const { wrapper } = await mountPage()
+    await fillValidForm(wrapper)
+
+    const input = wrapper.find('input[type="file"]')
+    Object.defineProperty(input.element, 'files', {
+      value: [new File(['content'], 'log.txt', { type: 'text/plain' })],
+      configurable: true,
+    })
+    await input.trigger('change')
+    await flushPromises()
+
+    await clickSubmit(wrapper)
+
+    expect(submittedPayload(0)?.attachmentIds).toEqual([55])
+  })
+
+  /**
+   * 附件没传完就建单，用户以为带上了、实际没带上，而后端只会安静地返回一张没有附件的工单。
+   * 所以提交按钮必须在有文件在途时禁用，并在页面上说明原因。
+   */
+  it('附件还在上传时提交按钮禁用，并说明要等传完', async () => {
+    // 永远不 resolve：模拟"正在上传"
+    vi.mocked(uploadAttachment).mockImplementation(() => new Promise(() => {}))
+    const { wrapper } = await mountPage()
+    await fillValidForm(wrapper)
+
+    const input = wrapper.find('input[type="file"]')
+    Object.defineProperty(input.element, 'files', {
+      value: [new File(['content'], 'big.zip', { type: 'application/zip' })],
+      configurable: true,
+    })
+    await input.trigger('change')
+    await flushPromises()
+
+    const submitButton = wrapper.findAll('button').find((item) => item.text().includes('提交工单'))
+    expect(submitButton?.attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('附件正在上传，传完之后才能提交')
+
+    await clickSubmit(wrapper)
+    expect(createTicket).not.toHaveBeenCalled()
   })
 })

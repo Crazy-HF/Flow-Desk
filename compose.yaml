@@ -41,6 +41,45 @@ services:
       TZ: UTC
     restart: unless-stopped
 
+  # 附件对象存储（开发/演示）：S3 兼容协议。生产换阿里云 OSS 或任意 S3 兼容存储，应用代码不改，
+  # 只改 flowdesk.attachment.s3.endpoint / bucket / 凭据（见 src/main/resources/application.yml）。
+  # 镜像标签可按需固定到具体 RELEASE；这里跟随 latest，仅用于本地开发与演示。
+  minio:
+    image: minio/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${FLOWDESK_MINIO_ROOT_USER:?set FLOWDESK_MINIO_ROOT_USER in .env}
+      MINIO_ROOT_PASSWORD: ${FLOWDESK_MINIO_ROOT_PASSWORD:?set FLOWDESK_MINIO_ROOT_PASSWORD in .env}
+      TZ: UTC
+    ports:
+      - "${FLOWDESK_MINIO_PORT:-9000}:9000"
+      - "${FLOWDESK_MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - flowdesk-minio-data:/data
+    restart: unless-stopped
+
+  # 一次性初始化：等 MinIO 就绪后创建附件桶并设为私有（匿名不可读，与「下载必须经过后端授权」一致）。
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    environment:
+      MINIO_ROOT_USER: ${FLOWDESK_MINIO_ROOT_USER:?set FLOWDESK_MINIO_ROOT_USER in .env}
+      MINIO_ROOT_PASSWORD: ${FLOWDESK_MINIO_ROOT_PASSWORD:?set FLOWDESK_MINIO_ROOT_PASSWORD in .env}
+      FLOWDESK_ATTACHMENT_S3_BUCKET: ${FLOWDESK_ATTACHMENT_S3_BUCKET:-flowdesk-attachments}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        until mc alias set flowdesk http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"; do
+          echo "等待 MinIO 就绪…"; sleep 2;
+        done
+        mc mb --ignore-existing "flowdesk/$$FLOWDESK_ATTACHMENT_S3_BUCKET"
+        mc anonymous set none "flowdesk/$$FLOWDESK_ATTACHMENT_S3_BUCKET"
+        echo "附件桶已就绪：$$FLOWDESK_ATTACHMENT_S3_BUCKET"
+    restart: "no"
+
 volumes:
   flowdesk-mysql-data:
   flowdesk-redis-data:
+  flowdesk-minio-data:

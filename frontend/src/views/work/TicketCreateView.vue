@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { CircleCheck, Promotion, Refresh } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
@@ -10,6 +11,7 @@ import { describeError } from '@/api/errorMessages'
 import { createSubmissionKey, createTicket, listTickets } from '@/api/tickets'
 import type { CreateTicketPayload, TicketListItem, TicketPriority } from '@/api/tickets'
 import AppPage from '@/components/AppPage.vue'
+import AttachmentUpload from '@/components/AttachmentUpload.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useSubmissionGuard } from './useSubmissionGuard'
 
@@ -159,6 +161,20 @@ const sourceEmptyText = computed(() => {
   return '输入编号或标题，搜索你提交过的工单。'
 })
 
+// ---------- 附件 ----------
+
+/**
+ * 已经上传成功、等待随本次创建绑定的附件标识（`docs/api-design.md` 7.1）。
+ *
+ * <p>附件是**先上传、后绑定**两段式：上传接口先落库并返回 id，创建工单时再把 id 列表
+ * 放进 `attachmentIds` 绑定。所以这里存的不是文件，而是"已经存在于服务端、还没有归属"的标识。
+ * 用户移除一个附件时不需要（也没有）删除接口——未绑定的附件由对账任务按保留期清理。</p>
+ */
+const attachmentIds = ref<number[]>([])
+
+/** 还有文件在上传中：此时不允许提交。 */
+const attachmentsUploading = ref(false)
+
 // ---------- 提交 ----------
 
 const {
@@ -181,6 +197,8 @@ function buildPayload(submissionKeyValue: string): CreateTicketPayload {
     priority: form.priority,
     // 没选原工单时**不带这个键**：与关闭弹窗的条件输入同一口径，不是给服务端送一个空串
     ...(form.sourceTicketNo === '' ? {} : { sourceTicketNo: form.sourceTicketNo }),
+    // 一个附件都没有时不带这个键：空数组与"没有附件"在契约里应当是同一件事
+    ...(attachmentIds.value.length === 0 ? {} : { attachmentIds: attachmentIds.value }),
   }
 }
 
@@ -189,11 +207,16 @@ function buildPayload(submissionKeyValue: string): CreateTicketPayload {
  *
  * <p>继续用旧键的话，后端会按旧内容的键命中已经建好的那一张工单并把它返回给前端，
  * 用户刚改的内容被静默丢弃。清掉键，下次提交才会真正带上新内容。</p>
+ *
+ * <p>附件也算内容：换掉一个附件之后仍然复用旧键，绑定的会是上一次的那一批 id。</p>
  */
 watch(
   () => [form.title, form.description, form.categoryId, form.priority, form.sourceTicketNo],
   () => clearSubmission(),
 )
+
+// 附件单独一个 watch：`attachmentIds` 是数组，放进上面那个数组里会被判成每次都变
+watch(attachmentIds, () => clearSubmission(), { deep: true })
 
 /** 只用于界面提示：让用户看到"这一次提交"是哪一个，重试时它不会变。 */
 const shortKey = computed(() => submissionKey.value?.slice(0, 8) ?? '')
@@ -201,6 +224,17 @@ const shortKey = computed(() => submissionKey.value?.slice(0, 8) ?? '')
 async function submit(): Promise<void> {
   // 请求期间重复点击不再发第二次：本次提交已经冻结，第二次点击不会带来任何新信息
   if (submitting.value) {
+    return
+  }
+  /**
+   * 附件还在传就不提交。
+   *
+   * <p>附件没传完就建单，用户以为带上了、实际没带上，而后端只会安静地返回一张没有附件的
+   * 工单——这种"看起来成功"的丢失比一次明确的报错更糟。所以这里把它挡在提交之前，
+   * 提交按钮同时处于禁用态。</p>
+   */
+  if (attachmentsUploading.value) {
+    ElMessage.warning('还有附件正在上传，等它传完再提交')
     return
   }
   const instance = formRef.value
@@ -403,6 +437,18 @@ onMounted(() => {
         </p>
       </el-form-item>
 
+      <el-form-item label="附件">
+        <!--
+          附件不是必填，也不进 el-form 的校验：它在"上传"这一步就已经被服务端校验过一次
+          （类型、大小、数量），这里再拦一遍只会得到两份可能不一致的规则。
+        -->
+        <AttachmentUpload
+          v-model="attachmentIds"
+          v-model:uploading="attachmentsUploading"
+          :disabled="submitting"
+        />
+      </el-form-item>
+
       <div class="ticket-commit">
         <p
           v-if="submissionPending"
@@ -428,6 +474,13 @@ onMounted(() => {
           {{ failureMessage }}
         </p>
 
+        <p
+          v-if="attachmentsUploading"
+          class="ticket-commit__pending"
+        >
+          附件正在上传，传完之后才能提交。
+        </p>
+
         <p class="ticket-form__note">
           <el-icon><CircleCheck /></el-icon>
           提交后工单进入「待受理」，由 IT 支持人员领取；处理过程中你可以随时补充信息。
@@ -436,6 +489,7 @@ onMounted(() => {
         <el-button
           :icon="Promotion"
           :loading="submitting"
+          :disabled="attachmentsUploading"
           type="primary"
           @click="submit"
         >

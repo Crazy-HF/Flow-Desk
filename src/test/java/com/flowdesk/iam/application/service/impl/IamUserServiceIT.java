@@ -5,12 +5,14 @@ import com.flowdesk.auth.domain.AuthPrincipal;
 import com.flowdesk.auth.infrastructure.AuthSessionRepository;
 import com.flowdesk.common.exception.ApiException;
 import com.flowdesk.common.web.PageResult;
+import com.flowdesk.iam.application.command.AdminHandoffInstruction;
 import com.flowdesk.iam.application.command.CreateUserCommand;
 import com.flowdesk.iam.application.command.ReplaceUserRolesCommand;
 import com.flowdesk.iam.application.command.ResetUserPasswordCommand;
 import com.flowdesk.iam.application.command.UpdateUserCommand;
 import com.flowdesk.iam.application.command.UserStatusChangeCommand;
 import com.flowdesk.iam.application.query.UserQuery;
+import com.flowdesk.iam.application.result.AdminHandoffAssignmentResult;
 import com.flowdesk.iam.application.result.UserResult;
 import com.flowdesk.iam.application.service.IamUserService;
 import com.flowdesk.iam.domain.IamUserStatus;
@@ -23,6 +25,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -37,6 +40,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
@@ -46,6 +50,8 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 /**
@@ -109,6 +115,17 @@ class IamUserServiceIT {
     @AfterEach
     void removeIntegrationTestData() {
         SecurityContextHolder.clearContext();
+        // 工单夹具先删：它们通过外键引用本类创建的 iam_user 与分类
+        jdbc.update("""
+                DELETE FROM ticket_record
+                WHERE ticket_id IN (SELECT id FROM ticket WHERE ticket_no LIKE 'FD-IT-%')
+                """);
+        jdbc.update("""
+                DELETE FROM ticket_participant
+                WHERE ticket_id IN (SELECT id FROM ticket WHERE ticket_no LIKE 'FD-IT-%')
+                """);
+        jdbc.update("DELETE FROM ticket WHERE ticket_no LIKE 'FD-IT-%'");
+        jdbc.update("DELETE FROM ticket_category WHERE name = 'IT 交接分类'");
         jdbc.update("""
                 DELETE user_role
                 FROM iam_user_role user_role
@@ -599,7 +616,220 @@ class IamUserServiceIT {
                 .isEqualTo(before);
     }
 
+    // ---------- 管理性交接（docs/api-design.md 8.3） ----------
+
+    /**
+     * 停用账号 + 全部工单换人 + 参与关系 + 交接记录在同一个 MySQL 事务里，
+     * 撤会话排在这之后：真实库上逐项核对落库结果。
+     */
+    @Test
+    void disableWithHandoffReplacesAssigneeAndWritesHandoffRecord() {
+        long requesterId = insertUser("user-it-requester");
+        UserResult itUser = userService.create(new CreateUserCommand(
+                "user-it-handoff", "被停用 IT", "Password#2026", List.of(roleId(IT_SUPPORT))));
+        UserResult backup = userService.create(new CreateUserCommand(
+                "user-it-backup", "接替 IT", "Password#2026", List.of(roleId(IT_SUPPORT))));
+        long ticketId = insertTicket("FD-IT-000001", requesterId, itUser.id(),
+                "PROCESSING", 3L, 1, null);
+        jdbc.update("""
+                INSERT INTO ticket_participant (ticket_id, user_id, first_assigned_at, last_assigned_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP(3), CURRENT_TIMESTAMP(3))
+                """, ticketId, itUser.id());
+        authenticateWithHandoffAuthority();
+
+        UserResult disabled = userService.disable(itUser.id(), new UserStatusChangeCommand(
+                itUser.version(),
+                "账号离职，工单转由他人续办",
+                List.of(new AdminHandoffInstruction("FD-IT-000001", 3L, backup.id()))));
+
+        assertThat(disabled.status()).isEqualTo(IamUserStatus.DISABLED);
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM iam_user WHERE id = ?", String.class, itUser.id()))
+                .isEqualTo("DISABLED");
+
+        // 工单：负责人换人、版本与记录序号各推进一次，状态不变
+        assertThat(jdbc.queryForObject(
+                "SELECT assignee_id FROM ticket WHERE id = ?", Long.class, ticketId))
+                .isEqualTo(backup.id());
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM ticket WHERE id = ?", String.class, ticketId))
+                .isEqualTo("PROCESSING");
+        assertThat(jdbc.queryForObject(
+                "SELECT version FROM ticket WHERE id = ?", Long.class, ticketId))
+                .isEqualTo(4L);
+        assertThat(jdbc.queryForObject(
+                "SELECT record_seq FROM ticket WHERE id = ?", Integer.class, ticketId))
+                .isEqualTo(2);
+
+        // 参与关系：接替人获得这张工单的查看权
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM ticket_participant WHERE ticket_id = ? AND user_id = ?
+                """, Integer.class, ticketId, backup.id()))
+                .isEqualTo(1);
+
+        // 交接记录：没有专门表，就是 ticket_record 里一条 ADMIN_HANDOFF
+        assertThat(jdbc.queryForObject(
+                "SELECT record_type FROM ticket_record WHERE ticket_id = ?", String.class, ticketId))
+                .isEqualTo("ADMIN_HANDOFF");
+        assertThat(jdbc.queryForObject(
+                "SELECT actor_user_id FROM ticket_record WHERE ticket_id = ?", Long.class, ticketId))
+                .as("记录的操作人是管理员")
+                .isEqualTo(operatorId);
+        assertThat(jdbc.queryForObject(
+                "SELECT from_assignee_id FROM ticket_record WHERE ticket_id = ?", Long.class, ticketId))
+                .isEqualTo(itUser.id());
+        assertThat(jdbc.queryForObject(
+                "SELECT to_assignee_id FROM ticket_record WHERE ticket_id = ?", Long.class, ticketId))
+                .isEqualTo(backup.id());
+        assertThat(jdbc.queryForObject(
+                "SELECT reason FROM ticket_record WHERE ticket_id = ?", String.class, ticketId))
+                .isEqualTo("账号离职，工单转由他人续办");
+        assertThat(jdbc.queryForObject(
+                "SELECT from_status FROM ticket_record WHERE ticket_id = ?", String.class, ticketId))
+                .as("交接不改变状态：前后两侧写同一个状态")
+                .isEqualTo("PROCESSING");
+
+        verify(authSessionRepository).revokeAll(itUser.id());
+    }
+
+    /** 没有方案就停用：整单拒绝，账号与工单都不变。 */
+    @Test
+    void disableWithoutHandoffPlanChangesNothing() {
+        long requesterId = insertUser("user-it-requester");
+        UserResult itUser = userService.create(new CreateUserCommand(
+                "user-it-noplan", "有单 IT", "Password#2026", List.of(roleId(IT_SUPPORT))));
+        long ticketId = insertTicket("FD-IT-000002", requesterId, itUser.id(),
+                "PROCESSING", 0L, 0, null);
+        authenticateWithHandoffAuthority();
+
+        assertApiError(
+                () -> userService.disable(itUser.id(),
+                        new UserStatusChangeCommand(itUser.version())),
+                HttpStatus.CONFLICT,
+                "ADMIN_HANDOFF_REQUIRED");
+
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM iam_user WHERE id = ?", String.class, itUser.id()))
+                .isEqualTo("ENABLED");
+        assertThat(jdbc.queryForObject(
+                "SELECT assignee_id FROM ticket WHERE id = ?", Long.class, ticketId))
+                .isEqualTo(itUser.id());
+        verify(authSessionRepository, never()).revokeAll(anyLong());
+    }
+
+    /**
+     * 共同成功或共同失败：多张工单里只要有一张的版本已经变了，
+     * 前面已经换过人的工单也必须随事务回滚。
+     */
+    @Test
+    void disableRollsBackEveryHandoffWhenOneTicketVersionChanged() {
+        long requesterId = insertUser("user-it-requester");
+        UserResult itUser = userService.create(new CreateUserCommand(
+                "user-it-rollback-handoff", "多单 IT", "Password#2026", List.of(roleId(IT_SUPPORT))));
+        UserResult backup = userService.create(new CreateUserCommand(
+                "user-it-backup", "接替 IT", "Password#2026", List.of(roleId(IT_SUPPORT))));
+        // 先插入的那张按 id 排序在前，会先被换人；第二张的版本与方案不符，用来触发回滚
+        long firstTicketId = insertTicket("FD-IT-000010", requesterId, itUser.id(),
+                "PROCESSING", 2L, 0, null);
+        long secondTicketId = insertTicket("FD-IT-000011", requesterId, itUser.id(),
+                "PROCESSING", 5L, 0, null);
+        authenticateWithHandoffAuthority();
+
+        assertApiError(
+                () -> userService.disable(itUser.id(), new UserStatusChangeCommand(
+                        itUser.version(),
+                        "账号离职，工单转由他人续办",
+                        List.of(new AdminHandoffInstruction("FD-IT-000010", 2L, backup.id()),
+                                new AdminHandoffInstruction("FD-IT-000011", 4L, backup.id())))),
+                HttpStatus.CONFLICT,
+                "ADMIN_HANDOFF_CONFLICT");
+
+        for (long ticketId : List.of(firstTicketId, secondTicketId)) {
+            assertThat(jdbc.queryForObject(
+                    "SELECT assignee_id FROM ticket WHERE id = ?", Long.class, ticketId))
+                    .as("任一工单失败时全部交接一起回滚")
+                    .isEqualTo(itUser.id());
+        }
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM iam_user WHERE id = ?", String.class, itUser.id()))
+                .isEqualTo("ENABLED");
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM ticket_record
+                WHERE ticket_id IN (?, ?) AND record_type = 'ADMIN_HANDOFF'
+                """, Integer.class, firstTicketId, secondTicketId))
+                .isZero();
+        verify(authSessionRepository, never()).revokeAll(anyLong());
+    }
+
+    /** 读取侧：真实 SQL 只返回"有人负责且未终结"的工单，按编号升序。 */
+    @Test
+    void activeTicketAssignmentsListsOnlyActiveTicketsInTicketNoOrder() {
+        long requesterId = insertUser("user-it-requester");
+        UserResult itUser = userService.create(new CreateUserCommand(
+                "user-it-assignments", "待交接 IT", "Password#2026", List.of(roleId(IT_SUPPORT))));
+        insertTicket("FD-IT-000021", requesterId, itUser.id(), "PROCESSING", 1L, 0, null);
+        insertTicket("FD-IT-000020", requesterId, itUser.id(),
+                "WAITING_FOR_REQUESTER", 2L, 0, LocalDateTime.now(ZoneOffset.UTC).plusDays(2));
+        // 待受理没有负责人，不该出现在待交接清单里
+        insertTicket("FD-IT-000022", requesterId, null, "PENDING", 0L, 0, null);
+
+        List<AdminHandoffAssignmentResult> assignments =
+                userService.activeTicketAssignments(itUser.id());
+
+        assertThat(assignments).extracting(AdminHandoffAssignmentResult::ticketNo)
+                .containsExactly("FD-IT-000020", "FD-IT-000021");
+        assertThat(assignments).allSatisfy(assignment -> {
+            assertThat(assignment.assigneeId()).isEqualTo(itUser.id());
+            assertThat(assignment.assigneeDisplayName()).isEqualTo("待交接 IT");
+        });
+
+        assertApiError(() -> userService.activeTicketAssignments(Long.MAX_VALUE),
+                HttpStatus.NOT_FOUND,
+                "USER_NOT_FOUND");
+    }
+
     // ---------- 辅助 ----------
+
+    /** 交接要求 {@code TICKET_ADMIN_HANDOFF}：默认夹具里的操作人没有任何授权。 */
+    private void authenticateWithHandoffAuthority() {
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(
+                        new AuthPrincipal(operatorId, "user-it-operator", "session"),
+                        null,
+                        List.of(new SimpleGrantedAuthority("TICKET_ADMIN_HANDOFF"))));
+    }
+
+    /**
+     * 插入一张工单夹具。分类按需创建（迁移不预置分类），{@code action_deadline_at} 只对
+     * 待补充与待确认两个状态有值——{@code ck_ticket_status_deadline} 在库层面盯着这一点。
+     */
+    private long insertTicket(String ticketNo, long requesterId, Long assigneeId,
+            String status, long version, int recordSeq, LocalDateTime deadlineAt) {
+        jdbc.update("""
+                INSERT INTO ticket (
+                    ticket_no, submission_key, requester_id, title, description, category_id,
+                    priority, status, assignee_id, action_deadline_at, record_seq, version,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, 'IT 交接夹具', '管理性交接集成测试', ?, 'MEDIUM', ?, ?, ?, ?, ?,
+                          CURRENT_TIMESTAMP(3), CURRENT_TIMESTAMP(3))
+                """, ticketNo, UUID.randomUUID().toString(), requesterId, handoffCategoryId(),
+                status, assigneeId, deadlineAt, recordSeq, version);
+        return jdbc.queryForObject(
+                "SELECT id FROM ticket WHERE ticket_no = ?", Long.class, ticketNo);
+    }
+
+    private long handoffCategoryId() {
+        Integer existing = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM ticket_category WHERE name = 'IT 交接分类'", Integer.class);
+        if (existing == 0) {
+            jdbc.update("""
+                    INSERT INTO ticket_category (name, sort_order, status, version, created_at, updated_at)
+                    VALUES ('IT 交接分类', 99, 'ENABLED', 0, CURRENT_TIMESTAMP(3), CURRENT_TIMESTAMP(3))
+                    """);
+        }
+        return jdbc.queryForObject(
+                "SELECT id FROM ticket_category WHERE name = 'IT 交接分类'", Long.class);
+    }
 
     private UserResult createAfterBarrier(CyclicBarrier barrier, String username) throws Exception {
         barrier.await(30, TimeUnit.SECONDS);

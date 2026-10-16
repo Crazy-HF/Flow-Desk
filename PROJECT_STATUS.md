@@ -1,5 +1,23 @@
 # FlowDesk 项目状态
 
+## 2026-10-15 交付：附件修复批（分支 `flow-desk/attachment-fix`）
+
+- **分支起点**：`ec17717`（= `main`，含附件完善批并入 `main` 与 CI `core-e2e` 修复），从最新 `main` 创建，**不需要先合并 `main`**；创建分支前工作区干净、无 `stash`。
+- **用户三项裁决（2026-10-15，均按推荐执行）**：① **删除附件** —— 只允许删除**未绑定**附件（不动「记录不可变」）；② **客户端预校验** —— 只复制「大小 / 数量」这类数值上限，**类型只用 `accept` 软过滤、不复制白名单**；③ **预签名直传** —— **不做**（由"候选批"正式收口）。
+- **后端**：新增 `DELETE /attachments/{attachmentId}`（公共路径，不带 `/fd/v1` 前缀），成功 `200` 空信封；新增 `AttachmentMapper.selectByIdForUpdate`（锁 `attachment` 行，与工单侧 `selectUsableForBinding` **同一把行锁**，消除"判定未绑定"与"写入绑定"交错的窗口）；新增 `domain/AttachmentAlreadyBoundException` → `409/ATTACHMENT_ALREADY_BOUND`；`AttachmentServiceImpl.delete` 顺序为 **锁行 → 归属不符 `404` → 引用判定端口缺失拒绝删除 → 已引用 `409` → 先删元数据再删文件**（文件删除失败只告警，交对账自愈）。
+- **前端**：`api/attachments.ts` 新增 `MAX_ATTACHMENT_FILE_SIZE_BYTES`（10 MiB）、`ACCEPTED_ATTACHMENT_EXTENSIONS`、`deleteAttachment(id)`；`api/errorMessages.ts` 补 `ATTACHMENT_ALREADY_BOUND`；`AttachmentUpload.vue` 加 `accept`、超限文件本地拦截（新增 `rejected` 状态，后缀「未上传」，**不发请求、不占名额**）、`remove()` 对已上传成功的文件调删除接口立即释放存储（失败静默，含已绑定的 `409`）、提示文案补单文件上限。**类型白名单没有复制到前端**。
+- **验证（本轮实跑）**：后端 `./mvnw.cmd -B -q compile` 通过；`./mvnw.cmd -B test "-DargLine=-Djdk.attach.allowAttachSelf=true"` → **surefire 1187 项全绿**（`Failures 0 / Errors 0`、`BUILD SUCCESS`；本批新增 8 项：`AttachmentServiceImplTest` 5 + `AttachmentControllerWebTest` 3）；**新增 `AttachmentServiceIT`（Testcontainers `mysql:8.4.11`）4 项全绿**——删除成功（元数据与最终文件都消失）、已绑定拒绝且两者原样保留、他人附件 404、不存在 404，同时是 `selectByIdForUpdate` 这条原生 `FOR UPDATE` SQL 的唯一实证；前端 `npx vue-tsc -b` 0 error、`npx eslint . --max-warnings=0` 与 `npx stylelint "src/**/*.{css,scss,vue}" --max-warnings=0` 通过、`npx vitest run` → **27 套件 / 253 项全绿**（基线 248，本批 +5）、`npx vite build` 成功。**本轮未跑（不视为已通过）**：后端全量 `clean verify`（只跑了定向 surefire + `AttachmentServiceIT`，未跑既有全部集成测试）、前端全量 E2E、8092 真实栈验收脚本。
+- **文档同步**：`docs/api-design.md`（7.1 新增删除段与并发口径、7.6 第 5 条、10.2 新增 `409/ATTACHMENT_ALREADY_BOUND`）、`docs/engineering-readiness.md` 7.2（删除顺序 + 必须覆盖清单）、`docs/modules/attachment-storage-and-preview.md`（§5 收口为「不做」、新增 6.2 交付记录）、`docs/modules/ticket-attachments.md`（做 / 不做清单与阶段状态）、`docs/implementation-plan.md` 9.3 第 3 项（修复批子条）、`AGENTS.md` 与本文件。
+- **下一步**：补后端 `clean verify` 与前端全量 E2E / 真实栈验收 → 通知 / 通信通道 + 两个超时自动任务（backlog 3）。
+
+## 2026-10-15 交接：附件完善批并入 `main`（身份改写）+ CI `core-e2e` 修复
+
+- **合并方式（用户 2026-10-15 授权「推送并合并」，未走 PR）**：`flow-desk/attachment-batch-redo`（`88367b8`，作者 Crazy-HF）推送远程后，用 `--force-with-lease`（旧值 `54ef9d8`）**直接改写远程 `main`**。原因：`88367b8` 与远程 main 上的 `54ef9d8` **同父（`cfc23b0`）、同树（内容零差异）**，唯一差别是提交身份——`54ef9d8` 来自恢复克隆（全新 `git init`，本机全局身份 `maxiaobin`），`88367b8` 是身份正确的重提，两者不存在快进路径。远程旧分支 `flow-desk/attachment-storage-recovered`（= `54ef9d8`）已删除；本地同名分支与两个 `stash` 一并清理；本地 `main` / `origin/main` / 分支均 = `88367b8`（`ls-remote` 复核）。
+- **本工作区（`D:\Idea\item\flow-Desk`）修复**：合并前发现磁盘上缺少 **252 个已跟踪文件**（`src/` 下只剩附件批改动的 33 个文件，`auth`/`iam`/`category`/`common` 整包缺失），而索引与 HEAD 一致——**提交完整、仅工作区被清**；已 `git restore --source=HEAD --worktree -- .` 复原，工作区干净。`.workbuddy-ai/`（外部代理工具目录）已加入 `.gitignore`。
+- **CI 缺陷（本轮实测定位并修复；main 自 run #54 起一直红）**：`core-e2e` 的 `Start dependencies and backend with demo fixtures` 第 0 秒失败，两条叠加原因——① 附件批给 `compose.yaml` 新增的 `minio` / `minio-init` 用必填插值 `${FLOWDESK_MINIO_ROOT_USER:?…}` / `${FLOWDESK_MINIO_ROOT_PASSWORD:?…}`，而 `ci.yml` 的 `core-e2e` env **没有**这两个变量（本机有未跟踪的 `.env`，所以本地与恢复克隆都跑得通，干净 CI 检出必炸）；② `docker compose up --detach --wait` 遇到**一次性退出容器也会失败**（`minio-init` 退出码 0 同样算失败），此前绿的三次 main 只有 mysql/redis 长驻服务。修复：`ci.yml` 补两个 MinIO 变量（compose 对整个文件插值，与选中哪些服务无关，必须补）+ 启动命令改为 `docker compose up --detach --wait mysql redis`（demo profile 默认 `storage=local`，不需要 MinIO）。
+- **本轮验证（实测）**：`docker compose --env-file <空文件> config` 在缺变量时报 `required variable FLOWDESK_MINIO_ROOT_USER is missing a value`（复现 CI 失败），补齐后 `exit 0`；scratch compose 实测 `up --detach --wait <长驻服务>` 在文件内存在一次性服务时 `exit 0`，且**未选中**服务的必填变量缺失仍会阻止启动（证明两处修改都必要）。**修复后新 main（`084fc2d`）的 CI 复跑三个 job 全绿**：run [#56](https://github.com/Crazy-HF/Flow-Desk/actions/runs/38674637575) → `frontend-verify` 69s（`pnpm lint` / `typecheck` / `test:unit` / `build`）、`backend-verify` 158s（`./mvnw --batch-mode verify` 全量）、`core-e2e` 209s（`docker compose up --detach --wait mysql redis` + demo profile 起后端 + `pnpm test:e2e` 全量 Playwright；E2E 步骤无跳过条件，即真跑通）。**仍未跑（不视为已通过）**：本机（Windows）全量 `clean verify`、本机前端全量 E2E、真实栈验收脚本（`scripts/*.ps1`）、`S3AttachmentStorageIT` 在真实 MinIO 上。
+- **下一步**：补 `S3AttachmentStorageIT` 在真实 MinIO 上的实跑、本机前端全量 E2E 与真实栈验收脚本 → 通知 / 通信通道 + 两个超时自动任务（backlog 3）。
+
 ## 2026-10-14 交付：站内信（应用内通知通道，分支 `notification-channel`，工作树 `D:\Idea\item\flow-Desk-notification-channel`）
 
 - **范围与结果**：新增独立模块 `com.flowdesk.notification`（站内信 / 应用内通知）——**只按收件人本人范围读写，不新增权限码**（与 `/auth/me`、附件下载同口径，接口只要求已认证；认证链 `securityMatcher("/fd/v1/**")` 已覆盖，安全配置未改）。
@@ -19,6 +37,34 @@
   - **未跑**：前端全量 E2E、渲染截图自查。
 - **契约落点**：`docs/api-design.md` 7.7 与 10.2、`docs/database-design.md` 19.6/第 16 节与 `V10` 说明、`docs/technical-architecture.md` 第 4 节/第 9 节、`docs/implementation-plan.md` 第 9 节 backlog 第 3 项与 9.4 第 1 项、`docs/kickoff.md` 4.12 末的边界复核结论。
 - **下一步**：合并 `main`（最新 `e0ac790`，含附件批次与管理性交接）并补跑全量 `clean verify` → 交接；其后 backlog 第 3 项的两个超时自动任务与到期提醒（`dedup_key` 已预留）。
+
+## 2026-10-14 交付：附件完善（存储抽象 + 对象存储 + 内联预览 + 批量 + 前端；分支 `flow-desk/attachment-storage-recovered`，2026-10-15 重建并改名为 `flow-desk/attachment-batch-redo`）
+
+
+- **分支起点**：基点 `023c2fb`（= `main`，PR #23 合并提交），**不需要先合并 `main`**；旧主题分支 `flow-desk/ticket-attachments` 已合并，按仓库惯例不在其上继续。**（2026-10-14 恢复说明：原 `flow-desk/attachment-storage-preview` 工作区被另一会话的 git 操作清空，本批经 `stash`（`bcfa52a2`）完整恢复，并基于最新 `main`（`cfc23b0`，含管理性交接 PR #25）重建为分支 `flow-desk/attachment-storage-recovered`；证据备份 `D:\flow-desk-attachment-batch-backup-20261014.bundle`。）**
+- **用户四项裁决（2026-10-14）**：① 本轮 ServiceImpl 业务实现授权 Agent 直接写入（用户 review）；② 预览**新增** `/attachments/{id}/content` 并保留 `/attachments/download/{id}` 为 deprecated 别名；③ S3 驱动测试 = 内存假驱动单测 + Testcontainers MinIO 集成测试；④ 本轮做批 1+2+3，**预签名直传留下一批**。
+- **结论变更（用户点名）**：`docs/technical-architecture.md` 6.3 与 `docs/kickoff.md` 3.3 的「v1 不做对象存储」改为 **S3 兼容（本地 MinIO + 生产任意 S3 / OSS，应用代码不变）**；同步修正 `technical-architecture.md` 第 13 节（改为「不自建对象存储集群」）、`api-design.md` 5.4/6.2/6.4/7.1/7.2/7.6、`engineering-readiness.md` 7.2/10.1/10.2/11.2、`database-design.md` 6.3/10/22、`modules/ticket-attachments.md`、`implementation-plan.md` 9.3、`README.md`。
+- **批 1 存储抽象 + 对象存储**：`AttachmentStorage`（`moveToFinal` → `promote(key, contentType)`、新增 `kind()`）、新增 `AbstractAttachmentStorage`（本地暂存共用实现）、`LocalAttachmentStorage`（改为构造器注入 properties，保留同卷探针）、`S3AttachmentStorage`（AWS SDK v2：`putObject` / `getObject` / `deleteObject` / `listObjectsV2Paginator` / `headObject`）、`AttachmentStorageConfiguration`（按 `flowdesk.attachment.storage` 装配，`@ConditionalOnProperty`）；**同卷约束收窄为仅 `local`**，`s3` 改为启动探针（写 / 读 / 删）。`pom.xml` 加 AWS SDK v2 BOM（`2.55.16`）；`compose.yaml` 加 `minio` + `minio-init`；`.env.example` 加 `FLOWDESK_ATTACHMENT_STORAGE` / `FLOWDESK_MINIO_*` / `FLOWDESK_ATTACHMENT_S3_*`。
+- **批 2 内联预览**：`GET /attachments/{id}/content?disposition=attachment|inline`；白名单只有 JPEG/PNG/PDF/TXT（`DetectedFileType.inlinePreviewable()` 为唯一出口），**HTML / SVG 一律不内联**、Office 与未知类型降级 `attachment`；响应头 `nosniff` + `CORP: same-origin` + `Cache-Control: private, no-store`，CSP `default-src 'none'; sandbox`；**PDF 内联例外不下发 CSP**（沙箱会屏蔽浏览器 PDF 查看器，控制器内有断言说明）。工单详情新增 `attachments[]`（`TicketAttachmentMapper.selectAttachmentsByTicketId` + `TicketAttachmentResult`）。
+- **批 3 批量 + 限额可配**：上传接受重复 `files` part（1～5，整体成败，错误文案含文件名）；`AttachmentLimits` 删除、限额迁入 `AttachmentProperties`（`flowdesk.attachment.*`）；`AttachmentValidator` 改为读 properties。
+- **真实缺陷修复**：暂存后复核失败时，该文件**自己的**暂存副本原先会漏删（未进 `staged` 列表，外层补偿看不到）。`AttachmentServiceImpl.stageOne` 与 `TicketServiceImpl.stageOne` 均补 try/catch：先删暂存再抛出。由 `AttachmentServiceImplTest.uploadFailsWholeRequestWithoutTraceAndNamesTheOffendingFile` 实测发现。
+- **前端**：`api/attachments.ts`（逐文件上传 / `content` 取回 / `saveBlob` / `formatFileSize` / `isUploadCanceled`）+ `api/http.ts` 的 `publicHttp`（公共前缀，同一套 Bearer 与 401 单次刷新重放，60s 超时）；`components/AttachmentUpload.vue`（**一个文件一次请求** → 逐文件进度 / 取消 / 失败带文件名，1～5 上限，粘贴上传挂在控件自身不抢全局，拖放，`update:uploading` 供父组件拦提交）；`components/AttachmentList.vue`（缩略图 + `el-image` 灯箱 + PDF `iframe` 预览 + 文本内联（超 2 万字符截断说明）+ 下载；**内容一律经后端授权代理取回为 Blob，没有一条直链**；可预览性由服务端 `inlinePreviewable` 决定）；`TicketCreateView` 附件区 + 上传中禁用提交 + `attachmentIds` 入请求体；`TicketDetailView` 附件区（紧跟问题描述）+ 动作弹窗附件槽（登记表新增 `TicketActionMeta.attachments`，`supplement` 使用，按服务端跨字段规则放行「只补附件、正文留空」）；`styles/main.css` 追加附件样式段（全走 `--fd-*` token）。
+- **验证（本轮实跑）**：后端 `sh /tmp/mvnx.sh -B -q test-compile` 通过、附件四个测试类 **40 项全绿**（`AttachmentValidatorTest` 9 / `AttachmentServiceImplTest` 11 / `AttachmentControllerWebTest` 10 / `LocalAttachmentStorageTest` 10）；前端 `npx vue-tsc -b` 0 error、`npx eslint . --max-warnings=0` 与 `npx stylelint` 通过、`npx vitest run` → **27 套件 / 248 项全绿**（本轮新增 3 个测试文件共 24 项 + 详情/新建页各新增用例）、`npx vite build` 成功。**本轮未跑**：后端全量 `clean verify`、前端全量 E2E、真实栈验收脚本。
+- **未跑项（如实记录，不视为已通过）**：**`S3AttachmentStorageIT` 未在真实 MinIO 上执行**——本机镜像仓库无法提供 `minio/minio`（`免费节点当前繁忙`），用例按 `Assumptions.abort` **主动跳过**而非通过；需在能拉到镜像的环境补跑，否则 S3 协议路径没有实证。前端全量 E2E（含带附件创建 → 详情预览与下载）与 8092 真实栈验收脚本同样未做。 **2026-10-14 更新：已在 `adobe/s3mock`（S3 兼容容器）上实跑 `S3AttachmentStorageIT`——6/7 通过、1 项（凭据校验）因 mock 不校验签名按原因跳过；MinIO 上仍未跑。**
+- **下一步**：补 S3 集成测试实跑与前端 E2E / 真实栈验收 → 管理性交接（backlog 4）→ 通知 / 通信通道 + 两个超时自动任务（backlog 3）；预签名直传为候选批（取舍见 `docs/modules/attachment-storage-and-preview.md` §5）。
+
+## 2026-10-14 交付：管理性交接（分支 `admin-handover`，工作树 `D:\Idea\item\flow-Desk-admin-handover`）
+
+- **范围（完整版 backlog 第 4 项，`docs/api-design.md` 8.3）**：① 两个新查询端点 `GET /fd/v1/admin/users/{userId}/active-ticket-assignments`（待交接工单最小元数据）与 `GET /fd/v1/admin/tickets/{ticketNo}/handoff-candidates`（接替候选人，资格口径与转交候选人共用同一条 SQL）；② 扩展现有 `POST /fd/v1/users/{userId}/actions/disable` 与 `PUT /fd/v1/users/{userId}/roles`：目标用户仍负责活动工单时，请求必须携带 `handoffReason` + **完整**的 `handoffs`（每项 `ticketNo` / `ticketVersion` / `newAssigneeId`）。`IamUserServiceImpl` 原有的两处 `//TODO 工单模块未实现` 已由真实编排替换。**无需新迁移**（`ADMIN_HANDOFF` 已在 V1/V7/V8 白名单、`TICKET_ADMIN_HANDOFF` V2 已种给 `SYSTEM_ADMIN`），**不新增索引**（活动工单查询走既有 `idx_ticket_assignee_status_updated`）。
+- **三处关键设计（理由写在代码注释与 `docs/api-design.md` 8.3 的实现说明里）**：
+  1. **Redis/MySQL 顺序**：沿用 8.2.1 既有口径——全部 MySQL 写（换人 + 参与关系 + `ADMIN_HANDOFF` 记录 + 账号或角色变更）→ `sessionRevocationPort.revokeAll` → 提交。Redis 失败即整体回滚并返回 5xx，**不吞异常、不自动重放**；明确拒绝「先提交后撤销」，因为那会留下「账号已变更而旧 token 仍可用」的窗口。反向残留（已撤销但提交失败）是安全侧失败，如实登记、不做 un-revoke 补偿。
+  2. **跨模块端口**：`iam.application.port.AdminHandoffPort`（IAM 声明）+ `ticket.infrastructure.IamAdminHandoffAdapter`（工单模块实现），与 `SessionRevocationPort` + `IamSessionRevocationAdapter` 同形状。**没有**采用「接口放 ticket、实现放 iam」——那会与既有的 `ticket → iam`（`IamTicketClaimantAdapter`）形成双向依赖。
+  3. **固定锁顺序**：`iam_role(SYSTEM_ADMIN/IT_SUPPORT) → ticket(id 升序 FOR UPDATE) → iam_user(id 升序：目标用户 + 全部新负责人 + 操作人) → iam_user_role / ticket_participant / ticket_record`。为此 `disable` / `replaceRoles` 的目标用户行锁被推到交接之后（`TicketServiceImpl#transfer` 注释记录的"工单行锁 + 外键共享锁成环"场景）；`replaceRoles` 的「这次会不会摘掉 IT_SUPPORT」先无锁预读、加锁后以最终差异为准，两者不一致返回 `409/ADMIN_HANDOFF_CONFLICT`；锁等待/死锁同样映射为 409 且不重放。
+- **错误码口径**：纯请求缺陷（编号空白、版本为负、同一工单重复）→ `400/VALIDATION_FAILED`；缺方案或漏交 → `409/ADMIN_HANDOFF_REQUIRED`；多交、`userVersion`/`ticketVersion` 不符、候选人资格失效、条件更新命中 0 行 → `409/ADMIN_HANDOFF_CONFLICT`（带当前快照）；确实需要交接但缺 `TICKET_ADMIN_HANDOFF` → `403/ACCESS_DENIED`。权限是**条件性**的：目标用户没有活动工单时保持 8.2 的 `USER_MANAGE` 契约不变。
+- **验证（实跑）**：后端 `.\mvnw.cmd -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → 合并 `main` **之前** surefire **1139** + failsafe **172**（本轮记录基线 1094 + 168，+45 / +4，与新增用例数一致）；**合并 `main`（含附件批次 `V9`）之后复跑** → surefire **1157** + failsafe **172**、`Failures 0 / Errors 0`、`BUILD SUCCESS`（+18 来自附件批次，本分支的 45 项一条不少）。新增 `IamAdminHandoffAdapterTest`(11)、`AdminHandoffWebTest`(11)；扩写 `IamUserServiceImplTest`(58→71)、`TicketQueryServiceImplTest`(95→105)、`IamUserServiceIT`(24→28)。
+- **真实栈验收（实跑，51/51、退出码 0）**：新增 `scripts/admin-handoff-acceptance.ps1`，证据 `docs/acceptance/2026-10-14-admin-handoff.json`。运行口径：**独立空库 `flowdesk_handoff_acc`**（确定性种子、不触碰共享演示库，因此不受并行工作树影响）+ 8092 后端 `local` profile（含 demo 种子）；**合并 `main` 后用合并后的构建复跑空库（迁到 `V9`）仍 51/51**，证据为同一次复跑产出。运行前与清理后指纹（八项计数 + 五条聚合指纹）**完全一致**，4 张自建工单、5 个临时用户及其授权全部按主键清理；`ticket_daily_sequence` 前进属已知残留（脚本头已登记，回滚会导致编号重复）。六组断言：h1 最小元数据与权限边界（管理员读工单详情 404、只有 EMPLOYEE 的员工访问两个交接端点 403）、h2 缺方案 409 且库里零改动、h3 版本漂移 409 带快照、h4 停用 + 换人 + 参与关系 + 记录同事务成功且**成功响应前已完成 Redis 会话撤销**（被停用账号旧 token `/auth/me` → 401/`AUTH_SESSION_INVALID`；接替人可见该工单与时间线上的 `ADMIN_HANDOFF`）、h5 角色替换路径（摘 `IT_SUPPORT` 需要方案、成功后立刻失去 IT 列表权限；**保留 `IT_SUPPORT` 时无需方案也不撤会话**，证明触发条件是"摘角色"而非"手上有单"）、h6 多张工单里一张版本已变则**已经换过人的那张也随事务回滚**（账号仍启用、零交接记录、未撤会话、旧 token 仍有效）。
+- **已知边界（如实登记，本轮未修）**：① RBAC 三个撤销端点（单条撤销 / 批量撤销 / 清空全部）同样能摘掉 `IT_SUPPORT`，但 8.3 未把它们纳入交接要求，走那条路仍可能留下无效负责人；② 方案要求"完整、无重复"，因此请求规模就是该用户当前在办工单数，未设人为上限（完整性优先于防御性上限）；③ **前端管理页尚未接入交接弹窗**——目标有在办工单时停用 / 替换角色会拿到 `409/ADMIN_HANDOFF_REQUIRED`。前端侧工作（依赖环境修复 → `build` / 单测 / E2E + 截图自查 + 视觉契约产出）按用户指示留到 `main` 同步之后进行，**本文件与 `docs/` 的本轮同步不包含前端**。
+- **交接（已完成）**：本轮改动（生产代码 + 测试 + 验收脚本与证据 + 文档同步）分三个提交——`33a943e`（生产代码 + 测试 + 验收脚本与证据）、`b78aa72`（文档同步）、`848e17a`（合并 `origin/main`，含 PR #23 附件批次与 `V9`；两处冲突按"两个批次的记录都保留、新的在前"解决）与 `fbe13b7`（合并后复跑：全量 1157 + 172、真实栈 51/51）——推送 `admin-handover` 后经 **[PR #24](https://github.com/Crazy-HF/Flow-Desk/pull/24)** 以 merge commit 合并 `main`，**合并提交 `b540146`**；CI 运行 **[38511481647](https://github.com/Crazy-HF/Flow-Desk/actions/runs/38511481647)** 三个 job 首轮全绿（`backend-verify` 2m23s、`frontend-verify` 1m3s、`core-e2e` 3m16s），本地 `main` 已仅快进到 `b540146`。下一分支 **`flow-desk/admin-handover-followup`** 从最新 `main` 创建，用于记录本次合并结果、同步 `README.md` 的旧表述，并作为前端批次（依赖环境修复 → `build` / 单测 / E2E + 截图自查 + 视觉契约产出）的起点。
 
 ## 2026-10-13 交付：附件（独立通用模块 + 工单接入，步骤 1～7）
 
@@ -1062,11 +1108,11 @@
 ## 当前任务必读
 
 1. AGENTS.md 与本文快速定位、下一步任务。
-2. docs/implementation-plan.md 第 6 节与 6.1（阶段 2 范围与验收顺序）。
-3. `.ui-craft/reviews/2026-09-29-tickets/report.md` 和 `docs/acceptance/`（页面、最终汇总、SQL 基线和真实栈验收证据）。
-4. docs/api-design.md 5.3（当前列表契约）；现有 TicketQuery、TicketMapper、TicketController 与 PageQuery/PageResult。
-5. docs/database-design.md 18/19；src/main/resources/db/migration/V1__create_schema.sql 的 ticket_category 表（不得修改历史迁移）。
-6. docs/technical-architecture.md 5.1 与现有 iam 的 Controller/Result/Service/Mapper 作为命名参考。
+2. **本文顶部「2026-10-14 交付：管理性交接」段** + `docs/api-design.md` 8.3 的实现说明 + `scripts/admin-handoff-acceptance.ps1` 与 `docs/acceptance/2026-10-14-admin-handoff.json`（改这条链路前先看这三处）。
+3. **`main` 同步之后的下一步（前端，尚未验收）**：修前端依赖环境 → `pnpm build` / 单测 / E2E + 截图自查 + 视觉契约产出。涉及 `frontend/` 前必读 `frontend/AGENTS.md`、`.ui-craft/frontend-redesign-handoff.md`，并实际查看 `.ui-craft/references/` 原图。
+4. `docs/implementation-plan.md` 9.3 末的「实施清单」与 9.4 的顺序（附件（重）→ 通知 / 通信通道 + 两个超时自动任务）。
+5. 改后端时：`docs/technical-architecture.md` 5.1（分层与命名，含跨模块 port 的落位约定）、`docs/modules/`（auth / rbac 的实现记录）、`src/main/resources/db/migration/`（V1～V8 已发布，不得修改历史迁移）。
+6. 前端页面契约与模板：`frontend/AGENTS.md` 与 `frontend/PAGE-TEMPLATE.md`。
 
 涉及前端时另读 frontend/AGENTS.md、.ui-craft/frontend-redesign-handoff.md，并实际查看 .ui-craft/references/ 原图。
 ## 文档索引
