@@ -7,7 +7,7 @@
 - 本文档不是开发阶段的默认必读文件。只有新增亮点、准备简历或面试复盘时才读取。
 - 设计完成不等于已经实现；每条亮点必须明确当前状态，实际编码和测试完成后才能表述为“已实现”。
 
-## 当前状态总览（2026-10-06 核对；2026-10-07 追加 HL-011 行；2026-10-08 更新 HL-011 的边界修复、追加 HL-012 与 HL-013；2026-10-13 追加 HL-014 行；2026-10-15 追加 HL-016、HL-017、HL-018 行）
+## 当前状态总览（2026-10-06 核对；2026-10-07 追加 HL-011 行；2026-10-08 更新 HL-011 的边界修复、追加 HL-012 与 HL-013；2026-10-13 追加 HL-014 行；2026-10-15 追加 HL-016、HL-017、HL-018 行；2026-10-16 追加 HL-019、HL-020 行）
 
 各条目正文的“当前状态”是写入当时的事实，按上一条规则不逐条改写；下表是截至 2026-10-06 的真实状态与证据位置（HL-011 的行为 2026-10-08 片 D 更新，HL-012 与 HL-013 为 2026-10-08 新增）。
 
@@ -28,9 +28,11 @@
 | HL-013 | 两阶段撤销：不新增第 8 个状态，用三列请求表达「待批准」 | **已实现，并有自动化与真实栈双重证据**（2026-10-08；已随 [PR #18](https://github.com/Crazy-HF/Flow-Desk/pull/18) 合并 `main`，合并提交 `2cf1bc1`） | `DatabaseMigrationIT`（空库 `V7` 迁移与两条新 CHECK）；`TicketServiceIT`（真实 MySQL：发起 → 批准 / 拒绝 / 撤回、期限与请求三列同一条 UPDATE 清空、「关闭 vs 批准撤销」唯一胜者、`confirmResolution` 挂待决申请的组合）；`TicketQueryServiceImplTest` / `TicketQueryServiceIT`（`allowedActions` 三状态 × 两角色与 `cancelRequest`）；前端 4 格动作与详情「待批准」块的单测；E2E 两阶段两个场景；真实栈 `docs/acceptance/2026-10-08-slice-e-two-phase-cancel.json`（**178/178、退出码 0**）；全量 `clean verify` surefire 1070 + failsafe 158、前端单测 200 项、E2E 24 项 |
 | HL-014 | 穷尽 `switch` 的守卫必须配一条「真的读一次」的用例：一次时间线 500 的复盘 | **已实现并修复，并有回归守卫**（2026-10-12 缺陷随该批进入 `main`，2026-10-13 定位、修复并补用例） | 缺陷真实栈 traceId `360c7cba-2b1e-4958-b1cb-306004b75797`（`GET /fd/v1/tickets/{ticketNo}/records` → 500）；修复 `TicketQueryServiceImpl.toRecordContext` 的 `case "CANCELLATION_REQUEST_EXPIRED"`；回归守卫 `TicketQueryServiceIT.timelineTranslatesTheExpiredCancelRequestRecordInsteadOfFailing`（**首要断言是 `records()` 返回而不是抛异常**）与 `TicketQueryServiceImplTest.expiredCancelRequestRecordContextExposesOriginalRequestAndStatus`；`PROJECT_STATUS.md` / `docs/implementation-plan.md` 9.3 的交付记录已按实际改写 |
 | HL-015 | MySQL 与 Redis 没有原子事务：把会话撤销排进 MySQL 事务，并让"多张工单一起换人"真的整体回滚 | **已实现，并有自动化与真实栈双重证据**（2026-10-14，管理性交接） | `IamAdminHandoffAdapterTest`(11)、`AdminHandoffWebTest`(11)、`IamUserServiceImplTest`(71)、`TicketQueryServiceImplTest`(105)、`IamUserServiceIT`(28)；真实栈 `docs/acceptance/2026-10-14-admin-handoff.json`（**51/51、退出码 0**，含 h4「被停用账号旧 token `/auth/me` → 401」与 h6「一张工单版本变了则已换人的另一张一起回滚、且未撤会话」两组断言）；`clean verify` surefire 1139 + failsafe 172 |
-| HL-016 | 事务回调的返回类型：`@Nullable` 的泛型返回值不做隐式拆箱 | **代码已写入，未提交、尚无对应测试**（超时自动任务批，分支 `flow-desk/ticket-timeout-tasks`） | 代码事实 `TicketServiceImpl.completeOneExpiredConfirmation` 的 `Boolean completed = transactionTemplate.execute(...)` + `Boolean.TRUE.equals(completed)`；`@Nullable` 依据：`javap` 核对本项目依赖 `spring-tx 6.2.19` 的 `TransactionCallback.doInTransaction` 与 `TransactionOperations.execute` |
-| HL-017 | 编程式事务边界：为什么用 `TransactionTemplate` 而不是 `@Transactional` | **`create` / `supplement` 两条路径已实现，并有自动化与真实栈证据**；同批超时任务内的用法属未提交、未验证范围（见正文标注） | `TicketServiceImplTest.createFallsBackToExistingTicketWhenInsertConflictsWithConcurrentSubmission`（断言 `selectCreationByRequesterAndSubmissionKey` **被调用两次** = T1 查询 + T2 回查）与 `createMapsUnrelatedDuplicateKeyToRetryableConflict`；`TicketServiceIT.concurrentCreatesWithSameSubmissionKeyReturnTheSameTicketNumber`、`createsOnceForRepeatedSubmissionKeyAndReturnsTheFirstResult`（真实 MySQL）；代码事实 `TicketServiceImpl` 构造器第 154～159 行、`create` 第 184 / 204 行、`supplement` 第 1059 行 |
-| HL-018 | 定时任务的「开关 + 节奏」都用配置表达：`@ConditionalOnProperty` 与 `@Scheduled(cron = 占位符)` | **代码已写入，未提交、尚无对应测试**（超时自动任务批，分支 `flow-desk/ticket-timeout-tasks`） | 代码事实 `TicketTimeoutTask` 第 27～35 / 43～47 行（`@ConditionalOnProperty` 三属性、`CRON` 属性占位符）、`FlowDeskApplication` 第 10 行 `@EnableScheduling`；配置项 `application.yml` 的 `flowdesk.ticket.timeout-task-enabled` 与 `flowdesk.ticket.timeout-scan-cron` |
+| HL-016 | 事务回调的返回类型：`@Nullable` 的泛型返回值不做隐式拆箱 | **代码已并入 `main`（2026-10-16）、尚无对应测试**（超时自动任务批，分支 `flow-desk/ticket-timeout-tasks`） | 代码事实 `TicketServiceImpl.completeOneExpiredConfirmation` 的 `Boolean completed = transactionTemplate.execute(...)` + `Boolean.TRUE.equals(completed)`；`@Nullable` 依据：`javap` 核对本项目依赖 `spring-tx 6.2.19` 的 `TransactionCallback.doInTransaction` 与 `TransactionOperations.execute` |
+| HL-017 | 编程式事务边界：为什么用 `TransactionTemplate` 而不是 `@Transactional` | **`create` / `supplement` 两条路径已实现，并有自动化与真实栈证据**；同批超时任务内的用法属已并入 `main`（2026-10-16）、未验证范围（见正文标注） | `TicketServiceImplTest.createFallsBackToExistingTicketWhenInsertConflictsWithConcurrentSubmission`（断言 `selectCreationByRequesterAndSubmissionKey` **被调用两次** = T1 查询 + T2 回查）与 `createMapsUnrelatedDuplicateKeyToRetryableConflict`；`TicketServiceIT.concurrentCreatesWithSameSubmissionKeyReturnTheSameTicketNumber`、`createsOnceForRepeatedSubmissionKeyAndReturnsTheFirstResult`（真实 MySQL）；代码事实 `TicketServiceImpl` 构造器第 154～159 行、`create` 第 184 / 204 行、`supplement` 第 1059 行 |
+| HL-018 | 定时任务的「开关 + 节奏」都用配置表达：`@ConditionalOnProperty` 与 `@Scheduled(cron = 占位符)` | **代码已并入 `main`（2026-10-16）、尚无对应测试**（超时自动任务批，分支 `flow-desk/ticket-timeout-tasks`） | 代码事实 `TicketTimeoutTask` 第 27～35 / 43～47 行（`@ConditionalOnProperty` 三属性、`CRON` 属性占位符）、`FlowDeskApplication` 第 10 行 `@EnableScheduling`；配置项 `application.yml` 的 `flowdesk.ticket.timeout-task-enabled` 与 `flowdesk.ticket.timeout-scan-cron` |
+| HL-019 | 站内信的超时事件与到期前提醒：一条唯一索引承担去重，一条不等式保证不补发 | **代码已并入 `main`（2026-10-16）、尚无对应测试**（超时通知批，分支 `flow-desk/ticket-timeout-tasks`）；步 7（提醒回收，含过期撤销请求的提醒回收）已写入，步 8（测试 / 验收 / 文档同步）在分支 `flow-desk/timeout-batch-verify` | 代码事实：迁移 `V11__extend_notification_category.sql`、`NotificationMapper.insertIfAbsent`、`NotificationServiceImpl.publish`、`NotificationCleanupTask.cleanNotifications`、`TicketServiceImpl.publishTimeoutNotification` / `publishDueSoonReminders`；协议层依据：Connector/J 默认 `useAffectedRows=false`（协议层 `CLIENT_FOUND_ROWS`），重复键时受影响行数同为 1 |
+| HL-020 | 「冲突即静默跳过」的三种写法取舍：为什么是 `ON DUPLICATE KEY UPDATE id = id` | **代码已并入 `main`（2026-10-16）、尚无对应测试**（超时通知批，分支 `flow-desk/ticket-timeout-tasks`）；条目性质是 HL-019 去重设计的实现侧补充（裁判判负时那条语句怎么写） | 代码事实 `NotificationMapper.insertIfAbsent` 及其 Javadoc 契约（返回值不可用于判断插入成功）；对照写法 `INSERT IGNORE` 与 `ON DUPLICATE KEY UPDATE read_at = NULL`；协议层依据同 HL-019（`useAffectedRows=false`） |
 
 **对外表述口径**：HL-001～HL-010 全部可以作为“已实现并验证”的成果写入简历或面试讲解；其中 HL-007～HL-010 是 2026-10-06 阶段 3 收口与阶段 4 补测试后新增的证据，表述时必须带上对应的测试类名，不得只说“设计过”。
 
@@ -820,7 +822,7 @@ default -> throw new IllegalStateException("不支持的工单记录类型：" +
 
 ### 当前状态
 
-**代码已写入，未提交、尚无对应测试。** 本条只解释超时自动任务批（分支 `flow-desk/ticket-timeout-tasks`，完整版 backlog 3 的两个超时自动任务）里的一处类型选择，不代表该批整体已实现或已验收（该批的两条超时路径**代码均已落地**，但测试尚未补）。正文事实以 `TicketServiceImpl` 的实际代码为准。
+**代码已并入 `main`（2026-10-16）、尚无对应测试**。 本条只解释超时自动任务批（分支 `flow-desk/ticket-timeout-tasks`，完整版 backlog 3 的两个超时自动任务）里的一处类型选择，不代表该批整体已实现或已验收（该批的两条超时路径**代码均已落地**，但测试尚未补）。正文事实以 `TicketServiceImpl` 的实际代码为准。
 
 ### 代码事实
 
@@ -872,7 +874,7 @@ T doInTransaction(TransactionStatus status);
 
 ### 当前状态
 
-**`create` 与 `supplement` 两条路径上的编程式事务已实现，并有自动化与真实栈证据**（已随阶段 3～片 B 进入 `main`）。**超时自动任务批（分支 `flow-desk/ticket-timeout-tasks`）内也在用同一个 template，但那批代码尚未提交、尚无对应测试**（同 HL-016），本条正文中单独标注，不计入已验证范围。
+**`create` 与 `supplement` 两条路径上的编程式事务已实现，并有自动化与真实栈证据**（已随阶段 3～片 B 进入 `main`）。**超时自动任务批（分支 `flow-desk/ticket-timeout-tasks`）内也在用同一个 template，但那批代码已并入 `main`（2026-10-16）、尚无对应测试**（同 HL-016），本条正文中单独标注，不计入已验证范围。
 
 ### 代码事实
 
@@ -893,7 +895,7 @@ this.transactionTemplate.setPropagationBehavior(
 | `create()` 正确路径 | 幂等创建事务 T1：查重 → 分类校验 → 建单 → 附件元数据 | 已实现并验证 |
 | `create()` 的 `catch (DuplicateKeyException)` 内 | **另开事务 T2** 回查并发方已提交的工单 | 已实现并验证 |
 | `supplement()` | 条件更新与留痕在同一事务 | 已实现并验证 |
-| `completeOneExpiredConfirmation` / `closeOneExpiredSupplement` | 超时任务**每条独立事务** | 未提交批次，未验证 |
+| `completeOneExpiredConfirmation` / `closeOneExpiredSupplement` | 超时任务**每条独立事务** | 已并入 `main`（2026-10-16）、未验证 |
 
 ### `execute` 的通用契约
 
@@ -950,7 +952,7 @@ void executeWithoutResult(Consumer<TransactionStatus> action);  // 无返回值
 
 ### 当前状态
 
-**代码已写入，未提交、尚无对应测试。** 本条只解释超时自动任务批（分支 `flow-desk/ticket-timeout-tasks`，完整版 backlog 3 的两个超时自动任务）里 `TicketTimeoutTask` 的两处装配写法，不代表该批整体已实现或已验收。正文事实以 `TicketTimeoutTask` / `FlowDeskApplication` / `application.yml` 的实际代码为准。
+**代码已并入 `main`（2026-10-16）、尚无对应测试**。 本条只解释超时自动任务批（分支 `flow-desk/ticket-timeout-tasks`，完整版 backlog 3 的两个超时自动任务）里 `TicketTimeoutTask` 的两处装配写法，不代表该批整体已实现或已验收。正文事实以 `TicketTimeoutTask` / `FlowDeskApplication` / `application.yml` 的实际代码为准。
 
 ### 代码事实
 
@@ -1018,5 +1020,164 @@ public class TicketTimeoutTask {
 ### 简历或面试表达参考
 
 "两个超时自动任务的装配我用 `@ConditionalOnProperty` 做成配置开关：默认开启，测试和本地调试只要置 `flowdesk.ticket.timeout-task-enabled=false` 就整个 Bean 不装配，而不是装配起来再空跑——我要的是'不存在'，不是'存在但不工作'。扫描节奏走 `@Scheduled(cron = "${...:0 */5 * * * *}")` 的属性占位符，默认 5 分钟一轮、验收时用配置改成 30 秒一轮看效果，不用动代码。两条超时规则各自独立兜异常，单条失败只告警不抛出，下一轮重新选中——幂等由'状态 + 期限已到 + 版本'的条件更新保证，已被人工动作抢走的工单更新 0 行、静默跳过。"
+
+## HL-019 站内信的超时事件与到期前提醒：一条唯一索引承担去重，一条不等式保证不补发（2026-10-16）
+
+### 当前状态
+
+**本条的代码已并入 `main`（2026-10-16，分支 `flow-desk/ticket-timeout-tasks`），尚无对应测试。** 已落地的是：通知类别从 5 个扩到 10 个（迁移 `V11`）、`publish` 的幂等发布路径、清理任务的两段口径、两个超时事件的站内信、确认 / 补充 / 撤销请求三条到期前提醒（提前量配置、候选扫描、加锁重读、发布、任务编排、段级失败隔离）。步 7 的**提醒回收**（含过期撤销请求的提醒回收）也已写入。**未开始**：测试、真实栈验收、文档同步（步 8，分支 `flow-desk/timeout-batch-verify`）；下方流程图与正文尚未把回收段并入，该同步随步 8 落地。因此本条只能按「设计已定、代码已落地」表述，**不得写成"已实现并验证"**。
+
+### 本批的完整流程
+
+```
+TicketTimeoutTask（每 5 分钟一轮，@ConditionalOnProperty 开关）
+  ├─ ① 到期前提醒（先跑，一步不动工单状态）
+  │    扫描：期限 > now AND 期限 <= now + lead（lead 默认 1d）
+  │    ├─ 待确认 → 提醒提交人（CONFIRMATION_DUE_SOON）
+  │    ├─ 待补充 → 提醒提交人（SUPPLEMENT_DUE_SOON）
+  │    └─ 撤销请求待批准 → 提醒当前负责人（CANCEL_REQUEST_DUE_SOON）
+  │    逐条小事务：重读 → publish（键 = 类别:工单:期限毫秒）
+  └─ ② 超时处置（待确认 → 自动完成；待补充 → 自动关闭）
+       业务事务内：条件更新 → 留痕 → publish（键 = 类别:工单:ended_at 毫秒）
+       收件人 = 提交人 + 最后负责人
+
+NotificationCleanupTask（每天一轮）
+  ├─ ③ 已读且 read_at < now − 90d → 分批删除
+  └─ ④ 未读且 created_at < now − 3d → 分批删除
+```
+
+三层的关系是：**① 提前说、② 事后说、③④ 兜底清**。
+
+三段提醒各自兜异常：一段的扫描整体失败只告警、不影响另外两段（`TicketServiceImpl.remindSafely`）；段内单条失败也在各自的循环里兜住，下一轮会被重新选中——**真正决定「要不要发」的只有重读那一步**。提醒是"还有机会"的消息，事件是"已成事实"的消息，清理是"不再需要"的回收。
+
+### 问题背景：同一件事可能被发布多次的四个来源
+
+1. **定时任务天然会重复命中**：一轮 5 分钟，一张工单的"期限即将到期"在提前量窗口内会被连续多轮选中；停机数小时后恢复，窗口内积压的工单会在同一轮里被捞出来。它不像 HTTP 请求有"一个请求一次动作"的天然边界。
+2. **处置动作可能被重放**：扫描选中 → 条件更新 → 留痕 → 发布，前三步都有"命中 0 行就跳过"的幂等屏障，只有发布这一步需要自己的屏障。
+3. **两个收件人可能重合**：提交人恰好也是最后负责人时，收件人解析会产出两条指向同一个人的通知。
+4. **部署形态可能变化**：v1 明确单实例、单调度线程，但"只发一次"不应依赖"只有一个执行者"。
+
+### 设计方案
+
+发布侧**不做查重、不做"先查再插"**，直接插入，由数据库唯一索引 `uk_notification_recipient_dedup (recipient_id, dedup_key)` 做唯一裁判；语句是 `INSERT ... ON DUPLICATE KEY UPDATE id = id`（`NotificationMapper.insertIfAbsent`）。
+
+| 类别 | 触发时点 | 收件人 | 去重键 |
+| --- | --- | --- | --- |
+| `CONFIRMATION_TIMEOUT` | 待确认到期，系统自动完成 | 提交人 + 最后负责人 | `CONFIRMATION_TIMEOUT:{ticketId}:{endedAt毫秒}` |
+| `SUPPLEMENT_TIMEOUT` | 待补充到期，系统自动关闭 | 提交人 + 最后负责人 | `SUPPLEMENT_TIMEOUT:{ticketId}:{endedAt毫秒}` |
+| `CONFIRMATION_DUE_SOON` | 确认期限进入提前量窗口 | 提交人 | `CONFIRMATION_DUE_SOON:{ticketId}:{actionDeadlineAt毫秒}` |
+| `SUPPLEMENT_DUE_SOON` | 补充期限进入提前量窗口 | 提交人 | `SUPPLEMENT_DUE_SOON:{ticketId}:{actionDeadlineAt毫秒}` |
+| `CANCEL_REQUEST_DUE_SOON` | 撤销请求期限进入提前量窗口 | 当前负责人 | `CANCEL_REQUEST_DUE_SOON:{ticketId}:{cancelRequestDeadlineAt毫秒}` |
+| 原有 5 类（撤销请求 / 批准 / 拒绝 / 补充请求 / 提交解决） | 业务动作自身 | 动作对象 | **NULL**（不去重，每次都发） |
+
+两类键的语义差别是刻意的：**事件类**用 `ended_at`——它在条件更新的同一条语句里写入，是这次事件在库里唯一的身份；**期限类**用期限本身——同一个期限只提醒一次，而**期限被改写（重新发起补充请求、重新发起撤销请求）会产生新键、允许再提醒一次**，这正是"改了期限就该重新提醒"的业务语义。
+
+`dedup_key` 可空，普通业务通知传 NULL。MySQL 的唯一索引允许任意多个 NULL 互不冲突，所以**同一条索引同时服务了"普通通知不限条数"与"提醒每个期限只一条"两种语义**，不需要第二个索引或第二张表。
+
+命中重复键**不是错误**：不抛异常、不返回 409、不影响业务动作，等于静默跳过。这与工单动作"条件更新 0 行即静默跳过"是同一套口径。
+
+### 为什么这样设计
+
+- **为什么不用 `INSERT IGNORE`**：它把所有"可忽略的错误"一起吞掉——重复键、数据截断、部分模式下的约束违反。故障会从"当场报错"变成"消息少了一条且没人知道"。`ON DUPLICATE KEY UPDATE id = id` 只忽略一件事：重复键。
+- **为什么不能看受影响行数判断"插进去了"**：MySQL Connector/J 默认 `useAffectedRows=false`，即协议层开启 `CLIENT_FOUND_ROWS`——重复键时返回的**同样是 1**。所以 `if (insertIfAbsent(...) != 1) throw ...` 是必然误判的写法；幂等只能由唯一索引保证，调用方只关心"有没有抛异常"。这一点是本项目实测确认的协议层行为，不是推测。
+- **为什么不在应用层"先查再插"**：查与插之间仍需要唯一索引兜底，否则并发下照样重复；既然兜底一定存在，多一次往返只会多一处竞态。
+- **提醒正文只写相对剩余时间**：正文 = `期限还剩约 N 小时；{期限届满的后果}`，`N` 在发布那一刻用 `deadline − now` **向下取整**算出（不足 1 小时按分钟，不足 1 分钟写「还剩不到 1 分钟」）。不写绝对时刻——把某个时区的时刻写进文本，对别的时区的收件人就是错的，绝对时刻交给前端按浏览器时区渲染；向下取整也是刻意的，向上取整会让收件人以为自己还有时间。
+
+### 边界与陷阱（这条最容易被忽略）
+
+**未读清理会释放唯一键。** 本项目 2026-10-16 起，未读通知在创建满 3 天后会被清理任务删除（此前口径是"未读永不清理"，见迁移 `V11` 头部说明）。若一条提醒被删时它的期限**还没到**，下一轮扫描会补发一条同键提醒——这不是重复发布，而是旧的那条已经不存在了。
+
+守住它只需要一条不等式：
+
+```
+提醒创建于期限前 lead，删除于创建后 unreadRetention
+删除时刻 = 期限 − lead + unreadRetention
+lead ≤ unreadRetention  ⇒  删除时刻 ≥ 期限  ⇒  期限内不会被删、不会补发
+```
+
+默认口径（`lead = 1d`、`unreadRetention = 3d`）满足它，且余量有 2 天。**把 `flowdesk.notification.unread-retention` 调到比 `flowdesk.ticket.reminder-lead-time` 更小，就会看到窗口内的提醒被删掉后立刻补发**——这是配置层面的坑，两个配置项相距很远（一个在 `flowdesk.notification`、一个在 `flowdesk.ticket`），所以两边的注释里都写了这条约束。
+
+另一条陷阱：**键里必须带够区分度**。"类别 + 工单"不够——同一张工单的确认期限与补充期限是两次不同的等待；
+
+**撤销请求的窗口只有提醒、没有事件。** 请求到期即失效（批准 / 拒绝 / 撤回三条路一起关闭）**没有任何系统动作**：不写终态、不自动处置、也没有对应的超时任务，所以负责人收到的提醒是这段时间里唯一的一条消息；错过之后不会补发「已失效」通知，只会在详情页看到请求变成「已过期」。重新发起会产生新的期限、新的键，于是允许再提醒一次——这正是「提醒跟着期限走」的好处。"类别 + 工单 + 期限/结束时刻"才够。
+
+### 后续实现与测试重点
+
+- **未验证（步 10 的测试重点）**：同一个 `(recipient_id, dedup_key)` 连发两次，库里只有一条且第二次不抛异常；`dedup_key = NULL` 的两条普通通知都能插入（验证唯一索引对多 NULL 的行为）；提交人＝最后负责人时只留一条。
+- **未验证**：`lead ≤ unreadRetention` 的默认配置下，提醒在期限内不被清理任务删除；把 `unread-retention` 调小后确实出现"删除即补发"（这条用例的价值是**证明结论而不是证明代码**）。
+- **未实现**：提醒的回收（工单被处置后删除已发出的提醒）。事件类通知永不回收——它记录的是已经发生的事实。
+
+### 简历或面试表达参考
+
+"站内信去重我没在应用层写'先查再插'，而是让数据库的唯一索引做唯一裁判：`(recipient_id, dedup_key)` 上一条唯一索引，发布语句是 `INSERT ... ON DUPLICATE KEY UPDATE id = id`，命中重复就静默跳过，不发错、不影响业务动作。这里有两个反直觉的细节：一是不能用 `INSERT IGNORE`，它会把重复键之外的其它可忽略错误一起吃进去，故障就从报错变成'消息少了一条'；二是不能拿受影响行数判断有没有插进去——Connector/J 默认 `useAffectedRows=false`，协议层开了 `CLIENT_FOUND_ROWS`，重复键时返回的也是 1。键本身分两类：超时事件用 `类别:工单:结束时刻`，到期前提醒用 `类别:工单:期限`——后者意味着'期限被改写就重新提醒一次'，这是业务上想要的语义。最后还有一条我特意验证过的不变式：未读通知 3 天后会被清理，而清理会释放唯一键，所以提醒的提前量必须不大于未读保留期，否则会出现'删掉之后马上补发'；默认 1 天提前量对 3 天保留期，余量两天。"
+
+## HL-020 「冲突即静默跳过」的三种写法取舍：为什么是 `ON DUPLICATE KEY UPDATE id = id`（2026-10-16）
+
+### 当前状态
+
+**代码已并入 `main`（2026-10-16）**（`NotificationMapper.insertIfAbsent`，分支 `flow-desk/ticket-timeout-tasks`），**尚无对应测试**。条目性质：这是 HL-019 去重设计里最容易被含糊过去的一个实现决策——**"静默跳过"到底用哪一条 SQL**。HL-019 讲的是"由谁做裁判"（唯一索引），本条只讲"裁判判负时那条语句怎么写"。
+
+### 语句本身在做什么
+
+```sql
+INSERT INTO notification (...)
+VALUES (...)
+ON DUPLICATE KEY UPDATE id = id
+```
+
+拆成两半看：
+
+- **前半段**是普通插入，`read_at` 显式写 `NULL`（未读）。
+- **后半段**只在**命中唯一键或主键冲突**时才执行。`id = id` 是"把 `id` 赋给它自己"，即**一个不做任何修改的 UPDATE**。
+- 净效果：冲突时既不报错、也不改数据，语句正常返回。这就是"静默跳过"。
+
+能命中这条冲突的键是 `uk_notification_recipient_dedup (recipient_id, dedup_key)`。**MySQL 的唯一索引允许多个 `NULL` 互不冲突**，所以普通业务通知传 `dedup_key = NULL` 时唯一键根本不生效，每次都真插入——同一条索引同时服务"普通通知不限条数"和"提醒每期限只一条"两种语义（见 HL-019）。
+
+### 三种常见写法的差别
+
+| 写法 | 冲突时的行为 | 数据错误（截断 / 非空违反 / 类型不符） | 返回值 | 结论 |
+| --- | --- | --- | --- | --- |
+| `ON DUPLICATE KEY UPDATE id = id` | 静默跳过，不改任何列 | **照常抛异常** | 插入 1 / 冲突 **0**（见下方陷阱） | **本项目采用**：只忽略重复键 |
+| `INSERT IGNORE` | 静默跳过 | **一起吞掉**，变成"少了一条且没人知道" | 跳过 0 | 拒绝：屏蔽范围过宽 |
+| `ON DUPLICATE KEY UPDATE read_at = NULL` | 命中即**重置为未读** | 照常抛异常 | 通常 1 / 2 | 语义不对：会把用户读过的通知翻回未读 |
+
+三条的分野其实只有一个问题：**"忽略"的边界划在哪里**。
+
+- `id = id` 的边界最窄，就是"这一次唯一键冲突"，其余错误一律照常暴露；
+- `INSERT IGNORE` 的边界最宽，MySQL 会把所有"可忽略的错误"一起放过，故障从"当场报错"变成"消息静默少一条"；
+- 第三种不是错，而是**答非所问**——它选择了"覆盖"这种幂等语义，而本项目要的是"已存在就不动"。
+
+### 为什么选当前写法
+
+1. **唯一键冲突在这个业务里不是异常，是预期路径**。定时任务每 5 分钟一轮，一张工单的期限在提前量窗口内会被连续多轮选中；停机恢复后窗口内积压的工单会在同一轮里全部捞出。冲突是常态，报错才是事故。
+2. **"忽略"的范围必须可控**。生产上最怕的不是报错，是"以为发出去了其实没发"。`INSERT IGNORE` 会让列宽截断、非空违反这类真实缺陷一起消音，把定位成本从"看堆栈"抬到"比对两条消息"。
+3. **不引入应用层竞态**。不在应用层写"先查再插"：查与插之间照样需要唯一索引兜底，既然兜底一定存在，多一次往返只会多一处竞态窗口。
+4. **与既有口径一致**。工单动作的"条件更新命中 0 行即静默跳过"（超时任务批的已定口径第七条）就是这样：**没有调用方需要被告知，冲突就说明这条不需要它处理**。通知的重复键跳过用的是同一套话术。
+
+### 陷阱：这条语句的返回值不能用来判断"是否真的插入"
+
+**MySQL Connector/J 默认 `useAffectedRows=false`，即协议层开启 `CLIENT_FOUND_ROWS`——重复键时返回的受影响行数是 1，不是 0。**
+
+后果很具体：项目里既有的发布路径写的是
+
+```java
+if (notificationMapper.insert(notification) != 1) {
+    throw new IllegalStateException("站内信写入失败");
+}
+```
+
+如果照抄这个判等去调用 `insertIfAbsent`，**重复键会被判成"插入成功"**（恰好蒙对），而真正该担心的场景——比如某天驱动配置变成 `useAffectedRows=true`——同一个 `== 1` 就会把**正常的去重跳过判成写库失败**，直接抛异常、把整条超时处置事务带崩。
+
+因此 `insertIfAbsent` 的契约是：**调用方只看有没有抛异常，不看返回值**。这条约束写在 `NotificationMapper.insertIfAbsent` 的 Javadoc 里，与本条一并保留。
+
+### 后续验证重点
+
+- 同一个 `(recipient_id, dedup_key)` 连发两次：库里只有一条、第二次不抛异常（**断言点放在"不抛异常"和"库里一条"，不放返回值**）。
+- `dedup_key` 为 `NULL` 的两条普通通知都能插入——验证唯一索引对多 `NULL` 的行为，同时证明"普通通知"这条路径没有被静默吃掉。
+- 这条 SQL 只在**调用方确认 `dedup_key` 非空**时才走；`dedup_key` 为空时唯一键不生效，语句退化成普通插入。
+
+### 简历或面试表达参考
+
+"通知去重的'冲突即跳过'我选的是 `INSERT ... ON DUPLICATE KEY UPDATE id = id`，而不是 `INSERT IGNORE`。理由只有一个：我要忽略的**只有重复键这一件事**。`INSERT IGNORE` 会把重复键之外的其它可忽略错误一起吞掉——列宽截断、非空违反这些真缺陷会从'当场报错'变成'消息静默少一条'，排查成本完全不同。`id = id` 是个故意的空 UPDATE，命中冲突时既不改数据也不报错，范围窄到刚好。还有一个坑我特意写进了方法契约：**这条语句的返回值不能用来判断插没插进去**——Connector/J 默认 `useAffectedRows=false`，协议层开了 `CLIENT_FOUND_ROWS`，重复键时返回的受影响行数也是 1，照抄项目里 `if (insert(...) != 1) throw` 的写法，一旦驱动配置反转就会把正常的去重跳过判成写库失败、把整条处置事务带崩。所以 `insertIfAbsent` 的契约是'调用方只看有没有抛异常'。"
 
 
