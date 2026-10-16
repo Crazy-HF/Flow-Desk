@@ -6,6 +6,7 @@
 - **合并冲突 4 处，均按「两侧内容都保留」解决**：`PROJECT_STATUS.md`（站内信段按日期插在 2026-10-14 附件完善段之前）、`README.md`（保留 main 的「附件已完善」与 2026-10-15 修复批条目，并把「完整版未实现」清单与推进顺序改为「站内信已交付、只剩两个超时自动任务」）、`docs/implementation-plan.md`（main 新增的附件完善条目与其后的系统管理条目原样保留，站内信进展并入「自动化」条目）、`frontend/src/styles/main.css`（附件样式段与站内信样式段并存，文件 = main 版本 + 站内信段追加在末尾）。
 - **合并后验证（本轮实跑，2026-10-16）**：`.\mvnw.cmd -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → surefire **1219** + failsafe **185**、`Failures 0 / Errors 0`、`BUILD SUCCESS`（11 分 13 秒；其中 `DatabaseMigrationIT` 5/5 断言空库迁到 **V10** 且外键总数 25、`NotificationServiceIT` 6/6、`TicketNotificationPublishIT` 3/3）；前端（`D:\pnpm\pnpm.cmd`）：`typecheck` / `lint`（含 stylelint）/ `build` 退出码 **0**，`test:unit --run --maxWorkers=1` → **28 套件 260 项全绿**。
 - **未跑（不视为已通过）**：前端全量 E2E、渲染截图自查、合并后的 8092 真实栈验收脚本。既有证据 `docs/acceptance/2026-10-14-notification-channel.json`（54/54、退出码 0）是**合并前功能面**的记录，不代替合并后的复跑。
+- **CI（推送后在 GitHub Actions 实跑）**：run [#59](https://github.com/Crazy-HF/Flow-Desk/actions/runs/38833314681)（合并提交 `95e8f71`）与 run [#60](https://github.com/Crazy-HF/Flow-Desk/actions/runs/38833387426)（本条交接记录）三个 job **全部 `success`**——`frontend-verify`（lint / typecheck / 单测 / build）、`backend-verify`（全量 `./mvnw --batch-mode verify`）、`core-e2e`（compose 起 mysql/redis + demo profile 后端 + 全量 Playwright，无跳过条件，即真跑通）。这补上了本机未跑的前端全量 E2E。
 - **演示库与端口**：本轮合并后验证全部走 Testcontainers 与前端构建/单测，**未启动任何后端**，8081 / 8092 全程未被触碰。
 - **下一步**：两个超时自动任务（待确认超时自动完成、待补充超时自动关闭）与「到期前提醒」（`dedup_key` 已预留）——并行工作树 `D:\Idea\item\flow-Desk` 的分支 `flow-desk/ticket-timeout-tasks` 已在推进该批。
 
