@@ -42,7 +42,7 @@ class DatabaseMigrationIT {
     private static final Set<String> EXPECTED_TABLES = Set.of(
             "iam_user", "iam_role", "iam_permission", "iam_user_role", "iam_role_permission",
             "ticket_category", "ticket", "ticket_record", "attachment", "ticket_attachment",
-            "ticket_relation", "ticket_participant", "ticket_daily_sequence");
+            "ticket_relation", "ticket_participant", "ticket_daily_sequence", "notification");
 
     private static final Set<String> EXPECTED_INDEXES = Set.of(
             "uk_iam_user_username", "uk_iam_role_code", "uk_iam_permission_code",
@@ -56,7 +56,9 @@ class DatabaseMigrationIT {
             "idx_ticket_status_deadline", "idx_ticket_category_status",
             "idx_ticket_assignee_status_cancel_deadline",
             "idx_ticket_record_actor_created", "idx_ticket_attachment_record",
-            "idx_ticket_relation_target_type_source", "idx_ticket_participant_user_ticket");
+            "idx_ticket_relation_target_type_source", "idx_ticket_participant_user_ticket",
+            "uk_notification_recipient_dedup", "idx_notification_recipient_read",
+            "idx_notification_read_at");
 
     /**
      * 记录类型白名单的完整基线：V1 的 15 个 + V7 追加的 4 个 + V8 追加的 1 个。
@@ -98,7 +100,7 @@ class DatabaseMigrationIT {
         var history = jdbc.queryForList(
                 "SELECT version, success FROM flyway_schema_history ORDER BY installed_rank");
         assertThat(history).extracting(row -> String.valueOf(row.get("version")))
-                .containsExactly("1", "2", "4", "5", "6", "7", "8", "9");
+                .containsExactly("1", "2", "4", "5", "6", "7", "8", "9", "10");
         assertThat(history).allSatisfy(row ->
                 assertThat(row.get("success")).isEqualTo(Boolean.TRUE));
 
@@ -114,7 +116,7 @@ class DatabaseMigrationIT {
         var foreignKeys = jdbc.queryForList(
                 "SELECT constraint_name, delete_rule FROM information_schema.referential_constraints "
                         + "WHERE constraint_schema = DATABASE()");
-        assertThat(foreignKeys).hasSize(23);
+        assertThat(foreignKeys).hasSize(25);
         assertThat(foreignKeys).allSatisfy(row ->
                 assertThat(row.get("delete_rule")).isEqualTo("NO ACTION"));
 

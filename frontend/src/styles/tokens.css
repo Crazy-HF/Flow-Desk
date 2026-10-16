@@ -134,6 +134,7 @@
   --fd-sidebar-drawer-width: min(20rem, 88vw); /* 窄屏抽屉宽度 */
   --fd-shell-header-height: 3.25rem; /* 52px  应用壳顶栏：36px 控件 + 上下各 8px */
   --fd-shell-search-width: 11rem; /* 176px 顶栏搜索位：图标 + 两字标签 + 两侧留白 */
+  --fd-notification-popover-width: 22rem; /* 352px 顶栏铃铛气泡：标题一行、元信息一行仍能换行 */
   --fd-auth-card-max: 26rem; /* 登录等居中卡片宽度 */
   --fd-auth-shell-max: 62rem; /* 双栏登录页总宽度 */
   --fd-auth-form-max: 24rem; /* 登录表单阅读与操作宽度 */

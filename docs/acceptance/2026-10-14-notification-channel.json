@@ -1,0 +1,1352 @@
+{
+    "_note":  "本文件由 scripts/notification-channel-acceptance.ps1 写出（无 BOM 的 UTF-8）。验收范围：完整版「站内信（应用内通知通道）」（docs/api-design.md 7.7）——四个本人范围端点的未认证 401、发布语义（5 类动作与工单同事务）、跨用户不可见、未读计数一致性、标记已读的幂等与归属隔离 404、全部已读与参数校验 400，以及「claim 等本批不发布的动作不发通知」的反向断言；库层核对通知行 category / recipient_id / read_at 与 ck_notification_category 约束。只记录状态码、业务码、traceId、断言结论与 SQL；不含口令、密钥与 accessToken，也不含机器绝对路径。",
+    "stage":  "完整版：站内信（应用内通知通道）真实栈验收",
+    "slice":  "notification-channel",
+    "date":  "2026-10-14",
+    "result":  "PASS",
+    "invocation":  "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\notification-channel-acceptance.ps1 -BaseUrl http://127.0.0.1:8092",
+    "script":  {
+                   "path":  "scripts/notification-channel-acceptance.ps1",
+                   "lines":  1295,
+                   "invocation":  "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\notification-channel-acceptance.ps1 -BaseUrl http://127.0.0.1:8092",
+                   "powershellVersion":  "5.1.22000.2538",
+                   "exitCode":  0,
+                   "startedAt":  "2026-10-14T17:25:33",
+                   "finishedAt":  "2026-10-14T17:25:51",
+                   "durationSeconds":  18,
+                   "baseUrl":  "http://127.0.0.1:8092",
+                   "baseUrlSource":  "param -BaseUrl / 环境变量 FLOWDESK_BASE_URL / 缺省 http://127.0.0.1:8081（PowerShell 5.1 没有 ??，用 param 默认值 + 兜底实现）",
+                   "evidencePath":  "docs/acceptance/2026-10-14-notification-channel.json"
+               },
+    "target":  {
+                   "baseUrl":  "http://127.0.0.1:8092",
+                   "dbContainer":  "flowdesk-mysql-1",
+                   "database":  "flowdesk",
+                   "originHeader":  "http://127.0.0.1:5173",
+                   "accounts":  [
+                                    "employee",
+                                    "it"
+                                ],
+                   "endpointsUnderTest":  [
+                                              "GET  /fd/v1/notifications（page/size/unreadOnly，id 倒序）",
+                                              "GET  /fd/v1/notifications/unread-count",
+                                              "POST /fd/v1/notifications/{notificationId}/read（幂等；他人或不存在统一 404）",
+                                              "POST /fd/v1/notifications/actions/read-all（幂等）"
+                                          ],
+                   "publishEvents":  [
+                                         "request-supplement → 提交人 SUPPLEMENT_REQUESTED",
+                                         "submit-resolution  → 提交人 RESOLUTION_SUBMITTED",
+                                         "request-cancel     → 当前负责人 CANCEL_REQUESTED",
+                                         "approve-cancel     → 提交人 CANCEL_APPROVED",
+                                         "reject-cancel      → 提交人 CANCEL_REJECTED"
+                                     ],
+                   "nonPublishingActionsProbed":  [
+                                                      "claim（+ withdraw-supplement-request 作为回退到处理中的路径）"
+                                                  ],
+                   "credentialsPrinted":  false,
+                   "credentialsInEvidence":  false
+               },
+    "preflight":  {
+                      "baseUrl":  "http://127.0.0.1:8092",
+                      "dbAvailable":  true,
+                      "demoFingerprintAt":  "2026-10-14T17:25:41",
+                      "demoCountsBefore":  [
+                                               0,
+                                               0,
+                                               0,
+                                               0,
+                                               6,
+                                               8
+                                           ],
+                      "categoryId":  1,
+                      "employeeUserId":  1,
+                      "itUserId":  2,
+                      "unknownNotificationId":  999999999
+                  },
+    "notificationFacts":  {
+                              "mainTicket":  "FD-20261014-010",
+                              "supplementNotification":  "id=19 category=SUPPLEMENT_REQUESTED",
+                              "resolutionNotification":  "id=20 category=RESOLUTION_SUBMITTED",
+                              "cancelRequestedToIt":  "id=21 category=CANCEL_REQUESTED",
+                              "rejectedToEmployee":  "id=22 category=CANCEL_REJECTED",
+                              "employeeUnreadAfterSupp":  1,
+                              "employeeUnreadAfterReject":  3
+                          },
+    "readSemantics":  {
+                          "targetNotificationId":  19,
+                          "unreadBeforeRead":  4,
+                          "unreadAfterRead":  3,
+                          "unreadAfterReadAll":  0,
+                          "unknownIdProbe":  999999999,
+                          "idempotentMarkReadStatus":  200,
+                          "idempotentReadAllStatus":  200
+                      },
+    "tickets":  {
+                    "main":  "FD-20261014-010",
+                    "approve":  "FD-20261014-011",
+                    "reverse":  "FD-20261014-012"
+                },
+    "fingerprints":  {
+                         "before":  {
+                                        "at":  "2026-10-14T17:25:41",
+                                        "notifications":  0,
+                                        "tickets":  0,
+                                        "records":  0,
+                                        "participants":  0,
+                                        "users":  6,
+                                        "userRoles":  8,
+                                        "ticketRows":  "-",
+                                        "notificationRows":  "-",
+                                        "readOk":  true
+                                    },
+                         "after":  {
+                                       "at":  "2026-10-14T17:25:51",
+                                       "notifications":  0,
+                                       "tickets":  0,
+                                       "records":  0,
+                                       "participants":  0,
+                                       "users":  6,
+                                       "userRoles":  8,
+                                       "ticketRows":  "-",
+                                       "notificationRows":  "-",
+                                       "readOk":  true
+                                   }
+                     },
+    "keyActions":  [
+                       {
+                           "order":  1,
+                           "step":  "c1.create.main",
+                           "actor":  "employee",
+                           "action":  "create.main",
+                           "method":  "POST",
+                           "path":  "/fd/v1/tickets",
+                           "ticketNo":  "FD-20261014-010",
+                           "httpStatus":  201,
+                           "traceId":  "662c7435-2725-4576-b245-0232be86bc25"
+                       },
+                       {
+                           "order":  2,
+                           "step":  "c1.claim.main",
+                           "actor":  "it",
+                           "action":  "claim",
+                           "method":  "POST",
+                           "path":  "/fd/v1/tickets/FD-20261014-010/actions/claim",
+                           "ticketNo":  "FD-20261014-010",
+                           "httpStatus":  200,
+                           "traceId":  "1b21da56-c54c-4903-9862-93066c5fbfcf"
+                       },
+                       {
+                           "order":  3,
+                           "step":  "c2.requestSupplement",
+                           "actor":  "it",
+                           "action":  "request-supplement",
+                           "method":  "POST",
+                           "path":  "/fd/v1/tickets/FD-20261014-010/actions/request-supplement",
+                           "ticketNo":  "FD-20261014-010",
+                           "httpStatus":  200,
+                           "traceId":  "41d0e69e-39bb-4980-8199-6af5b3ffc5ce"
+                       },
+                       {
+                           "order":  4,
+                           "step":  "c3.withdrawSupplement",
+                           "actor":  "it",
+                           "action":  "withdraw-supplement-request",
+                           "method":  "POST",
+                           "path":  "/fd/v1/tickets/FD-20261014-010/actions/withdraw-supplement-request",
+                           "ticketNo":  "FD-20261014-010",
+                           "httpStatus":  200,
+                           "traceId":  "d44f5924-38a9-40cb-aeb0-970f8a65f69a"
+                       },
+                       {
+                           "order":  5,
+                           "step":  "c4.submitResolution",
+                           "actor":  "it",
+                           "action":  "submit-resolution",
+                           "method":  "POST",
+                           "path":  "/fd/v1/tickets/FD-20261014-010/actions/submit-resolution",
+                           "ticketNo":  "FD-20261014-010",
+                           "httpStatus":  200,
+                           "traceId":  "bada4663-cd9c-4c55-ad95-4cfa0094587f"
+                       },
+                       {
+                           "order":  6,
+                           "step":  "c5.requestCancel",
+                           "actor":  "employee",
+                           "action":  "request-cancel",
+                           "method":  "POST",
+                           "path":  "/fd/v1/tickets/FD-20261014-010/actions/request-cancel",
+                           "ticketNo":  "FD-20261014-010",
+                           "httpStatus":  200,
+                           "traceId":  "849d5077-bc6a-4baa-87e1-c898de6c5767"
+                       },
+                       {
+                           "order":  7,
+                           "step":  "c6.rejectCancel",
+                           "actor":  "it",
+                           "action":  "reject-cancel",
+                           "method":  "POST",
+                           "path":  "/fd/v1/tickets/FD-20261014-010/actions/reject-cancel",
+                           "ticketNo":  "FD-20261014-010",
+                           "httpStatus":  200,
+                           "traceId":  "ecaa3638-0d07-4f66-abc5-ab60465b7dec"
+                       },
+                       {
+                           "order":  8,
+                           "step":  "d1.create.approve",
+                           "actor":  "employee",
+                           "action":  "create.approve",
+                           "method":  "POST",
+                           "path":  "/fd/v1/tickets",
+                           "ticketNo":  "FD-20261014-011",
+                           "httpStatus":  201,
+                           "traceId":  "12314ee0-694f-4ec6-b5a9-f920539ab685"
+                       },
+                       {
+                           "order":  9,
+                           "step":  "d2.claim.approve",
+                           "actor":  "it",
+                           "action":  "claim",
+                           "method":  "POST",
+                           "path":  "/fd/v1/tickets/FD-20261014-011/actions/claim",
+                           "ticketNo":  "FD-20261014-011",
+                           "httpStatus":  200,
+                           "traceId":  "020e3c3f-3a8d-4828-9e6e-cc8407d78507"
+                       },
+                       {
+                           "order":  10,
+                           "step":  "d3.requestCancel",
+                           "actor":  "employee",
+                           "action":  "request-cancel",
+                           "method":  "POST",
+                           "path":  "/fd/v1/tickets/FD-20261014-011/actions/request-cancel",
+                           "ticketNo":  "FD-20261014-011",
+                           "httpStatus":  200,
+                           "traceId":  "2cb6e310-2e0e-41cb-97e8-f1b23a543780"
+                       },
+                       {
+                           "order":  11,
+                           "step":  "d4.approveCancel",
+                           "actor":  "it",
+                           "action":  "approve-cancel",
+                           "method":  "POST",
+                           "path":  "/fd/v1/tickets/FD-20261014-011/actions/approve-cancel",
+                           "ticketNo":  "FD-20261014-011",
+                           "httpStatus":  200,
+                           "traceId":  "30fb3721-01db-4cec-9534-4225b499a4c1"
+                       },
+                       {
+                           "order":  12,
+                           "step":  "r3.claim.reverse",
+                           "actor":  "it",
+                           "action":  "claim",
+                           "method":  "POST",
+                           "path":  "/fd/v1/tickets/FD-20261014-012/actions/claim",
+                           "ticketNo":  "FD-20261014-012",
+                           "httpStatus":  200,
+                           "traceId":  "7887f640-71a3-4856-8227-aee384413ff6"
+                       }
+                   ],
+    "dbChecks":  [
+                     {
+                         "name":  "r4.db.claim.noNotificationRow",
+                         "sql":  "SELECT COUNT(*) FROM notification WHERE ticket_no = \u0027FD-20261014-012\u0027;",
+                         "raw":  "0",
+                         "expected":  "0",
+                         "passed":  true
+                     },
+                     {
+                         "name":  "j1.db.notification.categoryConstraint",
+                         "sql":  "SELECT COUNT(*) FROM information_schema.table_constraints WHERE constraint_schema = \u0027flowdesk\u0027 AND table_name = \u0027notification\u0027 AND constraint_name = \u0027ck_notification_category\u0027 AND constraint_type = \u0027CHECK\u0027;",
+                         "raw":  "1",
+                         "expected":  "1（ck_notification_category 存在）",
+                         "passed":  true
+                     },
+                     {
+                         "name":  "j2.db.notification.supplementRowMatches",
+                         "sql":  "SELECT category, recipient_id, read_at FROM notification WHERE ticket_no = \u0027FD-20261014-010\u0027 AND category = \u0027SUPPLEMENT_REQUESTED\u0027 ORDER BY id DESC LIMIT 1;",
+                         "raw":  "SUPPLEMENT_REQUESTED\t1\t2026-10-14 09:25:44.146",
+                         "expected":  "SUPPLEMENT_REQUESTED / recipient=1 / read_at 非空（已在 g 组标记已读）",
+                         "passed":  true
+                     },
+                     {
+                         "name":  "j2.db.notification.resolutionRowUnread",
+                         "sql":  "SELECT category, recipient_id, read_at FROM notification WHERE ticket_no = \u0027FD-20261014-010\u0027 AND category = \u0027RESOLUTION_SUBMITTED\u0027 ORDER BY id DESC LIMIT 1;",
+                         "raw":  "RESOLUTION_SUBMITTED\t1\tNULL",
+                         "expected":  "RESOLUTION_SUBMITTED / recipient=1 / read_at 为空（未读）",
+                         "passed":  true
+                     },
+                     {
+                         "name":  "j3.db.notification.cancelRequestedRecipientIsAssignee",
+                         "sql":  "SELECT category, recipient_id FROM notification WHERE ticket_no = \u0027FD-20261014-010\u0027 AND category = \u0027CANCEL_REQUESTED\u0027 ORDER BY id DESC LIMIT 1;",
+                         "raw":  "CANCEL_REQUESTED\t2",
+                         "expected":  "CANCEL_REQUESTED / recipient=2（当前负责人）",
+                         "passed":  true
+                     },
+                     {
+                         "name":  "k2.cleanup.noLeftoverTickets",
+                         "sql":  "SELECT COUNT(*) FROM ticket WHERE title LIKE \u0027NC-ACC-20261014-172533-%\u0027;",
+                         "raw":  "0",
+                         "expected":  "0",
+                         "passed":  true
+                     },
+                     {
+                         "name":  "k3.cleanup.noLeftoverNotifications",
+                         "sql":  "SELECT COUNT(*) FROM notification WHERE ticket_no LIKE \u0027NC-ACC-20261014-172533-%\u0027;",
+                         "raw":  "0",
+                         "expected":  "0",
+                         "passed":  true
+                     }
+                 ],
+    "assertions":  [
+                       {
+                           "name":  "b1.anon.list.401",
+                           "expected":  "401 + AUTH_REQUIRED",
+                           "actual":  "status=401 code=AUTH_REQUIRED",
+                           "why":  "列表只按当前登录用户过滤；匿名可读意味着任何人的收件箱都能被拉取",
+                           "httpStatus":  401,
+                           "traceId":  "0e3c4904-384d-451d-b518-87242afa18d1",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "b2.anon.unreadCount.401",
+                           "expected":  "401 + AUTH_REQUIRED",
+                           "actual":  "status=401 code=AUTH_REQUIRED",
+                           "why":  "未读数是收件人本人的聚合；匿名可读意味着身份与收件人绑定失守",
+                           "httpStatus":  401,
+                           "traceId":  "9efc0a5b-9e2d-4556-9216-a7b2447d443b",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "b3.anon.markRead.401",
+                           "expected":  "401 + AUTH_REQUIRED",
+                           "actual":  "status=401 code=AUTH_REQUIRED",
+                           "why":  "标记已读是写操作；匿名可写意味着可以替任何人改动收件箱状态",
+                           "httpStatus":  401,
+                           "traceId":  "2e3bc210-e28d-42fb-9034-b05634c70fe5",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "b4.anon.readAll.401",
+                           "expected":  "401 + AUTH_REQUIRED",
+                           "actual":  "status=401 code=AUTH_REQUIRED",
+                           "why":  "全部已读是收件人本人的清空动作；匿名可调用意味着可以静默清掉别人的未读",
+                           "httpStatus":  401,
+                           "traceId":  "23732a5c-8a67-4a82-8540-335e3f309f9c",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "login.employee.200",
+                           "expected":  "200",
+                           "actual":  "status=200 code=OK",
+                           "why":  "主链的提交人与收件人都是这个身份；登录失败说明演示账号口令与 .env/默认值不一致",
+                           "httpStatus":  200,
+                           "traceId":  "bd8850e5-ef67-46bb-a77d-1d596ce2c424",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "login.it.200",
+                           "expected":  "200",
+                           "actual":  "status=200 code=OK",
+                           "why":  "IT 是当前负责人一侧的收件人；登录失败则该侧断言无法进行",
+                           "httpStatus":  200,
+                           "traceId":  "97451e29-21b2-4297-935d-4f7427abfc08",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "categories.options.nonEmpty",
+                           "expected":  "200 且至少一个启用分类",
+                           "actual":  "status=200 count=4",
+                           "why":  "接口建单必须带 categoryId；没有启用分类就没法造出真实的载体工单",
+                           "httpStatus":  200,
+                           "traceId":  "3d051ed2-459c-417e-a0f3-bcc67f5b1797",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "preflight.db.available",
+                           "expected":  "1（.env 加载且 docker exec 可查库）",
+                           "actual":  "dbAvailable=True pingOk=True raw=[1]",
+                           "why":  "指纹、通知行直查与清理都依赖数据库直连；不可用时后面所有直查断言都失去意义",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "preflight.demoUserIds.available",
+                           "expected":  "演示库 employee / it 的 id 都可读",
+                           "actual":  "employeeId=1 itId=2",
+                           "why":  "通知行的 recipient_id 要与收件人一一核对；读不到 id 时归属断言无法判定",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "c1.create.main.201",
+                           "expected":  "201",
+                           "actual":  "status=201 code=OK body=[{\"code\":\"OK\",\"message\":\"操作成功\",\"data\":{\"ticketNo\":\"FD-20261014-010\",\"status\":\"PENDING\",\"version\":0,\"createdAt\":\"2026-10-14T09:25:41.522Z\"}}]",
+                           "why":  "主链的全部通知都挂在这张单上；建单失败后面没有可发布事件的载体",
+                           "httpStatus":  201,
+                           "traceId":  "662c7435-2725-4576-b245-0232be86bc25",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "c1.claim.main.200",
+                           "expected":  "200",
+                           "actual":  "status=200 code=OK",
+                           "why":  "request-supplement 要求本人是当前负责人；领取失败则后续 IT 动作都无法进行",
+                           "httpStatus":  200,
+                           "traceId":  "1b21da56-c54c-4903-9862-93066c5fbfcf",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "c2.requestSupplement.200",
+                           "expected":  "200",
+                           "actual":  "status=200 code=OK body=[{\"code\":\"OK\",\"message\":\"操作成功\",\"data\":{\"ticketNo\":\"FD-20261014-010\",\"status\":\"WAITING_FOR_REQUESTER\",\"assignee\":{\"id\":2,\"displayName\":\"IT 支持人员\"},\"actionDeadlineAt\":\"2026-10-21T09:25:41.786Z\",\"version\":…（共 243 字符）]",
+                           "why":  "这是第 1 类发布事件；失败则该 event 与通知无法核对",
+                           "httpStatus":  200,
+                           "traceId":  "41d0e69e-39bb-4980-8199-6af5b3ffc5ce",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "c2.employee.supplementFound",
+                           "expected":  "1 条：category=SUPPLEMENT_REQUESTED ticketNo=FD-20261014-010（收件人是本人=员工）",
+                           "actual":  "count=1 category=SUPPLEMENT_REQUESTED ticketNo=FD-20261014-010 id=19",
+                           "why":  "request-supplement 只通知提交人；命中且恰一条才说明收件人与 category 都对",
+                           "httpStatus":  200,
+                           "traceId":  "de5c284b-9d44-4bc5-9688-e787109c4047",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "c2.it.crossUserInvisible",
+                           "expected":  "0 条（发给员工的通知不出现在 IT 的收件箱里）",
+                           "actual":  "count=0",
+                           "why":  "通知只按收件人本人范围读写；跨用户可见意味着收件箱串号",
+                           "httpStatus":  200,
+                           "traceId":  "48ae48e3-0475-432b-887e-07ad94069ece",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "c2.employee.unreadConsistency",
+                           "expected":  "200 且 unread-count == 列表里 readAt 为空的条数",
+                           "actual":  "unreadCount=1 listUnread=1 countStatus=200 listStatus=200",
+                           "why":  "发布 SUPPLEMENT_REQUESTED 后员工未读计数与列表口径一致",
+                           "httpStatus":  200,
+                           "traceId":  "a3fd2769-3635-4404-8191-f5b1c399bd29",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "c3.withdrawSupplement.200",
+                           "expected":  "200",
+                           "actual":  "status=200 code=OK",
+                           "why":  "submit-resolution 只允许处理中；撤回补充请求是回到处理中的最轻路径（不发通知）",
+                           "httpStatus":  200,
+                           "traceId":  "d44f5924-38a9-40cb-aeb0-970f8a65f69a",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "c4.submitResolution.200",
+                           "expected":  "200",
+                           "actual":  "status=200 code=OK body=[{\"code\":\"OK\",\"message\":\"操作成功\",\"data\":{\"ticketNo\":\"FD-20261014-010\",\"status\":\"WAITING_FOR_CONFIRMATION\",\"assignee\":{\"id\":2,\"displayName\":\"IT 支持人员\"},\"actionDeadlineAt\":\"2026-10-21T09:25:42.245Z\",\"versio…（共 246 字符）]",
+                           "why":  "这是第 2 类发布事件",
+                           "httpStatus":  200,
+                           "traceId":  "bada4663-cd9c-4c55-ad95-4cfa0094587f",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "c4.employee.resolutionFound",
+                           "expected":  "1 条：category=RESOLUTION_SUBMITTED ticketNo=FD-20261014-010",
+                           "actual":  "count=1 category=RESOLUTION_SUBMITTED ticketNo=FD-20261014-010",
+                           "why":  "submit-resolution 只通知提交人",
+                           "httpStatus":  200,
+                           "traceId":  "497c17fd-0227-49d6-b150-75029c8b41a9",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "c5.requestCancel.200",
+                           "expected":  "200",
+                           "actual":  "status=200 code=OK body=[{\"code\":\"OK\",\"message\":\"操作成功\",\"data\":{\"ticketNo\":\"FD-20261014-010\",\"status\":\"WAITING_FOR_CONFIRMATION\",\"assignee\":{\"id\":2,\"displayName\":\"IT 支持人员\"},\"actionDeadlineAt\":\"2026-10-21T09:25:42.245Z\",\"versio…（共 246 字符）]",
+                           "why":  "这是第 3 类发布事件，且收件人是当前负责人而非提交人",
+                           "httpStatus":  200,
+                           "traceId":  "849d5077-bc6a-4baa-87e1-c898de6c5767",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "c5.it.cancelRequestedFound",
+                           "expected":  "1 条：category=CANCEL_REQUESTED ticketNo=FD-20261014-010（收件人=当前负责人 IT）",
+                           "actual":  "count=1 category=CANCEL_REQUESTED id=21",
+                           "why":  "request-cancel 的收件人是当前负责人；它出现在 IT 列表而不是员工列表才说明收件人正确",
+                           "httpStatus":  200,
+                           "traceId":  "e4a09b14-409f-47ad-9f94-d3dd43745231",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "c5.employee.cancelRequestedAbsent",
+                           "expected":  "0 条（CANCEL_REQUESTED 发给负责人，不发给提交人）",
+                           "actual":  "count=0（对比的是 c4 时点的员工列表）",
+                           "why":  "若提交人也收到同一事件，收件人判定就会失去区分度",
+                           "httpStatus":  200,
+                           "traceId":  "497c17fd-0227-49d6-b150-75029c8b41a9",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "c6.rejectCancel.200",
+                           "expected":  "200",
+                           "actual":  "status=200 code=OK body=[{\"code\":\"OK\",\"message\":\"操作成功\",\"data\":{\"ticketNo\":\"FD-20261014-010\",\"status\":\"WAITING_FOR_CONFIRMATION\",\"assignee\":{\"id\":2,\"displayName\":\"IT 支持人员\"},\"actionDeadlineAt\":\"2026-10-21T09:25:42.245Z\",\"versio…（共 246 字符）]",
+                           "why":  "这是第 4 类发布事件",
+                           "httpStatus":  200,
+                           "traceId":  "ecaa3638-0d07-4f66-abc5-ab60465b7dec",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "c6.employee.rejectedFound",
+                           "expected":  "1 条：category=CANCEL_REJECTED ticketNo=FD-20261014-010",
+                           "actual":  "count=1 category=CANCEL_REJECTED ticketNo=FD-20261014-010",
+                           "why":  "reject-cancel 只通知提交人",
+                           "httpStatus":  200,
+                           "traceId":  "85b7bd07-c48e-40e7-9463-c61fb3a13297",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "c6.employee.unreadConsistency",
+                           "expected":  "200 且 unread-count == 列表里 readAt 为空的条数",
+                           "actual":  "unreadCount=3 listUnread=3 countStatus=200 listStatus=200",
+                           "why":  "发布 RESOLUTION_SUBMITTED / CANCEL_REJECTED 后员工未读计数与列表口径一致",
+                           "httpStatus":  200,
+                           "traceId":  "4bb4aa73-cdb6-4422-a890-79f0451b5ea7",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "d1.create.approve.201",
+                           "expected":  "201",
+                           "actual":  "status=201 code=OK",
+                           "why":  "批准路径是第 5 类发布事件的唯一载体；建单失败则该格无法进行",
+                           "httpStatus":  201,
+                           "traceId":  "12314ee0-694f-4ec6-b5a9-f920539ab685",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "d2.claim.approve.200",
+                           "expected":  "200",
+                           "actual":  "status=200 code=OK",
+                           "why":  "request-cancel / approve-cancel 都要求工单有人负责；领取失败则后续无法进行",
+                           "httpStatus":  200,
+                           "traceId":  "020e3c3f-3a8d-4828-9e6e-cc8407d78507",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "d3.requestCancel.200",
+                           "expected":  "200",
+                           "actual":  "status=200 code=OK",
+                           "why":  "请求先写入工单，随后才有可批准的待决请求",
+                           "httpStatus":  200,
+                           "traceId":  "2cb6e310-2e0e-41cb-97e8-f1b23a543780",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "d4.approveCancel.200",
+                           "expected":  "200",
+                           "actual":  "status=200 code=OK body=[{\"code\":\"OK\",\"message\":\"操作成功\",\"data\":{\"ticketNo\":\"FD-20261014-011\",\"status\":\"CANCELED\",\"assignee\":{\"id\":2,\"displayName\":\"IT 支持人员\"},\"version\":3,\"actionTime\":\"2026-10-14T09:25:43.276Z\"}}]",
+                           "why":  "这是第 5 类发布事件，进入终态 CANCELED",
+                           "httpStatus":  200,
+                           "traceId":  "30fb3721-01db-4cec-9534-4225b499a4c1",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "d4.employee.approvedFound",
+                           "expected":  "1 条：category=CANCEL_APPROVED ticketNo=FD-20261014-011",
+                           "actual":  "count=1 category=CANCEL_APPROVED ticketNo=FD-20261014-011",
+                           "why":  "approve-cancel 只通知提交人",
+                           "httpStatus":  200,
+                           "traceId":  "21e99e9d-6f5a-4edd-bd8e-a808f1b50492",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "d5.unreadOnly.filter",
+                           "expected":  "200 且返回的每条 readAt 都为空（未读过滤生效）",
+                           "actual":  "status=200 count=4 allUnread=True",
+                           "why":  "unreadOnly 是列表契约的一部分；若混入已读条目，界面「只看未读」会给出错误结果",
+                           "httpStatus":  200,
+                           "traceId":  "4d542e39-8a46-4c3e-93b0-73d8756d1f89",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "r1.create.reverse.201",
+                           "expected":  "201",
+                           "actual":  "status=201 code=OK",
+                           "why":  "反向断言需要一个可领取的待受理工单",
+                           "httpStatus":  201,
+                           "traceId":  "72366768-6d81-4045-8661-a35d9c9c265d",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "r3.claim.reverse.200",
+                           "expected":  "200",
+                           "actual":  "status=200 code=OK",
+                           "why":  "只有领取成功，反向断言才有意义（动作确实执行了、但确实没发通知）",
+                           "httpStatus":  200,
+                           "traceId":  "7887f640-71a3-4856-8227-aee384413ff6",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "r4.claim.noNotification",
+                           "expected":  "IT 与员工未读数都与 claim 前完全相同（delta = 0）",
+                           "actual":  "itBefore=2 itAfter=2 employeeBefore=4 employeeAfter=4",
+                           "why":  "claim 不在本轮 5 类发布事件里；未读数变化说明后端把不该发的事件也发了",
+                           "httpStatus":  200,
+                           "traceId":  "7887f640-71a3-4856-8227-aee384413ff6",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "r4.db.claim.noNotificationRow",
+                           "expected":  "0",
+                           "actual":  "row=[0]",
+                           "why":  "claim 不落任何通知行（库层复核，防止计数差为零但库里有行）",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "g2.markRead.200",
+                           "expected":  "200",
+                           "actual":  "status=200 code=OK body=[{\"code\":\"OK\",\"message\":\"操作成功\"}]",
+                           "why":  "标记已读是收件人本人的写操作；200 才说明收件人归属判定通过",
+                           "httpStatus":  200,
+                           "traceId":  "14a19ab7-5dcc-4a60-aaf6-b4136e54fbf2",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "g3.markRead.decrementByOne",
+                           "expected":  "3（比标记前少 1）",
+                           "actual":  "before=4 after=3",
+                           "why":  "标记已读必须恰好减 1 条未读；减多减少都说明状态写错",
+                           "httpStatus":  200,
+                           "traceId":  "141b773f-e380-4854-8fa7-749ecee587b1",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "g3.markRead.readAtNotNull",
+                           "expected":  "该条（id=19）readAt 非空",
+                           "actual":  "found=1 readAt=2026-10-14T09:25:44.146",
+                           "why":  "已读的判据是 readAt 非空；未读列表与界面勾选都依赖它",
+                           "httpStatus":  200,
+                           "traceId":  "7157b99f-5bc7-43c8-a2c4-dca1879d6e91",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "g4.markRead.idempotent",
+                           "expected":  "200（幂等）",
+                           "actual":  "status=200 code=OK",
+                           "why":  "重复标记已读必须仍返回 200；非 200 或 404 会让界面重试逻辑失效",
+                           "httpStatus":  200,
+                           "traceId":  "4d34238a-1d12-40fe-bbe1-47942f51c08f",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "g5.markRead.byOtherToken.404",
+                           "expected":  "404 + NOTIFICATION_NOT_FOUND",
+                           "actual":  "status=404 code=NOTIFICATION_NOT_FOUND",
+                           "why":  "他人标记必须按不存在统一 404，不暴露该通知的存在性与归属",
+                           "httpStatus":  404,
+                           "traceId":  "d0b8fe89-6186-4208-a6d9-e8abed76f8ce",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "g6.markRead.unknownId.404",
+                           "expected":  "404 + NOTIFICATION_NOT_FOUND",
+                           "actual":  "status=404 code=NOTIFICATION_NOT_FOUND",
+                           "why":  "不存在的 id 与\"他人的通知\"必须同一种 404，不区别回显",
+                           "httpStatus":  404,
+                           "traceId":  "abaa63d5-91ab-49cd-8943-e2af49eaf4ff",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "j1.db.notification.categoryConstraint",
+                           "expected":  "1（ck_notification_category 存在）",
+                           "actual":  "row=[1]",
+                           "why":  "category 是固定枚举；约束缺席意味着可以写入契约外的类型",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "j2.db.notification.supplementRowMatches",
+                           "expected":  "SUPPLEMENT_REQUESTED / recipient=1 / read_at 非空（已在 g 组标记已读）",
+                           "actual":  "row=[SUPPLEMENT_REQUESTED\t1\t2026-10-14 09:25:44.146]",
+                           "why":  "库层核对 category 与 recipient_id 与 HTTP 结果一致，且 read_at 已被标记写入",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "j2.db.notification.resolutionRowUnread",
+                           "expected":  "RESOLUTION_SUBMITTED / recipient=1 / read_at 为空（未读）",
+                           "actual":  "row=[RESOLUTION_SUBMITTED\t1\tNULL]",
+                           "why":  "同一条 ticket_no 上两条不同 category 的行，read_at 必须各自独立；也验证 recipient 一致",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "j3.db.notification.cancelRequestedRecipientIsAssignee",
+                           "expected":  "CANCEL_REQUESTED / recipient=2（当前负责人）",
+                           "actual":  "row=[CANCEL_REQUESTED\t2]",
+                           "why":  "request-cancel 的收件人是当前负责人；这条 SQL 直接证明库层写的收件人是 IT 而不是提交人",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h1.readAll.200",
+                           "expected":  "200",
+                           "actual":  "status=200 code=OK body=[{\"code\":\"OK\",\"message\":\"操作成功\"}]",
+                           "why":  "全部已读是收件人本人的清空入口",
+                           "httpStatus":  200,
+                           "traceId":  "5ffed37e-540a-447d-831b-cfa6530552df",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h2.readAll.unreadZero",
+                           "expected":  "0",
+                           "actual":  "unreadCount=0",
+                           "why":  "全部已读后未读数必须归零；非零说明还有未读没被覆盖",
+                           "httpStatus":  200,
+                           "traceId":  "1a268876-d769-4093-adbc-1878fdfbea12",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "h3.readAll.idempotent",
+                           "expected":  "200（幂等）",
+                           "actual":  "status=200 code=OK",
+                           "why":  "对没有未读的调用方同样幂等成功；非 200 会让\"清空按钮\"在空箱时报错",
+                           "httpStatus":  200,
+                           "traceId":  "1002b310-5970-42dd-9253-767b2b9cfbfc",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "i1.pageZero.400",
+                           "expected":  "400 + VALIDATION_FAILED",
+                           "actual":  "status=400 code=VALIDATION_FAILED",
+                           "why":  "page 从 1 开始；放行 0 会让分页偏移出现负数",
+                           "httpStatus":  400,
+                           "traceId":  "e9980987-f020-438f-a335-5831d4547f48",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "i2.sizeOverflow.400",
+                           "expected":  "400 + VALIDATION_FAILED",
+                           "actual":  "status=400 code=VALIDATION_FAILED",
+                           "why":  "size 上限 100 照工单列表口径；放行会让单次拉取过大",
+                           "httpStatus":  400,
+                           "traceId":  "87730d30-4230-4bcf-ab2e-cd9870d9fdf6",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "i3.orderBy.400",
+                           "expected":  "400 + VALIDATION_FAILED",
+                           "actual":  "status=400 code=VALIDATION_FAILED",
+                           "why":  "排序固定为 id 倒序；接受 orderBy 会让排序到处漂移，破坏\"新通知在上\"的稳定预期",
+                           "httpStatus":  400,
+                           "traceId":  "61733619-4426-4bba-ae36-ba73a6c165c8",
+                           "passed":  true
+                       },
+                       {
+                           "name":  "k1.cleanup.sqlApplied",
+                           "expected":  "退出码 0",
+                           "actual":  "exitCode=0 stderr=[]",
+                           "why":  "本脚本创建的行必须由自己删干净（指纹对照的前提）",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "k2.cleanup.noLeftoverTickets",
+                           "expected":  "0",
+                           "actual":  "row=[0]",
+                           "why":  "自建工单必须全部删除",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "k3.cleanup.noLeftoverNotifications",
+                           "expected":  "0",
+                           "actual":  "row=[0]",
+                           "why":  "自建工单上的通知必须全部删除（先删通知再删工单，外键顺序才对）",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       },
+                       {
+                           "name":  "k4.fingerprint.unchanged",
+                           "expected":  "运行前与清理后逐项相同（6 项计数 + 通知/工单逐行指纹）",
+                           "actual":  "before(notifications=0 tickets=0) after(notifications=0 tickets=0) notificationsEqual=True ticketRowsEqual=True",
+                           "why":  "本脚本只允许动自己创建的行；指纹不同意味着动了运行前就存在的行——read-all 若命中了运行前就有的未读通知，也会在这里显形",
+                           "httpStatus":  null,
+                           "traceId":  null,
+                           "passed":  true
+                       }
+                   ],
+    "httpLog":  [
+                    {
+                        "step":  "b1.anon.list",
+                        "actor":  "anonymous",
+                        "note":  "无令牌读取通知列表",
+                        "method":  "Get",
+                        "path":  "/fd/v1/notifications?page=1\u0026size=20",
+                        "status":  401,
+                        "traceId":  "0e3c4904-384d-451d-b518-87242afa18d1",
+                        "requestTraceId":  "0e3c4904-384d-451d-b518-87242afa18d1",
+                        "detail":  "actor=anonymous；无令牌读取通知列表；contentType=application/json"
+                    },
+                    {
+                        "step":  "b2.anon.unreadCount",
+                        "actor":  "anonymous",
+                        "note":  "无令牌读取未读数",
+                        "method":  "Get",
+                        "path":  "/fd/v1/notifications/unread-count",
+                        "status":  401,
+                        "traceId":  "9efc0a5b-9e2d-4556-9216-a7b2447d443b",
+                        "requestTraceId":  "9efc0a5b-9e2d-4556-9216-a7b2447d443b",
+                        "detail":  "actor=anonymous；无令牌读取未读数；contentType=application/json"
+                    },
+                    {
+                        "step":  "b3.anon.markRead",
+                        "actor":  "anonymous",
+                        "note":  "无令牌标记已读",
+                        "method":  "Post",
+                        "path":  "/fd/v1/notifications/999999999/read",
+                        "status":  401,
+                        "traceId":  "2e3bc210-e28d-42fb-9034-b05634c70fe5",
+                        "requestTraceId":  "2e3bc210-e28d-42fb-9034-b05634c70fe5",
+                        "detail":  "actor=anonymous；无令牌标记已读；contentType=application/json"
+                    },
+                    {
+                        "step":  "b4.anon.readAll",
+                        "actor":  "anonymous",
+                        "note":  "无令牌全部标记已读",
+                        "method":  "Post",
+                        "path":  "/fd/v1/notifications/actions/read-all",
+                        "status":  401,
+                        "traceId":  "23732a5c-8a67-4a82-8540-335e3f309f9c",
+                        "requestTraceId":  "23732a5c-8a67-4a82-8540-335e3f309f9c",
+                        "detail":  "actor=anonymous；无令牌全部标记已读；contentType=application/json"
+                    },
+                    {
+                        "step":  "login.employee",
+                        "actor":  "employee",
+                        "note":  "演示员工登录",
+                        "method":  "Post",
+                        "path":  "/fd/v1/auth/login",
+                        "status":  200,
+                        "traceId":  "bd8850e5-ef67-46bb-a77d-1d596ce2c424",
+                        "requestTraceId":  "bd8850e5-ef67-46bb-a77d-1d596ce2c424",
+                        "detail":  "actor=employee；演示员工登录；contentType=application/json"
+                    },
+                    {
+                        "step":  "login.it",
+                        "actor":  "it",
+                        "note":  "演示 IT 登录",
+                        "method":  "Post",
+                        "path":  "/fd/v1/auth/login",
+                        "status":  200,
+                        "traceId":  "97451e29-21b2-4297-935d-4f7427abfc08",
+                        "requestTraceId":  "97451e29-21b2-4297-935d-4f7427abfc08",
+                        "detail":  "actor=it；演示 IT 登录；contentType=application/json"
+                    },
+                    {
+                        "step":  "categories.options",
+                        "actor":  "employee",
+                        "note":  "读取启用分类，供建单使用",
+                        "method":  "Get",
+                        "path":  "/fd/v1/categories/options",
+                        "status":  200,
+                        "traceId":  "3d051ed2-459c-417e-a0f3-bcc67f5b1797",
+                        "requestTraceId":  "3d051ed2-459c-417e-a0f3-bcc67f5b1797",
+                        "detail":  "actor=employee；读取启用分类，供建单使用；contentType=application/json"
+                    },
+                    {
+                        "step":  "c1.create.main",
+                        "actor":  "employee",
+                        "note":  "员工创建主链工单",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets",
+                        "status":  201,
+                        "traceId":  "662c7435-2725-4576-b245-0232be86bc25",
+                        "requestTraceId":  "662c7435-2725-4576-b245-0232be86bc25",
+                        "detail":  "actor=employee；员工创建主链工单；contentType=multipart/form-data（ticket part 携 JSON；submissionKey=51290e52-67ed-489d-a00a-7392373ceb7b）"
+                    },
+                    {
+                        "step":  "c1.claim.main",
+                        "actor":  "it",
+                        "note":  "IT 领取主链工单",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261014-010/actions/claim",
+                        "status":  200,
+                        "traceId":  "1b21da56-c54c-4903-9862-93066c5fbfcf",
+                        "requestTraceId":  "1b21da56-c54c-4903-9862-93066c5fbfcf",
+                        "detail":  "actor=it；IT 领取主链工单；contentType=application/json"
+                    },
+                    {
+                        "step":  "c2.requestSupplement",
+                        "actor":  "it",
+                        "note":  "IT 请求补充：应给提交人发 SUPPLEMENT_REQUESTED",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261014-010/actions/request-supplement",
+                        "status":  200,
+                        "traceId":  "41d0e69e-39bb-4980-8199-6af5b3ffc5ce",
+                        "requestTraceId":  "41d0e69e-39bb-4980-8199-6af5b3ffc5ce",
+                        "detail":  "actor=it；IT 请求补充：应给提交人发 SUPPLEMENT_REQUESTED；contentType=application/json"
+                    },
+                    {
+                        "step":  "c2.employee.list",
+                        "actor":  "employee",
+                        "note":  "员工列表：应命中 SUPPLEMENT_REQUESTED",
+                        "method":  "Get",
+                        "path":  "/fd/v1/notifications?page=1\u0026size=100",
+                        "status":  200,
+                        "traceId":  "de5c284b-9d44-4bc5-9688-e787109c4047",
+                        "requestTraceId":  "de5c284b-9d44-4bc5-9688-e787109c4047",
+                        "detail":  "actor=employee；员工列表：应命中 SUPPLEMENT_REQUESTED；contentType=application/json"
+                    },
+                    {
+                        "step":  "c2.it.list",
+                        "actor":  "it",
+                        "note":  "IT 列表：不应出现发给员工的 SUPPLEMENT_REQUESTED（跨用户不可见）",
+                        "method":  "Get",
+                        "path":  "/fd/v1/notifications?page=1\u0026size=100",
+                        "status":  200,
+                        "traceId":  "48ae48e3-0475-432b-887e-07ad94069ece",
+                        "requestTraceId":  "48ae48e3-0475-432b-887e-07ad94069ece",
+                        "detail":  "actor=it；IT 列表：不应出现发给员工的 SUPPLEMENT_REQUESTED（跨用户不可见）；contentType=application/json"
+                    },
+                    {
+                        "step":  "c2.employee.unreadConsistency.count",
+                        "actor":  "employee",
+                        "note":  "发布 SUPPLEMENT_REQUESTED 后员工未读计数与列表口径一致（未读条数）",
+                        "method":  "Get",
+                        "path":  "/fd/v1/notifications/unread-count",
+                        "status":  200,
+                        "traceId":  "a3fd2769-3635-4404-8191-f5b1c399bd29",
+                        "requestTraceId":  "a3fd2769-3635-4404-8191-f5b1c399bd29",
+                        "detail":  "actor=employee；发布 SUPPLEMENT_REQUESTED 后员工未读计数与列表口径一致（未读条数）；contentType=application/json"
+                    },
+                    {
+                        "step":  "c2.employee.unreadConsistency.list",
+                        "actor":  "employee",
+                        "note":  "发布 SUPPLEMENT_REQUESTED 后员工未读计数与列表口径一致（列表：readAt 为空的条数）",
+                        "method":  "Get",
+                        "path":  "/fd/v1/notifications?page=1\u0026size=100",
+                        "status":  200,
+                        "traceId":  "8dce4253-1370-4924-b328-1418133e235d",
+                        "requestTraceId":  "8dce4253-1370-4924-b328-1418133e235d",
+                        "detail":  "actor=employee；发布 SUPPLEMENT_REQUESTED 后员工未读计数与列表口径一致（列表：readAt 为空的条数）；contentType=application/json"
+                    },
+                    {
+                        "step":  "c3.withdrawSupplement",
+                        "actor":  "it",
+                        "note":  "IT 撤回补充请求：回到处理中，本动作本轮不发通知",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261014-010/actions/withdraw-supplement-request",
+                        "status":  200,
+                        "traceId":  "d44f5924-38a9-40cb-aeb0-970f8a65f69a",
+                        "requestTraceId":  "d44f5924-38a9-40cb-aeb0-970f8a65f69a",
+                        "detail":  "actor=it；IT 撤回补充请求：回到处理中，本动作本轮不发通知；contentType=application/json"
+                    },
+                    {
+                        "step":  "c4.submitResolution",
+                        "actor":  "it",
+                        "note":  "IT 提交解决结果：应给提交人发 RESOLUTION_SUBMITTED",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261014-010/actions/submit-resolution",
+                        "status":  200,
+                        "traceId":  "bada4663-cd9c-4c55-ad95-4cfa0094587f",
+                        "requestTraceId":  "bada4663-cd9c-4c55-ad95-4cfa0094587f",
+                        "detail":  "actor=it；IT 提交解决结果：应给提交人发 RESOLUTION_SUBMITTED；contentType=application/json"
+                    },
+                    {
+                        "step":  "c4.employee.list",
+                        "actor":  "employee",
+                        "note":  "员工列表：应新增 RESOLUTION_SUBMITTED",
+                        "method":  "Get",
+                        "path":  "/fd/v1/notifications?page=1\u0026size=100",
+                        "status":  200,
+                        "traceId":  "497c17fd-0227-49d6-b150-75029c8b41a9",
+                        "requestTraceId":  "497c17fd-0227-49d6-b150-75029c8b41a9",
+                        "detail":  "actor=employee；员工列表：应新增 RESOLUTION_SUBMITTED；contentType=application/json"
+                    },
+                    {
+                        "step":  "c5.requestCancel",
+                        "actor":  "employee",
+                        "note":  "员工在待确认上发起撤销请求：应给当前负责人发 CANCEL_REQUESTED",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261014-010/actions/request-cancel",
+                        "status":  200,
+                        "traceId":  "849d5077-bc6a-4baa-87e1-c898de6c5767",
+                        "requestTraceId":  "849d5077-bc6a-4baa-87e1-c898de6c5767",
+                        "detail":  "actor=employee；员工在待确认上发起撤销请求：应给当前负责人发 CANCEL_REQUESTED；contentType=application/json"
+                    },
+                    {
+                        "step":  "c5.it.list",
+                        "actor":  "it",
+                        "note":  "IT 列表：应命中发给负责人的 CANCEL_REQUESTED",
+                        "method":  "Get",
+                        "path":  "/fd/v1/notifications?page=1\u0026size=100",
+                        "status":  200,
+                        "traceId":  "e4a09b14-409f-47ad-9f94-d3dd43745231",
+                        "requestTraceId":  "e4a09b14-409f-47ad-9f94-d3dd43745231",
+                        "detail":  "actor=it；IT 列表：应命中发给负责人的 CANCEL_REQUESTED；contentType=application/json"
+                    },
+                    {
+                        "step":  "c6.rejectCancel",
+                        "actor":  "it",
+                        "note":  "IT 拒绝撤销请求：应给提交人发 CANCEL_REJECTED",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261014-010/actions/reject-cancel",
+                        "status":  200,
+                        "traceId":  "ecaa3638-0d07-4f66-abc5-ab60465b7dec",
+                        "requestTraceId":  "ecaa3638-0d07-4f66-abc5-ab60465b7dec",
+                        "detail":  "actor=it；IT 拒绝撤销请求：应给提交人发 CANCEL_REJECTED；contentType=application/json"
+                    },
+                    {
+                        "step":  "c6.employee.list",
+                        "actor":  "employee",
+                        "note":  "员工列表：应新增 CANCEL_REJECTED",
+                        "method":  "Get",
+                        "path":  "/fd/v1/notifications?page=1\u0026size=100",
+                        "status":  200,
+                        "traceId":  "85b7bd07-c48e-40e7-9463-c61fb3a13297",
+                        "requestTraceId":  "85b7bd07-c48e-40e7-9463-c61fb3a13297",
+                        "detail":  "actor=employee；员工列表：应新增 CANCEL_REJECTED；contentType=application/json"
+                    },
+                    {
+                        "step":  "c6.employee.unreadConsistency.count",
+                        "actor":  "employee",
+                        "note":  "发布 RESOLUTION_SUBMITTED / CANCEL_REJECTED 后员工未读计数与列表口径一致（未读条数）",
+                        "method":  "Get",
+                        "path":  "/fd/v1/notifications/unread-count",
+                        "status":  200,
+                        "traceId":  "4bb4aa73-cdb6-4422-a890-79f0451b5ea7",
+                        "requestTraceId":  "4bb4aa73-cdb6-4422-a890-79f0451b5ea7",
+                        "detail":  "actor=employee；发布 RESOLUTION_SUBMITTED / CANCEL_REJECTED 后员工未读计数与列表口径一致（未读条数）；contentType=application/json"
+                    },
+                    {
+                        "step":  "c6.employee.unreadConsistency.list",
+                        "actor":  "employee",
+                        "note":  "发布 RESOLUTION_SUBMITTED / CANCEL_REJECTED 后员工未读计数与列表口径一致（列表：readAt 为空的条数）",
+                        "method":  "Get",
+                        "path":  "/fd/v1/notifications?page=1\u0026size=100",
+                        "status":  200,
+                        "traceId":  "aa3d40e1-9594-4f4f-97cc-4996124e9863",
+                        "requestTraceId":  "aa3d40e1-9594-4f4f-97cc-4996124e9863",
+                        "detail":  "actor=employee；发布 RESOLUTION_SUBMITTED / CANCEL_REJECTED 后员工未读计数与列表口径一致（列表：readAt 为空的条数）；contentType=application/json"
+                    },
+                    {
+                        "step":  "d1.create.approve",
+                        "actor":  "employee",
+                        "note":  "员工创建批准路径工单",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets",
+                        "status":  201,
+                        "traceId":  "12314ee0-694f-4ec6-b5a9-f920539ab685",
+                        "requestTraceId":  "12314ee0-694f-4ec6-b5a9-f920539ab685",
+                        "detail":  "actor=employee；员工创建批准路径工单；contentType=multipart/form-data（ticket part 携 JSON；submissionKey=9869622e-f1b7-40a5-bcf2-199d0ba022c0）"
+                    },
+                    {
+                        "step":  "d2.claim.approve",
+                        "actor":  "it",
+                        "note":  "IT 领取批准路径工单",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261014-011/actions/claim",
+                        "status":  200,
+                        "traceId":  "020e3c3f-3a8d-4828-9e6e-cc8407d78507",
+                        "requestTraceId":  "020e3c3f-3a8d-4828-9e6e-cc8407d78507",
+                        "detail":  "actor=it；IT 领取批准路径工单；contentType=application/json"
+                    },
+                    {
+                        "step":  "d3.requestCancel",
+                        "actor":  "employee",
+                        "note":  "员工在处理中发起撤销请求",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261014-011/actions/request-cancel",
+                        "status":  200,
+                        "traceId":  "2cb6e310-2e0e-41cb-97e8-f1b23a543780",
+                        "requestTraceId":  "2cb6e310-2e0e-41cb-97e8-f1b23a543780",
+                        "detail":  "actor=employee；员工在处理中发起撤销请求；contentType=application/json"
+                    },
+                    {
+                        "step":  "d4.approveCancel",
+                        "actor":  "it",
+                        "note":  "IT 批准撤销请求：应给提交人发 CANCEL_APPROVED",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261014-011/actions/approve-cancel",
+                        "status":  200,
+                        "traceId":  "30fb3721-01db-4cec-9534-4225b499a4c1",
+                        "requestTraceId":  "30fb3721-01db-4cec-9534-4225b499a4c1",
+                        "detail":  "actor=it；IT 批准撤销请求：应给提交人发 CANCEL_APPROVED；contentType=application/json"
+                    },
+                    {
+                        "step":  "d4.employee.list",
+                        "actor":  "employee",
+                        "note":  "员工列表：应新增 CANCEL_APPROVED",
+                        "method":  "Get",
+                        "path":  "/fd/v1/notifications?page=1\u0026size=100",
+                        "status":  200,
+                        "traceId":  "21e99e9d-6f5a-4edd-bd8e-a808f1b50492",
+                        "requestTraceId":  "21e99e9d-6f5a-4edd-bd8e-a808f1b50492",
+                        "detail":  "actor=employee；员工列表：应新增 CANCEL_APPROVED；contentType=application/json"
+                    },
+                    {
+                        "step":  "d5.employee.unreadOnly",
+                        "actor":  "employee",
+                        "note":  "unreadOnly=true 只看未读",
+                        "method":  "Get",
+                        "path":  "/fd/v1/notifications?page=1\u0026size=100\u0026unreadOnly=true",
+                        "status":  200,
+                        "traceId":  "4d542e39-8a46-4c3e-93b0-73d8756d1f89",
+                        "requestTraceId":  "4d542e39-8a46-4c3e-93b0-73d8756d1f89",
+                        "detail":  "actor=employee；unreadOnly=true 只看未读；contentType=application/json"
+                    },
+                    {
+                        "step":  "r1.create.reverse",
+                        "actor":  "employee",
+                        "note":  "创建反向断言载体工单",
+                        "method":  "POST",
+                        "path":  "/fd/v1/tickets",
+                        "status":  201,
+                        "traceId":  "72366768-6d81-4045-8661-a35d9c9c265d",
+                        "requestTraceId":  "72366768-6d81-4045-8661-a35d9c9c265d",
+                        "detail":  "actor=employee；创建反向断言载体工单；contentType=multipart/form-data（ticket part 携 JSON；submissionKey=4b3cfa28-8b18-4bd6-ba6b-537957d8b740）"
+                    },
+                    {
+                        "step":  "r2.it.unreadBeforeClaim",
+                        "actor":  "it",
+                        "note":  "claim 前 IT 未读数",
+                        "method":  "Get",
+                        "path":  "/fd/v1/notifications/unread-count",
+                        "status":  200,
+                        "traceId":  "315ef582-b612-43ba-be64-cc58dc28a36e",
+                        "requestTraceId":  "315ef582-b612-43ba-be64-cc58dc28a36e",
+                        "detail":  "actor=it；claim 前 IT 未读数；contentType=application/json"
+                    },
+                    {
+                        "step":  "r2.employee.unreadBeforeClaim",
+                        "actor":  "employee",
+                        "note":  "claim 前员工未读数",
+                        "method":  "Get",
+                        "path":  "/fd/v1/notifications/unread-count",
+                        "status":  200,
+                        "traceId":  "9de9d664-252f-4063-b4b4-5b71a8da931d",
+                        "requestTraceId":  "9de9d664-252f-4063-b4b4-5b71a8da931d",
+                        "detail":  "actor=employee；claim 前员工未读数；contentType=application/json"
+                    },
+                    {
+                        "step":  "r3.claim.reverse",
+                        "actor":  "it",
+                        "note":  "IT 领取（本批不发布通知的动作）",
+                        "method":  "Post",
+                        "path":  "/fd/v1/tickets/FD-20261014-012/actions/claim",
+                        "status":  200,
+                        "traceId":  "7887f640-71a3-4856-8227-aee384413ff6",
+                        "requestTraceId":  "7887f640-71a3-4856-8227-aee384413ff6",
+                        "detail":  "actor=it；IT 领取（本批不发布通知的动作）；contentType=application/json"
+                    },
+                    {
+                        "step":  "r4.it.unreadAfterClaim",
+                        "actor":  "it",
+                        "note":  "claim 后 IT 未读数",
+                        "method":  "Get",
+                        "path":  "/fd/v1/notifications/unread-count",
+                        "status":  200,
+                        "traceId":  "8897b9ac-1ac4-4ade-b442-108be88c8cc4",
+                        "requestTraceId":  "8897b9ac-1ac4-4ade-b442-108be88c8cc4",
+                        "detail":  "actor=it；claim 后 IT 未读数；contentType=application/json"
+                    },
+                    {
+                        "step":  "r4.employee.unreadAfterClaim",
+                        "actor":  "employee",
+                        "note":  "claim 后员工未读数",
+                        "method":  "Get",
+                        "path":  "/fd/v1/notifications/unread-count",
+                        "status":  200,
+                        "traceId":  "e15ed569-889d-49d5-9893-65bc8828e15c",
+                        "requestTraceId":  "e15ed569-889d-49d5-9893-65bc8828e15c",
+                        "detail":  "actor=employee；claim 后员工未读数；contentType=application/json"
+                    },
+                    {
+                        "step":  "g1.employee.unreadBeforeRead",
+                        "actor":  "employee",
+                        "note":  "标记已读前的未读数",
+                        "method":  "Get",
+                        "path":  "/fd/v1/notifications/unread-count",
+                        "status":  200,
+                        "traceId":  "e0da1dae-3dc1-415d-ad78-e74f7a3fc527",
+                        "requestTraceId":  "e0da1dae-3dc1-415d-ad78-e74f7a3fc527",
+                        "detail":  "actor=employee；标记已读前的未读数；contentType=application/json"
+                    },
+                    {
+                        "step":  "g2.markRead",
+                        "actor":  "employee",
+                        "note":  "员工标记自己的一条通知已读",
+                        "method":  "Post",
+                        "path":  "/fd/v1/notifications/19/read",
+                        "status":  200,
+                        "traceId":  "14a19ab7-5dcc-4a60-aaf6-b4136e54fbf2",
+                        "requestTraceId":  "14a19ab7-5dcc-4a60-aaf6-b4136e54fbf2",
+                        "detail":  "actor=employee；员工标记自己的一条通知已读；contentType=application/json"
+                    },
+                    {
+                        "step":  "g3.employee.unreadAfterRead",
+                        "actor":  "employee",
+                        "note":  "标记已读后的未读数",
+                        "method":  "Get",
+                        "path":  "/fd/v1/notifications/unread-count",
+                        "status":  200,
+                        "traceId":  "141b773f-e380-4854-8fa7-749ecee587b1",
+                        "requestTraceId":  "141b773f-e380-4854-8fa7-749ecee587b1",
+                        "detail":  "actor=employee；标记已读后的未读数；contentType=application/json"
+                    },
+                    {
+                        "step":  "g3.employee.listAfterRead",
+                        "actor":  "employee",
+                        "note":  "确认该条 readAt 非空",
+                        "method":  "Get",
+                        "path":  "/fd/v1/notifications?page=1\u0026size=100",
+                        "status":  200,
+                        "traceId":  "7157b99f-5bc7-43c8-a2c4-dca1879d6e91",
+                        "requestTraceId":  "7157b99f-5bc7-43c8-a2c4-dca1879d6e91",
+                        "detail":  "actor=employee；确认该条 readAt 非空；contentType=application/json"
+                    },
+                    {
+                        "step":  "g4.markRead.again",
+                        "actor":  "employee",
+                        "note":  "重复标记同一条（幂等）",
+                        "method":  "Post",
+                        "path":  "/fd/v1/notifications/19/read",
+                        "status":  200,
+                        "traceId":  "4d34238a-1d12-40fe-bbe1-47942f51c08f",
+                        "requestTraceId":  "4d34238a-1d12-40fe-bbe1-47942f51c08f",
+                        "detail":  "actor=employee；重复标记同一条（幂等）；contentType=application/json"
+                    },
+                    {
+                        "step":  "g5.markRead.byOther",
+                        "actor":  "it",
+                        "note":  "IT 用自己令牌标记员工的通知",
+                        "method":  "Post",
+                        "path":  "/fd/v1/notifications/19/read",
+                        "status":  404,
+                        "traceId":  "d0b8fe89-6186-4208-a6d9-e8abed76f8ce",
+                        "requestTraceId":  "d0b8fe89-6186-4208-a6d9-e8abed76f8ce",
+                        "detail":  "actor=it；IT 用自己令牌标记员工的通知；contentType=application/json"
+                    },
+                    {
+                        "step":  "g6.markRead.unknownId",
+                        "actor":  "employee",
+                        "note":  "标记不存在的 id",
+                        "method":  "Post",
+                        "path":  "/fd/v1/notifications/999999999/read",
+                        "status":  404,
+                        "traceId":  "abaa63d5-91ab-49cd-8943-e2af49eaf4ff",
+                        "requestTraceId":  "abaa63d5-91ab-49cd-8943-e2af49eaf4ff",
+                        "detail":  "actor=employee；标记不存在的 id；contentType=application/json"
+                    },
+                    {
+                        "step":  "h1.readAll",
+                        "actor":  "employee",
+                        "note":  "员工全部标记已读",
+                        "method":  "Post",
+                        "path":  "/fd/v1/notifications/actions/read-all",
+                        "status":  200,
+                        "traceId":  "5ffed37e-540a-447d-831b-cfa6530552df",
+                        "requestTraceId":  "5ffed37e-540a-447d-831b-cfa6530552df",
+                        "detail":  "actor=employee；员工全部标记已读；contentType=application/json"
+                    },
+                    {
+                        "step":  "h2.employee.unreadAfterAll",
+                        "actor":  "employee",
+                        "note":  "全部已读后未读数",
+                        "method":  "Get",
+                        "path":  "/fd/v1/notifications/unread-count",
+                        "status":  200,
+                        "traceId":  "1a268876-d769-4093-adbc-1878fdfbea12",
+                        "requestTraceId":  "1a268876-d769-4093-adbc-1878fdfbea12",
+                        "detail":  "actor=employee；全部已读后未读数；contentType=application/json"
+                    },
+                    {
+                        "step":  "h3.readAll.again",
+                        "actor":  "employee",
+                        "note":  "无未读时再次全部已读（幂等）",
+                        "method":  "Post",
+                        "path":  "/fd/v1/notifications/actions/read-all",
+                        "status":  200,
+                        "traceId":  "1002b310-5970-42dd-9253-767b2b9cfbfc",
+                        "requestTraceId":  "1002b310-5970-42dd-9253-767b2b9cfbfc",
+                        "detail":  "actor=employee；无未读时再次全部已读（幂等）；contentType=application/json"
+                    },
+                    {
+                        "step":  "i1.pageZero",
+                        "actor":  "employee",
+                        "note":  "page=0：分页下限",
+                        "method":  "Get",
+                        "path":  "/fd/v1/notifications?page=0",
+                        "status":  400,
+                        "traceId":  "e9980987-f020-438f-a335-5831d4547f48",
+                        "requestTraceId":  "e9980987-f020-438f-a335-5831d4547f48",
+                        "detail":  "actor=employee；page=0：分页下限；contentType=application/json"
+                    },
+                    {
+                        "step":  "i2.sizeOverflow",
+                        "actor":  "employee",
+                        "note":  "size=101：超过上限 100",
+                        "method":  "Get",
+                        "path":  "/fd/v1/notifications?page=1\u0026size=101",
+                        "status":  400,
+                        "traceId":  "87730d30-4230-4bcf-ab2e-cd9870d9fdf6",
+                        "requestTraceId":  "87730d30-4230-4bcf-ab2e-cd9870d9fdf6",
+                        "detail":  "actor=employee；size=101：超过上限 100；contentType=application/json"
+                    },
+                    {
+                        "step":  "i3.orderBy",
+                        "actor":  "employee",
+                        "note":  "orderBy=created_at：不接受客户端自选排序",
+                        "method":  "Get",
+                        "path":  "/fd/v1/notifications?page=1\u0026size=20\u0026orderBy=created_at",
+                        "status":  400,
+                        "traceId":  "61733619-4426-4bba-ae36-ba73a6c165c8",
+                        "requestTraceId":  "61733619-4426-4bba-ae36-ba73a6c165c8",
+                        "detail":  "actor=employee；orderBy=created_at：不接受客户端自选排序；contentType=application/json"
+                    }
+                ],
+    "sqlExecuted":  [
+                        "SELECT 1;",
+                        "SELECT IFNULL(id,-1) FROM iam_user WHERE username = \u0027employee\u0027;",
+                        "SELECT IFNULL(id,-1) FROM iam_user WHERE username = \u0027it\u0027;",
+                        "SELECT (SELECT COUNT(*) FROM notification), (SELECT COUNT(*) FROM ticket), (SELECT COUNT(*) FROM ticket_record), (SELECT COUNT(*) FROM ticket_participant), (SELECT COUNT(*) FROM iam_user), (SELECT COUNT(*) FROM iam_user_role);",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(ticket_no,\u0027|\u0027,status) ORDER BY id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM ticket;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(id,\u0027|\u0027,category,\u0027|\u0027,recipient_id,\u0027|\u0027,IFNULL(DATE_FORMAT(read_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027),\u0027NULL\u0027)) ORDER BY id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM notification;",
+                        "SELECT COUNT(*) FROM notification WHERE ticket_no = \u0027FD-20261014-012\u0027;",
+                        "SELECT COUNT(*) FROM information_schema.table_constraints WHERE constraint_schema = \u0027flowdesk\u0027 AND table_name = \u0027notification\u0027 AND constraint_name = \u0027ck_notification_category\u0027 AND constraint_type = \u0027CHECK\u0027;",
+                        "SELECT category, recipient_id, read_at FROM notification WHERE ticket_no = \u0027FD-20261014-010\u0027 AND category = \u0027SUPPLEMENT_REQUESTED\u0027 ORDER BY id DESC LIMIT 1;",
+                        "SELECT category, recipient_id, read_at FROM notification WHERE ticket_no = \u0027FD-20261014-010\u0027 AND category = \u0027RESOLUTION_SUBMITTED\u0027 ORDER BY id DESC LIMIT 1;",
+                        "SELECT category, recipient_id FROM notification WHERE ticket_no = \u0027FD-20261014-010\u0027 AND category = \u0027CANCEL_REQUESTED\u0027 ORDER BY id DESC LIMIT 1;",
+                        "DELETE n FROM notification n JOIN ticket t ON t.id = n.ticket_id WHERE t.title LIKE \u0027NC-ACC-20261014-172533-%\u0027;\nDELETE r FROM ticket_record r JOIN ticket t ON t.id = r.ticket_id WHERE t.title LIKE \u0027NC-ACC-20261014-172533-%\u0027;\nDELETE p FROM ticket_participant p JOIN ticket t ON t.id = p.ticket_id WHERE t.title LIKE \u0027NC-ACC-20261014-172533-%\u0027;\nDELETE FROM ticket WHERE title LIKE \u0027NC-ACC-20261014-172533-%\u0027;",
+                        "SELECT COUNT(*) FROM ticket WHERE title LIKE \u0027NC-ACC-20261014-172533-%\u0027;",
+                        "SELECT COUNT(*) FROM notification WHERE ticket_no LIKE \u0027NC-ACC-20261014-172533-%\u0027;",
+                        "SELECT (SELECT COUNT(*) FROM notification), (SELECT COUNT(*) FROM ticket), (SELECT COUNT(*) FROM ticket_record), (SELECT COUNT(*) FROM ticket_participant), (SELECT COUNT(*) FROM iam_user), (SELECT COUNT(*) FROM iam_user_role);",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(ticket_no,\u0027|\u0027,status) ORDER BY id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM ticket;",
+                        "SELECT IFNULL(GROUP_CONCAT(CONCAT(id,\u0027|\u0027,category,\u0027|\u0027,recipient_id,\u0027|\u0027,IFNULL(DATE_FORMAT(read_at,\u0027%Y-%m-%d %H:%i:%s.%f\u0027),\u0027NULL\u0027)) ORDER BY id SEPARATOR \u0027 ;; \u0027),\u0027-\u0027) FROM notification;"
+                    ],
+    "cleanup":  {
+                    "startedAt":  "2026-10-14T17:25:46",
+                    "sql":  [
+                                "DELETE n FROM notification n JOIN ticket t ON t.id = n.ticket_id WHERE t.title LIKE \u0027NC-ACC-20261014-172533-%\u0027;",
+                                "DELETE r FROM ticket_record r JOIN ticket t ON t.id = r.ticket_id WHERE t.title LIKE \u0027NC-ACC-20261014-172533-%\u0027;",
+                                "DELETE p FROM ticket_participant p JOIN ticket t ON t.id = p.ticket_id WHERE t.title LIKE \u0027NC-ACC-20261014-172533-%\u0027;",
+                                "DELETE FROM ticket WHERE title LIKE \u0027NC-ACC-20261014-172533-%\u0027;"
+                            ],
+                    "finishedAt":  "2026-10-14T17:25:51"
+                },
+    "totals":  {
+                   "total":  54,
+                   "passed":  54,
+                   "failed":  0
+               }
+}

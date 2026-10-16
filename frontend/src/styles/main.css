@@ -2143,3 +2143,184 @@ h1 {
     margin-left: 0;
   }
 }
+
+/* ============================================================
+ * 站内信（顶栏铃铛 + 收件箱页）
+ *
+ * 铃铛沿用顶栏既有控件语言（.app-header__icon-button）；气泡宽度走 tokens.css 的
+ * --fd-notification-popover-width（刻度不够先补在 tokens，不在这里写死数值）。
+ * 未读与已读的区分只用 token 变量：一个位置（主列标题字重）加一个圆点颜色，
+ * 不用彩色粗左边框（AGENTS 反 AI 味禁列），也不改 Element Plus 组件内部结构。
+ * ============================================================ */
+
+.app-header__bell-badge {
+  display: inline-flex;
+}
+
+/* 气泡容器：Element Plus 默认 150px 会把标题压成两行，宽度取 token。 */
+.notification-popover {
+  width: var(--fd-notification-popover-width);
+  padding: 0;
+}
+
+.notification-popover__body {
+  display: grid;
+}
+
+.notification-popover__title {
+  margin: 0;
+  padding: var(--fd-space-3) var(--fd-space-4);
+  border-bottom: thin solid var(--fd-color-border-subtle);
+  color: var(--fd-color-text-strong);
+  font-size: var(--fd-font-size-base);
+  font-weight: var(--fd-font-weight-semibold);
+}
+
+.notification-popover__hint {
+  margin: 0;
+  padding: var(--fd-space-5) var(--fd-space-4);
+  color: var(--fd-color-text-subtle);
+  font-size: var(--fd-font-size-sm);
+  text-align: center;
+}
+
+.notification-popover__list {
+  max-height: 20rem;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notification-popover__item {
+  display: grid;
+  width: 100%;
+  grid-template-columns: var(--fd-space-2) minmax(0, 1fr);
+  gap: var(--fd-space-3);
+  align-items: start;
+  padding: var(--fd-space-3) var(--fd-space-4);
+  border: 0;
+  border-bottom: thin solid var(--fd-color-border-subtle);
+  background: none;
+  color: var(--fd-color-text);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition: background-color var(--fd-duration-fast) var(--fd-ease-standard);
+}
+
+.notification-popover__item:hover {
+  background: var(--fd-color-surface-subtle);
+}
+
+.notification-popover__item:focus-visible {
+  outline: none;
+  box-shadow: var(--fd-focus-ring);
+}
+
+/* 未读圆点用强调色；读过的条目圆点退成中性色——同一个位置表达两种状态，不新增标记。 */
+.notification-popover__dot {
+  width: var(--fd-space-2);
+  height: var(--fd-space-2);
+  margin-top: var(--fd-space-1);
+  border-radius: var(--fd-radius-full);
+  background: var(--fd-color-primary);
+}
+
+.notification-popover__dot--read {
+  background: var(--fd-color-border-strong);
+}
+
+.notification-popover__text {
+  display: grid;
+  min-width: 0;
+  gap: var(--fd-space-hairline);
+}
+
+.notification-popover__item-title {
+  overflow: hidden;
+  color: var(--fd-color-text-strong);
+  font-size: var(--fd-font-size-base);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notification-popover__meta {
+  color: var(--fd-color-text-subtle);
+  font-size: var(--fd-font-size-xs);
+}
+
+.notification-popover__more {
+  padding: var(--fd-space-3) var(--fd-space-4);
+  border: 0;
+  background: none;
+  color: var(--fd-color-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--fd-font-size-base);
+  text-align: center;
+  transition: background-color var(--fd-duration-fast) var(--fd-ease-standard);
+}
+
+.notification-popover__more:hover {
+  background: var(--fd-color-surface-subtle);
+}
+
+.notification-popover__more:focus-visible {
+  outline: none;
+  box-shadow: var(--fd-focus-ring);
+}
+
+/* 收件箱主列：标题在上、正文在下，与工单列表主列同一层级写法。 */
+.notification-cell {
+  display: grid;
+  min-width: 0;
+  gap: var(--fd-space-hairline);
+}
+
+.notification-cell__title {
+  color: var(--fd-color-text-strong);
+  font-weight: var(--fd-font-weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.notification-cell__body {
+  color: var(--fd-color-text-muted);
+  font-size: var(--fd-font-size-sm);
+  line-height: var(--fd-line-height-base);
+  overflow-wrap: anywhere;
+}
+
+/* 读过的条目退一档：同一列里"未读"是唯一需要先看的。 */
+.notification-row--read .notification-cell__title {
+  color: var(--fd-color-text-muted);
+  font-weight: var(--fd-font-weight-regular);
+}
+
+/* 未读/已读圆点：与气泡里同一套语言，颜色只用 token。 */
+.notification-state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fd-space-2);
+  color: var(--fd-color-text);
+  white-space: nowrap;
+}
+
+.notification-state__dot {
+  flex: none;
+  width: var(--fd-space-2);
+  height: var(--fd-space-2);
+  border-radius: var(--fd-radius-full);
+  background: var(--fd-color-border-strong);
+}
+
+.notification-state__dot--unread {
+  background: var(--fd-color-primary);
+}
+
+@media (max-width: 52rem) {
+  /* 窄屏气泡跟随视口，不超出屏幕。 */
+  .notification-popover {
+    width: min(var(--fd-notification-popover-width), 88vw);
+  }
+}

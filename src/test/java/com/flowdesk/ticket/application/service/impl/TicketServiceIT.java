@@ -213,6 +213,14 @@ class TicketServiceIT {
                 JOIN ticket_category category ON category.id = ticket.category_id
                 WHERE category.name LIKE ?
                 """, CATEGORY_PREFIX + "%");
+        // 站内信（V10）的 ticket_id 是限制删除外键：必须在删工单之前先清掉这些通知
+        jdbc.update("""
+                DELETE notification
+                FROM notification
+                JOIN ticket ON ticket.id = notification.ticket_id
+                JOIN ticket_category category ON category.id = ticket.category_id
+                WHERE category.name LIKE ?
+                """, CATEGORY_PREFIX + "%");
         jdbc.update("""
                 DELETE ticket
                 FROM ticket

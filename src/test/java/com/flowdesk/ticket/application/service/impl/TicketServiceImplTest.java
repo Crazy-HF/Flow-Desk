@@ -25,6 +25,7 @@ import com.flowdesk.ticket.application.command.WithdrawCancelRequestCommand;
 import com.flowdesk.ticket.application.command.WithdrawSupplementRequestCommand;
 import com.flowdesk.ticket.application.port.CategoryAvailabilityPort;
 import com.flowdesk.ticket.application.port.CurrentRequesterPort;
+import com.flowdesk.ticket.application.port.NotificationPort;
 import com.flowdesk.ticket.application.port.TicketClaimantPort;
 import com.flowdesk.ticket.application.port.TicketReadPermissionPort;
 import com.flowdesk.ticket.application.result.TicketActionResult;
@@ -209,6 +210,8 @@ class TicketServiceImplTest {
     private AttachmentStorage attachmentStorage;
     @Mock
     private AttachmentMapper attachmentMapper;
+    @Mock
+    private NotificationPort notificationPort;
     @Mock
     private CurrentRequesterPort currentRequesterPort;
     @Mock
@@ -4728,7 +4731,8 @@ class TicketServiceImplTest {
                 new AttachmentValidator(),
                 attachmentStorage,
                 attachmentMapper,
-                ATTACHMENT_PROPERTIES);
+                ATTACHMENT_PROPERTIES,
+                notificationPort);
     }
 
     private static CreateTicketCommand createCommand(String submissionKey) {

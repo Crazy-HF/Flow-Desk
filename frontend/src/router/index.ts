@@ -11,6 +11,7 @@ import LoginView from '@/views/auth/LoginView.vue'
 import ForbiddenView from '@/views/error/ForbiddenView.vue'
 import NotFoundView from '@/views/error/NotFoundView.vue'
 import HomeView from '@/views/work/HomeView.vue'
+import NotificationListView from '@/views/work/NotificationListView.vue'
 import PlannedWorkView from '@/views/work/PlannedWorkView.vue'
 import TicketCreateView from '@/views/work/TicketCreateView.vue'
 import TicketDetailView from '@/views/work/TicketDetailView.vue'
@@ -72,6 +73,18 @@ const router = createRouter({
       name: 'ticket-detail',
       component: TicketDetailView,
       meta: { title: '工单详情', permission: TICKET_VIEW_PERMISSIONS },
+    },
+    {
+      /**
+       * 站内信收件箱。端点只要求认证、**没有权限码**（契约未给站内信定义权限编码），
+       * 因此这里不写 `meta.permission`——任何登录用户都能进自己的收件箱。
+       * 入口只在顶栏铃铛里，不登记到侧栏 `navigationEntries`：那份声明要求每条都带权限码，
+       * 站内信没有可用的编码，硬塞一个会与"无权限码"自相矛盾。
+       */
+      path: '/notifications',
+      name: 'notifications',
+      component: NotificationListView,
+      meta: { title: '站内信' },
     },
     {
       path: '/dashboard',

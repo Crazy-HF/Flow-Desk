@@ -80,6 +80,10 @@ flowdesk:
     # 撤销请求的响应期限：提交人发起后 IT 需在 3×24 小时内批准或拒绝（docs/kickoff.md 4.7）。
     # 与上面两个期限同口径：只写入并在界面展示，到期不会自动改变工单状态。
     cancel-request-window: 3d
+  notification:
+    # 已读通知的保留期：清理任务删除 read_at 早于该阈值的通知，未读通知永不清理。
+    # 缺失时取默认值 90d。
+    retention: 90d
 
 jwt:
   secret: ${FLOWDESK_JWT_SECRET}

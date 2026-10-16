@@ -1,9 +1,12 @@
 package com.flowdesk.ticket.application.service.impl;
 
 import com.flowdesk.common.exception.ApiException;
+import com.flowdesk.notification.application.command.PublishNotificationCommand;
+import com.flowdesk.notification.domain.NotificationCategory;
 import com.flowdesk.ticket.application.command.*;
 import com.flowdesk.ticket.application.port.CategoryAvailabilityPort;
 import com.flowdesk.ticket.application.port.CurrentRequesterPort;
+import com.flowdesk.ticket.application.port.NotificationPort;
 import com.flowdesk.ticket.application.port.TicketClaimantPort;
 import com.flowdesk.ticket.application.port.TicketReadPermissionPort;
 import com.flowdesk.ticket.config.TicketProperties;
@@ -113,6 +116,8 @@ public class TicketServiceImpl implements TicketService {
     private final AttachmentMapper attachmentMapper;
     /** 附件保留期：引用校验与对账任务共用同一口径（2026-10-13 第 7 步起单一来源）。 */
     private final AttachmentProperties attachmentProperties;
+    /** 站内信发布出口（2026-10-14 接入）：发布发生在当前写事务内，与动作一起提交或回滚。 */
+    private final NotificationPort notificationPort;
 
 
     public TicketServiceImpl(
@@ -132,7 +137,8 @@ public class TicketServiceImpl implements TicketService {
             AttachmentValidator attachmentValidator,
             AttachmentStorage attachmentStorage,
             AttachmentMapper attachmentMapper,
-            AttachmentProperties attachmentProperties) {
+            AttachmentProperties attachmentProperties,
+            NotificationPort notificationPort) {
         this.clock = clock;
         this.ticketMapper = ticketMapper;
         this.ticketDailySequenceMapper = ticketDailySequenceMapper;
@@ -149,6 +155,7 @@ public class TicketServiceImpl implements TicketService {
         this.attachmentStorage = attachmentStorage;
         this.attachmentMapper = attachmentMapper;
         this.attachmentProperties = attachmentProperties;
+        this.notificationPort = notificationPort;
 
         this.transactionTemplate =
                 new TransactionTemplate(transactionManager);
@@ -560,6 +567,16 @@ public class TicketServiceImpl implements TicketService {
         if (ticketRecordMapper.insert(record) != 1) {
             throw new IllegalStateException("解决结果记录插入失败");
         }
+
+        // 站内信：通知提交人去确认（与动作同事务，动作回滚则通知一并回滚）
+        notificationPort.publish(new PublishNotificationCommand(
+                visible.getRequesterId(),
+                NotificationCategory.RESOLUTION_SUBMITTED,
+                "工单 " + updated.getTicketNo() + " 已提交解决结果",
+                "请确认问题是否已解决。",
+                updated.getId(),
+                updated.getTicketNo(),
+                null));
 
         TicketUserSummaryResult assignee = new TicketUserSummaryResult(
                 visible.getAssigneeId(),
@@ -979,6 +996,16 @@ public class TicketServiceImpl implements TicketService {
         if (ticketRecordMapper.insert(record) != 1) {
             throw new IllegalStateException("补充请求记录插入失败");
         }
+
+        // 站内信：通知提交人需要补充信息（与动作同事务）
+        notificationPort.publish(new PublishNotificationCommand(
+                visible.getRequesterId(),
+                NotificationCategory.SUPPLEMENT_REQUESTED,
+                "工单 " + updated.getTicketNo() + " 需要你补充信息",
+                "当前负责人请求你补充信息，请在工单中查看需要补充的内容。",
+                updated.getId(),
+                updated.getTicketNo(),
+                null));
 
         TicketUserSummaryResult assignee = new TicketUserSummaryResult(
                 visible.getAssigneeId(),
@@ -1847,6 +1874,20 @@ public class TicketServiceImpl implements TicketService {
             throw new IllegalStateException("撤销请求记录插入失败");
         }
 
+        // 站内信：通知当前负责人有待批准的撤销请求（与动作同事务）。
+        // 三种可发起状态都要求有负责人（ck_ticket_status_assignee），但行投影的 assigneeId 可空，
+        // 这里按可空处理，避免拆箱 NPE
+        if (visible.getAssigneeId() != null) {
+            notificationPort.publish(new PublishNotificationCommand(
+                    visible.getAssigneeId(),
+                    NotificationCategory.CANCEL_REQUESTED,
+                    "工单 " + updated.getTicketNo() + " 有待批准的撤销请求",
+                    "提交人申请撤销该工单，请批准或拒绝。",
+                    updated.getId(),
+                    updated.getTicketNo(),
+                    null));
+        }
+
         // 9. 状态、负责人与工单自身的期限都不变；摘要里的期限仍是工单的期限，
         //    不是撤销请求的响应期限（后者只通过详情返回）
         TicketUserSummaryResult assignee = visible.getAssigneeId() == null
@@ -1955,6 +1996,16 @@ public class TicketServiceImpl implements TicketService {
         if (ticketRecordMapper.insert(record) != 1) {
             throw new IllegalStateException("批准撤销记录插入失败");
         }
+
+        // 站内信：通知提交人撤销请求已批准（与动作同事务）
+        notificationPort.publish(new PublishNotificationCommand(
+                visible.getRequesterId(),
+                NotificationCategory.CANCEL_APPROVED,
+                "工单 " + updated.getTicketNo() + " 的撤销请求已批准",
+                "工单已进入「已取消」。",
+                updated.getId(),
+                updated.getTicketNo(),
+                null));
 
         // 7. 终态期限已失效；负责人按快照保留（ck_ticket_status_assignee 允许「已取消」带负责人）
         TicketUserSummaryResult assignee = new TicketUserSummaryResult(
@@ -2066,6 +2117,16 @@ public class TicketServiceImpl implements TicketService {
         if (ticketRecordMapper.insert(record) != 1) {
             throw new IllegalStateException("拒绝撤销记录插入失败");
         }
+
+        // 站内信：通知提交人撤销请求被拒绝（与动作同事务）
+        notificationPort.publish(new PublishNotificationCommand(
+                visible.getRequesterId(),
+                NotificationCategory.CANCEL_REJECTED,
+                "工单 " + updated.getTicketNo() + " 的撤销请求被拒绝",
+                "工单保留原状态，拒绝原因见工单时间线。",
+                updated.getId(),
+                updated.getTicketNo(),
+                null));
 
         // 8. 状态与期限都不变，摘要原样返回工单当前快照
         TicketUserSummaryResult assignee = new TicketUserSummaryResult(

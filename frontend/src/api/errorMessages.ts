@@ -33,6 +33,7 @@ const messages: Record<string, string> = {
   CATEGORY_IN_USE: '分类仍被工单引用，无法删除',
   CATEGORY_CONFLICT: '分类已被其他人更新，请刷新后重试',
   ATTACHMENT_NOT_FOUND: '附件不存在或不可见',
+  NOTIFICATION_NOT_FOUND: '通知不存在或已不属于你',
   ATTACHMENT_TOO_LARGE: '上传内容超过大小限制',
   ATTACHMENT_TYPE_UNSUPPORTED: '不支持的文件类型',
   RESOURCE_NOT_FOUND: '请求的资源不存在',

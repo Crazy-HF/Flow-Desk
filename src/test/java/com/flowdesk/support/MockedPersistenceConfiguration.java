@@ -7,6 +7,7 @@ import com.flowdesk.iam.mapper.IamRoleMapper;
 import com.flowdesk.iam.mapper.IamRolePermissionMapper;
 import com.flowdesk.iam.mapper.IamUserMapper;
 import com.flowdesk.iam.mapper.IamUserRoleMapper;
+import com.flowdesk.notification.mapper.NotificationMapper;
 import com.flowdesk.ticket.mapper.TicketAttachmentMapper;
 import com.flowdesk.ticket.mapper.TicketDailySequenceMapper;
 import com.flowdesk.ticket.mapper.TicketMapper;
@@ -121,5 +122,11 @@ public class MockedPersistenceConfiguration {
     @Bean
     AttachmentMapper attachmentMapper() {
         return Mockito.mock(AttachmentMapper.class);
+    }
+
+    /** 站内信服务与清理任务（本人范围列表、未读计数、标记已读、清理）依赖。 */
+    @Bean
+    NotificationMapper notificationMapper() {
+        return Mockito.mock(NotificationMapper.class);
     }
 }

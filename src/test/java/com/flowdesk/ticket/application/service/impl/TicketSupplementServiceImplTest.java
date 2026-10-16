@@ -8,6 +8,7 @@ import com.flowdesk.common.exception.ApiException;
 import com.flowdesk.ticket.application.command.SupplementCommand;
 import com.flowdesk.ticket.application.port.CategoryAvailabilityPort;
 import com.flowdesk.ticket.application.port.CurrentRequesterPort;
+import com.flowdesk.ticket.application.port.NotificationPort;
 import com.flowdesk.ticket.application.port.TicketClaimantPort;
 import com.flowdesk.ticket.application.port.TicketReadPermissionPort;
 import com.flowdesk.ticket.application.result.TicketActionResult;
@@ -117,6 +118,8 @@ class TicketSupplementServiceImplTest {
     private AttachmentStorage attachmentStorage;
     @Mock
     private AttachmentMapper attachmentMapper;
+    @Mock
+    private NotificationPort notificationPort;
     @Mock
     private CurrentRequesterPort currentRequesterPort;
     @Mock
@@ -445,7 +448,8 @@ class TicketSupplementServiceImplTest {
                 new AttachmentValidator(),
                 attachmentStorage,
                 attachmentMapper,
-                ATTACHMENT_PROPERTIES);
+                ATTACHMENT_PROPERTIES,
+                notificationPort);
     }
 
     private void stubRequesterActor() {
