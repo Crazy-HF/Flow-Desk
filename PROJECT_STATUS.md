@@ -1,5 +1,20 @@
 # FlowDesk 项目状态
 
+## 2026-10-16 交付：超时事件通知、到期前提醒与提醒回收（分支 `flow-desk/ticket-timeout-tasks`，已合并 `main`；**测试与验收待补**）
+
+- **分支与合并（2026-10-16）**：分支从 `main`（起点 `6506587`）创建，提交两条——`dcbac21`（超时自动完成与自动关闭）、**`1bf571b`**（超时事件通知、到期前提醒与提醒回收，20 个文件，含迁移 `V11`/`V12`），随后**快进合并进 `main`**（**未走 PR**，与同日站内信交接同一口径）。
+- **本轮实现**：
+  - **超时事件通知**（`CONFIRMATION_TIMEOUT` / `SUPPLEMENT_TIMEOUT`）：工单被系统自动推进后，在**同一业务事务内**给提交人与最后负责人各发一条站内信；`dedup_key = 类别:工单:endedAt 毫秒`——两个目标状态都是终态，键防的是同一次事件被重放，也覆盖「提交人恰好是最后负责人」时两次调用的重合。
+  - **到期前提醒**（`CONFIRMATION_DUE_SOON` / `SUPPLEMENT_DUE_SOON` / `CANCEL_REQUEST_DUE_SOON`）挂在既有 5 分钟任务上（`publishDueSoonReminders`）：提前量 `flowdesk.ticket.reminder-lead-time`（默认 `1d`，下限 `1m`），只发给该等待的唯一行动人（确认 / 补充 → 提交人，撤销请求 → 当前负责人）；`dedup_key = 类别:工单:期限毫秒`，同一期限只提醒一次，期限被改写即产生新键、允许再提醒一次。
+  - **提醒回收**：所有会改写或清空期限的业务动作都调用 `notificationPort.recallReminders(ticketId, 类别集合)`，只删 `dedup_key IS NOT NULL` 的提醒行，业务事件通知不受影响。
+  - **过期撤销请求的提醒回收**（任务第四段，唯一带时间窗的一段）：撤销请求自然过期不产生任何业务动作，负责人未读的那条提醒没有任何业务入口能回收；候选窗口 `(now − 1d, now]`，逐张在独立事务里 `SELECT … FOR UPDATE` 重读「三列齐备且期限已到」再回收，与所有会写这一行的动作抢同一把工单行锁——对方先提交则读到新期限、判定不过、静默跳过；我先拿到锁则对方的写入与发布要等我提交，随后发的是新期限的另一条（键不同），删不到。
+  - **未读保留期**：清理任务改为「已读按 `read_at` + `retention`（默认 90d）」「未读按 `created_at` + `unread-retention`（默认 3d）」，取代 V10 的「未读永不清理」——保留期是兜底，不能替代上面的回收，两者互补。
+  - **迁移**：`V11`（`ck_notification_category` 扩到 10 类，**不新增表 / 列 / 索引 / 外键**，外键仍是 25）、`V12`（`idx_ticket_cancel_deadline`，让两条按撤销请求期限、与负责人无关的查询走索引：到期前提醒由 `type=ALL / rows=9730 / Using filesort` 变为 `type=range / key_len=8 / rows=200`，回收由 skip scan + filesort 变为覆盖索引、无排序；两组数字记在 `V12` 头注释里）。
+  - **前端**：`NotificationCategory` 十类的联合类型与中文对照；顶栏铃铛与收件箱页复用既有实现，本轮未改页面结构。
+- **本轮实跑**：`.\mvnw.cmd -B -o compile` → `BUILD SUCCESS`；11 个迁移文件在空库（MySQL 8.4.11）按序应用成功（14 张表、25 个外键、新索引首列 `cancel_request_deadline_at`、`CHECK TABLE ticket` = OK）；两条查询的 EXPLAIN 前后对照见 `V12` 头注释。
+- **未跑（不视为已通过）**：**本批与本批之前的超时自动任务都没有新增测试**。`test-compile` 目前因三处**既有**测试文件（`TicketServiceImplTest` 11 处 `TicketProperties` 构造元数、`TicketSupplementServiceImplTest` 1 处、`NotificationCleanupTaskTest` 6 处方法改名与 `NotificationProperties` 元数）而失败，`DatabaseMigrationIT`（V11 / V12 基线已改好）因此**从未执行**；后端全量 `clean verify`、前端全量 E2E 与渲染截图自查、8092 真实栈验收脚本均未跑。
+- **下一步（分支 `flow-desk/timeout-batch-verify`，从合并后的 `main` 创建）**：修三处测试编译欠账 → 补超时任务 / 提醒 / 回收 / 未读保留期的单元与集成用例并实跑 `DatabaseMigrationIT` → 真实栈验收 → 前端全量 E2E 与截图自查 → 契约文档同步（`kickoff.md` 4.9/4.12 实现状态、`api-design.md` 7.7、`database-design.md` 19.6 与 ticket 索引清单、`technical-architecture.md` 第 9 节调度表、`implementation-plan.md` 9.4）。**本文与 `README.md` 已按「代码已并 `main`、验收未做」的口径更新；契约文档的详细同步留在该分支。**
+
 ## 2026-10-16 交接：站内信通道并入 `main`（工作树 `D:\Idea\item\flow-Desk-notification-channel`，分支 `notification-channel`）
 
 - **交接方式（用户 2026-10-16 明确指示）**：**未走 PR**，按用户指示**直接推送远程 `main`**，快进推送、未改写历史（`e0ac790..95e8f71 HEAD -> main`）。提交三条 + 一个合并提交：`d0b2ec5`（feat：模块 / 迁移 `V10` / 工单侧 5 类发布 / 前端铃铛与收件箱页 / 验收脚本与证据）、`8f618df`（docs：契约与状态同步）、合并提交 **`95e8f71`**（并入 `main` `e0ac790`）。合并前已确认远程 `main` = `e0ac790`，因此是纯快进。本地 `main` / `origin/main` / 分支均已 = `95e8f71`（`fetch origin main:main` 仅快进）。
