@@ -187,7 +187,8 @@ class TicketServiceImplTest {
 
     private static final String SUBMISSION_KEY = "3f1c9f4e-2a6b-4b7c-8d9e-0a1b2c3d4e5f";
     private static final TicketProperties DEFAULT_PROPERTIES =
-            new TicketProperties(Duration.ofDays(7), Duration.ofDays(7), Duration.ofDays(3));
+            new TicketProperties(Duration.ofDays(7), Duration.ofDays(7), Duration.ofDays(3),
+                    Duration.ofDays(1));
     private static final AttachmentProperties ATTACHMENT_PROPERTIES =
             AttachmentPropertiesFixture.local(
                     Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath());
@@ -1060,7 +1061,7 @@ class TicketServiceImplTest {
         stubSubmittableTicket(3L, deadline);
 
         TicketActionResult result = service(CLOCK,
-                new TicketProperties(Duration.ofHours(1), null, null))
+                new TicketProperties(Duration.ofHours(1), null, null, Duration.ofMinutes(1)))
                 .submitResolution(TICKET_NO, new SubmitResolutionCommand(3L, "已恢复"));
 
         verify(ticketMapper).submitResolution(TICKET_ID, 3L, IT_USER_ID, deadline, NOW_UTC);
@@ -1936,7 +1937,7 @@ class TicketServiceImplTest {
         when(ticketRecordMapper.insert(any(TicketRecord.class))).thenReturn(1);
 
         TicketActionResult result = service(CLOCK,
-                new TicketProperties(null, Duration.ofHours(1), null))
+                new TicketProperties(null, Duration.ofHours(1), null, Duration.ofMinutes(1)))
                 .requestSupplement(TICKET_NO,
                         new RequestSupplementCommand(3L, "请补充打印机型号"));
 
@@ -3869,7 +3870,8 @@ class TicketServiceImplTest {
     /** 响应期限来自 {@code flowdesk.ticket.cancel-request-window}：换配置就换期限。 */
     @Test
     void requestCancelUsesConfiguredCancelRequestWindow() {
-        service = service(CLOCK, new TicketProperties(null, null, Duration.ofHours(1)));
+        service = service(CLOCK,
+                new TicketProperties(null, null, Duration.ofHours(1), Duration.ofMinutes(1)));
         stubRequesterActor();
         stubVisible(detailRow(PROCESSING, IT_USER_ID, 3L));
         LocalDateTime expectedDeadline = NOW_UTC.plusHours(1);
@@ -4588,33 +4590,67 @@ class TicketServiceImplTest {
 
     @Test
     void ticketPropertiesDefaultToSevenDaysWhenUnset() {
-        assertThat(new TicketProperties(null, null, null).confirmationWindow())
+        assertThat(new TicketProperties(null, null, null, null).confirmationWindow())
                 .as("未配置时使用已确认的 7×24 小时默认值")
                 .isEqualTo(Duration.ofDays(7));
-        assertThat(new TicketProperties(null, null, null).supplementWindow())
+        assertThat(new TicketProperties(null, null, null, null).supplementWindow())
                 .as("补充期限与确认期限同口径：缺省也是 7×24 小时")
                 .isEqualTo(Duration.ofDays(7));
-        assertThat(new TicketProperties(null, null, null).cancelRequestWindow())
+        assertThat(new TicketProperties(null, null, null, null).cancelRequestWindow())
                 .as("撤销请求约束的是 IT 侧的响应，默认 3 天而不是 7 天")
                 .isEqualTo(Duration.ofDays(3));
+        assertThat(new TicketProperties(null, null, null, null).reminderLeadTime())
+                .as("到期前提醒的提前量默认 1 天：小于最短的 3 天窗口，也小于未读保留期")
+                .isEqualTo(Duration.ofDays(1));
     }
 
     @Test
     void ticketPropertiesRejectWindowBelowOneMinute() {
-        assertThatThrownBy(() -> new TicketProperties(Duration.ofSeconds(30), null, null))
+        assertThatThrownBy(() -> new TicketProperties(Duration.ofSeconds(30), null, null, null))
                 .as("小于 1 分钟的确认期限会让员工无法在期限内操作")
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("confirmation-window");
 
-        assertThatThrownBy(() -> new TicketProperties(null, Duration.ofSeconds(30), null))
+        assertThatThrownBy(() -> new TicketProperties(null, Duration.ofSeconds(30), null, null))
                 .as("补充期限与确认期限同口径，不能小于 1 分钟")
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("supplement-window");
 
-        assertThatThrownBy(() -> new TicketProperties(null, null, Duration.ofSeconds(30)))
+        assertThatThrownBy(() -> new TicketProperties(null, null, Duration.ofSeconds(30), null))
                 .as("撤销请求的响应期限同样不能小于 1 分钟")
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("cancel-request-window");
+    }
+
+    /**
+     * 提前量必须小于最短的期限窗口：等于窗口时期限在等待刚开始就落进提醒窗口，提醒没有提前量。
+     * 这条校验是构造期失败，因此漏掉它会在启动时才发现，而不是在某个用例里。
+     */
+    @Test
+    void ticketPropertiesRejectReminderLeadTimeNotShorterThanTheShortestWindow() {
+        assertThatThrownBy(() -> new TicketProperties(null, null, null, Duration.ofSeconds(30)))
+                .as("提前量本身低于 1 分钟下限")
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("reminder-lead-time");
+
+        assertThatThrownBy(() -> new TicketProperties(null, null, null, Duration.ofDays(3)))
+                .as("提前量等于最短窗口（撤销请求的 3 天）同样拒绝：会退化成没有提前量")
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("reminder-lead-time");
+
+        assertThatThrownBy(() -> new TicketProperties(null, null, null, Duration.ofDays(10)))
+                .as("提前量大于全部窗口时，期限一创建就落入提醒窗口")
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("reminder-lead-time");
+    }
+
+    /** 提前量只受最短窗口约束：三个窗口都放大后，更大的提前量就合法了。 */
+    @Test
+    void ticketPropertiesAcceptReminderLeadTimeShorterThanTheShortestWindow() {
+        TicketProperties properties = new TicketProperties(
+                Duration.ofDays(7), Duration.ofDays(7), Duration.ofDays(5), Duration.ofDays(4));
+
+        assertThat(properties.reminderLeadTime()).isEqualTo(Duration.ofDays(4));
     }
 
     // ---------- 事务边界 ----------

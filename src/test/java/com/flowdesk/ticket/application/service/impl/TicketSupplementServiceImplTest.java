@@ -95,7 +95,8 @@ class TicketSupplementServiceImplTest {
     private static final String HIGH = "HIGH";
 
     private static final TicketProperties DEFAULT_PROPERTIES =
-            new TicketProperties(Duration.ofDays(7), Duration.ofDays(7), Duration.ofDays(3));
+            new TicketProperties(Duration.ofDays(7), Duration.ofDays(7), Duration.ofDays(3),
+                    Duration.ofDays(1));
     private static final AttachmentProperties ATTACHMENT_PROPERTIES =
             AttachmentPropertiesFixture.local(
                     Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath());

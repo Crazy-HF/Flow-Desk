@@ -100,7 +100,7 @@ class DatabaseMigrationIT {
         var history = jdbc.queryForList(
                 "SELECT version, success FROM flyway_schema_history ORDER BY installed_rank");
         assertThat(history).extracting(row -> String.valueOf(row.get("version")))
-                .containsExactly("1", "2", "4", "5", "6", "7", "8", "9", "10", "11", "12");
+                .containsExactly("1", "2", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13");
         assertThat(history).allSatisfy(row ->
                 assertThat(row.get("success")).isEqualTo(Boolean.TRUE));
 
@@ -174,6 +174,62 @@ class DatabaseMigrationIT {
                   AND referenced_column_name = 'id'
                 """, Integer.class);
         assertThat(grantedByForeignKeyCount).isEqualTo(1);
+    }
+
+    /**
+     * V13 基线：{@code ticket.close_method} 与 {@code ticket_record.close_method} 必须容得下
+     * 最长的关闭方式取值 {@code AUTO_SUPPLEMENT_TIMEOUT}（23 字符）。
+     *
+     * <p>V1 把两列定成 {@code VARCHAR(16)}，而 V1 的 CHECK 白名单里就含这个 23 字符的值——
+     * 自动关闭整条路径在真库上会抛 {@code Data too long}，被服务层的单张 try/catch 静默吞掉，
+     * 表现为「超时任务恒返回 0」。这条断言直接钉住列宽，避免同类欠账再次回归。</p>
+     */
+    @Test
+    void closeMethodColumnsFitTheLongestAllowedValue() {
+        var widths = jdbc.queryForList("""
+                SELECT table_name, character_maximum_length
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                  AND column_name = 'close_method'
+                  AND table_name IN ('ticket', 'ticket_record')
+                """);
+        assertThat(widths)
+                .as("两处 close_method 都必须是 VARCHAR(32)")
+                .hasSize(2)
+                .allSatisfy(row -> {
+                    assertThat(String.valueOf(row.get("table_name"))).isIn("ticket", "ticket_record");
+                    assertThat(((Number) row.get("character_maximum_length")).intValue())
+                            .as("必须容得下 AUTO_SUPPLEMENT_TIMEOUT（23 字符）")
+                            .isGreaterThanOrEqualTo("AUTO_SUPPLEMENT_TIMEOUT".length());
+                });
+    }
+
+    /**
+     * V11 基线：{@code ck_notification_category} 必须放行全部 10 类通知类别。
+     *
+     * <p>逐类别实插一次是唯一能证明"白名单真的扩到了 10 类"的方式——只查约束文本
+     * 看不出漏了哪一类，而漏一类就意味着那类通知在真库上永远插不进去。</p>
+     */
+    @Test
+    void notificationCategoryWhitelistAcceptsAllTenCategories() {
+        long requesterId = insertUser("ck-cat-requester");
+        for (String category : List.of(
+                "SUPPLEMENT_REQUESTED", "RESOLUTION_SUBMITTED", "CANCEL_REQUESTED",
+                "CANCEL_APPROVED", "CANCEL_REJECTED", "CONFIRMATION_DUE_SOON",
+                "SUPPLEMENT_DUE_SOON", "CANCEL_REQUEST_DUE_SOON", "CONFIRMATION_TIMEOUT",
+                "SUPPLEMENT_TIMEOUT")) {
+            jdbc.update("""
+                    INSERT INTO notification (recipient_id, category, title, created_at)
+                    VALUES (?, ?, '白名单探测', CURRENT_TIMESTAMP(3))
+                    """, requesterId, category);
+        }
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(DISTINCT category) FROM notification WHERE recipient_id = ?",
+                Integer.class, requesterId))
+                .as("10 类都必须被 ck_notification_category 放行")
+                .isEqualTo(10);
+        jdbc.update("DELETE FROM notification WHERE recipient_id = ?", requesterId);
+        jdbc.update("DELETE FROM iam_user WHERE id = ?", requesterId);
     }
 
     @Test

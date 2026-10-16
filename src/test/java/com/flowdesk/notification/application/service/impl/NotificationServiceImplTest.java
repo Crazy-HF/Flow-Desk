@@ -268,6 +268,46 @@ class NotificationServiceImplTest {
         verify(notificationMapper).markAllRead(RECIPIENT_ID, NOW_UTC);
     }
 
+    // ---------- recallReminders（提醒回收，2026-10-16） ----------
+
+    /**
+     * 回收按「工单 + 类别名列表」下推给 Mapper：类别以枚举名（{@code name()}）落库，
+     * 与 {@code publish} 写入时同一口径，不依赖全局枚举 TypeHandler。
+     */
+    @Test
+    void recallRemindersDeletesByTicketAndCategoryNames() {
+        service.recallReminders(TICKET_ID, List.of(
+                NotificationCategory.CONFIRMATION_DUE_SOON,
+                NotificationCategory.SUPPLEMENT_DUE_SOON));
+
+        verify(notificationMapper).deleteRemindersByTicket(TICKET_ID,
+                List.of("CONFIRMATION_DUE_SOON", "SUPPLEMENT_DUE_SOON"));
+    }
+
+    /**
+     * 空类别集合直接返回、不碰 Mapper：{@code IN ()} 在 MySQL 是语法错误，
+     * 而"没有类别要回收"本就等于什么都不做。
+     */
+    @Test
+    void recallRemindersDoesNothingForAnEmptyCategoryList() {
+        service.recallReminders(TICKET_ID, List.of());
+
+        verify(notificationMapper, never()).deleteRemindersByTicket(anyLong(), any());
+    }
+
+    /**
+     * 回收只按类别删，不看已读状态：提醒是临时提示而不是业务事实，
+     * 已经读过的过期提醒同样该消失（否则会一直挂在收件箱里）。
+     * 这里断言的是调用形状——单类别回收只传一个类别名。
+     */
+    @Test
+    void recallRemindersWithASingleCategoryPassesJustThatName() {
+        service.recallReminders(TICKET_ID, List.of(NotificationCategory.CANCEL_REQUEST_DUE_SOON));
+
+        verify(notificationMapper).deleteRemindersByTicket(
+                TICKET_ID, List.of("CANCEL_REQUEST_DUE_SOON"));
+    }
+
     // ---------- 辅助 ----------
 
     private static Notification sampleNotification() {
