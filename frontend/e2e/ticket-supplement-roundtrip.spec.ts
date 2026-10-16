@@ -10,8 +10,9 @@ import { expectNoHorizontalOverflow } from './support/overflow'
  * <p>覆盖四个界面事实，全部从真实点击产生，不用 SQL 造状态：</p>
  * <p>1. **请求补充**：IT 负责人从「处理中」把工单推进到「待员工补充」，并拿到服务端算出的期限；
  * 进入该状态后负责人**不能再提交解决结果**（`docs/kickoff.md` 4.11 末两条规则），只剩撤回入口。</p>
- * <p>2. **期限的读法按视角不同**：负责人看「补充期限」，提交人看「补充截止时间」；两者都要看到
- * 「到期不会自动处理」这句——本版本没有超时自动任务，界面不能暗示"到点系统会关单"。</p>
+ * <p>2. **期限的读法按视角不同**：负责人看「补充期限」，提交人看「补充截止时间」；两者都要读到
+ * 「到期未补充将自动关闭工单」这句——超时任务确实会在到期后关单（`docs/kickoff.md` 4.12），
+ * 界面必须把"到点会发生什么"说出来，而不是让人以为拖到过期也没什么后果。</p>
  * <p>3. **提交补充信息**：提交人补充后工单回到「处理中」，期限从属性栏消失，原负责人继续处理。</p>
  * <p>4. **时间线不可变**：请求补充与提交补充各留下一条记录，顺序与正文都能在页面上读到。</p>
  *
@@ -160,10 +161,10 @@ test('片 B：IT 请求补充、员工补充，工单回到处理中且 IT 可�
     '调整优先级',
     '转交工单',
   ])
-  // 负责人视角：这是"等员工回到什么时候"
+  // 负责人视角：这是"等员工回到什么时候"，以及到期由系统按未响应关单
   const itFacts = page.locator('.ticket-facts')
   await expect(itFacts).toContainText('补充期限')
-  await expect(itFacts).toContainText('到期不会自动处理')
+  await expect(itFacts).toContainText('到期未补充将自动关闭工单')
   await page.screenshot({
     path: resolve(reviewDir, 'it-waiting-for-supplement-1440.png'),
     fullPage: true,
@@ -180,7 +181,8 @@ test('片 B：IT 请求补充、员工补充，工单回到处理中且 IT 可�
 
   const employeeFacts = page.locator('.ticket-facts')
   await expect(employeeFacts).toContainText('补充截止时间')
-  await expect(employeeFacts).toContainText('到期不会自动关闭工单')
+  // 提交人这一侧必须读到"不补充的后果"，否则他会以为拖到过期也没关系
+  await expect(employeeFacts).toContainText('到期未补充将自动关闭工单')
   // 请求内容进入时间线，员工能读到"需要补充什么"
   const requestRecord = page
     .locator('.ticket-timeline__item')

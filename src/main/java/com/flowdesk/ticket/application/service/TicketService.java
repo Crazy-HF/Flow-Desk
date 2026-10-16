@@ -93,4 +93,22 @@ public interface TicketService {
     /** 提交人撤销自己的工单；只剩「待受理」可以这样撤销，其余非终态走两阶段 */
     TicketActionResult cancel(
             String ticketNo, CancelTicketCommand command);
+
+    /**
+     * 系统自动完成到期未确认的工单
+     * 「待确认」且确认期限已过的工单转为「已完成」，完成方式记为 AUTO_CONFIRM_TIMEOUT。
+     *
+     * @param limit 单轮处置上限；被人工动作抢先的工单不计入
+     * @return 本轮实际完成的工单数
+     */
+    int completeExpiredConfirmations(int limit);
+
+    /**
+     * 系统自动关闭到期未补充的工单
+     * 「待补充」且补充期限已过的工单转为「已关闭」，关闭方式记为 AUTO_SUPPLEMENT_TIMEOUT。
+     *
+     * @param limit 单轮处置上限；被人工动作抢先的工单不计入
+     * @return 本轮实际关闭的工单数
+     */
+    int closeExpiredSupplements(int limit);
 }

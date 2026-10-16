@@ -583,9 +583,9 @@ describe('TicketDetailView', () => {
 
     const { wrapper } = await mountPage()
     expect(actionLabels(wrapper)).toEqual(['确认已解决'])
-    // 待确认时属性栏把期限解释成"我要在什么时候之前确认"
+    // 待确认时属性栏把期限解释成"我要在什么时候之前确认"，并说明不确认的后果
     expect(wrapper.get('.ticket-facts').text()).toContain('确认期限')
-    expect(wrapper.get('.ticket-facts__hint').text()).toContain('仍需要你手动确认')
+    expect(wrapper.get('.ticket-facts__hint').text()).toContain('视为你已接受这次处理结果')
 
     await openActionBox(wrapper, '确认已解决')
     // 确认是终态动作：弹窗里说明清楚后果，且不需要写正文
@@ -604,10 +604,10 @@ describe('TicketDetailView', () => {
    * 同一个期限字段，负责人读到的不是同一句话。
    *
    * <p>待确认时负责人没有任何可做动作（确认归提交人），若提示按"有没有动作"给，负责人在这里
-   * 看不到任何限定，界面就只剩一个日期在暗示"到点系统会处理"；而这句提示必须说给两种人各自的
-   * 处境：提交人要做的是去确认，负责人要做的是等提交人。</p>
+   * 看不到任何说明，界面就只剩一个日期在暗示"到点系统会处理"；而这句提示必须说给两种人各自的
+   * 处境：提交人要判断"我还能不能不确认"，负责人要知道"到点这件事由谁了结"。</p>
    */
-  it('待确认时负责人看到的是"确认期限"，并写明到期要等提交人手动确认', async () => {
+  it('待确认时负责人看到的是"确认期限"，并写明到期会自动完成工单', async () => {
     useAuthStore().user = support
     vi.mocked(getTicket).mockResolvedValue({
       ...detail,
@@ -622,9 +622,9 @@ describe('TicketDetailView', () => {
 
     const facts = wrapper.get('.ticket-facts')
     expect(facts.text()).toContain('确认期限')
-    // 不写这一句，负责人只能猜"到点会不会自动关掉"
-    expect(facts.text()).toContain('到期不会自动处理')
-    expect(wrapper.get('.ticket-facts__hint').text()).toContain('需要提交人手动确认')
+    // 不写这一句，负责人只能猜"到点这张单会怎样"
+    expect(facts.text()).toContain('到期未确认将自动完成工单')
+    expect(wrapper.get('.ticket-facts__hint').text()).toContain('视为提交人已接受处理结果')
   })
 
   it('提交人补充信息：命中补充接口，成功后回到处理中并刷新时间线', async () => {
@@ -735,7 +735,7 @@ describe('TicketDetailView', () => {
     expect(messageBox.current()).not.toBeNull()
   })
 
-  it('待补充时属性栏写"补充截止时间"，并说明到期不会自动处理', async () => {
+  it('待补充时属性栏写"补充截止时间"，并说明到期会自动关闭工单', async () => {
     useAuthStore().user = requester
     vi.mocked(getTicket).mockResolvedValue({
       ...detail,
@@ -750,18 +750,18 @@ describe('TicketDetailView', () => {
 
     const facts = wrapper.get('.ticket-facts')
     expect(facts.text()).toContain('补充截止时间')
-    // 本版本没有超时自动任务：不写这一句，界面就在暗示"到点系统会处理"
-    expect(facts.text()).toContain('到期不会自动关闭工单')
-    expect(wrapper.get('.ticket-facts__hint').text()).toContain('仍需提交人手动补充')
+    // 反过来：不写这一句，提交人会以为拖到过期也没什么后果
+    expect(facts.text()).toContain('到期未补充将自动关闭工单')
+    expect(wrapper.get('.ticket-facts__hint').text()).toContain('并记为你逾期未补充信息')
   })
 
   /**
    * 负责人视角同样要有这句提示。
    *
    * <p>这里刻意用「负责人」而不是「有 supplement 动作的人」来判断：负责人在待补充时唯一的动作是
-   * 撤回，如果用可做动作判断，恰好是最需要看到"到点不会自动处理"的那个人看不到这句话。</p>
+   * 撤回，如果用可做动作判断，恰好是最需要知道"到点会发生什么"的那个人看不到这句话。</p>
    */
-  it('待补充时负责人看到的期限叫"补充期限"，同样说明到期不会自动处理', async () => {
+  it('待补充时负责人看到的期限叫"补充期限"，同样说明到期会自动关闭工单', async () => {
     useAuthStore().user = support
     vi.mocked(getTicket).mockResolvedValue({
       ...detail,
@@ -776,8 +776,8 @@ describe('TicketDetailView', () => {
 
     const facts = wrapper.get('.ticket-facts')
     expect(facts.text()).toContain('补充期限')
-    expect(facts.text()).toContain('到期不会自动处理')
-    expect(wrapper.get('.ticket-facts__hint').text()).toContain('工单会一直停在待员工补充')
+    expect(facts.text()).toContain('到期未补充将自动关闭工单')
+    expect(wrapper.get('.ticket-facts__hint').text()).toContain('记为提交人逾期未补充信息')
   })
 
   it('请求补充信息：带需要补充的内容与版本号提交', async () => {
@@ -1516,7 +1516,7 @@ describe('TicketDetailView', () => {
     const panel = cancelRequestPanel(wrapper)
     expect(panel.text()).toContain('你已申请撤销这张工单')
     expect(panel.text()).toContain('问题已经自行解决')
-    // 本版本没有超时任务：期限必须写明"到期不自动处理"
+    // 撤销申请走的是另一条规则（docs/kickoff.md 4.7）：请求到期即失效，但工单状态不会因此自动改变
     expect(panel.text()).toContain('到期不会自动处理')
     // 提交人还能撤回自己刚发出去的申请
     expect(actionLabels(wrapper)).toEqual(['撤回撤销申请'])

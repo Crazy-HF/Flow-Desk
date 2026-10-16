@@ -202,6 +202,8 @@ v1 只允许：
 - 转交待补充工单不改变补充截止时间。
 - 状态已变化或期限已失效的工单不得被重复处理。
 
+**实现状态（2026-10-15，分支 `flow-desk/ticket-timeout-tasks`；测试待补）**：扫描走 `idx_ticket_status_deadline (status, action_deadline_at, id)`（`V1` 第 113 行），只取 `id` / `version` / `action_deadline_at` 三列，按 `action_deadline_at, id` 升序、单轮最多 200 张；两条条件更新的 `WHERE` 都要求**等待态 + `action_deadline_at <= now` + `version` 相等**，因此"状态已变化或期限已失效"的工单命中 0 行、不会被重复处理（超时任务把它当作静默跳过，不报冲突）。本批用到的三个编码（`AUTO_CONFIRM_TIMEOUT`、`AUTO_SUPPLEMENT_TIMEOUT`、`REQUESTER_NO_RESPONSE`）与两条记录类型（`COMPLETION`、`CLOSURE`）在 `V1` 就已预置并进入 CHECK 白名单，**不需要新迁移**。
+
 ### 9.2 并发控制
 
 每个状态或负责人变更都同时校验预期状态、预期负责人和工单版本。更新成功后，在同一事务中更新快照、追加记录，并在需要时增加工单参与者。

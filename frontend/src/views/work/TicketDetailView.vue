@@ -210,16 +210,19 @@ const runningAction = ref<TicketActionName | null>(null)
  * **当前工单状态**取（等待态各有各的期限名），提示再按**这件事归谁做**分岔——两个等待态
  * 都不再有一个对谁都能读、但谁都不准的"当前期限"。</p>
  *
- * <p>两种等待态都要写清"到期不会自动处理"：本版本没有超时自动任务
- * （`docs/implementation-plan.md` 9.3 第 4 条的用户裁决），期限到期不会自动改变状态。
- * **提示按状态与角色给，不按可做动作的多寡给**——负责人只有「撤回补充请求」这一件事可做，
- * 若用"有没有动作"判断，负责人在待补充时反而看不到这句提示，而界面恰恰就在暗示
- * "到点系统会处理"。</p>
+ * <p><b>两个等待态的期限到点都由系统处置</b>（`TicketTimeoutTask`，规则见 `docs/kickoff.md`
+ * 4.9 / 4.12）：待确认到期按"提交人默认接受"自动完成工单（`AUTO_CONFIRM_TIMEOUT`），待补充到期
+ * 按"提交人逾期未响应"自动关闭工单（`AUTO_SUPPLEMENT_TIMEOUT` + `REQUESTER_NO_RESPONSE`）。
+ * 所以四条 hint 要写的是**到期后会发生什么、对读这句话的人意味着什么**：对提交人这是"我还能不能
+ * 不处理"的唯一依据，写反了就是误导；对负责人则是"到点这件事由谁了结"。到期不是瞬时生效——扫描
+ * 按固定节奏跑、停机期间到期的工单由后续轮次补处置，因此文案只说"到期会怎样"，不承诺哪一秒完成。</p>
  *
- * <p><b>2026-10-10 裁决已改口径、实现待落地</b>：待确认自动完成与待补充自动关闭将与通知 / 通信
- * 通道一并落地（②），届时下面四条 hint 文案与组件 / E2E 里对应的断言都要改写。撤销块那句
- * 「这次申请也不会自动失效」已在 2026-10-12 随 ① 落地改掉（见 {@code cancelRequestNotice} 与
- * 面板里的期限说明）：撤销请求到期即失效，与工单自身的期限是两条不同的规则。</p>
+ * <p>**提示按状态与角色给，不按可做动作的多寡给**——负责人只有「撤回补充请求」这一件事可做，
+ * 若用"有没有动作"判断，负责人在待补充时反而看不到这句提示，而"到点这张单会怎么结束"正是他
+ * 此刻唯一需要知道的事。</p>
+ *
+ * <p>撤销申请那一块的期限是**另一条规则**（`docs/kickoff.md` 4.7，2026-10-12 落地）：请求到期
+ * 即失效、但工单状态不会因此自动改变，文案见 {@code cancelRequestNotice} 与面板里的期限说明。</p>
  */
 const deadlineFact = computed<{ label: string; hint?: string } | null>(() => {
   if (!detail.value?.actionDeadlineAt) {
@@ -227,15 +230,15 @@ const deadlineFact = computed<{ label: string; hint?: string } | null>(() => {
   }
 
   if (detail.value.status === 'WAITING_FOR_CONFIRMATION') {
-    // 同一句提示不能同时说给两个人：提交人要做的是"去确认"，负责人要做的是"别催、等提交人"
+    // 同一句提示不能同时说给两个人：提交人读的是"不确认的后果"，负责人读的是"到点这件事由谁了结"
     return availableActions.value.includes('confirm-resolution')
       ? {
           label: '确认期限',
-          hint: '到期不会自动处理，仍需要你手动确认。',
+          hint: '到期未确认将自动完成工单，视为你已接受这次处理结果。',
         }
       : {
           label: '确认期限',
-          hint: '到期不会自动处理，需要提交人手动确认，工单会一直停在待员工确认。',
+          hint: '到期未确认将自动完成工单，视为提交人已接受处理结果。',
         }
   }
 
@@ -244,11 +247,11 @@ const deadlineFact = computed<{ label: string; hint?: string } | null>(() => {
     return availableActions.value.includes('supplement')
       ? {
           label: '补充截止时间',
-          hint: '到期不会自动关闭工单，仍需提交人手动补充。',
+          hint: '到期未补充将自动关闭工单，并记为你逾期未补充信息。',
         }
       : {
           label: '补充期限',
-          hint: '到期不会自动处理，工单会一直停在待员工补充。',
+          hint: '到期未补充将自动关闭工单，记为提交人逾期未补充信息。',
         }
   }
 

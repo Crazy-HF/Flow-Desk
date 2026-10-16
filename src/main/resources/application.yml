@@ -95,13 +95,18 @@ flowdesk:
       path-style: true
   ticket:
     # 员工确认期限：IT 提交解决结果后 7×24 小时（docs/kickoff.md 已确认规则）。
+    # 到期未确认由超时任务自动完成工单，视为提交人接受结果（docs/kickoff.md 4.9）。
     confirmation-window: 7d
     # 员工补充期限：IT 请求补充后 7×24 小时（docs/kickoff.md 4.12 已确认规则）。
-    # 本版本只写入并在界面展示，到期不会自动关闭工单（用户 2026-10-06 裁决）。
+    # 到期未补充由超时任务自动关闭工单，原因为提交人逾期未补充信息（docs/kickoff.md 4.12）。
     supplement-window: 7d
     # 撤销请求的响应期限：提交人发起后 IT 需在 3×24 小时内批准或拒绝（docs/kickoff.md 4.7）。
-    # 与上面两个期限同口径：只写入并在界面展示，到期不会自动改变工单状态。
+    # 与上面两个期限不同：请求到期即失效（批准 / 拒绝 / 撤回一起关闭），但工单状态不自动改变。
     cancel-request-window: 3d
+    # 超时自动任务开关（每 5 分钟一轮，单轮最多 200 张）；测试与本地调试可置 false。
+    timeout-task-enabled: true
+    # 扫描节奏可覆盖（Spring 六段式：秒 分 时 日 月 周），例如验收时改为 "*/30 * * * * *"。
+    timeout-scan-cron: "0 */5 * * * *"
   notification:
     # 已读通知的保留期：清理任务删除 read_at 早于该阈值的通知，未读通知永不清理。
     # 缺失时取默认值 90d。

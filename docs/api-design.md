@@ -287,7 +287,7 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 - `close`（**2026-10-08 完成，完整状态机片 D**）：`POST .../actions/close`、`CloseTicketCommand`（`version` + `reasonCode` ∈ {`DUPLICATE`、`OUT_OF_SCOPE`、`INVALID`} + `description` 1～1000 + 条件必填的 `duplicateTicketNo`，去空白后最长 32）、`TicketServiceImpl.close`、`TicketMapper.closeManually`（状态、`close_method='MANUAL'`、`close_reason` 与 `ended_at` 写在**同一条 UPDATE** 内，避开 `ck_ticket_status_ended` 的中间态；负责人按快照保留，追加 `CLOSURE` 记录并写入 `close_method` / `close_reason` 两个记录列）。
   - **同时要求 `TICKET_PROCESS` 与 `TICKET_CLOSE`**（2026-10-08 用户裁决：关闭是结束整张工单的处置动作，必须建立在处理权限之上；与片 C 的 `transfer` 只要求 `TICKET_TRANSFER` 是两条不同的口径），且只有「处理中」的当前负责人可关闭。
   - `DUPLICATE` 时目标必须存在、属于**同一提交人**、不是自身、状态不是 `CANCELED`/`CLOSED`（`COMPLETED` 与仍在流转的工单都可以）；命中后写一条 `ticket_relation`（`source` = 被关闭的本单，`target` = 解析到的目标，受唯一键 `uk_ticket_relation_source_type` 约束）。目标属于他人与目标不存在都不回显，统一 `400/VALIDATION_FAILED`。其他原因**禁止**传 `duplicateTicketNo`（跨字段规则在服务层判定）。
-  - `reasonCode` 刻意**不含** `REQUESTER_NO_RESPONSE`：那是员工逾期未补充时的系统自动关闭（`close_method = AUTO_SUPPLEMENT_TIMEOUT`，操作人记为系统），属 backlog 第 3 项，不走这个人工接口。三种人工原因由 `V1` 的 `ck_ticket_close_semantics` 直接约束，**不需要新迁移**。
+  - `reasonCode` 刻意**不含** `REQUESTER_NO_RESPONSE`：那是员工逾期未补充时的系统自动关闭（`close_method = AUTO_SUPPLEMENT_TIMEOUT`，操作人记为系统），由 6.5 的定时任务处置（**2026-10-15 已实现**），不走这个人工接口。三种人工原因由 `V1` 的 `ck_ticket_close_semantics` 直接约束，**不需要新迁移**。
 - `approve-cancel` / `reject-cancel`（**2026-10-08 完成，两阶段撤销规则变更**）：`POST .../actions/approve-cancel`、`.../actions/reject-cancel`、`ApproveCancelCommand`（只有 `version`）、`RejectCancelCommand`（`version` + `reason` 1～1000）、`TicketServiceImpl.approveCancel` / `rejectCancel`、`TicketMapper.approveCancel` / `rejectCancel`。两条 SQL 形状相同，只有状态迁移那一行不同，都要求 `assignee_id = actor`、状态落在三个「有人负责且未终结」的状态、且 `cancel_requested_at IS NOT NULL`（版本与"确有待决请求"一起进 `WHERE`，因此批准、拒绝、提交人撤回三者并发时只有一条能命中）。**2026-10-10 规则变更（已实现）**：状态白名单去掉 `WAITING_FOR_REQUESTER`——待补充期间这两格不再返回，两条 SQL 的 `WHERE status` 也不接受该状态；请求仍保留在工单上，员工补充完、工单回到 `PROCESSING` 即可裁决。转交与撤回补充请求不受影响。
   - **批准**进入终态 `CANCELED`，并在**同一条 UPDATE** 内清空 `action_deadline_at`、清空请求三列、写入 `ended_at`：待补充与待确认本身带着期限（`ck_ticket_status_deadline` 要求其它状态期限为空），终态又不允许残留待决请求（`ck_ticket_cancel_request_status`），三者只能一起写；负责人按快照保留，追加 `CANCELLATION_APPROVED` 记录。
   - **拒绝**不改状态、不改期限，只让请求失效，拒绝原因写入 `CANCELLATION_REJECTED` 记录——没有原因，提交人只看到"被拒绝"而无从调整。
@@ -333,6 +333,15 @@ Refresh Token 只通过 `HttpOnly` Cookie 返回，不进入 JSON，不允许 Ja
 ### 6.5 非公开系统动作
 
 待确认超时完成和待补充超时关闭由应用内部定时用例触发，不暴露给前端，也不设计可由管理员手动调用的 HTTP 接口。它们与人工动作使用相同的状态、期限和版本条件更新规则。
+
+**实现状态（2026-10-15，分支 `flow-desk/ticket-timeout-tasks`；测试尚未补）**：调度器 `TicketTimeoutTask`（`@Scheduled`，默认每 5 分钟一轮、单轮上限 200 张，开关与节奏走 `flowdesk.ticket.timeout-task-enabled` / `flowdesk.ticket.timeout-scan-cron`）只负责装配与分派，业务动作落在 `TicketService` 的两个方法上，实现互不耦合、各自开事务：
+
+| 动作 | 触发条件 | 结果 | 留痕（同事务） |
+| --- | --- | --- | --- |
+| 待确认超时完成 | 状态仍为 `WAITING_FOR_CONFIRMATION`、`action_deadline_at <= now`、`version` 未变 | 置为 `COMPLETED`、`completion_method='AUTO_CONFIRM_TIMEOUT'`，清空 `action_deadline_at` 与撤销请求三列，写入 `ended_at` | 一条 `COMPLETION` 记录，`actor_type='SYSTEM'`、`actor_user_id` 为空 |
+| 待补充超时关闭 | 状态仍为 `WAITING_FOR_REQUESTER`、`action_deadline_at <= now`、`version` 未变 | `CLOSED`，`close_method='AUTO_SUPPLEMENT_TIMEOUT'`、`close_reason='REQUESTER_NO_RESPONSE'`，同上清空 | 一条 `CLOSURE` 记录，`deadline_at` 写**原补充截止时间**，原因写"提交人在补充期限内未提供信息，系统自动关闭" |
+
+与人工动作的两处差异：① **条件更新命中 0 行不是 `409`，而是静默跳过**——超时任务没有调用方要提示，被人工动作抢先（或状态已离开等待态）就说明这条不需要它处理，下一轮也不会再选中；② 逐条独立事务、单条失败只告警，不中断整批。两条规则都**不新增记录类型、不需要迁移**：`COMPLETION` / `CLOSURE` 与 `AUTO_CONFIRM_TIMEOUT` / `AUTO_SUPPLEMENT_TIMEOUT` / `REQUESTER_NO_RESPONSE` 都已在 `V1` 的白名单里（`docs/database-design.md` 9.1）。
 
 ### 6.6 并发、幂等与错误
 

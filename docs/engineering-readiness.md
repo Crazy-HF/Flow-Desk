@@ -438,7 +438,7 @@ pnpm --dir frontend dev
 | `POST /fd/v1/admin/categories/{categoryId}/actions/disable` | `/admin/categories` |
 | `DELETE /fd/v1/admin/categories/{categoryId}` | `/admin/categories`，仅未引用分类可用 |
 | `GET /fd/v1/dashboard/tickets` | `/dashboard` |
-| 待确认/待补充超时动作 | Spring 定时任务；无前端路由和 HTTP 入口 |
+| 待确认/待补充超时动作 | Spring 定时任务（`TicketTimeoutTask`，2026-10-15 已实现、测试待补；开关 `flowdesk.ticket.timeout-task-enabled`、节奏 `flowdesk.ticket.timeout-scan-cron`）；无前端路由和 HTTP 入口，界面只在期限那一栏说明到期后的处置结果 |
 | 附件暂存/孤儿对账 | 后端定时维护任务（`flowdesk.attachment.reconciliation-enabled`，默认开启）；无前端入口 |
 
 路由守卫根据 `/auth/me` 返回的角色和权限改善导航体验，但后端仍对每次请求执行 RBAC、资源关系、状态、负责人和版本校验。401 触发一次受控刷新；刷新失败清空内存状态并进入登录页。403 进入无权限页或就地提示，404 不泄露不可见资源，409 要求重新读取最新工单而不是自动重放写操作。

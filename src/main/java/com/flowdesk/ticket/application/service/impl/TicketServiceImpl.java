@@ -28,6 +28,7 @@ import com.flowdesk.attachment.infrastructure.AttachmentStorage;
 import com.flowdesk.attachment.infrastructure.AttachmentStorageException;
 import com.flowdesk.attachment.infrastructure.StagedAttachment;
 import com.flowdesk.attachment.mapper.AttachmentMapper;
+import com.flowdesk.ticket.infrastructure.persistence.TicketTimeoutRow;
 import com.flowdesk.ticket.mapper.TicketAttachmentMapper;
 import com.flowdesk.ticket.mapper.TicketMapper;
 import com.flowdesk.ticket.mapper.TicketDailySequenceMapper;
@@ -1060,8 +1061,10 @@ public class TicketServiceImpl implements TicketService {
         }
 
         // 5. 正文与附件至少存在一项；正文长度沿用旧口径。
-        //    刻意不判定"是否已过 action_deadline_at"：本版本没有超时自动关闭（backlog 第 3 项），
-        //    在那里拒绝过期提交等于把"系统还没实现自动关闭"变成"员工连信息都补不进来"。
+        //    刻意不判定"是否已过 action_deadline_at"：期限只决定"没人动它时系统做什么"
+        //    （超时任务按条件更新关闭工单），不是拦人工动作的闸门——员工在扫描轮到之前补充
+        //    仍然成功，工单回到处理中，扫描器随后命中 0 行跳过。否则会出现"系统还没轮到处置，
+        //    员工却连信息都补不进来"。
         String content = command.content();
         if (content != null && content.length() > MAX_CONTENT_LENGTH) {
             throw new ApiException(
@@ -2362,6 +2365,158 @@ public class TicketServiceImpl implements TicketService {
                 instant.atOffset(ZoneOffset.UTC));
     }
 
+    /**
+     * 系统自动完成到期未确认的工单
+     * 一轮取一批「待确认」且确认期限已过的工单，逐张独立事务处置，返回真正完成的张数。
+     * 刻意不加 {@code @Transactional}：一张一个事务，一张失败不影响其余。
+     */
+    @Override
+    public int completeExpiredConfirmations(int limit) {
+        //1.扫描与条件更新共用同一个 now：两处时间不一致会出现"选出来却更新不掉"的空转
+        Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
+        LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+
+        //2.候选只筛「状态 + 期限已到」；真正的到期判定在条件更新的 WHERE 里（那里才是唯一胜者判定）
+        List<TicketTimeoutRow> candidates =
+                ticketMapper.selectExpiredForAction(WAITING_FOR_CONFIRMATION, now, limit);
+
+        //3.处理已到期工单进行自动确认
+        int completed = 0;
+        for (TicketTimeoutRow candidate : candidates) {
+            try {
+                if (completeOneExpiredConfirmation(candidate, now)) {
+                    completed++;
+                }
+            } catch (RuntimeException exception) {
+                //单张失败只告警：它仍满足「期限已到且还在等待态」，下一轮会被重新选中
+                log.warn("工单超时任务：自动完成失败 ticketId={}", candidate.getId(), exception);
+            }
+        }
+        return completed;
+    }
+
+
+    /**
+     * 单张工单的自动完成：条件更新与留痕在同一个事务里，返回是否真的完成。
+     */
+    private boolean completeOneExpiredConfirmation(TicketTimeoutRow candidate, LocalDateTime now){
+        Boolean completed = transactionTemplate.execute(transacationStatus ->{
+            if (candidate.getVersion() == null) {
+                return false;
+            }
+
+            //1.条件更新是唯一胜者判定：状态、版本、期限已到都在 WHERE 里；不写 claimant/requester
+            if (ticketMapper.completeAutoConfirmTimeout(
+                    candidate.getId(), candidate.getVersion(), now) != 1) {
+                return false;
+            }
+
+            //2.记录序号取更新后的快照：record_seq 已在本轮 UPDATE 里自增，记录与它一一对应
+            Ticket updated = ticketMapper.selectById(candidate.getId());
+
+            if (updated == null || updated.getRecordSeq() == null) {
+                throw new IllegalStateException("自动完成后无法读取工单快照");
+            }
+
+            //3.系统留痕：actor_type=SYSTEM 必须配 actor_user_id=NULL（ck_ticket_record_actor_pair）
+            TicketRecord record = new TicketRecord();
+            record.setTicketId(updated.getId());
+            record.setSequenceNo(updated.getRecordSeq());
+            record.setRecordType("COMPLETION");
+            record.setActorType("SYSTEM");
+            record.setActorUserId(null);
+            record.setReason("超过确认期限，系统自动完成");
+            record.setCompletionMethod("AUTO_CONFIRM_TIMEOUT");
+            record.setFromStatus(WAITING_FOR_CONFIRMATION);
+            record.setToStatus("COMPLETED");
+            record.setCreatedAt(now);
+
+            if (ticketRecordMapper.insert(record) != 1) {
+                throw new IllegalStateException("自动完成记录插入失败");
+            }
+
+            return true;
+        });
+
+        return Boolean.TRUE.equals(completed);
+    }
+
+    /**
+     * 系统自动关闭到期未补充的工单
+     * 与自动完成同形，只有状态、关闭字段、记录文案与是否带期限不同。
+     */
+    @Override
+    public int closeExpiredSupplements(int limit) {
+        Instant instant = clock.instant().truncatedTo(ChronoUnit.MILLIS);
+        LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+
+        //2.候选只筛「待补充 + 期限已到」
+        List<TicketTimeoutRow> candidates =
+                ticketMapper.selectExpiredForAction(WAITING_FOR_REQUESTER, now, limit);
+
+        int closed = 0;
+        for (TicketTimeoutRow candidate : candidates) {
+            try {
+                if (closeOneExpiredSupplement(candidate, now)) {
+                    closed++;
+                }
+            } catch (RuntimeException exception) {
+                log.warn("工单超时任务：自动关闭失败 ticketId={}", candidate.getId(), exception);
+            }
+        }
+
+        return closed;
+    }
+
+    /**
+     *单张工单的自动关闭：条件更新与留痕在同一个事务里，返回是否真的完成。
+     */
+    private boolean closeOneExpiredSupplement(TicketTimeoutRow candidate, LocalDateTime now) {
+        Boolean closed = transactionTemplate.execute(transactionStatus -> {
+            if (candidate.getVersion() == null) {
+                return false;
+            }
+
+            //1.条件更新：状态、版本、期限已到都在 WHERE 里；不动 assignee_id
+            //  （ck_ticket_status_assignee 允许「已关闭」保留负责人，超时关闭不改归属）
+            if (ticketMapper.completeAutoSupplementTimeout(
+                    candidate.getId(), candidate.getVersion(), now) != 1) {
+                return false;
+            }
+
+            Ticket updated = ticketMapper.selectById(candidate.getId());
+
+            if (updated == null || updated.getRecordSeq() == null) {
+                throw new IllegalStateException("自动关闭后无法读取工单快照");
+            }
+
+            //2.系统留痕（actor_type=SYSTEM + actor_user_id=NULL）
+            TicketRecord record = new TicketRecord();
+            record.setTicketId(updated.getId());
+            record.setSequenceNo(updated.getRecordSeq());
+            record.setRecordType("CLOSURE");
+            record.setActorType("SYSTEM");
+            record.setActorUserId(null);
+            record.setReason("提交人在补充期限内未提供信息，系统自动关闭");
+            record.setCloseMethod("AUTO_SUPPLEMENT_TIMEOUT");
+            record.setCloseReason("REQUESTER_NO_RESPONSE");
+            //3.失效的那个期限只能从扫描结果取：条件更新成功后 ticket.action_deadline_at 已清空，
+            //  不写进记录就没有第二处能看到"当时要求什么时候补"。
+            //  快照可信——版本的任何变化都伴随 version+1，条件更新成功即期限未被改写
+            record.setDeadlineAt(candidate.getActionDeadlineAt());
+            record.setFromStatus(WAITING_FOR_REQUESTER);
+            record.setToStatus("CLOSED");
+            record.setCreatedAt(now);
+
+            if (ticketRecordMapper.insert(record) != 1) {
+                throw new IllegalStateException("自动关闭记录插入失败");
+            }
+
+            return true;
+        });
+
+        return Boolean.TRUE.equals(closed);
+    }
 
     /** 创建工单 */
     private TicketCreatedResult createTicket(CreateTicketCommand command, Long requesterId, String submissionKey,

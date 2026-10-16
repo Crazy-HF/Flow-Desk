@@ -13,13 +13,14 @@ import java.time.Duration;
  * <p>默认值不是可选项：{@code OpenApiProfileTest} 手工创建 {@code AnnotationConfigApplicationContext}，
  * 缺少绑定值会让没有 yml 来源的上下文启动失败。</p>
  *
- * <p><b>两个期限都没有定时任务</b>：本版本只写入期限并在界面展示，到期不会自动改变工单状态
- * （用户 2026-10-06 裁决，见 {@code docs/implementation-plan.md} 9.3 第 4 条）。
- * 待确认超时自动完成与待补充超时自动关闭按完整版 backlog 第 3 项单独设计。</p>
+ * <p><b>两个工单期限都有定时任务</b>：确认期限到期由 {@code TicketTimeoutTask} 自动完成工单
+ * （视为提交人接受结果），补充期限到期由它自动关闭工单（提交人逾期未补充信息）。节奏与开关同在
+ * 本前缀下（{@code timeout-scan-cron} / {@code timeout-task-enabled}），规则见
+ * {@code docs/kickoff.md} 4.9 与 4.12；这两个期限仍然只是扫描的判据，真正改状态的是条件更新。</p>
  *
- * <p><b>2026-10-10 裁决已改口径、实现待落地</b>（{@code docs/implementation-plan.md} 9.3 待改清单）：
- * 第三个期限不再只是展示——撤销请求的响应期限届满后请求即失效，批准 / 拒绝 / 撤回三条路一起关闭
- * （①；工单状态仍不自动改变）；两个超时自动任务（②）与通知通道一并落地，届时上面那句要一并改写。</p>
+ * <p><b>第三个期限不自动处置工单</b>（2026-10-10 裁决，2026-10-12 已实现）：撤销请求的响应期限
+ * 届满后请求即失效，批准 / 拒绝 / 撤回三条路一起关闭，但工单状态不自动改变——它不参与超时扫描，
+ * 也没有对应的定时任务。</p>
  */
 @ConfigurationProperties(prefix = "flowdesk.ticket")
 public record TicketProperties(
@@ -41,8 +42,9 @@ public record TicketProperties(
      * <p>默认取 3 天而不是与上面两个一致的 7 天：这个窗口约束的是 IT 侧的响应，
      * 与"工单已被领取却被挂起"的容忍度不同。它是配置项，改 {@code cancel-request-window} 即可。</p>
      *
-     * <p>期限届满即失效（<b>2026-10-10 裁决已改口径、实现待落地</b>）：届时本窗口不再只用于展示，
-     * 而是进入三条条件更新的判定，见上面类注释与 {@code docs/implementation-plan.md} 9.3 待改清单 ①。</p>
+     * <p>期限届满即失效（<b>2026-10-10 裁决，2026-10-12 已实现</b>）：本窗口不只是展示，
+     * 而是进入批准 / 拒绝 / 撤回三条条件更新的判定，见上面类注释与
+     * {@code docs/implementation-plan.md} 9.3 的交付记录。</p>
      */
     private static final Duration DEFAULT_CANCEL_REQUEST_WINDOW = Duration.ofDays(3);
     private static final Duration MIN_CANCEL_REQUEST_WINDOW = Duration.ofMinutes(1);

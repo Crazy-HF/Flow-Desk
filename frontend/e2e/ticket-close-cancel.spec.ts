@@ -238,7 +238,7 @@ test('两阶段撤销场景一：员工申请撤销、IT 同意后工单进入�
   await expect(pendingPanel).toBeVisible()
   await expect(pendingPanel).toContainText('你已申请撤销这张工单')
   await expect(pendingPanel).toContainText(requestReason)
-  // 本版本没有超时任务：期限必须写明"到期不自动处理"
+  // 撤销申请的期限是另一条规则（docs/kickoff.md 4.7）：请求到期即失效，但工单状态不会因此自动改变
   await expect(pendingPanel).toContainText('到期不会自动处理')
   await expect(page.locator('.ticket-action .el-button')).toHaveText(['撤回撤销申请'])
 

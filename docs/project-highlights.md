@@ -7,7 +7,7 @@
 - 本文档不是开发阶段的默认必读文件。只有新增亮点、准备简历或面试复盘时才读取。
 - 设计完成不等于已经实现；每条亮点必须明确当前状态，实际编码和测试完成后才能表述为“已实现”。
 
-## 当前状态总览（2026-10-06 核对；2026-10-07 追加 HL-011 行；2026-10-08 更新 HL-011 的边界修复、追加 HL-012 与 HL-013；2026-10-13 追加 HL-014 行）
+## 当前状态总览（2026-10-06 核对；2026-10-07 追加 HL-011 行；2026-10-08 更新 HL-011 的边界修复、追加 HL-012 与 HL-013；2026-10-13 追加 HL-014 行；2026-10-15 追加 HL-016、HL-017、HL-018 行）
 
 各条目正文的“当前状态”是写入当时的事实，按上一条规则不逐条改写；下表是截至 2026-10-06 的真实状态与证据位置（HL-011 的行为 2026-10-08 片 D 更新，HL-012 与 HL-013 为 2026-10-08 新增）。
 
@@ -28,6 +28,9 @@
 | HL-013 | 两阶段撤销：不新增第 8 个状态，用三列请求表达「待批准」 | **已实现，并有自动化与真实栈双重证据**（2026-10-08；已随 [PR #18](https://github.com/Crazy-HF/Flow-Desk/pull/18) 合并 `main`，合并提交 `2cf1bc1`） | `DatabaseMigrationIT`（空库 `V7` 迁移与两条新 CHECK）；`TicketServiceIT`（真实 MySQL：发起 → 批准 / 拒绝 / 撤回、期限与请求三列同一条 UPDATE 清空、「关闭 vs 批准撤销」唯一胜者、`confirmResolution` 挂待决申请的组合）；`TicketQueryServiceImplTest` / `TicketQueryServiceIT`（`allowedActions` 三状态 × 两角色与 `cancelRequest`）；前端 4 格动作与详情「待批准」块的单测；E2E 两阶段两个场景；真实栈 `docs/acceptance/2026-10-08-slice-e-two-phase-cancel.json`（**178/178、退出码 0**）；全量 `clean verify` surefire 1070 + failsafe 158、前端单测 200 项、E2E 24 项 |
 | HL-014 | 穷尽 `switch` 的守卫必须配一条「真的读一次」的用例：一次时间线 500 的复盘 | **已实现并修复，并有回归守卫**（2026-10-12 缺陷随该批进入 `main`，2026-10-13 定位、修复并补用例） | 缺陷真实栈 traceId `360c7cba-2b1e-4958-b1cb-306004b75797`（`GET /fd/v1/tickets/{ticketNo}/records` → 500）；修复 `TicketQueryServiceImpl.toRecordContext` 的 `case "CANCELLATION_REQUEST_EXPIRED"`；回归守卫 `TicketQueryServiceIT.timelineTranslatesTheExpiredCancelRequestRecordInsteadOfFailing`（**首要断言是 `records()` 返回而不是抛异常**）与 `TicketQueryServiceImplTest.expiredCancelRequestRecordContextExposesOriginalRequestAndStatus`；`PROJECT_STATUS.md` / `docs/implementation-plan.md` 9.3 的交付记录已按实际改写 |
 | HL-015 | MySQL 与 Redis 没有原子事务：把会话撤销排进 MySQL 事务，并让"多张工单一起换人"真的整体回滚 | **已实现，并有自动化与真实栈双重证据**（2026-10-14，管理性交接） | `IamAdminHandoffAdapterTest`(11)、`AdminHandoffWebTest`(11)、`IamUserServiceImplTest`(71)、`TicketQueryServiceImplTest`(105)、`IamUserServiceIT`(28)；真实栈 `docs/acceptance/2026-10-14-admin-handoff.json`（**51/51、退出码 0**，含 h4「被停用账号旧 token `/auth/me` → 401」与 h6「一张工单版本变了则已换人的另一张一起回滚、且未撤会话」两组断言）；`clean verify` surefire 1139 + failsafe 172 |
+| HL-016 | 事务回调的返回类型：`@Nullable` 的泛型返回值不做隐式拆箱 | **代码已写入，未提交、尚无对应测试**（超时自动任务批，分支 `flow-desk/ticket-timeout-tasks`） | 代码事实 `TicketServiceImpl.completeOneExpiredConfirmation` 的 `Boolean completed = transactionTemplate.execute(...)` + `Boolean.TRUE.equals(completed)`；`@Nullable` 依据：`javap` 核对本项目依赖 `spring-tx 6.2.19` 的 `TransactionCallback.doInTransaction` 与 `TransactionOperations.execute` |
+| HL-017 | 编程式事务边界：为什么用 `TransactionTemplate` 而不是 `@Transactional` | **`create` / `supplement` 两条路径已实现，并有自动化与真实栈证据**；同批超时任务内的用法属未提交、未验证范围（见正文标注） | `TicketServiceImplTest.createFallsBackToExistingTicketWhenInsertConflictsWithConcurrentSubmission`（断言 `selectCreationByRequesterAndSubmissionKey` **被调用两次** = T1 查询 + T2 回查）与 `createMapsUnrelatedDuplicateKeyToRetryableConflict`；`TicketServiceIT.concurrentCreatesWithSameSubmissionKeyReturnTheSameTicketNumber`、`createsOnceForRepeatedSubmissionKeyAndReturnsTheFirstResult`（真实 MySQL）；代码事实 `TicketServiceImpl` 构造器第 154～159 行、`create` 第 184 / 204 行、`supplement` 第 1059 行 |
+| HL-018 | 定时任务的「开关 + 节奏」都用配置表达：`@ConditionalOnProperty` 与 `@Scheduled(cron = 占位符)` | **代码已写入，未提交、尚无对应测试**（超时自动任务批，分支 `flow-desk/ticket-timeout-tasks`） | 代码事实 `TicketTimeoutTask` 第 27～35 / 43～47 行（`@ConditionalOnProperty` 三属性、`CRON` 属性占位符）、`FlowDeskApplication` 第 10 行 `@EnableScheduling`；配置项 `application.yml` 的 `flowdesk.ticket.timeout-task-enabled` 与 `flowdesk.ticket.timeout-scan-cron` |
 
 **对外表述口径**：HL-001～HL-010 全部可以作为“已实现并验证”的成果写入简历或面试讲解；其中 HL-007～HL-010 是 2026-10-06 阶段 3 收口与阶段 4 补测试后新增的证据，表述时必须带上对应的测试类名，不得只说“设计过”。
 
@@ -475,7 +478,7 @@ Spring 默认代理模式下，从 Controller 等外部对象调用 Spring Servi
 
 ### 后续实现与测试重点
 
-自动超时完成（`AUTO_CONFIRM_TIMEOUT`）与超时关闭属完整版的定时任务，MVP 未实现；期限到期后的行为目前只有“到期不自动改变状态”这一隐含事实。**2026-10-10 用户裁决**：这两个自动任务与**通知 / 通信通道**一并落地（扫描结果要先有通知能力才有意义），在此之前期限只用于展示。工单撤销请求的响应期限是另一条线，同日裁决为**到期即失效**（**2026-10-12 已实现**：三条决策动作一起关闭、提交人可重新发起并覆盖、过期请求显示为「已过期」，与本节「期限只用于展示」的自动完成 / 自动关闭不是同一条规则），与本节的自动完成 / 自动关闭不是同一条规则。
+自动超时完成（`AUTO_CONFIRM_TIMEOUT`）与超时关闭属完整版的定时任务，不进 MVP 交付。**完整版这一侧已于 2026-10-15 落地代码**（分支 `flow-desk/ticket-timeout-tasks`，测试待补）：待确认到期由系统按"提交人默认接受"自动完成工单、待补充到期按"提交人逾期未响应"自动关闭工单，界面文案随之改为写明到期后的处置结果。**2026-10-10 的「与通知 / 通信通道一并落地」已由 2026-10-15 裁决取代**：超时**处置**不再等通道，仍随通道的是**超时事件的通知**与**到期前提醒**。工单撤销请求的响应期限是另一条线，同日裁决为**到期即失效**（**2026-10-12 已实现**：三条决策动作一起关闭、提交人可重新发起并覆盖、过期请求显示为「已过期」，与本节「期限只用于展示」的自动完成 / 自动关闭不是同一条规则），与本节的自动完成 / 自动关闭不是同一条规则。
 
 ### 简历或面试表达参考
 
@@ -709,7 +712,7 @@ ticket 行写锁  →  [version 复核]  →  iam_user 行锁（升序）  →  
 
 ### 期限：写库，但不自动处置
 
-请求带响应期限（新增配置 `flowdesk.ticket.cancel-request-window`，默认 `3d`、下限 `1m`），由服务端计算并落库展示，**到期不自动改变任何东西**。理由与 4.9 / 4.12 的超时任务同一个：本版本没有定时任务，若在读取时判定"过期即失效"，同一个请求会在不同接口里得到"有效 / 无效"两种结论——多出一条真相来源。超时处置属完整版 backlog 第 3 项，届时与其它两个超时规则一起设计扫描与幂等。**2026-10-10 用户裁决（待实现）**：期限届满后请求即失效——批准、拒绝、撤回三个动作都不再允许，员工可以重新发起并覆盖已过期的那一份（覆盖时补写「已过期」记录）。这条取代原先「过期仍可批准」的口径，落地时现有那条「回填期限已过再批准」的验收探针要**反向断言**。**2026-10-10 集中裁决补完口径（仍未实现）**：「重新发起」不设终身次数上限（同一时刻只允许一个有效请求），过期请求保留在工单上、显示为「已过期」，直到被新请求替换或工单进入终态；IT 列表「待我批准」筛选与本条**同批实施**，并与详情里的批准 / 拒绝**共用同一判定**（本人是当前负责人 + 有未过期待决请求）。另外 v1 **目前没有 IT 侧发现路径**——列表不返回待决请求、也没有「待我批准」筛选，IT 只能在自己的工单详情里看到待批准提示（该筛选的批次见上一句，与到期语义同批）；「到期前提醒」依赖通知通道，属 backlog 第 3 项。**2026-10-12 补记（已实现）**：上面两条与本节的到期语义同批落地——`CANCELLATION_REQUEST_EXPIRED` 记录类型与索引随迁移 `V8` 落地、四条条件更新与详情判定都带上期限、IT 列表有了 `awaitingMyApproval` 筛选（与详情两格共用同一判定，由 `TicketQueryServiceIT` 的交叉验证用例钉住）；「IT 侧没有发现路径」这句自此不再成立，「到期前提醒」仍随通知通道。同日还有第二条裁决：**待补充期间不裁决**——工单处于待补充时批准与拒绝都不开放，员工补充完、回到处理中再裁决（请求与期限保留），转交与撤回补充请求这两条 4.11 已确认的能力不变。**这条已于同日实现**（`TicketServiceIT.approveCancelWaitsUntilTheRequesterSupplements` 在真实 MySQL 上跑通「待补充批准 409 → 员工补充 → 回到处理中 → 批准 200」；`slice-e` 验收脚本的 a3b 组补了 HTTP 与库两层证据，脚本改动**尚未重跑**）。
+请求带响应期限（新增配置 `flowdesk.ticket.cancel-request-window`，默认 `3d`、下限 `1m`），由服务端计算并落库展示，**到期不自动改变任何东西**。写入当时没有定时任务（理由与 4.9 / 4.12 的超时任务同一个）：若在读取时判定"过期即失效"，同一个请求会在不同接口里得到"有效 / 无效"两种结论——多出一条真相来源。超时处置属完整版 backlog 第 3 项，届时与其它两个超时规则一起设计扫描与幂等。**2026-10-10 用户裁决（待实现）**：期限届满后请求即失效——批准、拒绝、撤回三个动作都不再允许，员工可以重新发起并覆盖已过期的那一份（覆盖时补写「已过期」记录）。这条取代原先「过期仍可批准」的口径，落地时现有那条「回填期限已过再批准」的验收探针要**反向断言**。**2026-10-10 集中裁决补完口径（仍未实现）**：「重新发起」不设终身次数上限（同一时刻只允许一个有效请求），过期请求保留在工单上、显示为「已过期」，直到被新请求替换或工单进入终态；IT 列表「待我批准」筛选与本条**同批实施**，并与详情里的批准 / 拒绝**共用同一判定**（本人是当前负责人 + 有未过期待决请求）。另外 v1 **目前没有 IT 侧发现路径**——列表不返回待决请求、也没有「待我批准」筛选，IT 只能在自己的工单详情里看到待批准提示（该筛选的批次见上一句，与到期语义同批）；「到期前提醒」依赖通知通道，属 backlog 第 3 项。**2026-10-12 补记（已实现）**：上面两条与本节的到期语义同批落地——`CANCELLATION_REQUEST_EXPIRED` 记录类型与索引随迁移 `V8` 落地、四条条件更新与详情判定都带上期限、IT 列表有了 `awaitingMyApproval` 筛选（与详情两格共用同一判定，由 `TicketQueryServiceIT` 的交叉验证用例钉住）；「IT 侧没有发现路径」这句自此不再成立，「到期前提醒」仍随通知通道。同日还有第二条裁决：**待补充期间不裁决**——工单处于待补充时批准与拒绝都不开放，员工补充完、回到处理中再裁决（请求与期限保留），转交与撤回补充请求这两条 4.11 已确认的能力不变。**这条已于同日实现**（`TicketServiceIT.approveCancelWaitsUntilTheRequesterSupplements` 在真实 MySQL 上跑通「待补充批准 409 → 员工补充 → 回到处理中 → 批准 200」；`slice-e` 验收脚本的 a3b 组补了 HTTP 与库两层证据，脚本改动**尚未重跑**）。
 
 ### 后续实现与测试重点
 
@@ -812,5 +815,208 @@ default -> throw new IllegalStateException("不支持的工单记录类型：" +
 ### 简历或面试表达参考
 
 "管理性交接要同时改两套系统：MySQL 里的账号/角色/工单负责人，和 Redis 里的登录会话。它们之间没有原子事务，所以我没有去'消除'这个窗口，而是明确选了方向：**所有数据库写先进同一个事务，会话撤销排在提交之前，撤销失败就让数据库一起回滚**——宁可让用户多登一次，也绝不出现'账号已停用但旧 token 还能用'。批量那一侧靠条件更新 + 单事务：两张工单里第二张版本过期时，第一张已经换过人的记录也跟着回滚，我用真实栈脚本把这一点做成了断言，而不是只在文档里写'支持回滚'。"
+
+## HL-016 事务回调的返回类型：为什么是 `Boolean` + `Boolean.TRUE.equals`，而不是原始 `boolean`（2026-10-15）
+
+### 当前状态
+
+**代码已写入，未提交、尚无对应测试。** 本条只解释超时自动任务批（分支 `flow-desk/ticket-timeout-tasks`，完整版 backlog 3 的两个超时自动任务）里的一处类型选择，不代表该批整体已实现或已验收（该批的两条超时路径**代码均已落地**，但测试尚未补）。正文事实以 `TicketServiceImpl` 的实际代码为准。
+
+### 代码事实
+
+`TicketServiceImpl.completeOneExpiredConfirmation(...)` 的返回值收口是这样写的：
+
+```java
+private boolean completeOneExpiredConfirmation(TicketTimeoutRow candidate, LocalDateTime now) {
+    Boolean completed = transactionTemplate.execute(status -> {
+        ...
+        return true;
+    });
+    return Boolean.TRUE.equals(completed);
+}
+```
+
+### 为什么变量是 `Boolean` 而不是 `boolean`
+
+`transactionTemplate.execute(...)` 来自 `TransactionOperations`，签名是泛型方法：
+
+```java
+// TransactionOperations
+@Nullable
+<T> T execute(TransactionCallback<T> action) throws TransactionException;
+
+// TransactionCallback
+@Nullable
+T doInTransaction(TransactionStatus status);
+```
+
+（两条 `@Nullable` 已在本项目依赖的 `spring-tx 6.2.19` 上用 `javap` 核对。）泛型 `T` **只能是引用类型**，所以回调里 `return true/false` 的结果会被装箱成 `Boolean`，方法拿到的也只能是 `Boolean`，拿不到原始 `boolean`。
+
+### `boolean completed = ...` 能编译，但代价是隐式拆箱
+
+写成 `boolean completed = transactionTemplate.execute(...)` 语法上是合法的——`Boolean` 到 `boolean` 会自动拆箱。但那等于**对一个被 API 声明为 `@Nullable` 的值做隐式拆箱**：真为 `null` 时在赋值点直接 `NullPointerException`，IDE / SpotBugs 也会报 "Nullable value assigned to primitive"。保留 `Boolean` 再用 `Boolean.TRUE.equals(completed)`，把 `null` 收敛成 `false`，既没有隐式拆箱，也没有 NPE 风险。
+
+### 本处二者的实际差别
+
+本例 lambda 只 `return true/false`，装箱后必为 `Boolean.TRUE` / `Boolean.FALSE`、永不为 `null`，所以 `return completed;`（自动拆箱）与 `Boolean.TRUE.equals(completed)` 跑出来完全一样。差别不在结果而在**语义**：前者是"null 即崩"，后者是"null 当 false"，代价是一次方法调用。
+
+### 可复用的规则
+
+遇到"泛型 + `@Nullable`"的返回值，不要顺手拆箱成原始类型；用包装类型承接、再用 `Boolean.TRUE.equals(...)` 显式处理 `null`，是把"它可能为空"写在**类型**上，而不是留给运行时。
+
+### 简历或面试表达参考
+
+"`TransactionTemplate.execute` 是泛型方法、返回值被 Spring 标了 `@Nullable`，回调里 `return true` 会装箱成 `Boolean`。我刻意不写成 `boolean completed = ...`——那是对可空值做隐式拆箱，null 就 NPE；改成用 `Boolean` 承接、`Boolean.TRUE.equals(completed)` 判定，把 null 收敛成 false。这是个小点，但它体现的是'把可能为空写在类型上，而不是留给运行时'的习惯。"
+
+## HL-017 编程式事务边界：为什么用 `TransactionTemplate` 而不是 `@Transactional`（2026-10-15）
+
+### 当前状态
+
+**`create` 与 `supplement` 两条路径上的编程式事务已实现，并有自动化与真实栈证据**（已随阶段 3～片 B 进入 `main`）。**超时自动任务批（分支 `flow-desk/ticket-timeout-tasks`）内也在用同一个 template，但那批代码尚未提交、尚无对应测试**（同 HL-016），本条正文中单独标注，不计入已验证范围。
+
+### 代码事实
+
+事务边界不是注解，而是在构造器里手工创建的模板：
+
+```java
+private final TransactionTemplate transactionTemplate;
+
+this.transactionTemplate = new TransactionTemplate(transactionManager);
+this.transactionTemplate.setPropagationBehavior(
+        TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+```
+
+使用点清单：
+
+| 位置 | 用途 | 状态 |
+| --- | --- | --- |
+| `create()` 正确路径 | 幂等创建事务 T1：查重 → 分类校验 → 建单 → 附件元数据 | 已实现并验证 |
+| `create()` 的 `catch (DuplicateKeyException)` 内 | **另开事务 T2** 回查并发方已提交的工单 | 已实现并验证 |
+| `supplement()` | 条件更新与留痕在同一事务 | 已实现并验证 |
+| `completeOneExpiredConfirmation` / `closeOneExpiredSupplement` | 超时任务**每条独立事务** | 未提交批次，未验证 |
+
+### `execute` 的通用契约
+
+```java
+<T> T execute(TransactionCallback<T> action);                   // 有返回值
+void executeWithoutResult(Consumer<TransactionStatus> action);  // 无返回值
+```
+
+- 回调的返回值**就是 `execute` 的返回值**，因此 `null` 是合法返回——本项目因此在正确路径用 `Objects.requireNonNull` 收口。
+- 回调参数 `TransactionStatus` 是事务运行态句柄：`setRollbackOnly()` 标记回滚、`isNewTransaction()` 判断是否真开了新事务、`createSavepoint()` 建保存点（对应 `NESTED`）。
+
+提交与回滚的判定：
+
+| 回调行为 | 结果 |
+| --- | --- |
+| 正常 `return` | 提交 |
+| 抛 `RuntimeException` / `Error` | 回滚 |
+| 抛**受检**异常 | **默认仍提交**（与 `@Transactional` 一致） |
+| `catch` 后正常返回 | 可能提交；若底层已标记 rollback-only，则在结束时抛 `UnexpectedRollbackException` |
+
+（传播级别、`readOnly` 与"内部调用不生效"的含义见 2026-09-29「查询事务与 `@Transactional`」一节，此处不重复。）
+
+### 为什么这里不能用 `@Transactional`
+
+三条理由，缺一条都不成立：
+
+1. **同一个方法里需要两段事务**。`@Transactional` 只能包住整个方法，切不出"先跑 T1、失败后再跑 T2"。
+2. **冲突后必须在全新事务里查**。InnoDB 默认 REPEATABLE READ 下，同一事务内的多次一致性读**共用首次读取建立的快照**；沿用 T1 去查并发方刚提交的工单，会查不到那条旧快照里不存在的行。
+3. **`catch` 必须留在 `execute` 之外**。只有异常跳出 `execute`，模板才会结束并回滚 T1，之后 `execute` 再开 T2 才是干净的新快照。把 `catch` 写进回调内部，就退化成"在旧事务里查新数据"，幂等恢复失效——这也是 2026-09-29 一节"事务内可以用 try/catch，但别在这里 catch"的具体原因。
+
+### 注意事项
+
+- **`REQUIRES_NEW` 是独立提交**：它挂起外层事务，T1 / T2 的提交**不随调用方后续回滚而撤销**。若将来由已开启事务的上层应用服务调用 `create()`，原子性要按该用例重新评估（该提醒此前已写在 HL-001 补充里）。
+- **每个 `REQUIRES_NEW` 占一条独立连接**：批量循环里逐条开新事务会持续占用连接池。**本机未对连接池压力做专项压测**，这里只作为选型时的代价提醒，不作为实测结论。
+- **不受 AOP 代理限制**：编程式事务绕开代理，同类内部方法互调也能生效——这是它相对 `@Transactional`（自调用失效）的一个实际优势。
+- **返回值可能为 `null`**：不要隐式拆箱（对照 HL-016）——要么 `Objects.requireNonNull` 收口，要么用 `Boolean.TRUE.equals(...)` 把 null 收敛成 false。
+
+### 怎么选
+
+| 场景 | 选择 |
+| --- | --- |
+| 整个 Service 方法就是一个事务 | `@Transactional` |
+| 方法内需要多个独立事务段 | `TransactionTemplate` |
+| 循环里逐条提交、单条失败不中断整批 | `TransactionTemplate` |
+| 需要拿到 `TransactionStatus`（保存点 / 手动回滚） | `TransactionTemplate` |
+
+一句话：**注解管"整段是事务"，模板管"这一段在哪里结束"**；本项目用它的根因只有一个——幂等恢复需要在失败事务之外，重新开一个能看到并发提交的新事务。
+
+### 简历或面试表达参考
+
+"创建工单的幂等恢复要在唯一键冲突后回到'并发方提交的那张工单'。但 MySQL 在 REPEATABLE READ 下同一事务复用同一份快照，所以我在失败事务之外另开一个 `REQUIRES_NEW` 的事务去查——沿用原事务只能看到旧快照，永远查不到别人刚提交的行。事务边界我用 `TransactionTemplate` 而不是 `@Transactional` 划分，因为注解只能包住整个方法，切不出'先跑 T1、再跑 T2'两段；`catch` 也刻意留在 `execute` 外面，保证 T1 真的结束并回滚了才开始查。"
+
+## HL-018 定时任务的「开关 + 节奏」都用配置表达：`@ConditionalOnProperty` 与 `@Scheduled(cron = 占位符)`（2026-10-15）
+
+### 当前状态
+
+**代码已写入，未提交、尚无对应测试。** 本条只解释超时自动任务批（分支 `flow-desk/ticket-timeout-tasks`，完整版 backlog 3 的两个超时自动任务）里 `TicketTimeoutTask` 的两处装配写法，不代表该批整体已实现或已验收。正文事实以 `TicketTimeoutTask` / `FlowDeskApplication` / `application.yml` 的实际代码为准。
+
+### 代码事实
+
+```java
+@Component
+@ConditionalOnProperty(
+        name = "flowdesk.ticket.timeout-task-enabled",
+        havingValue = "true",
+        matchIfMissing = true)
+@Slf4j
+public class TicketTimeoutTask {
+    /** 扫描：默认5分钟 */
+    static final String CRON = "${flowdesk.ticket.timeout-scan-cron:0 */5 * * * *}";
+
+    @Scheduled(cron = CRON)
+    public void scanAndDispose() {
+        disposeExpiredConfirmations();
+        disposeExpiredSupplements();
+    }
+}
+```
+
+`@EnableScheduling` 在 `FlowDeskApplication` 上（第 10 行）；两个配置项写在 `application.yml` 的 `flowdesk.ticket` 段（`timeout-task-enabled: true`、`timeout-scan-cron: "0 */5 * * * *"`）。
+
+### `@ConditionalOnProperty`：决定这个定时任务「要不要装配」
+
+三个属性各管一件事：
+
+| 属性 | 值 | 含义 |
+| --- | --- | --- |
+| `name` | `flowdesk.ticket.timeout-task-enabled` | 用哪个配置项做判据 |
+| `havingValue` | `"true"` | 该配置项必须**逐字符等于** `"true"` 才装配 |
+| `matchIfMissing` | `true` | 配置项**根本不存在**时视为满足条件（默认开启） |
+
+组合出来的行为就是一张四格表：
+
+| 配置值 | 是否注册 `TicketTimeoutTask` |
+| --- | --- |
+| 不配置（缺失） | 装配（`matchIfMissing=true`） |
+| `true` | 装配 |
+| `false` | **不装配** |
+| 其它任意值（如 `1`、`TRUE`、`yes`） | **不装配** |
+
+- **为什么用条件注解而不是在方法里写 `if`**：`@ConditionalOnProperty` 是**装配期**判定——不满足时这个 Bean 压根不进容器，既不会创建、也不会被调度；写成方法内的 `if (enabled)` 则是先装配起来再每次空跑，语义上多了一个"存在但不工作"的中间态。
+- **为什么 `havingValue = "true"` 而不是 `havingValue = ""`**：`havingValue` 留空时语义是"只要配置项**存在**且值不是 `false`"；写成 `"true"` 是刻意收紧成"必须显式 true"。配合 `matchIfMissing = true`，效果是"默认开、要关必须显式写 false"——测试和本地调试置 `false` 即可关掉扫描，不用改代码、也不用给测试环境单独加 profile。
+- **注意**：`havingValue = "true"` 是字符串精确比较，`TRUE`、`yes`、`1` 都**不等于** `"true"`，会落到"不装配"那一格；这是配置写错时"静默不开任务"的坑，需要靠文档/校验兜住。
+
+### `@Scheduled(cron = CRON)`：决定这个任务「多久跑一轮」
+
+- `CRON` 是**属性占位符**：`${flowdesk.ticket.timeout-scan-cron:0 */5 * * * *}` —— 优先读配置 `flowdesk.ticket.timeout-scan-cron`，**没配才**用冒号后面的默认值。占位符在**启动时**解析一次，之后改配置必须重启才生效（不是热更新）。
+- cron 是 **Spring 的六段式**（比 Linux cron 多一个"秒"）：`秒 分 时 日 月 周`。`0 */5 * * * *` = 秒固定 0、分钟为 5 的倍数 → **每 5 分钟一次**（`0:00`、`0:05`、`0:10`…）。
+- **为什么默认 5 分钟而不是每秒**：两个超时规则（`待确认` 到期自动完成、`待补充` 到期自动关闭）的期限是**天级**（默认 `7d` / 配置值），扫描只是"把已到期的捞出来"，5 分钟粒度对业务毫无可见差异，却把无谓的库轮询和日志压到很低。验收时若要看效果，用配置把 cron 临时改成 `*/30 * * * * *`（每 30 秒）即可，**不需要改代码**——这正是把节奏放进配置的意义。
+- **与开关的分工**：`@ConditionalOnProperty` 决定"装不装"，`@Scheduled` 决定"装上后多久跑"。两者都从配置取值，因此"关任务""快跑一轮"都是运维/测试侧的操作，代码保持不动。
+
+### 这一处还有一条前置条件
+
+`@Scheduled` 要真的被触发，容器里必须有 `@EnableScheduling`（本项目已在 `FlowDeskApplication` 开启）与可用的调度线程池。若没有这行注解，`@Scheduled` 只是"一句没人调用的注释"——和 HL-014 里"穷尽 `switch` 的守卫没人触发就等于注释"是同一类问题：**声明与生效是两件事**。
+
+### 后续实现与测试重点
+
+- **尚未验证**：`timeout-task-enabled=false` 时 Bean 真的不装配（可用 `ApplicationContextRunner` 或断言上下文里没有该 Bean）；cron 占位符解析出的表达式符合预期。
+- **扫描节奏与停机补处理的关系**：任务口径是"停机期间到期的工单在恢复后仍满足『期限已到且仍在等待态』，会被后续轮次继续选中"，所以不做"只处理最近 N 分钟到期"的时间窗裁剪——这一点在 `TicketTimeoutTask` 类注释里写明，但对应的用例（停机后恢复仍能处置到期工单）尚未写。
+- **两条独立兜异常**：`disposeExpiredConfirmations` / `disposeExpiredSupplements` 各自 `try/catch (RuntimeException)` 并只告警，一段系统性失败不把异常抛回调度器、也不影响另一段；调度线程池只有一条线程，同一轮不与上一轮重叠，因此 v1 单实例不需要分布式锁。这些目前都是代码事实，尚无用例。
+
+### 简历或面试表达参考
+
+"两个超时自动任务的装配我用 `@ConditionalOnProperty` 做成配置开关：默认开启，测试和本地调试只要置 `flowdesk.ticket.timeout-task-enabled=false` 就整个 Bean 不装配，而不是装配起来再空跑——我要的是'不存在'，不是'存在但不工作'。扫描节奏走 `@Scheduled(cron = "${...:0 */5 * * * *}")` 的属性占位符，默认 5 分钟一轮、验收时用配置改成 30 秒一轮看效果，不用动代码。两条超时规则各自独立兜异常，单条失败只告警不抛出，下一轮重新选中——幂等由'状态 + 期限已到 + 版本'的条件更新保证，已被人工动作抢走的工单更新 0 行、静默跳过。"
 
 

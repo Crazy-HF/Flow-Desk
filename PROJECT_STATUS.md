@@ -9,6 +9,17 @@
 - **CI（推送后在 GitHub Actions 实跑）**：run [#59](https://github.com/Crazy-HF/Flow-Desk/actions/runs/38833314681)（合并提交 `95e8f71`）与 run [#60](https://github.com/Crazy-HF/Flow-Desk/actions/runs/38833387426)（本条交接记录）三个 job **全部 `success`**——`frontend-verify`（lint / typecheck / 单测 / build）、`backend-verify`（全量 `./mvnw --batch-mode verify`）、`core-e2e`（compose 起 mysql/redis + demo profile 后端 + 全量 Playwright，无跳过条件，即真跑通）。这补上了本机未跑的前端全量 E2E。
 - **演示库与端口**：本轮合并后验证全部走 Testcontainers 与前端构建/单测，**未启动任何后端**，8081 / 8092 全程未被触碰。
 - **下一步**：两个超时自动任务（待确认超时自动完成、待补充超时自动关闭）与「到期前提醒」（`dedup_key` 已预留）——并行工作树 `D:\Idea\item\flow-Desk` 的分支 `flow-desk/ticket-timeout-tasks` 已在推进该批。
+## 2026-10-15 交付：两个超时自动任务（分支 `flow-desk/ticket-timeout-tasks`；**未提交**、后端测试待补）
+
+- **用户裁决（2026-10-15）**：按**路径 B** 交付——本批只做「待确认到期自动完成」与「待补充到期自动关闭」两个超时任务；**超时事件的通知与到期前提醒不做**（用户计划先把自己的通知 / 通信通道分支合并进 `main`，之后再另开一批）；**本批不做任何提交**。分支从最新 `main`（`e0ac790`，附件修复批）创建。
+- **后端（代码已完成，见下"未跑"）**：`infrastructure/TicketTimeoutTask`（`@Scheduled` 默认每 5 分钟一轮、`BATCH_SIZE = 200`、两段各自 `try/catch (RuntimeException)` 只告警、`@ConditionalOnProperty` 默认开启）+ `TicketService.completeExpiredConfirmations` / `closeExpiredSupplements`（扫描后逐条独立 `TransactionTemplate`，单条失败不中断整批）+ `TicketMapper.selectExpiredForAction` / `completeAutoConfirmTimeout` / `closeAutoSupplementTimeout`（显式 `@Param`）+ `TicketTimeoutRow` + 详情读侧 `toRecordContext` 的 `case "CLOSURE"` 暴露 `deadlineAt`。
+- **七条已定口径**：① 扫描**不设时间窗上限**（只判"等待态 + 期限已到 + 版本未变"），停机期间到期的工单恢复后由后续轮次继续排空；② **不新增记录类型、不需要迁移**——复用 `COMPLETION` / `CLOSURE`，`AUTO_CONFIRM_TIMEOUT` / `AUTO_SUPPLEMENT_TIMEOUT` / `REQUESTER_NO_RESPONSE` 均已在 `V1` 白名单；③ 原补充截止时间写进 `CLOSURE` 记录的 `deadline_at`，人工关闭为 `NULL` 时该键不出现；④ 留痕统一 `actor_type='SYSTEM'` + `actor_user_id` 为空 + 固定原因句；⑤ 条件更新命中 **0 行静默跳过**（超时任务没有调用方要提示，不是 `409`）；⑥ 状态迁移 + 清空期限与撤销请求三列 + `ended_at` + `version+1` + `record_seq+1` 在**同一条 UPDATE** 内；⑦ **到期后、扫描执行前的人工动作优先**——人工接口都不做期限判定，期限只决定"没人动它时系统做什么"（待确认侧 `confirm-resolution` / `report-unresolved`，待补充侧 `supplement` / 撤回 / 转交 / 批准撤销；与片 B 2026-10-07「拦住过期提交比不做更糟」的裁决一致）。
+- **前端（本轮完成）**：详情页 `deadlineFact` 四条 hint 由"到期不会自动处理"改为写明到期后的处置结果——提交人侧「到期未确认将自动完成工单，视为你已接受这次处理结果」/「到期未补充将自动关闭工单，并记为你逾期未补充信息」，负责人侧同义的第三人称句（保留"同一期限、两种读法"的角色分岔）；组件注释、`styles/main.css` 的 `.ticket-facts__hint` 注释、`TicketDetailView.test.ts` 4 处断言（含提交人侧那条）与 3 个 E2E 的注释 / 断言（`ticket-it-flow`、`ticket-supplement-roundtrip`、`ticket-close-cancel`）同步。**撤销申请块的"到期不会自动处理"保持不变**——那是 4.7 的另一条规则（请求到期即失效、工单状态不自动改变），本轮只改注释以免与工单期限混淆。
+- **文档（本轮完成）**：`docs/kickoff.md` 4.9 / 4.12 的实现状态与"停机补处理"条目、`docs/api-design.md` 6.5（两条动作的触发条件 / 结果 / 留痕对照表 + 与人工动作的两点差异）与 6.3、`docs/implementation-plan.md` 9.4 第 3 项（七条口径 + 通知口径调整）与 9.3 片 B 第 4 条与第 9 节顺序段、`docs/database-design.md` 9.1、`docs/engineering-readiness.md` 第 11 节表、`docs/project-highlights.md`（HL-008 的"未实现"与 HL-016 的"仍是占位"两处失真表述）、`README.md`（已知限制、排期、迁移清单补 `V8/V9`）、`application.yml` / `TicketProperties` / `TicketTimeoutRow` 的注释。
+- **验证（本轮实跑）**：后端 `.\mvnw.cmd -B -q compile` 通过；`.\mvnw.cmd -B test "-DargLine=-Djdk.attach.allowAttachSelf=true"` → **surefire 1188 项全绿**（`Failures 0 / Errors 0`、`BUILD SUCCESS`；基线 1187，+1 为新增的「人工关闭不带期限」守卫用例）。前端 `npx vue-tsc -b` 0 error、`npx eslint . --max-warnings=0` 与 `npx stylelint "src/**/*.{css,scss,vue}" --max-warnings=0` 退出码 0、`npx vitest run` → **27 套件 / 253 项全绿**（本轮改断言、不增用例，与附件修复批同口径）、`npx vite build` 成功、`npx playwright test --list` → 25 项 11 文件可解析。
+- **未跑（不视为已通过）**：**本批没有新增任何测试**——两条超时路径的服务层用例、`TicketTimeoutTaskTest`（含"一段失败不影响另一段"与 `timeout-task-enabled=false` 不装配）、`TicketServiceIT` / `TicketQueryServiceIT` 的自动完成 / 自动关闭端到端与「已被人工动作抢先 → 0 行静默跳过」、CLOSURE 期限投影的真库断言，全部待补；前端全量 E2E（需真实栈与演示库，本轮只做静态解析）与 8092 真实栈验收脚本未跑；后端 `clean verify`（含 failsafe 集成测试）未跑。
+- **下一步**：补本批测试 → 用户把通道合并进 `main` → 超时事件通知 + 到期前提醒（去重与静默口径随通道那一批定，本批不预先指定实现方式）。
+- **2026-10-16 本地同步（用户指示「合并到本地」）**：本分支已由 `e0ac790` **快进到 `main`（`6506587`，含站内信通道与迁移 `V10`）**，分支基线与 `main` 一致（`git rev-list --left-right --count` = `0 0`）；上述未提交改动在快进前经 `git stash` 暂存、快进后完整恢复，**内容未丢**（恢复后与暂存树逐文件比对，剩余差异恰为 `main` 侧新增，即 48 个文件）。冲突 4 处按「两侧都保留」解决：`PROJECT_STATUS.md`（站内信交接段在前、超时批次段在后）、`README.md`（同一组「已知限制」条目合成一份：站内信已交付、超时任务代码已落地但未提交未测）、`docs/implementation-plan.md`（第 3 项「自动化」按本分支的子条目结构保留，并补入站内信 2026-10-14 进展）、`src/main/resources/application.yml`（`ticket.timeout-task-enabled` / `ticket.timeout-scan-cron` 与 `notification.retention` 并存）。合并后 `.\mvnw.cmd -B -q test-compile` 退出码 0；YAML 解析确认 `flowdesk` 下 `attachment`/`notification`/`ticket` 三块齐备。暂存条目仍保留在 `stash@{0}`（`pre-merge-main-2026-10-16 ticket-timeout dirty batch`），确认无误后可 `git stash drop` 删除；另有补丁备份 `D:\Idea\item\flow-desk-timeout-dirty-20261016-0930.patch`。
 
 ## 2026-10-15 交付：附件修复批（分支 `flow-desk/attachment-fix`）
 
@@ -132,7 +143,7 @@
 - **范围**：只改文档（`docs/kickoff.md`、`docs/business-model.md`、`docs/api-design.md`、`docs/database-design.md`、`docs/implementation-plan.md`、`docs/project-highlights.md`、`README.md`、`AGENTS.md` 与本文件）；**未动任何生产代码、测试与验收脚本，未提交、未推送**（提交需用户明确授权）。与同日另两节（规则正文补齐、对标分析与一致性修正）是并列的三项文档工作，互不覆盖。
 - **五项裁决（2026-10-10 用户集中确认）**：
   1. **撤销请求到期语义按建议执行**：期限届满后批准 / 拒绝 / 撤回三个动作一起关闭（`409`），工单保持原状态、不自动取消；**「重新发起」不设终身次数上限**（同一时刻只允许一个有效请求，每次到期后都可以再发起一次），过期请求**保留在工单上并以「已过期」呈现**，直到被新请求替换（替换时补写 `CANCELLATION_REQUEST_EXPIRED` 记录）或工单进入终态；「先撤回再重新发起」这条路径不存在（撤回同样被关闭）。**实现状态：待改**，清单见 `docs/implementation-plan.md` 9.3 的 ①～⑧。
-  2. **超时自动任务的归属**：待确认自动完成（`docs/kickoff.md` 4.9）与待补充自动关闭（4.12）与**通知 / 通信通道**一并落地——通道是它们的共同前置（`docs/implementation-plan.md` 9.4 第 1 项）。在此之前期限只用于展示，界面必须写明"到期不会自动处理"。**待实现**。
+  2. **超时自动任务的归属**：待确认自动完成（`docs/kickoff.md` 4.9）与待补充自动关闭（4.12）与**通知 / 通信通道**一并落地——通道是它们的共同前置（`docs/implementation-plan.md` 9.4 第 1 项）。在此之前期限只用于展示，界面必须写明"到期不会自动处理"。**待实现**。**（2026-10-15 已被取代：处置先行、通知随后——两个自动任务已实现，见本文件顶部 2026-10-15 段；仍随通道的是超时事件通知与到期前提醒。）**
   3. **IT 侧发现路径与本批同批**：IT 列表「待我批准」筛选与到期语义**同一批**实施，两者**共用同一判定**——「本人是当前负责人 且 工单上有未过期的待决请求」（其上再叠加 `TICKET_PROCESS` 与「待补充期间不裁决」两条既有条件），不允许列表与详情各写一份判定；落地时连带补索引，`V7` 的「不新增索引」不再是结论。**待实现**。
   4. **附件与关联的顺序**：先做**关联**（轻——`ticket_relation` 已在 `V1`，不涉及文件存储与失败补偿），再做**附件**（重）。
   5. **管理性交接的位置**：排在撤销语义收口（第 3 条那一批）**之后**。
@@ -315,7 +326,7 @@
   1. **分 4 片**、每片独立验收并交接：**A 退回处理中**（`report-unresolved` + `withdraw-supplement-request`）→ **B 补充往返**（`request-supplement` + `supplement` + `supplement-window`）→ **C 调整与转交**（`change-category`/`change-priority`/`transfer` + `transfer-candidates`）→ **D 结束路径**（`close` + `cancel`）。
   2. **附件正文先行**：`supplement` 仍是 `multipart/form-data`，但只接受正文；带文件 part 返回 `400/VALIDATION_FAILED`，附件与失败补偿留 backlog 第 2 项。
   3. **`close` 的 `DUPLICATE` 目标口径**：存在、同一提交人、非自身，且状态不是 `CANCELED`/`CLOSED`（`COMPLETED` 与流转中的工单都可作为重复目标）。
-  4. **超时自动任务本阶段不做**：只写 7×24h 期限并在界面展示，到期不自动改变状态；界面文案必须写明"到期不会自动处理"。
+  4. **超时自动任务本阶段不做**：只写 7×24h 期限并在界面展示，到期不自动改变状态；界面文案必须写明"到期不会自动处理"。**（2026-10-15 已由 backlog 第 3 项实现并改掉界面文案，见本文件顶部 2026-10-15 段——本条只作当时裁决的记录。）**
 - **不需要新增迁移与权限码**：`V1` 的 7 状态 / 15 种记录类型 / 8 条 CHECK 约束、`V2` 的 `TICKET_TRANSFER`/`TICKET_CLOSE`（`IT_SUPPORT`）与 `TICKET_REQUESTER_ACTION`（`EMPLOYEE`）都已就位；时间线 context 在 `TicketQueryServiceImpl.toRecordContext` 中也已为这 15 种类型写好。
 - **片 A 已完成并通过真实栈验收（2026-10-06，分支 `flow-desk/ticket-return-actions`，从 `main` `1f85c93` 创建；已提交、已推送并创建合并请求，按用户指示本轮不合并）**：
   - **后端**：`TicketServiceImpl` 的两个方法与 `allowedActions` 两格由**用户编写**；Agent 写入两个 Command、两条条件更新 SQL（`TicketMapper`）、服务接口与两个 Controller 端点。`reportUnresolved` 的权限闸门先于身份闸门，`canReportUnresolved` 复用 `canConfirm`。
@@ -578,11 +589,11 @@
 - 环境前置：JDK 21.0.12、Node.js 24.20.0、pnpm 12.3.4、Docker 29.7.2 已验证；本机已有 `redis:8.8.0`、`mysql:8.4.11` 镜像。**跑后端测试的两个必备参数（2026-09-23 实测，会复发）**：① 受限沙箱下 Mockito inline mock maker 无法自附加，必须加 `-DargLine=-Djdk.attach.allowAttachSelf=true`，否则所有 Spring 测试一起报 `Could not self-attach to current VM using external process`（看起来像代码回归）；② Testcontainers 集成测试需要访问 Docker 命名管道 `\\.\pipe\docker_engine`，受限沙箱会报 `Could not find a valid Docker environment` / `AccessDeniedException`，需在放宽文件策略的会话里执行。完整验收命令：`.\mvnw.cmd -B clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"`。本地启动 profile 用 `local` 即可（`spring.profiles.group.local=demo` 已配置）。演示账号 `employee` / `it` / `admin`，密码统一为 `123456`（见 `db/demo/R__seed_demo_data.sql` 头部注释，2026-09-20 由 `demo.*` 改名）。本机已有过两类运行障碍并已修复：① Flyway 校验失败——历史表残留已删除的 V3 迁移记录，处置为删除该行（等价 `flyway repair`）；② Redis 残留旧实现写入的 hash 类型会话键，会让"撤销全部会话"抛 `WRONGTYPE`，已清理。另需注意：本机 Argon2id 校验约 2 秒/次（并发登录可拖到十几秒），前端 e2e 因此串行执行并放宽超时；跑 e2e 需要 `FLOWDESK_ALLOWED_ORIGINS` 包含 `http://127.0.0.1:4173`（本地 `.env` 已加）；③ `frontend/node_modules` 若缺 `.modules.yaml`，`pnpm add` 会报 `ERR_PNPM_PACKAGE_MANAGER_REMOVE_MODULES_DIR`，而受限沙箱的写受限令牌删不掉该目录里的预存文件（批量 `Access to the path is denied`）——处置是在放宽文件策略的会话里删掉 `node_modules` 后重装，不要在残缺目录上反复重试。
 - 待确认事项：① Element Plus 目前是**全量引入**（打包约 1.07 MB / gzip 348 KB），是否改为按需引入（需新增 `unplugin-vue-components`、`unplugin-auto-import` 两个 dev 依赖）；② ~~登录页占位文案~~ **2026-09-24 复核：登录页与 E2E 已统一为「请输入登录名」「请输入密码」，与本条描述不符，视为已解决**；③ 首页 `h1`「欢迎回来」用的是展示级字号 `clamp(1.75rem, 5vw, 2.5rem)`，是否收小到页面标题刻度（管理端五页已改用业务页标题刻度 `--fd-font-size-lg`，首页仍待用户决定）；④ ~~用户管理是否登记为正式任务条目、8.1/8.2 与 `rbac.md` 第 1 节的 backlog 表述~~ **2026-09-24 用户确认：登记**——已写入 `TASK-061`（后端）/`TASK-062`（管理端页面），`docs/api-design.md` 8.1/8.2 与 `docs/modules/rbac.md` 第 1 节同步改写，用户管理从完整版 backlog 移出；⑤ ~~`disable` 与替换角色是否属于本次补齐范围~~ **已包含**；⑥ ~~测试职责口径~~ **2026-09-23 已澄清：测试由 Agent（本会话执行者）负责**；⑦ ~~替换角色路径单复数~~ **2026-09-24 用户裁决：以契约 8.2 的复数 `/roles` 为准**——后端 `IamUserController` 已改为 `@PutMapping("/{userId}/roles")`，`IamUserControllerWebTest` 七处断言同步，`docs/api-design.md` 8.2 与实现一致；新增 ⑧ **`USER_ROLE_REQUIRED` 已从 `frontend/src/api/errorMessages.ts` 删除**（后端自 2026-09-22 不再返回该编码），如需保留映射请告知。`TASK-060` 的页面交互、批量授权、权限码搜索与 `api/` 落层均已确认并落地。历史处置：JaCoCo 覆盖率门禁已确认取消（2026-09-19），`pom.xml` 只保留 `jacoco:report` 供 CI 上传工件。
 
-## 下一步：完整版 backlog 的当前排期（2026-10-07 更新）
+## 下一步：完整版 backlog 的当前排期（2026-10-07 记录，**除第 3 项外均为历史，当前排期见本文件顶部 2026-10-15 段**）
 
 1. **完整工单状态机（backlog 第 1 项）已开工并按 4 片推进**，逐片交付与验收边界见 `docs/implementation-plan.md` 9.3：片 A 已完成并合并（PR #14 → `5f4026f`）；**片 B 补充往返进行中**（当前分支，基础件与业务实现已写入，测试等内容按用户 2026-10-07 指示由用户统一发起）；片 C 调整与转交（`change-category`/`change-priority`/`transfer` + `transfer-candidates`）、片 D 结束路径（`close`/`cancel`）未开工。逐动作的权限、字段、错误码与时间线 `context` 已在 9.3 的裁决与 `docs/api-design.md` 6.3/6.4 中定稿，**不需要新增迁移或权限码**。
 2. **附件落地方案（backlog 第 2 项）——存储走本地受控目录，不引 OSS**：限制已确认（10 MiB/5 个/25 MiB、白名单、双端校验），文件与数据库提交顺序、原子移动、失败补偿与孤儿对账的设计在 `docs/engineering-readiness.md` 7.2，落地时按它实现。取向与依据见本文件「附件存储口径」。
-3. **超时自动任务（backlog 第 3 项）**：扫描与幂等策略未定（无 MQ，纯调度）；片 B 只写期限不自动改变状态，界面文案必须写明"到期不会自动处理"。
+3. **超时自动任务（backlog 第 3 项）**：~~扫描与幂等策略未定（无 MQ，纯调度）；片 B 只写期限不自动改变状态，界面文案必须写明"到期不会自动处理"~~——**2026-10-15 已实现**（策略见本文件顶部 2026-10-15 段与 `docs/implementation-plan.md` 9.4 第 3 项），本句只保留为当时记录。
 4. **管理性交接（backlog 第 4 项）**：`IamUserServiceImpl` 两处 `//TODO 工单模块未实现`（`:460` 停用用户、`:632` 替换角色）——目标用户仍负责活动工单时没有交接流程。
 5. **数据概览（backlog 第 5 项）**：`DASHBOARD_VIEW` 权限码已预置，指标口径与可见范围未定。
 6. **不需要额外补的（省掉重复投入）**：权限码与角色授权已在 `V2__seed_rbac.sql` 预置（`TICKET_TRANSFER`、`TICKET_CLOSE`、`TICKET_ADMIN_HANDOFF`、`DASHBOARD_VIEW`）；表结构与 CHECK 约束已在 `V1__create_schema.sql` 预置（`ticket_attachment`、`ticket_relation`、`close_reason`/`completion_method`/`action_deadline_at`/`ended_at` 等）；`.env` 已被 `.gitignore` 忽略，仓库只跟踪 `.env.example`。
@@ -1120,8 +1131,8 @@
 1. AGENTS.md 与本文快速定位、下一步任务。
 2. **本文顶部「2026-10-14 交付：管理性交接」段** + `docs/api-design.md` 8.3 的实现说明 + `scripts/admin-handoff-acceptance.ps1` 与 `docs/acceptance/2026-10-14-admin-handoff.json`（改这条链路前先看这三处）。
 3. **`main` 同步之后的下一步（前端，尚未验收）**：修前端依赖环境 → `pnpm build` / 单测 / E2E + 截图自查 + 视觉契约产出。涉及 `frontend/` 前必读 `frontend/AGENTS.md`、`.ui-craft/frontend-redesign-handoff.md`，并实际查看 `.ui-craft/references/` 原图。
-4. `docs/implementation-plan.md` 9.3 末的「实施清单」与 9.4 的顺序（附件（重）→ 通知 / 通信通道 + 两个超时自动任务）。
-5. 改后端时：`docs/technical-architecture.md` 5.1（分层与命名，含跨模块 port 的落位约定）、`docs/modules/`（auth / rbac 的实现记录）、`src/main/resources/db/migration/`（V1～V8 已发布，不得修改历史迁移）。
+4. `docs/implementation-plan.md` 9.4 第 3 项（两个超时自动任务，**代码已落地、测试待补**）与第 9 节的顺序（附件（重）→ 超时自动任务 → 通知 / 通信通道 + 超时事件通知与到期前提醒）。
+5. 改后端时：`docs/technical-architecture.md` 5.1（分层与命名，含跨模块 port 的落位约定）、`docs/modules/`（auth / rbac / 附件 的实现记录）、`src/main/resources/db/migration/`（V1～V9 已发布，不得修改历史迁移）。
 6. 前端页面契约与模板：`frontend/AGENTS.md` 与 `frontend/PAGE-TEMPLATE.md`。
 
 涉及前端时另读 frontend/AGENTS.md、.ui-craft/frontend-redesign-handoff.md，并实际查看 .ui-craft/references/ 原图。

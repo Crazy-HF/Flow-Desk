@@ -784,6 +784,12 @@ public class TicketQueryServiceImpl implements TicketQueryService {
                 putContext(context, "closeMethod", row.getCloseMethod());
                 putContext(context, "closeReason", row.getCloseReason());
                 putContext(context, "reason", row.getReason());
+                // 自动关闭（超时未补充）时 ticket.action_deadline_at 已随终态清空，
+                // 当时的补充期限只留在记录上，因此从记录列透出；人工关闭该列为 NULL，
+                // putContext 会跳过，形状不变。
+                putContext(
+                        context, "deadlineAt",
+                        toOffsetDateTime(row.getDeadlineAt()));
                 putStatusContext(context, row);
             }
             // 两阶段撤销：发起时状态不变但带响应期限；批准、拒绝、撤回三者状态与期限的变化

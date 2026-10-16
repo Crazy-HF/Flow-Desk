@@ -911,14 +911,35 @@ class TicketQueryServiceImplTest {
         Map<String, Object> context = contextOf("CLOSURE");
 
         assertThat(context)
-                .as("CLOSURE 的 context 只允许 closeMethod/closeReason/reason 与状态迁移")
+                .as("CLOSURE 的 context 允许 closeMethod/closeReason/reason/deadlineAt 与状态迁移")
                 .containsOnlyKeys("closeMethod", "closeReason", "reason",
-                        "fromStatus", "toStatus")
+                        "deadlineAt", "fromStatus", "toStatus")
                 .containsEntry("closeMethod", "ADMIN_CLOSE")
                 .containsEntry("closeReason", "重复提交")
                 .containsEntry("reason", "原因说明")
+                .containsEntry("deadlineAt", DEADLINE_AT.atOffset(ZoneOffset.UTC))
                 .containsEntry("fromStatus", PENDING)
                 .containsEntry("toStatus", PROCESSING);
+    }
+
+    /**
+     * 人工关闭（{@code close_method = MANUAL}）没有"失效的那个期限"：
+     * 该列为 NULL 时 context 不允许凭空多出一个空期限——时间线上会多一行读不出内容的「期限」。
+     *
+     * <p>与上一条用例配对：白名单放开了 {@code deadlineAt}，就必须同时钉住"什么时候**不该**有它"，
+     * 否则读侧会把 {@code deadline_at IS NULL} 与"自动关闭"混为一谈。</p>
+     */
+    @Test
+    void manualClosureRecordContextOmitsDeadline() {
+        TicketRecordRow row = recordRow("CLOSURE");
+        row.setCloseMethod("MANUAL");
+        row.setDeadlineAt(null);
+
+        assertThat(contextOf(row))
+                .as("人工关闭没有期限可写，context 不应带 deadlineAt")
+                .containsOnlyKeys("closeMethod", "closeReason", "reason",
+                        "fromStatus", "toStatus")
+                .doesNotContainKey("deadlineAt");
     }
 
     /** 发起撤销请求：说明与响应期限一起暴露，状态不变。 */

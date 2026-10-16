@@ -4,11 +4,8 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.flowdesk.ticket.application.query.TicketQuery;
 import com.flowdesk.ticket.domain.Ticket;
-import com.flowdesk.ticket.infrastructure.persistence.AdminHandoffTicketRow;
-import com.flowdesk.ticket.infrastructure.persistence.TicketAssigneeRow;
-import com.flowdesk.ticket.infrastructure.persistence.TicketListRow;
-import com.flowdesk.ticket.infrastructure.persistence.TicketDetailRow;
-import com.flowdesk.ticket.infrastructure.persistence.TicketDuplicateTargetRow;
+import com.flowdesk.ticket.infrastructure.persistence.*;
+
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -581,6 +578,79 @@ public interface TicketMapper extends BaseMapper<Ticket> {
             @Param("actorId") long actorId,
             @Param("closeReason") String closeReason,
             @Param("now") LocalDateTime now);
+
+
+    /**
+     * 根据状态和时间查询超时工单
+     */
+    @Select("""
+            SELECT t.id AS id,t.version AS version,t.action_deadline_at AS actionDeadlineAt
+            FROM ticket t
+            WHERE t.status = #{status}
+                AND t.action_deadline_at IS NOT NULL
+                AND t.action_deadline_at <= #{now}
+            ORDER BY t.action_deadline_at,t.id
+            LIMIT #{limit}
+            """)
+    List<TicketTimeoutRow> selectExpiredForAction(
+            @Param("status") String status,
+            @Param("now") LocalDateTime now,
+            @Param("limit") int limit);
+
+
+    /**
+     * 根据状态和时间查询超时工单：自动确认超时
+     */
+    @Update("""
+            UPDATE ticket
+                SET status = 'COMPLETED',
+                        action_deadline_at = NULL,
+                        completion_method = 'AUTO_CONFIRM_TIMEOUT',
+                        cancel_requested_at = NULL,
+                        cancel_request_reason = NULL,
+                        cancel_request_deadline_at = NULL,
+                ended_at = #{now},
+                version = version + 1,
+                record_seq = record_seq + 1,
+                updated_at = #{now}
+                WHERE id = #{ticketId}
+                AND version = #{expectedVersion}
+                AND status = 'WAITING_FOR_CONFIRMATION'
+                AND action_deadline_at IS NOT NULL
+                AND action_deadline_at <= #{now}
+            """)
+    int completeAutoConfirmTimeout(
+            @Param("ticketId") long ticketId,
+            @Param("expectedVersion") long expectedVersion,
+            @Param("now") LocalDateTime now);
+
+    /**
+     * 根据状态和时间查询超时工单：自动补充超时
+     */
+    @Update("""
+            UPDATE ticket
+            SET status = 'CLOSED',
+                close_method = 'AUTO_SUPPLEMENT_TIMEOUT',
+                close_reason = 'REQUESTER_NO_RESPONSE',
+                action_deadline_at = NULL,
+                cancel_requested_at = NULL,
+                cancel_request_reason = NULL,
+                cancel_request_deadline_at = NULL,
+                ended_at = #{now},
+                version = version + 1,
+                record_seq = record_seq + 1,
+                updated_at = #{now}
+            WHERE id = #{ticketId}
+              AND version = #{expectedVersion}
+              AND status = 'WAITING_FOR_REQUESTER'
+              AND action_deadline_at IS NOT NULL
+              AND action_deadline_at <= #{now}
+            """)
+    int completeAutoSupplementTimeout(
+            @Param("ticketId") long ticketId,
+            @Param("expectedVersion") long expectedVersion,
+            @Param("now") LocalDateTime now);
+
 
     /**
      * 提交人直接撤销自己的工单：**只剩「待受理」**（2026-10-08 规则变更）。
