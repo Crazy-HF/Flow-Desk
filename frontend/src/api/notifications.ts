@@ -14,13 +14,24 @@ import type { PageResult } from './pagination'
  * 服务端按当前登录身份限定可见数据。</p>
  */
 
-/** 通知类型编码，与后端 `NotificationCategory` 一致；中文含义见 `constants/notifications.ts`。 */
+/**
+ * 通知类型编码，与后端 `NotificationCategory` 一致；中文含义见 `constants/notifications.ts`。
+ *
+ * <p>后 5 个是超时相关：`*_TIMEOUT` 是工单已被系统自动推进的结果通知，
+ * `*_DUE_SOON` 是期限将至的提醒。取值集合由库层 `ck_notification_category` 固定（迁移 `V11`），
+ * 前端只做类型收窄，不自造编码。</p>
+ */
 export type NotificationCategory =
   | 'SUPPLEMENT_REQUESTED'
   | 'RESOLUTION_SUBMITTED'
   | 'CANCEL_REQUESTED'
   | 'CANCEL_APPROVED'
   | 'CANCEL_REJECTED'
+  | 'CONFIRMATION_TIMEOUT'
+  | 'SUPPLEMENT_TIMEOUT'
+  | 'CONFIRMATION_DUE_SOON'
+  | 'SUPPLEMENT_DUE_SOON'
+  | 'CANCEL_REQUEST_DUE_SOON'
 
 /**
  * 列表项。

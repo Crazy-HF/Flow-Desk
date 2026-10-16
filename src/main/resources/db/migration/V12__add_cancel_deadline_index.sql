@@ -1,0 +1,24 @@
+-- 撤销请求期限的全局范围索引（完整版 backlog 3「两个超时自动任务与到期前提醒」）：
+-- 撤销请求的期限有两条与「负责人是谁」无关的查询，V8 的
+-- idx_ticket_assignee_status_cancel_deadline 以 assignee_id 打头，为它们服务要靠"碰运气"：
+--   ① 到期前提醒候选    TicketMapper.selectDueSoonForCancelRequest（每 5 分钟一轮）
+--   ② 过期提醒回收候选  TicketMapper.selectExpiredCancelRequestIds（本批新增，同一轮）
+-- 两条形状相同：期限范围 + ORDER BY 期限, id + LIMIT，因此能共用一个索引。
+--
+-- 选型实测（2026-10-16，本机 mysql:8.4.11 + 10000 行探针表：2000 行带请求期限、
+-- 200 行落在提前量窗口内、250 行落在 1 天回收窗口内）：
+--   ① 建索引前：type=ALL，key=NULL，rows=9730，Using filesort
+--      建索引后：type=range，key=idx_ticket_cancel_deadline，rows=200，无 filesort
+--   ② 建索引前：type=range，key=idx_ticket_assignee_status_cancel_deadline，
+--      Using index for skip scan，rows=1（实际命中 250 行，严重低估），Using filesort
+--      建索引后：type=range，key=idx_ticket_cancel_deadline，rows=250，
+--      Using index（覆盖索引），无 filesort
+-- 即 ① 从全表降到 200 行范围，② 从「依赖 assignee_id 基数低才成立的 skip scan + 排序」
+-- 变成确定的覆盖索引范围扫描，两条都不再需要 filesort。
+--
+-- 只加一列：InnoDB 二级索引自带主键后缀，(cancel_request_deadline_at) 的物理顺序就是
+-- (cancel_request_deadline_at, id)，范围与排序一并满足，所以不像 V8 那样显式写出 id。
+-- 代价是 ticket 每次插入多维护一条索引；带撤销请求的是少数行，索引本身很小。
+-- 表集合与外键总数（25）不变，DatabaseMigrationIT 的索引基线与 V12 一同更新。
+ALTER TABLE ticket
+    ADD INDEX idx_ticket_cancel_deadline (cancel_request_deadline_at);

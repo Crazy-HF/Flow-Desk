@@ -1,6 +1,9 @@
 package com.flowdesk.ticket.application.port;
 
 import com.flowdesk.notification.application.command.PublishNotificationCommand;
+import com.flowdesk.notification.domain.NotificationCategory;
+
+import java.util.List;
 
 /**
  * 站内信发布出口：工单模块声明「需要发布一条通知」，由工单模块自己的
@@ -13,4 +16,7 @@ public interface NotificationPort {
 
     /** 发布一条站内信；调用发生在工单动作的写事务内，与动作一起提交或回滚。 */
     void publish(PublishNotificationCommand command);
+
+    /**回收一张工单下已经作废的等待期提醒（确认 / 补充 / 撤销请求）。*/
+    void recallReminders(long ticketId, List<NotificationCategory> categories);
 }

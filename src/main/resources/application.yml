@@ -103,14 +103,20 @@ flowdesk:
     # 撤销请求的响应期限：提交人发起后 IT 需在 3×24 小时内批准或拒绝（docs/kickoff.md 4.7）。
     # 与上面两个期限不同：请求到期即失效（批准 / 拒绝 / 撤回一起关闭），但工单状态不自动改变。
     cancel-request-window: 3d
+    # 到期前提醒的提前量：确认 / 补充 / 撤销请求的期限进入这个窗口时各提醒一次（缺失时取默认值 1d）。
+    # 必须严格小于上面三个窗口里最短的那个；同时不应大于 flowdesk.notification.unread-retention（3d），
+    # 否则未读清理会在期限之前删掉提醒，下一轮扫描会重新发一条。
+    reminder-lead-time: 1d
     # 超时自动任务开关（每 5 分钟一轮，单轮最多 200 张）；测试与本地调试可置 false。
     timeout-task-enabled: true
     # 扫描节奏可覆盖（Spring 六段式：秒 分 时 日 月 周），例如验收时改为 "*/30 * * * * *"。
     timeout-scan-cron: "0 */5 * * * *"
   notification:
-    # 已读通知的保留期：清理任务删除 read_at 早于该阈值的通知，未读通知永不清理。
-    # 缺失时取默认值 90d。
+    # 已读通知的保留期：清理任务删除 read_at 早于该阈值的通知。缺失时取默认值 90d。
     retention: 90d
+    # 未读通知的保留期（按 created_at 计）：收件人长期不看就清掉，否则未读徽标会被历史消息永久占住。
+    # 缺失时取默认值 3d；口径变更见迁移 V11 与 docs/database-design.md 19.6。
+    unread-retention: 3d
 
 jwt:
   secret: ${FLOWDESK_JWT_SECRET}

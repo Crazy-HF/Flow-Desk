@@ -597,6 +597,175 @@ public interface TicketMapper extends BaseMapper<Ticket> {
             @Param("now") LocalDateTime now,
             @Param("limit") int limit);
 
+    /**
+     * 到期前提醒的候选（确认 / 补充共用）：期限落在 {@code (now, now + lead]} 区间内的等待态工单。
+     *
+     * <p>左开右闭是刻意与 {@link #selectExpiredForAction} 互补：那里是 {@code <= now}（已经到期），
+     * 这里是 {@code > now}（还没到期）。同一个 {@code now} 下同一张工单只会落进其中一边，
+     * 既不会漏一段，也不会在同一轮里被"提醒一次又处置一次"。</p>
+     *
+     * <p>按期限升序取前 limit 张：窗口内积压时先提醒最急的。
+     * 这一条不加锁——真正算数的判定在发布前的重读里。</p>
+     */
+    @Select("""
+            SELECT t.id AS id,
+                   t.ticket_no AS ticketNo,
+                   t.requester_id AS requesterId,
+                   t.assignee_id AS assigneeId,
+                   t.action_deadline_at AS deadlineAt
+            FROM ticket t
+            WHERE t.status = #{status}
+              AND t.action_deadline_at IS NOT NULL
+              AND t.action_deadline_at > #{now}
+              AND t.action_deadline_at <= #{deadlineBefore}
+            ORDER BY t.action_deadline_at, t.id
+            LIMIT #{limit}
+            """)
+    List<TicketReminderRow> selectDueSoonForAction(
+            @Param("status") String status,
+            @Param("now") LocalDateTime now,
+            @Param("deadlineBefore") LocalDateTime deadlineBefore,
+            @Param("limit") int limit);
+
+
+    /**
+     * 到期前提醒的候选（撤销请求）：请求仍未过期，且响应期限落在窗口内。
+     *
+     * <p>状态白名单与 {@link #approveCancel} / {@link #rejectCancel} 完全一致（2026-10-10 裁决）：
+     * 待补充期间不可裁决，因此也不提醒——提醒一个"现在做不了的动作"只会制造无效点击。
+     * 「已过期」同样排除（{@code > now}）：请求失效后批准 / 拒绝 / 撤回三条路一起关闭，
+     * 再提醒就是让人去点一个必然 409 的按钮。</p>
+     *
+     * <p>{@code cancel_request_deadline_at IS NOT NULL} 足以代表请求三列齐备——
+     * {@code ck_ticket_cancel_request_pair} 保证三列同生同灭，不必再判 {@code cancel_requested_at}。</p>
+     */
+    @Select("""
+            SELECT t.id AS id,
+                   t.ticket_no AS ticketNo,
+                   t.requester_id AS requesterId,
+                   t.assignee_id AS assigneeId,
+                   t.cancel_request_deadline_at AS deadlineAt
+            FROM ticket t
+            WHERE t.status IN ('PROCESSING', 'WAITING_FOR_CONFIRMATION')
+              AND t.cancel_request_deadline_at IS NOT NULL
+              AND t.cancel_request_deadline_at > #{now}
+              AND t.cancel_request_deadline_at <= #{deadlineBefore}
+            ORDER BY t.cancel_request_deadline_at, t.id
+            LIMIT #{limit}
+            """)
+    List<TicketReminderRow> selectDueSoonForCancelRequest(
+            @Param("now") LocalDateTime now,
+            @Param("deadlineBefore") LocalDateTime deadlineBefore,
+            @Param("limit") int limit);
+
+    /**
+     * 发布前重读（确认 / 补充）：命中返回发布所需的行，未命中返回 null 表示"这一刻它已经不该被提醒了"。
+     *
+     * <p>{@code FOR UPDATE} 把「确认它仍然该被提醒」与「提醒写入库」锁在同一张工单行上：
+     * 期间若有人先提交了动作（确认 / 补充完成 / 转交），锁会让我们等到它提交后再读，
+     * 读到的就是新状态，自然不会命中；反过来若我们先进来，对方的动作会等到提醒提交后才开始，
+     * 随后它的回收（步 7）会删掉这条刚发出的提醒。两种顺序都不会留下过期提醒。</p>
+     *
+     * <p>扫描不加锁、重读才加锁：锁只需要覆盖"判定 + 写入"这一小段，
+     * 而不是覆盖"从扫描到发布"的整批过程。</p>
+     */
+    @Select("""
+            SELECT t.id AS id,
+                   t.ticket_no AS ticketNo,
+                   t.requester_id AS requesterId,
+                   t.assignee_id AS assigneeId,
+                   t.action_deadline_at AS deadlineAt
+            FROM ticket t
+            WHERE t.id = #{ticketId}
+              AND t.status = #{status}
+              AND t.action_deadline_at IS NOT NULL
+              AND t.action_deadline_at > #{now}
+              AND t.action_deadline_at <= #{deadlineBefore}
+            FOR UPDATE
+            """)
+    TicketReminderRow selectDueSoonForActionForUpdate(
+            @Param("ticketId") long ticketId,
+            @Param("status") String status,
+            @Param("now") LocalDateTime now,
+            @Param("deadlineBefore") LocalDateTime deadlineBefore);
+
+    /**
+     * 发布前重读（撤销请求）：条件与 {@link #selectDueSoonForCancelRequest} 的单行版本完全一致。
+     */
+    @Select("""
+            SELECT t.id AS id,
+                   t.ticket_no AS ticketNo,
+                   t.requester_id AS requesterId,
+                   t.assignee_id AS assigneeId,
+                   t.cancel_request_deadline_at AS deadlineAt
+            FROM ticket t
+            WHERE t.id = #{ticketId}
+              AND t.status IN ('PROCESSING', 'WAITING_FOR_CONFIRMATION')
+              AND t.cancel_request_deadline_at IS NOT NULL
+              AND t.cancel_request_deadline_at > #{now}
+              AND t.cancel_request_deadline_at <= #{deadlineBefore}
+            FOR UPDATE
+            """)
+    TicketReminderRow selectDueSoonForCancelRequestForUpdate(
+            @Param("ticketId") long ticketId,
+            @Param("now") LocalDateTime now,
+            @Param("deadlineBefore") LocalDateTime deadlineBefore);
+
+
+    /**
+     * 回收候选（撤销请求自然过期）：请求已过期、但到期前提醒可能仍留在负责人收件箱里的工单。
+     *
+     * <p>撤销请求到期不产生任何业务动作（2026-10-10 裁决：期限届满只是"不能再批准 / 拒绝 / 撤回"），
+     * 因此没有业务入口回收它的到期前提醒——{@link #selectDueSoonForCancelRequest} 发出去的那条
+     * "还剩 N 小时"会一直挂在收件人那里，只能由超时任务在这里兜底删掉。</p>
+     *
+     * <p>{@code expiredBefore} 这个下界不是优化而是必需：过期的三列不会自行消失
+     * （只有重新发起、批准 / 拒绝 / 撤回、确认解决、关闭，以及两个超时自动处置才清掉或改写它们），只写 {@code <= now}
+     * 会让同一批历史行被每一轮（默认 5 分钟）反复选中。窗口取 1 天：正常节奏下每行有几百次
+     * 机会被回收，停机超过一天的漏网回落给站内信清理任务。</p>
+     *
+     * <p>刻意<strong>不筛状态</strong>：提醒发出时工单在「处理中 / 待确认」，但之后可能被
+     * {@code report-unresolved} 退回「处理中」、被 {@code request-supplement} 转入「待补充」，
+     * 三列仍在、那条提醒同样已经变假。带状态白名单会把这批行永远漏在收件箱里。</p>
+     */
+    @Select("""
+            SELECT t.id
+            FROM ticket t
+            WHERE t.cancel_request_deadline_at IS NOT NULL
+              AND t.cancel_request_deadline_at <= #{now}
+              AND t.cancel_request_deadline_at > #{expiredBefore}
+            ORDER BY t.cancel_request_deadline_at, t.id
+            LIMIT #{limit}
+            """)
+    List<Long> selectExpiredCancelRequestIds(
+            @Param("now") LocalDateTime now,
+            @Param("expiredBefore") LocalDateTime expiredBefore,
+            @Param("limit") int limit);
+
+    /**
+     * 回收前重读（撤销请求自然过期）：仍然过期就锁住这张工单行并返回其 id，否则返回 {@code null}。
+     *
+     * <p>判定只有「三列齐备 + 期限已过」，<strong>不带</strong> {@link #selectExpiredCancelRequestIds}
+     * 的回看下界：窗口会随 {@code now} 前移，一条贴着下界的行若在重读时被判成"不在窗口内"，
+     * 它就再也不会被选中，那条提醒永远留在收件箱里。候选必然满足重读的判定，不存在漏判。</p>
+     *
+     * <p>{@code FOR UPDATE} 把"确认它仍然过期"与"删掉提醒"锁在同一张工单行上：任何改写或作废
+     * 请求的动作（重新发起、确认解决、关闭、取消）都要先写这一行，因此它要么在我们之前提交
+     * （读到新期限，判定不过，静默跳过），要么等我们删完再写（它随后发的是新期限的新提醒，
+     * 去重键不同、是另一条，不会被误删）。两种顺序都收敛。</p>
+     */
+    @Select("""
+            SELECT t.id
+            FROM ticket t
+            WHERE t.id = #{ticketId}
+              AND t.cancel_request_deadline_at IS NOT NULL
+              AND t.cancel_request_deadline_at <= #{now}
+            FOR UPDATE
+            """)
+    Long lockIfCancelRequestExpired(
+            @Param("ticketId") long ticketId,
+            @Param("now") LocalDateTime now);
+
 
     /**
      * 根据状态和时间查询超时工单：自动确认超时

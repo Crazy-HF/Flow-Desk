@@ -7,7 +7,7 @@ import java.time.Duration;
 /**
  * 工单动作配置（{@code flowdesk.ticket.*}）。
  *
- * <p>只暴露"随环境变化"的值。两个期限都属业务规则而不是安全策略，但长度需要能按环境调整
+ * <p>只暴露"随环境变化"的值。各期限都属业务规则而不是安全策略，但长度需要能按环境调整
  * 以便验收，因此放在配置里并给出与已确认规则一致的默认值。</p>
  *
  * <p>默认值不是可选项：{@code OpenApiProfileTest} 手工创建 {@code AnnotationConfigApplicationContext}，
@@ -21,12 +21,18 @@ import java.time.Duration;
  * <p><b>第三个期限不自动处置工单</b>（2026-10-10 裁决，2026-10-12 已实现）：撤销请求的响应期限
  * 届满后请求即失效，批准 / 拒绝 / 撤回三条路一起关闭，但工单状态不自动改变——它不参与超时扫描，
  * 也没有对应的定时任务。</p>
+ *
+ * <p><b>三个期限都有到期前提醒</b>（2026-10-16）：期限进入 {@code reminder-lead-time} 窗口时，
+ * 给「这一侧该动的人」各提醒一次——确认 / 补充提醒发给提交人，撤销请求提醒发给当前负责人；
+ * 提醒不改变任何工单状态，真正改状态的仍然只有条件更新。提前量必须小于最短的那个窗口，
+ * 否则期限在等待刚开始时就落进提醒窗口，等于没有提前量。</p>
  */
 @ConfigurationProperties(prefix = "flowdesk.ticket")
 public record TicketProperties(
         Duration confirmationWindow,
         Duration supplementWindow,
-        Duration cancelRequestWindow) {
+        Duration cancelRequestWindow,
+        Duration reminderLeadTime) {
 
     /** 员工确认期限：IT 最近一次提交解决结果后 7×24 小时（docs/kickoff.md 已确认规则）。 */
     private static final Duration DEFAULT_CONFIRMATION_WINDOW = Duration.ofDays(7);
@@ -42,12 +48,19 @@ public record TicketProperties(
      * <p>默认取 3 天而不是与上面两个一致的 7 天：这个窗口约束的是 IT 侧的响应，
      * 与"工单已被领取却被挂起"的容忍度不同。它是配置项，改 {@code cancel-request-window} 即可。</p>
      *
-     * <p>期限届满即失效（<b>2026-10-10 裁决，2026-10-12 已实现</b>）：本窗口不只是展示，
-     * 而是进入批准 / 拒绝 / 撤回三条条件更新的判定，见上面类注释与
-     * {@code docs/implementation-plan.md} 9.3 的交付记录。</p>
      */
     private static final Duration DEFAULT_CANCEL_REQUEST_WINDOW = Duration.ofDays(3);
     private static final Duration MIN_CANCEL_REQUEST_WINDOW = Duration.ofMinutes(1);
+
+    /**
+     * 到期前提醒的提前量：期限进入这个窗口时提醒一次（docs/kickoff.md 4.9 / 4.12 的提醒侧）。
+     *
+     * <p>默认 1 天：三个期限最短是撤销请求的 3 天，1 天提前量留出两天的余量；
+     * 且它不大于未读通知保留期（3d），因此被提醒的那条不会在期限之前被清理任务删掉
+     * （口径见迁移 V11 头部与 {@code docs/database-design.md} 19.6）。</p>
+     */
+    private static final Duration DEFAULT_REMINDER_LEAD_TIME = Duration.ofDays(1);
+    private static final Duration MIN_REMINDER_LEAD_TIME = Duration.ofMinutes(1);
 
     public TicketProperties {
         if (confirmationWindow == null) {
@@ -72,6 +85,29 @@ public record TicketProperties(
         if (cancelRequestWindow.compareTo(MIN_CANCEL_REQUEST_WINDOW) < 0) {
             throw new IllegalStateException(
                     "flowdesk.ticket.cancel-request-window 必须是不小于 1m 的时长，例如 3d");
+        }
+
+        if (reminderLeadTime == null) {
+            reminderLeadTime = DEFAULT_REMINDER_LEAD_TIME;
+        }
+        if (reminderLeadTime.compareTo(MIN_REMINDER_LEAD_TIME) < 0) {
+            throw new IllegalStateException(
+                    "flowdesk.ticket.reminder-lead-time 必须是不小于 1m 的时长，例如 1d");
+        }
+
+        //三条提醒共用同一个提前量，因此它必须严格小于三个窗口里最短的那个：
+        //等于窗口时，期限在等待刚开始的那一刻就落进提醒窗口，提醒等于没有提前量
+        Duration shortestWindow = confirmationWindow;
+        if (supplementWindow.compareTo(shortestWindow) < 0) {
+            shortestWindow = supplementWindow;
+        }
+        if (cancelRequestWindow.compareTo(shortestWindow) < 0) {
+            shortestWindow = cancelRequestWindow;
+        }
+        if (reminderLeadTime.compareTo(shortestWindow) >= 0) {
+            throw new IllegalStateException(
+                    "flowdesk.ticket.reminder-lead-time 必须小于最短的期限窗口（当前 " + shortestWindow
+                            + "），例如 1d");
         }
     }
 }

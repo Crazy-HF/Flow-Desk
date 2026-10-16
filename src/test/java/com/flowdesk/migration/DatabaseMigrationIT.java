@@ -54,7 +54,7 @@ class DatabaseMigrationIT {
             "idx_ticket_category_status_sort", "idx_ticket_requester_created",
             "idx_ticket_status_priority_created", "idx_ticket_assignee_status_updated",
             "idx_ticket_status_deadline", "idx_ticket_category_status",
-            "idx_ticket_assignee_status_cancel_deadline",
+            "idx_ticket_assignee_status_cancel_deadline", "idx_ticket_cancel_deadline",
             "idx_ticket_record_actor_created", "idx_ticket_attachment_record",
             "idx_ticket_relation_target_type_source", "idx_ticket_participant_user_ticket",
             "uk_notification_recipient_dedup", "idx_notification_recipient_read",
@@ -100,7 +100,7 @@ class DatabaseMigrationIT {
         var history = jdbc.queryForList(
                 "SELECT version, success FROM flyway_schema_history ORDER BY installed_rank");
         assertThat(history).extracting(row -> String.valueOf(row.get("version")))
-                .containsExactly("1", "2", "4", "5", "6", "7", "8", "9", "10");
+                .containsExactly("1", "2", "4", "5", "6", "7", "8", "9", "10", "11", "12");
         assertThat(history).allSatisfy(row ->
                 assertThat(row.get("success")).isEqualTo(Boolean.TRUE));
 

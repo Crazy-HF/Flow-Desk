@@ -13,6 +13,13 @@ export const notificationCategoryLabels: Record<NotificationCategory, string> = 
   CANCEL_REQUESTED: '有待批准的撤销请求',
   CANCEL_APPROVED: '撤销请求已批准',
   CANCEL_REJECTED: '撤销请求被拒绝',
+  // 超时事件：工单已被系统自动推进，文案要说清「已经发生了什么」，不能只写「超时了」
+  CONFIRMATION_TIMEOUT: '确认超时，工单已自动完成',
+  SUPPLEMENT_TIMEOUT: '补充超时，工单已自动关闭',
+  // 到期前提醒：只说「将至」，与上面的结果通知区分开
+  CONFIRMATION_DUE_SOON: '确认期限即将到期',
+  SUPPLEMENT_DUE_SOON: '补充期限即将到期',
+  CANCEL_REQUEST_DUE_SOON: '撤销请求即将到期',
 }
 
 /**

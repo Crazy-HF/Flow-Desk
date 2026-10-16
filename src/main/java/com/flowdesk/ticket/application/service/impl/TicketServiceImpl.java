@@ -28,6 +28,7 @@ import com.flowdesk.attachment.infrastructure.AttachmentStorage;
 import com.flowdesk.attachment.infrastructure.AttachmentStorageException;
 import com.flowdesk.attachment.infrastructure.StagedAttachment;
 import com.flowdesk.attachment.mapper.AttachmentMapper;
+import com.flowdesk.ticket.infrastructure.persistence.TicketReminderRow;
 import com.flowdesk.ticket.infrastructure.persistence.TicketTimeoutRow;
 import com.flowdesk.ticket.mapper.TicketAttachmentMapper;
 import com.flowdesk.ticket.mapper.TicketMapper;
@@ -56,6 +57,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.IntSupplier;
 
 @Service
 public class TicketServiceImpl implements TicketService {
@@ -94,6 +96,38 @@ public class TicketServiceImpl implements TicketService {
 
     private static final ZoneId BUSINESS_ZONE =
             ZoneId.of("Asia/Shanghai");
+
+    // ---- 提醒回收（第 7 步）：动作写入或作废某类期限时，在同一处回收该类提醒 ----
+
+    /** 确认期限（待确认）：进入时写入新期限，退出时期限作废。 */
+    private static final List<NotificationCategory> CONFIRMATION_REMINDERS =
+            List.of(NotificationCategory.CONFIRMATION_DUE_SOON);
+    /** 补充期限（待补充）。 */
+    private static final List<NotificationCategory> SUPPLEMENT_REMINDERS =
+            List.of(NotificationCategory.SUPPLEMENT_DUE_SOON);
+    /** 撤销请求期限：收件人是当前负责人。 */
+    private static final List<NotificationCategory> CANCEL_REQUEST_REMINDERS =
+            List.of(NotificationCategory.CANCEL_REQUEST_DUE_SOON);
+    /** 一次动作同时动两类：请求补充 = 确认窗口作废 + 补充窗口开启。 */
+    private static final List<NotificationCategory> CONFIRMATION_AND_SUPPLEMENT_REMINDERS =
+            List.of(NotificationCategory.CONFIRMATION_DUE_SOON,
+                    NotificationCategory.SUPPLEMENT_DUE_SOON);
+    /** 工单进入终态：三类期限一起失效。 */
+    private static final List<NotificationCategory> ALL_WAITING_REMINDERS =
+            List.of(NotificationCategory.CONFIRMATION_DUE_SOON,
+                    NotificationCategory.SUPPLEMENT_DUE_SOON,
+                    NotificationCategory.CANCEL_REQUEST_DUE_SOON);
+
+    /**
+     * 撤销请求过期后的回看窗口：过期不产生业务动作，只有超时任务兜底回收它的到期前提醒，
+     * 而 {@code cancel_request_deadline_at} 过期后不会被清空——没有下界就会把同一批历史行
+     * 每一轮（默认 5 分钟）反复选中。
+     *
+     * <p>取 1 天的依据：正常节奏下一行有几百次机会被回收；停机超过一天的漏网回落给站内信清理任务
+     * （未读保留期默认 3 天，晚于这个窗口）。刻意不做成配置项——它只需"远大于若干轮扫描、
+     * 又远小于未读保留期"，没有需要按环境调整的场景。</p>
+     */
+    private static final Duration CANCEL_REMINDER_RECALL_LOOKBACK = Duration.ofDays(1);
 
     private final Clock clock;
     private final TicketMapper ticketMapper;
@@ -552,6 +586,9 @@ public class TicketServiceImpl implements TicketService {
             throw new IllegalStateException("提交解决结果后无法读取工单快照");
         }
 
+        // 回收确认提醒：本轮写入新确认期限，上一轮若有残留在这里清掉
+        notificationPort.recallReminders(updated.getId(), CONFIRMATION_REMINDERS);
+
         // 6. 追加不可变时间线：正文与本次确认期限
         TicketRecord record = new TicketRecord();
         record.setTicketId(updated.getId());
@@ -658,6 +695,9 @@ public class TicketServiceImpl implements TicketService {
                 || updated.getVersion() == null) {
             throw new IllegalStateException("确认解决结果后无法读取工单快照");
         }
+
+        // 回收三类提醒：工单已完成，三类期限一起失效
+        notificationPort.recallReminders(updated.getId(), ALL_WAITING_REMINDERS);
 
         // 4. 完成记录只表达完成方式与状态迁移
         TicketRecord record = new TicketRecord();
@@ -767,6 +807,9 @@ public class TicketServiceImpl implements TicketService {
             throw new IllegalStateException("撤回补充请求后无法读取工单快照");
         }
 
+        // 回收补充提醒：补充请求已撤回，窗口作废
+        notificationPort.recallReminders(updated.getId(), SUPPLEMENT_REMINDERS);
+
         // 7. 不可变时间线：撤回原因 + 状态迁移；期限由条件更新一并清空
         TicketRecord record = new TicketRecord();
         record.setTicketId(updated.getId());
@@ -869,6 +912,9 @@ public class TicketServiceImpl implements TicketService {
                 || updated.getVersion() == null) {
             throw new IllegalStateException("反馈未解决后无法读取工单快照");
         }
+
+        // 回收确认提醒：退回处理中，确认窗口作废
+        notificationPort.recallReminders(updated.getId(), CONFIRMATION_REMINDERS);
 
         // 4. 未解决反馈是一次业务事件，不是"驳回"状态：状态回到处理中，解决结果留在时间线上
         TicketRecord record = new TicketRecord();
@@ -980,6 +1026,9 @@ public class TicketServiceImpl implements TicketService {
                 || updated.getVersion() == null) {
             throw new IllegalStateException("请求补充后无法读取工单快照");
         }
+
+        // 回收确认与补充提醒：确认窗口作废，补充窗口在下一句之后开启
+        notificationPort.recallReminders(updated.getId(), CONFIRMATION_AND_SUPPLEMENT_REMINDERS);
 
         // 8. 不可变时间线：需要补充的内容与本次期限；负责人没变，仍由本人继续处理
         TicketRecord record = new TicketRecord();
@@ -1110,6 +1159,9 @@ public class TicketServiceImpl implements TicketService {
                         || updated.getVersion() == null) {
                     throw new IllegalStateException("提交补充信息后无法读取工单快照");
                 }
+
+                // 回收补充提醒：补充已提交，窗口作废
+                notificationPort.recallReminders(updated.getId(), SUPPLEMENT_REMINDERS);
 
                 // 6.2 不可变时间线：补充正文与状态迁移；期限已失效，因此不写 deadline_at
                 TicketRecord record = new TicketRecord();
@@ -1533,6 +1585,9 @@ public class TicketServiceImpl implements TicketService {
             throw new IllegalStateException("转交后无法读取工单快照");
         }
 
+        // 回收撤销请求提醒：负责人换人，原提醒发给了已不是负责人的人
+        notificationPort.recallReminders(updated.getId(), CANCEL_REQUEST_REMINDERS);
+
         // 11. 记录新负责人的参与关系：与领取一致，转交后他才能看到这张工单
         ticketParticipantMapper.recordAssignment(
                 updated.getId(),
@@ -1696,6 +1751,9 @@ public class TicketServiceImpl implements TicketService {
             throw new IllegalStateException("关闭后无法读取工单快照");
         }
 
+        // 回收三类提醒：工单已关闭，三类期限一起失效
+        notificationPort.recallReminders(updated.getId(), ALL_WAITING_REMINDERS);
+
         // 8. 只有重复关闭才写工单关联：source = 被关闭的本单，target = 有效的那张。
         //    唯一键 uk_ticket_relation_source_type 保证一张单只有一条重复指向；
         //    「重复关闭」本身已被第 7 步的条件更新挡住，不会走到唯一键冲突
@@ -1836,6 +1894,9 @@ public class TicketServiceImpl implements TicketService {
                 || updated.getVersion() == null) {
             throw new IllegalStateException("发起撤销请求后无法读取工单快照");
         }
+
+        // 回收撤销请求提醒：新请求写入新期限，旧提醒的剩余时间与去重键都已作废
+        notificationPort.recallReminders(updated.getId(), CANCEL_REQUEST_REMINDERS);
 
         // 8. 覆盖分支先补写「已过期」留痕：它占用 n+1，新请求占 n+2，时间线上顺序正确。
         //    原发起时间在 ticket_record 没有对应列，且已发布的迁移不得修改，因此按 9.3 的 D3
@@ -1985,6 +2046,9 @@ public class TicketServiceImpl implements TicketService {
             throw new IllegalStateException("批准撤销请求后无法读取工单快照");
         }
 
+        // 回收三类提醒：撤销已批准，工单已取消
+        notificationPort.recallReminders(updated.getId(), ALL_WAITING_REMINDERS);
+
         // 6. 时间线用独立的记录类型：批准、拒绝、撤回、直接取消四者可区分
         TicketRecord record = new TicketRecord();
         record.setTicketId(updated.getId());
@@ -2105,6 +2169,9 @@ public class TicketServiceImpl implements TicketService {
             throw new IllegalStateException("拒绝撤销请求后无法读取工单快照");
         }
 
+        // 回收撤销请求提醒：请求已被拒绝
+        notificationPort.recallReminders(updated.getId(), CANCEL_REQUEST_REMINDERS);
+
         // 7. 时间线：拒绝原因必须留存，否则提交人只看到"被拒绝"而无从调整
         TicketRecord record = new TicketRecord();
         record.setTicketId(updated.getId());
@@ -2219,6 +2286,9 @@ public class TicketServiceImpl implements TicketService {
             throw new IllegalStateException("撤回撤销请求后无法读取工单快照");
         }
 
+        // 回收撤销请求提醒：请求已撤回
+        notificationPort.recallReminders(updated.getId(), CANCEL_REQUEST_REMINDERS);
+
         // 6. 时间线不写原因：撤回是"我改主意了"，请求里原本的说明仍在 CANCELLATION_REQUEST 上
         TicketRecord record = new TicketRecord();
         record.setTicketId(updated.getId());
@@ -2332,6 +2402,9 @@ public class TicketServiceImpl implements TicketService {
             throw new IllegalStateException("撤销后无法读取工单快照");
         }
 
+        // 回收三类提醒：工单已取消
+        notificationPort.recallReminders(updated.getId(), ALL_WAITING_REMINDERS);
+
         // 7. 不可变时间线：撤销原因只存在于记录里（ticket 表没有撤销原因列）。
         //    记录类型仍是 CANCELLATION——它与 CANCELLATION_APPROVED 的区别正是"没有负责人需要批准"
         TicketRecord record = new TicketRecord();
@@ -2418,6 +2491,9 @@ public class TicketServiceImpl implements TicketService {
                 throw new IllegalStateException("自动完成后无法读取工单快照");
             }
 
+            // 回收三类提醒：系统自动完成，三类期限一起失效
+            notificationPort.recallReminders(updated.getId(), ALL_WAITING_REMINDERS);
+
             //3.系统留痕：actor_type=SYSTEM 必须配 actor_user_id=NULL（ck_ticket_record_actor_pair）
             TicketRecord record = new TicketRecord();
             record.setTicketId(updated.getId());
@@ -2434,6 +2510,14 @@ public class TicketServiceImpl implements TicketService {
             if (ticketRecordMapper.insert(record) != 1) {
                 throw new IllegalStateException("自动完成记录插入失败");
             }
+
+            //4.站内信：超时事件通知「提交人 + 最后负责人」，与动作同事务（回滚时一并消失）。
+            //  必须在条件更新成功之后：命中 0 行时这次自动完成根本没发生，不能先广播后撤销
+            publishTimeoutNotification(
+                    updated,
+                    NotificationCategory.CONFIRMATION_TIMEOUT,
+                    "工单 " + updated.getTicketNo() + " 已超时自动完成",
+                    "确认期限已过，系统已自动完成该工单。");
 
             return true;
         });
@@ -2468,6 +2552,284 @@ public class TicketServiceImpl implements TicketService {
         return closed;
     }
 
+
+    /**
+     * 系统回收「撤销请求已过期」工单上残留的到期前提醒
+     *
+     * <p>撤销请求到期只是"不能再批准 / 拒绝 / 撤回"，不产生业务动作（2026-10-10 裁决），
+     * 因此没有任何业务入口会回收它的到期前提醒：工单只要一直没人处理，那条"还剩 N 小时"
+     * 就会一直挂在负责人收件箱里，直到站内信清理任务按未读保留期兜底删掉。这里把它提前收掉。</p>
+     *
+     * <p>刻意不加 {@code @Transactional}：一张一个事务，一张失败不影响其余，与另外两段同口径。</p>
+     */
+    @Override
+    public int recallExpiredCancelReminders(int limit) {
+        //1.只取一次 now：候选窗口与回收重读都按同一个瞬间算
+        LocalDateTime now = LocalDateTime.ofInstant(
+                clock.instant().truncatedTo(ChronoUnit.MILLIS), ZoneOffset.UTC);
+        LocalDateTime expiredBefore = now.minus(CANCEL_REMINDER_RECALL_LOOKBACK);
+
+        //2.候选只筛「三列齐备 + 期限已过 + 落在回看窗口内」；是不是"仍然过期"由重读判定
+        List<Long> ticketIds =
+                ticketMapper.selectExpiredCancelRequestIds(now, expiredBefore, limit);
+
+        //3.逐张独立事务回收
+        int recalled = 0;
+        for (Long ticketId : ticketIds) {
+            try {
+                if (recallOneExpiredCancelReminder(ticketId, now)) {
+                    recalled++;
+                }
+            } catch (RuntimeException exception) {
+                //单张失败只告警：它仍然过期、仍在回看窗口内，下一轮会被重新选中
+                log.warn("工单超时任务：撤销请求提醒回收失败 ticketId={}", ticketId, exception);
+            }
+        }
+        return recalled;
+    }
+
+    /**
+     * 单张工单的提醒回收：加锁重读与删除在同一个事务里，返回是否真的执行了回收。
+     */
+    private boolean recallOneExpiredCancelReminder(long ticketId, LocalDateTime now) {
+        Boolean recalled = transactionTemplate.execute(transactionStatus -> {
+            //1.加锁重读：确认这一刻它仍然是"已过期的撤销请求"（未命中 = 期间已被重新发起或作废）
+            if (ticketMapper.lockIfCancelRequestExpired(ticketId, now) == null) {
+                return false;
+            }
+
+            //2.锁内回收：按「工单 + 类别」删，不看已读——提醒是临时提示，不是业务事实
+            notificationPort.recallReminders(ticketId, CANCEL_REQUEST_REMINDERS);
+            return true;
+        });
+
+        return Boolean.TRUE.equals(recalled);
+    }
+
+
+    /**
+     * 到期前提醒：确认 / 补充 / 撤销请求的期限进入提前量窗口时，各提醒一次。
+     *
+     * <p>刻意不加 {@code @Transactional}：逐条独立事务，一张失败不影响其余，
+     * 也让"重读 + 发布"的那把行锁只在一张工单上短暂存在。</p>
+     */
+    @Override
+    public int publishDueSoonReminders(int limit) {
+        //1.只取一次 now：窗口判定与去重键里的期限都按同一个瞬间算
+        LocalDateTime now = LocalDateTime.ofInstant(
+                clock.instant().truncatedTo(ChronoUnit.MILLIS), ZoneOffset.UTC);
+        LocalDateTime deadlineBefore = now.plus(ticketProperties.reminderLeadTime());
+
+        //2.三段各自兜异常：一段整体失败不影响其余，也不把异常抛回调度器
+        int published = 0;
+        published += remindSafely("确认提醒", () -> remindActionDeadline(
+                WAITING_FOR_CONFIRMATION,
+                NotificationCategory.CONFIRMATION_DUE_SOON,
+                "确认期限即将到期",
+                "届满未确认，系统将自动完成该工单",
+                now, deadlineBefore, limit));
+        published += remindSafely("补充提醒", () -> remindActionDeadline(
+                WAITING_FOR_REQUESTER,
+                NotificationCategory.SUPPLEMENT_DUE_SOON,
+                "补充期限即将到期",
+                "届满未补充，系统将自动关闭该工单",
+                now, deadlineBefore, limit));
+        published += remindSafely("撤销请求提醒", () -> remindCancelRequest(
+                NotificationCategory.CANCEL_REQUEST_DUE_SOON,
+                "撤销请求即将到期",
+                "届满未批准或拒绝，该请求即失效（工单状态不变）",
+                now, deadlineBefore, limit));
+
+        return published;
+    }
+
+    /**
+     * 一整段提醒：扫描 + 逐条发布，整段失败只告警。
+     *
+     * <p>与 {@code TicketTimeoutTask} 里"处置段各自兜异常"同一口径：一段的系统性失败
+     * （例如某一类查询锁等待超时）不该让另外两类这一轮也不提醒。
+     * 段内单条失败由各自的循环兜住，两者是两层，各管一件事。</p>
+     */
+    private int remindSafely(String label, IntSupplier segment) {
+        try {
+            return segment.getAsInt();
+        } catch (RuntimeException exception) {
+            log.warn("工单提醒任务：{} 整段失败", label, exception);
+            return 0;
+        }
+    }
+
+    /**
+     *一类「等待态期限」提醒：扫描候选，逐条独立事务重读并发布。
+     */
+    private int remindActionDeadline(String status, NotificationCategory category,
+                                     String subject, String consequence,
+                                     LocalDateTime now, LocalDateTime deadlineBefore, int limit)  {
+        //1.查询即将到期的工单列表
+        List<TicketReminderRow> candidates =
+                ticketMapper.selectDueSoonForAction(status, now, deadlineBefore, limit);
+
+        //2.循环从列表中获取待提醒的工单
+        int published = 0;
+        for (TicketReminderRow candidate : candidates) {
+            try {
+                //3.单张工单的提醒发布
+                if (publishActionDeadlineReminder(
+                        candidate.getId(), status, category, subject, consequence, now, deadlineBefore)) {
+                    published++;
+                }
+            } catch (RuntimeException exception) {
+                //单条失败只告警：它仍满足"期限还在窗口内"，下一轮会被重新选中
+                log.warn("工单提醒任务：到期前提醒失败 ticketId={}", candidate.getId(), exception);
+            }
+        }
+        return published;
+    }
+
+    /**
+     * 单张工单的提醒发布：重读与发布在同一个事务里，行锁到提交才释放。
+     * 返回是否真的发出了一条（重读未命中即"这一刻不该提醒"）。
+     */
+    private boolean publishActionDeadlineReminder(long ticketId, String status,
+                                                  NotificationCategory category, String subject, String consequence,
+                                                  LocalDateTime now, LocalDateTime deadlineBefore) {
+        //1.事务中执行，使用transactionTemplate保证单工单失败不影响整体
+        Boolean published = transactionTemplate.execute(transactionStatus -> {
+            //2.发布前重读该工单行并加锁
+            TicketReminderRow target =
+                    ticketMapper.selectDueSoonForActionForUpdate(ticketId, status, now, deadlineBefore);
+            if(target == null){
+                return false;
+            }
+
+            //3.提醒收件人：确认 / 补充提醒发给提交人
+            publishReminder(target, target.getRequesterId(), category, subject, consequence, now);
+            return true;
+        });
+
+        return Boolean.TRUE.equals(published);
+    }
+
+    /**
+     * 一段「撤销请求」提醒：扫描候选，逐条独立事务重读并发布给<b>当前负责人</b>。
+     *
+     * <p>与确认 / 补充两段不能共用方法：收件人不同（负责人而不是提交人），也没有"状态"参数——
+     * 候选的状态白名单写在 SQL 里，待补充期间不可裁决，因此那一整段不发提醒。</p>
+     */
+    private int remindCancelRequest(NotificationCategory category, String subject, String consequence,
+                                    LocalDateTime now, LocalDateTime deadlineBefore, int limit) {
+        //1.查询撤销请求即将到期的工单列表
+        List<TicketReminderRow> candidates =
+                ticketMapper.selectDueSoonForCancelRequest(now, deadlineBefore, limit);
+
+        //2.循环从列表中获取待提醒的工单
+        int published = 0;
+        for (TicketReminderRow candidate : candidates) {
+            try {
+                //3.
+                if (publishCancelRequestReminder(
+                        candidate.getId(), category, subject, consequence, now, deadlineBefore)) {
+                    published++;
+                }
+            } catch (RuntimeException exception) {
+                //单条失败只告警：请求仍在窗口内，下一轮会被重新选中
+                log.warn("工单提醒任务：撤销请求提醒失败 ticketId={}", candidate.getId(), exception);
+            }
+        }
+        return published;
+    }
+
+    /**
+     * 单张工单的撤销请求提醒：重读与发布在同一个事务里，行锁到提交才释放。
+     * 返回是否真的发出了一条（重读未命中即"这一刻它已经不该被提醒了"）。
+     */
+    private boolean publishCancelRequestReminder(long ticketId, NotificationCategory category,
+                                                 String subject, String consequence,
+                                                 LocalDateTime now, LocalDateTime deadlineBefore) {
+        //1.事务中执行，使用transactionTemplate保证单工单失败不影响整体
+        Boolean published = transactionTemplate.execute(transactionStatus -> {
+            //2.发布前重读该工单行并加锁
+            TicketReminderRow target =
+                    ticketMapper.selectDueSoonForCancelRequestForUpdate(ticketId, now, deadlineBefore);
+            if (target == null) {
+                return false;
+            }
+
+            //3.收件人是当前负责人：重读拿到的就是加锁之后的最新一行，中途转交已经反映在里面
+            publishReminder(target, target.getAssigneeId(), category, subject, consequence, now);
+            return true;
+        });
+
+        return Boolean.TRUE.equals(published);
+    }
+
+    /**
+     * 提醒的收件人、标题与正文：标题带工单编号，正文 = 相对剩余时间 + 后果。
+     *
+     * <p>收件人由调用方按类别给出（确认 / 补充 → 提交人，撤销请求 → 当前负责人）。
+     * 这里只兜"为空就跳过"：{@code ck_ticket_status_assignee} 要求处理中 / 待补充 / 待确认三态
+     * <b>必须有负责人</b>，而 {@code ck_ticket_cancel_request_status} 又要求待决请求只能挂在这三态上——
+     * 两条 CHECK 合起来已经保证了有请求的行一定有负责人，这个判断是防御性的。</p>
+     */
+    private void publishReminder(TicketReminderRow target, Long recipientId, NotificationCategory category,
+                                 String subject, String consequence, LocalDateTime now) {
+        //1.收件人缺失就跳过：不发一条没有收件人的站内信
+        if (recipientId == null) {
+            return;
+        }
+
+        //2.正文 = 剩余时间 + 后果：剩余时间必须按本轮扫描的 now 算，因此在这里拼而不是在调用处
+        String body = "期限" + remainingText(now, target.getDeadlineAt()) + "；" + consequence + "。";
+
+        //3.调用站内信发布端口
+        notificationPort.publish(new PublishNotificationCommand(
+                recipientId,
+                category,
+                "工单 " + target.getTicketNo() + " 的" + subject,
+                body,
+                target.getId(),
+                target.getTicketNo(),
+                reminderDedupKey(category, target.getId(), target.getDeadlineAt())));
+    }
+
+    /**
+     * 提醒去重键：类别 + 工单 + <b>命中窗口的那个期限</b>的毫秒值。
+     *
+     * <p>用期限而不是当前时间：同一个期限无论被扫描多少轮，键都一样，只会留下一条；
+     * 而期限被改写（重新请求补充、重新发起撤销请求）会产生新键，允许再提醒一次——
+     * 这正是"改了期限就该重新提醒"的业务语义。</p>
+     */
+    private String reminderDedupKey(NotificationCategory category, long ticketId,
+                                    LocalDateTime deadlineAt) {
+        if (deadlineAt == null) {
+            throw new IllegalStateException("提醒候选缺少期限，无法构造站内信去重键");
+        }
+        return category.name() + ":" + ticketId + ":"
+                + deadlineAt.toInstant(ZoneOffset.UTC).toEpochMilli();
+    }
+
+    /**
+     * 剩余时间的展示文案：向下取整，宁可说少也不说多。
+     *
+     * <p>提前量默认 1d，所以绝大多数情况落在「小时」档；「分钟」档只在提前量被调得很小时出现。
+     * 取整方向是刻意的——向上取整会让收件人以为自己还有时间。</p>
+     */
+    private String remainingText(LocalDateTime now, LocalDateTime deadlineAt) {
+        Duration remaining = Duration.between(now, deadlineAt);
+        if (remaining.isZero() || remaining.isNegative()) {
+            //正常情况下走不到这里：重读的 SQL 已经保证期限晚于 now
+            return "即将到期";
+        }
+        if (remaining.compareTo(Duration.ofHours(1)) >= 0) {
+            return "还剩约 " + remaining.toHours() + " 小时";
+        }
+        if (remaining.compareTo(Duration.ofMinutes(1)) >= 0) {
+            return "还剩约 " + remaining.toMinutes() + " 分钟";
+        }
+        return "还剩不到 1 分钟";
+    }
+
+
     /**
      *单张工单的自动关闭：条件更新与留痕在同一个事务里，返回是否真的完成。
      */
@@ -2489,6 +2851,9 @@ public class TicketServiceImpl implements TicketService {
             if (updated == null || updated.getRecordSeq() == null) {
                 throw new IllegalStateException("自动关闭后无法读取工单快照");
             }
+
+            // 回收三类提醒：系统自动关闭，三类期限一起失效
+            notificationPort.recallReminders(updated.getId(), ALL_WAITING_REMINDERS);
 
             //2.系统留痕（actor_type=SYSTEM + actor_user_id=NULL）
             TicketRecord record = new TicketRecord();
@@ -2512,10 +2877,63 @@ public class TicketServiceImpl implements TicketService {
                 throw new IllegalStateException("自动关闭记录插入失败");
             }
 
+            //3.站内信：与自动完成同形，只有类别与文案不同
+            publishTimeoutNotification(
+                    updated,
+                    NotificationCategory.SUPPLEMENT_TIMEOUT,
+                    "工单 " + updated.getTicketNo() + " 已超时自动关闭",
+                    "补充期限已过，提交人未提供信息，系统已自动关闭该工单。");
+
             return true;
         });
 
         return Boolean.TRUE.equals(closed);
+    }
+
+
+    /**
+     * 超时事件站内信：提交人与最后负责人各一条，在当前业务事务内发布。
+     *
+     * <p>{@code dedup_key} 取 {@code 类别:ticketId:endedAt毫秒}。两个目标状态（已确认 / 已关闭）
+     * 都是终态，同一张工单不可能再超时一次，所以这个键防的不是「不同次超时」，
+     * 而是**同一次事件被重放**——包括提交人恰好也是最后负责人时下面那两次调用重合的情况。</p>
+     */
+    private void publishTimeoutNotification(Ticket updated, NotificationCategory category,
+                                            String title, String body) {
+        //ended_at 由紧邻的那句条件更新写入（completeAutoConfirmTimeout 与
+        //completeAutoSupplementTimeout 都是 ended_at = #{now}），它是这次超时事件的唯一标识，
+        //也是唯一能跨重放稳定复现的值。读快照而不是复用 now：快照是库里的既成事实
+        LocalDateTime endedAt = updated.getEndedAt();
+        if (endedAt == null) {
+            throw new IllegalStateException("超时事件缺少 ended_at，无法构造站内信去重键");
+        }
+        String dedupKey = category.name() + ":" + updated.getId() + ":"
+                + endedAt.toInstant(ZoneOffset.UTC).toEpochMilli();
+
+        //1.提交人
+        if (updated.getRequesterId() != null) {
+            notificationPort.publish(new PublishNotificationCommand(
+                    updated.getRequesterId(),
+                    category,
+                    title,
+                    body,
+                    updated.getId(),
+                    updated.getTicketNo(),
+                    dedupKey));
+        }
+
+        //2.最后负责人：两个超时状态按 ck_ticket_status_assignee 都必然有负责人，
+        //  行投影仍按可空处理，避免拆箱 NPE（与 requestCancel 的写法一致）
+        if (updated.getAssigneeId() != null) {
+            notificationPort.publish(new PublishNotificationCommand(
+                    updated.getAssigneeId(),
+                    category,
+                    title,
+                    body,
+                    updated.getId(),
+                    updated.getTicketNo(),
+                    dedupKey));
+        }
     }
 
     /** 创建工单 */

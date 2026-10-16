@@ -11,6 +11,7 @@ import com.flowdesk.notification.application.result.NotificationResult;
 import com.flowdesk.notification.application.result.NotificationUnreadCountResult;
 import com.flowdesk.notification.application.service.NotificationService;
 import com.flowdesk.notification.domain.Notification;
+import com.flowdesk.notification.domain.NotificationCategory;
 import com.flowdesk.notification.mapper.NotificationMapper;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -20,6 +21,7 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 
 /**
  * 站内信用例实现：业务侧发布（同事务）+ 本人范围读取。
@@ -42,6 +44,9 @@ public class NotificationServiceImpl implements NotificationService {
         this.clock = clock;
     }
 
+    /**
+     *站内信通知发布（带唯一键去重发布）
+     */
     @Override
     @Transactional
     public void publish(PublishNotificationCommand command) {
@@ -57,12 +62,40 @@ public class NotificationServiceImpl implements NotificationService {
         notification.setReadAt(null);
         notification.setCreatedAt(now());
 
-        // 2. 插入即完成；调用方（工单动作）回滚时这条一起回滚，不留孤儿
-        if (notificationMapper.insert(notification) != 1) {
-            throw new IllegalStateException("站内信写入失败");
+        // 2. 普通通知：每次业务动作都是一条新消息
+        if(notification.getDedupKey() == null){
+            if (notificationMapper.insert(notification) != 1) {
+                throw new IllegalStateException("站内信写入失败");
+            }
+            return;
         }
+
+        // 3. 带 dedupKey 的通知：重复发布命中唯一键就静默跳过。
+        //    这里刻意不看返回值——Connector/J 默认 useAffectedRows=false（协议层开 CLIENT_FOUND_ROWS），
+        //    重复键时受影响行数同样是 1，用 == 1 判「插进去了」必然误判；
+        //    幂等由 uk_notification_recipient_dedup 保证，调用方只关心有没有抛异常。
+        notificationMapper.insertIfAbsent(notification);
     }
 
+    /**
+     * 回收站内信提醒：根据 ticketId 和类别批量删除。
+     */
+    @Override
+    @Transactional
+    public void recallReminders(long ticketId, List<NotificationCategory> categories) {
+        //1.空集合会生成 IN ()，MySQL 直接报语法错；「没有类别要回收」就是什么都不做
+        if (categories.isEmpty()) {
+            return;
+        }
+
+        //2.类别按名字落库，与 publish 写入时同一口径（不依赖全局枚举 TypeHandler 配置）
+        notificationMapper.deleteRemindersByTicket(ticketId,
+                categories.stream().map(NotificationCategory::name).toList());
+    }
+
+    /**
+     * 站内信分页查询。
+     */
     @Override
     @Transactional(readOnly = true)
     public PageResult<NotificationResult> page(NotificationQuery query) {
@@ -80,13 +113,18 @@ public class NotificationServiceImpl implements NotificationService {
         return PageResult.from(result, NotificationServiceImpl::toResult);
     }
 
+    /**
+     * 站内信未读消息统计。
+     */
     @Override
     @Transactional(readOnly = true)
     public NotificationUnreadCountResult unreadCount() {
         long currentUserId = currentRecipientPort.currentUserId();
         return new NotificationUnreadCountResult(notificationMapper.countUnread(currentUserId));
     }
-
+    /**
+     * 标记消息已读。
+     */
     @Override
     @Transactional
     public void markRead(long notificationId) {
@@ -104,6 +142,9 @@ public class NotificationServiceImpl implements NotificationService {
         notificationMapper.markRead(notificationId, currentUserId, now());
     }
 
+    /**
+     * 标记所有消息已读。
+     */
     @Override
     @Transactional
     public void markAllRead() {

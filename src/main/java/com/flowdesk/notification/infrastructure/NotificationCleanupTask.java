@@ -2,8 +2,7 @@ package com.flowdesk.notification.infrastructure;
 
 import com.flowdesk.notification.config.NotificationProperties;
 import com.flowdesk.notification.mapper.NotificationMapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -11,22 +10,25 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.function.IntSupplier;
 
 /**
- * 站内信清理任务（无 HTTP 入口）：删除「已读时间早于保留期」的通知。
+ * 站内信清理任务（无 HTTP 入口）：一轮跑两段口径。
  *
- * <p>未读通知永不清理——用户可能长期未登录，删掉未读等于让消息静默消失。
- * 每批上限 {@link #BATCH_SIZE} 行并循环，避免单条 DELETE 在堆积时长时间持锁。</p>
+ * <p>① 已读通知：{@code read_at} 早于 {@code flowdesk.notification.retention}（默认 90d）——
+ * 看过的消息没有长期留存价值；
+ * ② 未读通知：{@code created_at} 早于 {@code flowdesk.notification.unread-retention}（默认 3d）——
+ * 收件人长期不看就清掉，否则未读徽标与收件箱会被历史消息永久占住。
+ * 2026-10-16 口径变更，取代原「未读永不清理」，见迁移 {@code V11}。</p>
  */
 @Component
+@Slf4j
 public class NotificationCleanupTask {
 
-    /** 每天 03:30 执行一轮；v1 演示规模下成本可忽略。 */
-    static final String CRON = "0 30 3 * * *";
+    /** 每天 6.00 执行一轮；v1 演示规模下成本可忽略。 */
+    static final String CRON = "0 0 6 * * *";
 
     private static final int BATCH_SIZE = 500;
-
-    private static final Logger log = LoggerFactory.getLogger(NotificationCleanupTask.class);
 
     private final NotificationMapper notificationMapper;
     private final NotificationProperties properties;
@@ -42,20 +44,39 @@ public class NotificationCleanupTask {
 
     /** 一轮清理；保留期从应用 UTC 时钟推导，与写入时的 {@code created_at} 同源。 */
     @Scheduled(cron = CRON)
-    public void cleanReadNotifications() {
-        LocalDateTime cutoff = LocalDateTime.ofInstant(
-                clock.instant().truncatedTo(ChronoUnit.MILLIS).minus(properties.retention()),
-                ZoneOffset.UTC);
+    public void cleanNotifications() {
+        //1.判定时间只取一次，两个阈值必须来自同一个瞬间，否则跨秒执行边界会漂
+        LocalDateTime now = LocalDateTime.ofInstant(
+                clock.instant().truncatedTo(ChronoUnit.MILLIS), ZoneOffset.UTC);
 
-        int deleted = 0;
-        int affected;
-        do {
-            affected = notificationMapper.deleteReadBefore(cutoff, BATCH_SIZE);
-            deleted += affected;
-        } while (affected == BATCH_SIZE);
-
-        if (deleted > 0) {
-            log.info("站内信清理：删除超过保留期的已读通知 {} 条", deleted);
+        //2.第一段 ： 已读时间超过保留期的
+        int readDeleted = deleteInBatches(
+                ()->notificationMapper.deleteReadBefore(now.minus(properties.retention()),BATCH_SIZE));
+        if(readDeleted > 0){
+            log.info("站内信清理：删除超过保留期的已读通知 {} 条", readDeleted);
         }
+
+        //3.第二段 ： 未读且创建时间超过未读保留期的
+        int unreadDeleted = deleteInBatches(
+                ()->notificationMapper.deleteUnreadBefore(now.minus(properties.unreadRetention()),BATCH_SIZE));
+        if(unreadDeleted > 0){
+            log.info("站内信清理：删除超过未读保留期的未读通知 {} 条", unreadDeleted);
+        }
+    }
+
+    /**
+     * 分批删除直到某一批不足一整批为止，返回累计删除行数。
+     *
+     * <p>传 {@link IntSupplier} 而不是传「阈值 / 语句」：两段的删除语句与阈值都不同，
+     * 但「删到删不动为止」的节奏是同一个，抽出来的只有节奏。</p>
+     */
+    private int deleteInBatches(IntSupplier batchDelete) {
+        int total = 0;
+        int affected;
+        do{
+            affected = batchDelete.getAsInt();
+            total += affected;
+        } while (affected == BATCH_SIZE);
+        return total;
     }
 }
