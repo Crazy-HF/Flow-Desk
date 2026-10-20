@@ -1,23 +1,23 @@
 {
-  "ticketNo": "FD-20261020-015",
-  "title": "E2E 片D关闭 497843",
+  "ticketNo": "FD-20261009-020",
+  "title": "E2E 片D关闭 172243",
   "steps": [
     {
       "step": "create",
       "status": 201,
-      "traceId": "bb900cda-94bf-4b47-b9ad-12f7061766c5",
-      "detail": "FD-20261020-015 由员工通过界面创建"
+      "traceId": "2f604b86-4b00-433e-b56a-e244d2c610ef",
+      "detail": "FD-20261009-020 由员工通过界面创建"
     },
     {
       "step": "claim",
       "status": 200,
-      "traceId": "e99a6ba1-97e0-41c7-b0db-476c7dd26a06",
+      "traceId": "74d7c34e-8475-410f-b6e6-33424985927b",
       "detail": "IT 领取成功，工单进入「处理中」"
     },
     {
       "step": "close",
       "status": 200,
-      "traceId": "96e39144-118b-4207-9b27-f9eecb27a486",
+      "traceId": "3958599d-2dba-4c73-95dd-ffee0ae20d09",
       "detail": "IT 以「超出支持范围」关闭工单，工单进入「已关闭」"
     }
   ]

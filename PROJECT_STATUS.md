@@ -1,5 +1,13 @@
 # FlowDesk 项目状态
 
+## 2026-10-20 验收完成：超时批次测试与验收收口（`flow-desk/timeout-batch-verify`）
+
+- **当前阶段**：`main` 基线 `a8d80f3` 已交付超时处置、事件通知与到期前提醒；本主题分支补齐自动化测试、`V13` 的 `close_method` 列宽修复、契约文档和真实栈验收。旧日期章节保留历史事实，以本节为当前入口。
+- **验收标准与结果**：后端全量 `.\mvnw.cmd -B -o clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true -Xmx384m -XX:ActiveProcessorCount=2"`（Maven JVM 256 MiB）→ surefire **1261**、failsafe **197**，零失败 / 错误，`BUILD SUCCESS`；`DatabaseMigrationIT` 与 `TicketTimeoutServiceIT` 已在 Testcontainers MySQL 实跑。S3 的真实 MinIO 签名校验仍属旧环境限制，本轮没有将跳过项计为通过。
+- **真实栈**：独立 demo MySQL/Redis + 8092 后端执行 `scripts/timeout-batch-acceptance.ps1`，**27/27**、退出码 0，证据 `docs/acceptance/2026-10-20-timeout-batch.json`。覆盖三类到期提醒的接收者、重复扫描去重、两条自动终结路径、系统留痕、超时事件通知、撤销到期提醒回收及测试数据清理前后四表指纹一致。
+- **前端**：Node 24 / pnpm 12 下 `typecheck`、`lint`（含 stylelint）、`build` 通过，Vitest **28 套件 / 260 项**通过。Playwright 全量首轮 **24/25**；唯一失败 `ticket-relations` 的浏览器轨迹为 `net::ERR_INSUFFICIENT_RESOURCES`，该用例随后独立重跑 **1/1** 通过。站内信收件箱在 1440 / 375 宽度截图自查；375 宽度无整页横向溢出，表格在卡片内横向滚动，截图在 `.ui-craft/reviews/2026-10-20-timeout-batch/`。
+- **交接路径**：本主题验收已完成，状态与截图随分支提交，经合并请求和 CI 交接到 `main`；合并后本地 `main` 仅快进同步。下一开发主题从新的 `main` 建短期分支，不在本分支叠加业务功能。
+
 ## 2026-10-16 交付：超时事件通知、到期前提醒与提醒回收（分支 `flow-desk/ticket-timeout-tasks`，已合并 `main`；**测试与验收待补**）
 
 - **分支与合并（2026-10-16）**：分支从 `main`（起点 `6506587`）创建，提交两条——`dcbac21`（超时自动完成与自动关闭）、**`1bf571b`**（超时事件通知、到期前提醒与提醒回收，20 个文件，含迁移 `V11`/`V12`），随后**快进合并进 `main`**（**未走 PR**，与同日站内信交接同一口径）。
