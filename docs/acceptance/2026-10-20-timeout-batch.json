@@ -1,0 +1,262 @@
+{
+  "slice": "timeout-batch",
+  "startedAt": "2026-10-20T22:08:44",
+  "finishedAt": "2026-10-20T22:09:14",
+  "baseUrl": "http://127.0.0.1:8092",
+  "branch": "flow-desk/timeout-batch-verify",
+  "tickets": [
+    "FD-20261020-010",
+    "FD-20261020-011",
+    "FD-20261020-012"
+  ],
+  "checks": [
+    {
+      "name": "health",
+      "expected": "200",
+      "actual": "health response",
+      "passed": true
+    },
+    {
+      "name": "login.employee",
+      "expected": "200",
+      "actual": "200",
+      "passed": true
+    },
+    {
+      "name": "login.it",
+      "expected": "200",
+      "actual": "200",
+      "passed": true
+    },
+    {
+      "name": "categories",
+      "expected": "非空分类列表",
+      "actual": "200",
+      "passed": true
+    },
+    {
+      "name": "create.confirmation",
+      "expected": "201",
+      "actual": "201",
+      "passed": true
+    },
+    {
+      "name": "ticketNo.confirmation",
+      "expected": "合法工单编号",
+      "actual": "FD-20261020-010",
+      "passed": true
+    },
+    {
+      "name": "claim.confirmation",
+      "expected": "200",
+      "actual": "200",
+      "passed": true
+    },
+    {
+      "name": "prepare.confirmation",
+      "expected": "200",
+      "actual": "200",
+      "passed": true
+    },
+    {
+      "name": "create.supplement",
+      "expected": "201",
+      "actual": "201",
+      "passed": true
+    },
+    {
+      "name": "ticketNo.supplement",
+      "expected": "合法工单编号",
+      "actual": "FD-20261020-011",
+      "passed": true
+    },
+    {
+      "name": "claim.supplement",
+      "expected": "200",
+      "actual": "200",
+      "passed": true
+    },
+    {
+      "name": "prepare.supplement",
+      "expected": "200",
+      "actual": "200",
+      "passed": true
+    },
+    {
+      "name": "create.cancel",
+      "expected": "201",
+      "actual": "201",
+      "passed": true
+    },
+    {
+      "name": "ticketNo.cancel",
+      "expected": "合法工单编号",
+      "actual": "FD-20261020-012",
+      "passed": true
+    },
+    {
+      "name": "claim.cancel",
+      "expected": "200",
+      "actual": "200",
+      "passed": true
+    },
+    {
+      "name": "prepare.cancel",
+      "expected": "200",
+      "actual": "200",
+      "passed": true
+    },
+    {
+      "name": "three.dueSoon.reminders",
+      "expected": "在期限内达成",
+      "actual": "达成",
+      "passed": true
+    },
+    {
+      "name": "reminder.recipients",
+      "expected": "员工/员工/当前负责人",
+      "actual": "CANCEL_REQUEST_DUE_SOON:2,CONFIRMATION_DUE_SOON:1,SUPPLEMENT_DUE_SOON:1",
+      "passed": true
+    },
+    {
+      "name": "reminder.dedup",
+      "expected": "重复扫描仍为 3 条",
+      "actual": "3",
+      "passed": true
+    },
+    {
+      "name": "confirmation.autoComplete",
+      "expected": "在期限内达成",
+      "actual": "达成",
+      "passed": true
+    },
+    {
+      "name": "supplement.autoClose",
+      "expected": "在期限内达成",
+      "actual": "达成",
+      "passed": true
+    },
+    {
+      "name": "cancel.reminder.recalled",
+      "expected": "在期限内达成",
+      "actual": "达成",
+      "passed": true
+    },
+    {
+      "name": "cancel.ticket.unchanged",
+      "expected": "处理中",
+      "actual": "数据库状态",
+      "passed": true
+    },
+    {
+      "name": "system.records",
+      "expected": "两条系统留痕",
+      "actual": "2",
+      "passed": true
+    },
+    {
+      "name": "timeout.notifications",
+      "expected": "两种事件各发给两人，共四条",
+      "actual": "4",
+      "passed": true
+    },
+    {
+      "name": "stale.reminders",
+      "expected": "三个旧提醒均回收",
+      "actual": "0",
+      "passed": true
+    },
+    {
+      "name": "cleanup.fingerprint",
+      "expected": "0\t0\t0\t0",
+      "actual": "0\t0\t0\t0",
+      "passed": true
+    }
+  ],
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/actuator/health",
+      "status": 200,
+      "traceId": "c59f1c26-114e-4916-b20c-4512f1f6f9e2"
+    },
+    {
+      "method": "POST",
+      "path": "/fd/v1/auth/login",
+      "status": 200,
+      "traceId": "254ac504-469b-4a91-8d51-3701a91ad2ff"
+    },
+    {
+      "method": "POST",
+      "path": "/fd/v1/auth/login",
+      "status": 200,
+      "traceId": "7c737978-01e7-4e27-a03b-683fa0d48ab2"
+    },
+    {
+      "method": "GET",
+      "path": "/fd/v1/categories/options",
+      "status": 200,
+      "traceId": "1558bea0-60a7-4140-bb3b-2a3098c2f663"
+    },
+    {
+      "method": "POST",
+      "path": "/fd/v1/tickets",
+      "status": 201,
+      "traceId": "24d20874-3865-4a83-bce2-6ab0d648da60"
+    },
+    {
+      "method": "POST",
+      "path": "/fd/v1/tickets/FD-20261020-010/actions/claim",
+      "status": 200,
+      "traceId": "b9005945-1155-4502-8753-9729fa228891"
+    },
+    {
+      "method": "POST",
+      "path": "/fd/v1/tickets/FD-20261020-010/actions/submit-resolution",
+      "status": 200,
+      "traceId": "2c971d7b-faea-4839-bc14-baebc20f8758"
+    },
+    {
+      "method": "POST",
+      "path": "/fd/v1/tickets",
+      "status": 201,
+      "traceId": "113818c6-3f41-4c7f-91a8-509388e9e869"
+    },
+    {
+      "method": "POST",
+      "path": "/fd/v1/tickets/FD-20261020-011/actions/claim",
+      "status": 200,
+      "traceId": "76db18c6-48e0-4203-8a93-460f0b8819a6"
+    },
+    {
+      "method": "POST",
+      "path": "/fd/v1/tickets/FD-20261020-011/actions/request-supplement",
+      "status": 200,
+      "traceId": "bbcc142f-c136-406d-9de9-29aab986a419"
+    },
+    {
+      "method": "POST",
+      "path": "/fd/v1/tickets",
+      "status": 201,
+      "traceId": "aa0c9f21-ce92-4cf4-873b-a922039e05f7"
+    },
+    {
+      "method": "POST",
+      "path": "/fd/v1/tickets/FD-20261020-012/actions/claim",
+      "status": 200,
+      "traceId": "d9d40e5a-2095-4e1d-b37f-a0fba3db7698"
+    },
+    {
+      "method": "POST",
+      "path": "/fd/v1/tickets/FD-20261020-012/actions/request-cancel",
+      "status": 200,
+      "traceId": "b4c4ce29-f592-465b-b638-f44eae400252"
+    }
+  ],
+  "failure": null,
+  "totals": {
+    "total": 27,
+    "passed": 27,
+    "failed": 0
+  }
+}

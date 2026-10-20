@@ -422,7 +422,7 @@ v1 暂不建立以下实体：
 | `cancel_request_reason` | `VARCHAR(1000)` | 是 | 待批准撤销请求的说明；进入终态时随请求一并清空（`V7`） |
 | `cancel_request_deadline_at` | `DATETIME(3)` | 是 | 待批准撤销请求的响应期限；**2026-10-10 规则变更（2026-10-12 已实现）后该列进入判定**——过期即请求失效，批准 / 拒绝 / 撤回三条条件更新都加期限条件（`cancel_request_deadline_at > now`），未过期的请求才是「待我批准」筛选与批准 / 拒绝权的来源；员工可重新发起并覆盖（覆盖条件由 `cancel_requested_at IS NULL` 放宽为 `cancel_requested_at IS NULL OR cancel_request_deadline_at <= now`，不设终身次数上限）。**写入与读取都取应用注入的 UTC 时钟**（`#{now}`），不引入数据库时钟作为第二个来源（`V7`） |
 | `completion_method` | `VARCHAR(32)` | 是 | 员工确认或系统超时完成 |
-| `close_method` | `VARCHAR(16)` | 是 | 手动关闭或系统自动关闭 |
+| `close_method` | `VARCHAR(32)` | 是 | 手动关闭或系统自动关闭；`V13` 加宽，容纳 `AUTO_SUPPLEMENT_TIMEOUT` |
 | `close_reason` | `VARCHAR(32)` | 是 | 关闭标准原因 |
 | `ended_at` | `DATETIME(3)` | 是 | 进入终态的 UTC 时间 |
 | `record_seq` | `INT UNSIGNED` | 否 | 当前最大工单内记录序号；创建事务写入首条记录后为 1 |
@@ -587,6 +587,8 @@ v1 暂不建立以下实体：
 - `recipient_id` 与 `ticket_id` 均使用限制删除外键。
 
 **`V10` 变更说明（2026-10-14 站内信应用内通知通道，`V10__create_notification.sql`）**：新增 `notification` 表；外键总数由 **23 → 25**（`recipient_id` → `iam_user`、`ticket_id` → `ticket`）。`dedup_key` 列与其 `(recipient_id, dedup_key)` 唯一索引是**为后续「到期前提醒」预留**的去重位（按「工单 + 期限」），**本轮没有实现到期提醒**，普通业务通知一律填 `NULL`。清理任务只删除「已读且 `read_at` 早于保留期（`flowdesk.notification.retention`，默认 `90d`，下限 `1h`）」的行，**未读永不清理**。
+
+**现行口径（`V11`～`V13`，取代上段 `V10` 发布时的功能状态）**：`V11` 把 `ck_notification_category` 扩至 10 类，增加 `CONFIRMATION_TIMEOUT`、`SUPPLEMENT_TIMEOUT`、`CONFIRMATION_DUE_SOON`、`SUPPLEMENT_DUE_SOON`、`CANCEL_REQUEST_DUE_SOON`。前两类是自动处置事件，后三类是提前提醒；去重键按「类别:工单:事件时间或期限毫秒」生成。期限改写或失效时只回收相应提醒，业务事件不回收。已读按 `read_at` 与 `retention`（默认 90 天）清理；未读按 `created_at` 与 `unread-retention`（默认 3 天）清理。`V12` 增加 `ticket(cancel_request_deadline_at, id)` 索引，支撑撤销请求提醒与过期回收扫描。`V13` 将 `ticket.close_method` 和 `ticket_record.close_method` 从 `VARCHAR(16)` 加宽至 `VARCHAR(32)`；原 `V1` 已允许的 `AUTO_SUPPLEMENT_TIMEOUT` 有 23 个字符，旧列宽会使自动关闭在真实 MySQL 上失败。三次迁移均不改变外键总数。
 
 ## 20. 预置枚举编码
 

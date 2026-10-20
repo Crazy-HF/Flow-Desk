@@ -1,35 +1,35 @@
 {
-  "ticketNo": "FD-20261006-026",
-  "title": "E2E 阶段3主链 206774",
+  "ticketNo": "FD-20261020-018",
+  "title": "E2E 阶段3主链 517043",
   "steps": [
     {
       "step": "create",
       "status": 201,
-      "traceId": "e4c9b6bd-e91e-416f-b565-88ebe5dbc1d7",
-      "detail": "FD-20261006-026 由员工通过界面创建"
+      "traceId": "eab62e9d-beab-48d2-9fcf-211c0ee8006f",
+      "detail": "FD-20261020-018 由员工通过界面创建"
     },
     {
       "step": "claim",
       "status": 200,
-      "traceId": "e4a8a867-cf5a-42d9-b7e1-385e84edf09f",
+      "traceId": "bf287f56-a7ce-4a61-985e-5498354e4bf4",
       "detail": "IT 领取成功，工单进入处理中"
     },
     {
       "step": "add-processing-record",
       "status": 200,
-      "traceId": "ac092bc1-6388-4e54-b220-9b4253b8813e",
+      "traceId": "fd948915-e474-4dfa-b6da-b87ae7e1929c",
       "detail": "处理记录写入时间线，状态与负责人不变"
     },
     {
       "step": "submit-resolution",
       "status": 200,
-      "traceId": "14f8260f-2e2f-4e59-a219-69422e33aac0",
+      "traceId": "f522f838-7532-406f-b447-f00140f42f89",
       "detail": "进入待员工确认，确认期限由服务端给出"
     },
     {
       "step": "confirm-resolution",
       "status": 200,
-      "traceId": "6694ce50-7464-407a-a826-5f6b072d8fd6",
+      "traceId": "adee9827-bf94-4a6b-93e8-3eab0fa1efac",
       "detail": "员工确认，工单进入终态已完成"
     }
   ],
