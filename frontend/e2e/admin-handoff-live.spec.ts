@@ -133,7 +133,7 @@ test('真实后端：停用与移除 IT 角色均逐单交接', async ({ page, r
   expect(finalCandidate).toBeDefined()
 
   const secondRow = await findUser(page, secondName)
-  await secondRow.getByRole('cell', { name: secondName }).click()
+  await secondRow.locator('.el-checkbox').click()
   await page.getByRole('button', { name: '调整角色' }).click()
   const rolesDialog = page.getByRole('dialog', { name: '调整用户角色' })
   await rolesDialog.locator('.el-tag__close').click()
