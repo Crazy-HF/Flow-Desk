@@ -25,6 +25,7 @@
 - `pnpm test:e2e e2e/admin-handoff.spec.ts`：Chromium 1/1 通过。接口在 Playwright 中模拟；覆盖登录、停用入口、必填校验、候选选择、提交体、状态刷新、1440 与 375 宽度。375 宽度 `documentElement.scrollWidth <= innerWidth`。
 - 独立 MySQL/Redis 与后端 JAR 在 18093 成功启动，Flyway 验证 V1～V13。既有 `admin-rbac.spec.ts` 首轮因 Windows 资源错误 `3221226505` 中断；把后端限制为 384 MiB / 2 CPU 并限制前端工作线程后，真实栈复跑 **4/4 通过**（角色权限、用户角色、权限入口及窄屏回归）。当时新增交接弹窗的浏览器用例仍使用模拟接口；独立后端与容器已停止。后续 CI 真实栈结果见下一条。
 - 后续新增 `admin-handoff-live.spec.ts`，在 [PR #26 CI run #66](https://github.com/Crazy-HF/Flow-Desk/actions/runs/39520667750) 的 demo MySQL/Redis 上首轮通过：真实停用、工单版本冲突后刷新重试、移除 IT 角色再次交接。该 run 的 `frontend-verify`、`backend-verify`、`core-e2e` 均成功；浏览器全量为 **26 passed / 1 flaky**，既有 `viewport-1920` 首轮在退出后 URL 断言超时，重试通过。本机 Docker Desktop 后来无法启动，故这项真实栈证据取自 CI。
+- 最新 [PR #26 CI run #67](https://github.com/Crazy-HF/Flow-Desk/actions/runs/39521245457) 三个 job 均成功；新增真实栈用例仍首轮通过，浏览器全量 **27/27 首轮通过**。PR #26 随后合并为 `fd41981`。
 
 截图已人工查看：桌面弹窗的编号与接替选择同行；375 宽度改为上下排列，按钮、原因输入与关闭入口均在视口内。缩略图的第一落点是工单交接选择；强调色集中在选择焦点和确认按钮。
 

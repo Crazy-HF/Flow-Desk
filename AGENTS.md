@@ -2,8 +2,8 @@
 
 ## 2026-10-21 当前接续口径
 
-- 超时批次已由另一会话并入 `main`（`a61a4f9`）。管理性交接前端工作在独立分支 `flow-desk/admin-handoff-ui`，从此基线创建并经用户授权提交、推送、创建 PR #26；CI run #66 的前端、后端、真实栈浏览器三个 job 均成功，细节与一项重试通过的既有用例见 `PROJECT_STATUS.md` 顶部。
-- 当前按 PR #26 完成最终检查和分支交接；下一开发主题须从交接后的最新 `main` 创建，不在本分支叠加数据概览。
+- 管理性交接前端已由 [PR #26](https://github.com/Crazy-HF/Flow-Desk/pull/26) 合并 `main`（`fd41981`），本地 `main` 已快进同步。最新 CI run #67 的前端、后端和真实栈浏览器三个 job 均成功，浏览器 27/27 首轮通过；详见 `PROJECT_STATUS.md` 顶部。
+- 下一开发主题须从最新 `main` 创建短期分支；不在已完成的 `flow-desk/admin-handoff-ui` 上叠加数据概览或旧 RBAC 撤销入口修复。
 
 ## 2026-10-20 当前接续口径
 

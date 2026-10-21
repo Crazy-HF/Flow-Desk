@@ -1,12 +1,12 @@
 # FlowDesk 项目状态
 
-## 2026-10-21 管理性交接前端接入（`flow-desk/admin-handoff-ui`；PR #26）
+## 2026-10-21 管理性交接前端接入已交接（PR #26，`main` = `fd41981`）
 
 - **基线**：超时批次已由另一会话并入 `main`（`a61a4f9`）；本分支从原 `main` 创建后已快进到该提交，前端改动与超时批次分离。
 - **本轮实现**：用户管理页停用启用账号时，具备 `TICKET_ADMIN_HANDOFF` 的管理员先查询在办工单及每张候选接替人；有在办工单时弹窗逐单指定新负责人并填写原因，再带用户版本与工单版本提交。新增完整角色替换入口；摘掉 `IT_SUPPORT` 且有在办工单时复用交接弹窗。无在办工单仍走原简短请求。页面只显示 8.3 允许的最小元数据。
-- **验证**：本地 `typecheck`、`lint`、Vite 构建通过；Vitest 全量 **28 套件 / 263 项**通过；模拟接口 Playwright **1/1**，1440 / 375 截图及窄屏整页无横向溢出检查见 `.ui-craft/reviews/2026-10-21-admin-handoff-ui/report.md`。PR #26 的 CI run [#66](https://github.com/Crazy-HF/Flow-Desk/actions/runs/39520667750) 三个 job 均 `success`：`frontend-verify`、`backend-verify`、`core-e2e`。后者在 demo MySQL/Redis 上执行新增 `admin-handoff-live.spec.ts`，停用、版本冲突后重试、移除 IT 角色三段首轮通过；全量浏览器结果 **26 passed / 1 flaky**，既有 `viewport-1920` 首轮在退出后 URL 断言超时、重试通过，不记为首轮全绿。
+- **验证**：本地 `typecheck`、`lint`、Vite 构建通过；Vitest 全量 **28 套件 / 263 项**通过；模拟接口 Playwright **1/1**，1440 / 375 截图及窄屏整页无横向溢出检查见 `.ui-craft/reviews/2026-10-21-admin-handoff-ui/report.md`。PR #26 最新 CI run [#67](https://github.com/Crazy-HF/Flow-Desk/actions/runs/39521245457) 三个 job 均 `success`：`frontend-verify`、`backend-verify`、`core-e2e`；真实 demo MySQL/Redis 上浏览器全量 **27/27 首轮通过**。新增 `admin-handoff-live.spec.ts` 覆盖停用、版本冲突后重试、移除 IT 角色。前一轮 run #66 的既有 `viewport-1920` 曾首轮失败、重试通过，最终 run #67 已首轮通过。
 - **环境边界**：此前本机独立 MySQL/Redis + 后端 JAR 在 18093 完成迁移 V1～V13，既有 `admin-rbac.spec.ts` 真实栈 **4/4**；本轮 Docker Desktop 无法启动，故新增交接用例的真实栈证据来自上述 CI，不声称本机已跑通。后端交接验收仍有 `docs/acceptance/2026-10-14-admin-handoff.json`（51/51）。
-- **交接状态**：分支已提交、推送并创建 [PR #26](https://github.com/Crazy-HF/Flow-Desk/pull/26)；CI 验证通过，待最终文档检查与合并。合并后本地 `main` 仅快进同步，下一开发主题从最新 `main` 新建分支。`/admin/user-roles` 旧撤销入口仍可能绕过交接，属 8.3 已登记边界，未在本批扩张后端范围。
+- **交接状态**：[PR #26](https://github.com/Crazy-HF/Flow-Desk/pull/26) 已合并，合并提交 `fd41981`；本地 `main` 已仅快进同步。下一开发主题从此后的最新 `main` 新建短期分支。`/admin/user-roles` 旧撤销入口仍可能绕过交接，属 8.3 已登记边界，未在本批扩张后端范围。
 
 ## 2026-10-20 验收完成：超时批次测试与验收收口（`flow-desk/timeout-batch-verify`）
 
