@@ -1,6 +1,11 @@
 # AGENTS.md
 
-## 2026-10-21 当前接续口径
+## 2026-10-21 撤销入口交接保护
+
+- `flow-desk/user-role-handoff-guard` 从 `main`（`d9d1fef`）创建，处理旧 `/admin/user-roles` 三个撤销入口绕过管理性交接的问题；实施与验证状态见 `PROJECT_STATUS.md` 顶部。
+- 旧入口遇到有活动工单的 `IT_SUPPORT` 撤销时拒绝，交接统一走用户管理的完整角色替换；不在旧入口另建一套交接编排。用户已明确授权本主题提交、推送并直接合并到 `main`，本次不创建 PR。
+
+## 2026-10-21 前一主题交接记录
 
 - 管理性交接前端已由 [PR #26](https://github.com/Crazy-HF/Flow-Desk/pull/26) 合并 `main`（`fd41981`），本地 `main` 已快进同步。最新 CI run #67 的前端、后端和真实栈浏览器三个 job 均成功，浏览器 27/27 首轮通过；详见 `PROJECT_STATUS.md` 顶部。
 - 下一开发主题须从最新 `main` 创建短期分支；不在已完成的 `flow-desk/admin-handoff-ui` 上叠加数据概览或旧 RBAC 撤销入口修复。

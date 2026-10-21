@@ -26,7 +26,7 @@ const messages: Record<string, string> = {
   ROLE_CODE_CONFLICT: '角色编码已存在',
   PERMISSION_CODE_CONFLICT: '权限编码已存在',
   RBAC_CONFLICT: '该操作会破坏受保护的角色、权限或授权关系，已拒绝',
-  ADMIN_HANDOFF_REQUIRED: '缺少完整的活动工单交接方案',
+  ADMIN_HANDOFF_REQUIRED: '该用户仍负责在办工单，请到用户管理完成交接',
   ADMIN_HANDOFF_CONFLICT: '交接期间数据发生变化，请刷新后重试',
   CATEGORY_NOT_FOUND: '分类不存在',
   CATEGORY_NAME_CONFLICT: '分类名称已存在',

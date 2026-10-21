@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { grantUserRoles, listRoles, listUserRoleGrants } from '@/api/rbac'
 import { getUser, listUsers } from '@/api/users'
 import type { UserDetail } from '@/api/users'
+import { useAuthStore } from '@/stores/auth'
 import UserRoleGrantView from './UserRoleGrantView.vue'
 
 vi.mock('@/api/rbac', () => ({
@@ -46,6 +47,7 @@ async function mountPage(query: Record<string, string> = {}) {
     history: createMemoryHistory(),
     routes: [
       { path: '/admin/user-roles', name: 'admin-user-roles', component: { template: '<div />' } },
+      { path: '/admin/users', name: 'admin-users', component: { template: '<div />' } },
       {
         path: '/admin/role-permissions',
         name: 'admin-role-permissions',
@@ -56,7 +58,9 @@ async function mountPage(query: Record<string, string> = {}) {
   await router.push({ name: 'admin-user-roles', query })
   await router.isReady()
 
-  const wrapper = mount(UserRoleGrantView, { global: { plugins: [createPinia(), router] } })
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  const wrapper = mount(UserRoleGrantView, { global: { plugins: [pinia, router] } })
   await flushPromises()
   return { wrapper, router }
 }
@@ -121,6 +125,30 @@ describe('UserRoleGrantView', () => {
 
     expect(rows).toHaveLength(2)
     expect(rows.every((row) => row.find('button[aria-label="撤销"]').exists())).toBe(true)
+  })
+
+  it('持有 IT 支持角色时可带目标用户跳转到交接入口', async () => {
+    vi.mocked(getUser).mockResolvedValue({
+      ...employee,
+      roles: [{ id: 2, code: 'IT_SUPPORT', name: 'IT 支持人员' }],
+    } as never)
+    const { wrapper, router } = await mountPage({ userId: '7' })
+    useAuthStore().user = {
+      id: 1,
+      username: 'admin',
+      displayName: '管理员',
+      roles: ['SYSTEM_ADMIN'],
+      permissions: ['RBAC_MANAGE', 'USER_MANAGE', 'TICKET_ADMIN_HANDOFF'],
+    }
+    await flushPromises()
+
+    const handoff = buttonByText(wrapper, '去用户管理完成交接')
+    expect(handoff).toBeDefined()
+    await handoff?.trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.name).toBe('admin-users')
+    expect(router.currentRoute.value.query.userId).toBe('7')
   })
 
   it('没有选角色时提交被拦下，不发请求', async () => {

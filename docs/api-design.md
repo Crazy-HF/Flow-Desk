@@ -590,6 +590,8 @@ v1 仍不提供附件替换与分片上传接口；**删除见下方**，**预�
 
 `iam_user_role` 与 `iam_role_permission` 都是只有复合主键和审计字段的授权关系，没有独立可编辑的业务字段；因此这两组接口采用“查询、授予、撤销”，而非没有实际语义的 `PUT`。撤销按粒度分三档：路径参数指定的单条关系、请求体给出的多条关系（`actions/revoke`）、以及清空某主体全部关系；后两档是**整批原子**语义，任一目标关系缺失就整批失败，已存在的关系不会被改写。资源不存在分别返回 `404/ROLE_NOT_FOUND`、`404/PERMISSION_NOT_FOUND`、`404/USER_NOT_FOUND` 或 `404/GRANT_NOT_FOUND`；编码重复返回 `409/ROLE_CODE_CONFLICT` 或 `409/PERMISSION_CODE_CONFLICT`；违反保护或引用约束返回 `409/RBAC_CONFLICT`。
 
+**2026-10-21 补充：旧用户角色撤销入口的交接保护**：单条撤销、批量撤销和清空全部若实际要摘掉 `IT_SUPPORT`，且目标用户仍负责活动工单，返回 `409/ADMIN_HANDOFF_REQUIRED`；整批不写库，也不撤销会话。三个旧入口没有用户版本、工单版本及接替人字段，不接受交接方案；管理员应通过 `PUT /fd/v1/users/{userId}/roles` 完成完整角色替换与逐单交接。撤销其他角色、目标用户没有活动工单、清空空集合仍保持原契约。检查在目标用户行锁之后读取最新已提交的活动工单；领取、转交和交接在写负责人前也锁目标用户，防止检查之后新增其活动工单。
+
 ### 8.3 活动工单与管理性交接
 
 | 用例 | 方法与路径 | 返回范围 |
@@ -618,7 +620,7 @@ MySQL 与 Redis 之间不存在天然原子事务。工程准备阶段必须明�
 - **错误码**：纯请求缺陷（编号空白、版本为负、同一工单在方案里重复）→ `400/VALIDATION_FAILED`；缺方案、漏交某张活动工单 → `409/ADMIN_HANDOFF_REQUIRED`；多交（方案里出现不属于该用户的活动工单）、`userVersion` / `ticketVersion` 不符、候选人资格失效、条件更新命中 0 行、交接期间的锁等待或死锁 → `409/ADMIN_HANDOFF_CONFLICT`，其中工单版本/状态类冲突按 `ErrorDetails` 的 `version` / `status` 带当前快照。
 - **事务与顺序**：全部 MySQL 写（逐张换人 + `ticket_participant` + 一条 `ADMIN_HANDOFF` 记录 + 账号状态或角色集合 + 用户版本）在同一事务里；**Redis 会话撤销排在写库之后、提交之前**，撤销失败即整体回滚，因此不存在"账号已变更却返回会话撤销成功"。锁顺序固定为 `iam_role → ticket(id 升序) → iam_user(id 升序：目标用户 + 全部新负责人 + 操作人) → iam_user_role / ticket_participant / ticket_record`——交接的工单行锁必须排在用户行锁之前（与工单模块既有顺序一致，避免外键共享锁成环）；跨模块端口 `iam.application.port.AdminHandoffPort` 由 `ticket.infrastructure.IamAdminHandoffAdapter` 实现（与 `SessionRevocationPort` 同一落位约定）。
 - **记录形态**：没有专门的交接记录表——"交接记录"就是往 `ticket_record` 写一条 `ADMIN_HANDOFF`：`actor_user_id` 是管理员、`from_assignee_id` / `to_assignee_id` 是原/新负责人、`reason` 承载 `handoffReason`、前后状态相同（交接不改变状态、补充期限、确认期限与撤销请求三列），`version` 与 `record_seq` 各推进一次。
-- **已知边界（未修）**：`/fd/v1/admin/user-roles` 的三个撤销入口（单条撤销 / 批量撤销 / 清空全部）同样能摘掉 `IT_SUPPORT`，但本节未把它们纳入交接要求，走那条路仍可能留下无效负责人；方案要求"完整、无重复"，故请求规模等于该用户当前在办工单数，未设人为上限。
+- **2026-10-21 边界修补**：`/fd/v1/admin/user-roles` 的三个旧撤销入口现在会拒绝有活动工单的 `IT_SUPPORT` 撤销，交接仍统一由用户管理的完整角色替换入口执行。交接方案要求"完整、无重复"，故请求规模等于该用户当前在办工单数，未设人为上限。
 
 ### 8.4 分类管理
 

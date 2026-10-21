@@ -3,7 +3,7 @@ import { Check, CircleClose, Edit, Key, Plus, Refresh, Search, Share } from '@el
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { computed, onMounted, reactive, ref, shallowRef } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import { describeError } from '@/api/errorMessages'
 import { listRoles } from '@/api/rbac'
@@ -14,6 +14,7 @@ import {
   enableUser,
   getActiveTicketAssignments,
   getHandoffCandidates,
+  getUser,
   listUsers,
   replaceUserRoles,
   resetUserPassword,
@@ -31,6 +32,7 @@ import { useAdminList } from '@/composables/useAdminList'
 
 /** 用户管理（`docs/api-design.md` 8.2，`TASK-062`）。 */
 const auth = useAuthStore()
+const route = useRoute()
 const router = useRouter()
 
 /**
@@ -482,9 +484,16 @@ function holdsProtectedRole(row: UserDetail): boolean {
   return row.status === 'ENABLED' && row.roles.some((role) => isProtectedRole(role.code))
 }
 
-onMounted(() => {
-  void loadRoleOptions()
-  void search()
+onMounted(async () => {
+  await Promise.all([loadRoleOptions(), search()])
+  const userId = Number(route.query.userId ?? '')
+  if (!canPickRole.value || !roleOptionsLoaded.value
+      || !Number.isInteger(userId) || userId <= 0) return
+  try {
+    openRoleEdit(await getUser(userId))
+  } catch (error) {
+    ElMessage.error(describeError(error, '用户信息没有取到，请重新检索'))
+  }
 })
 </script>
 

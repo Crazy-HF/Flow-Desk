@@ -35,6 +35,8 @@ FlowDesk 是一个企业工单协作平台，由开发者与 Codex 协作完成�
 
 ## 当前状态
 
+**2026-10-21 撤销入口保护**：`flow-desk/user-role-handoff-guard` 修补旧 `/admin/user-roles` 三种撤销方式对 `IT_SUPPORT` 的交接绕过，并在授权页提供通往现有角色替换交接流程的入口；本主题经用户授权直接合并 `main`，不创建 PR。验证与下一步见 `PROJECT_STATUS.md` 顶部。
+
 **2026-10-21 更新**：用户管理页的停用和完整角色替换交接弹窗已由 [PR #26](https://github.com/Crazy-HF/Flow-Desk/pull/26) 合并 `main`（`fd41981`）。本地类型检查、Lint、构建、单测与模拟接口浏览器用例通过；最新 CI run #67 的前端、后端、真实栈浏览器三个 job 均成功，浏览器全量 **27/27 首轮通过**。下一主题及已知边界见 `PROJECT_STATUS.md` 顶部。
 
 **2026-10-20 当前入口**：`main` 已包含站内信、两个工单超时处置、超时事件通知及到期前提醒（`V10`～`V12`）。`flow-desk/timeout-batch-verify` 已完成测试与真实栈验收，正进行分支交接，并以 `V13` 修复自动关闭编码超出原 `close_method` 列宽的问题；通过情况和下一步以 `PROJECT_STATUS.md` 顶部为准。下方长段保留了各阶段的历史交付记录，其中“当前分支”“附件待做”等当时表述不再代表现在。

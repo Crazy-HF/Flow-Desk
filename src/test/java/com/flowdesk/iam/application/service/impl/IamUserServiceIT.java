@@ -8,6 +8,7 @@ import com.flowdesk.common.web.PageResult;
 import com.flowdesk.iam.application.command.AdminHandoffInstruction;
 import com.flowdesk.iam.application.command.CreateUserCommand;
 import com.flowdesk.iam.application.command.ReplaceUserRolesCommand;
+import com.flowdesk.iam.application.command.RevokeUserRolesCommand;
 import com.flowdesk.iam.application.command.ResetUserPasswordCommand;
 import com.flowdesk.iam.application.command.UpdateUserCommand;
 import com.flowdesk.iam.application.command.UserStatusChangeCommand;
@@ -15,6 +16,7 @@ import com.flowdesk.iam.application.query.UserQuery;
 import com.flowdesk.iam.application.result.AdminHandoffAssignmentResult;
 import com.flowdesk.iam.application.result.UserResult;
 import com.flowdesk.iam.application.service.IamUserService;
+import com.flowdesk.iam.application.service.IamUserRoleService;
 import com.flowdesk.iam.domain.IamUserStatus;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
@@ -91,6 +93,9 @@ class IamUserServiceIT {
 
     @Autowired
     private IamUserService userService;
+
+    @Autowired
+    private IamUserRoleService userRoleService;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -617,6 +622,34 @@ class IamUserServiceIT {
     }
 
     // ---------- 管理性交接（docs/api-design.md 8.3） ----------
+
+    @Test
+    void legacyUserRoleRevokesCannotLeaveAnActiveTicketWithoutEligibleAssignee() {
+        long requesterId = insertUser("user-it-requester");
+        UserResult itUser = userService.create(new CreateUserCommand(
+                "user-it-legacy-revoke", "有在办工单的 IT", "Password#2026",
+                List.of(roleId(EMPLOYEE), roleId(IT_SUPPORT))));
+        long ticketId = insertTicket("FD-IT-000030", requesterId, itUser.id(),
+                "PROCESSING", 2L, 0, null);
+        long itRoleId = roleId(IT_SUPPORT);
+
+        assertApiError(() -> userRoleService.revoke(itUser.id(), itRoleId),
+                HttpStatus.CONFLICT, "ADMIN_HANDOFF_REQUIRED");
+        assertApiError(() -> userRoleService.revokeBatch(new RevokeUserRolesCommand(
+                        itUser.id(), List.of(roleId(EMPLOYEE), itRoleId))),
+                HttpStatus.CONFLICT, "ADMIN_HANDOFF_REQUIRED");
+        assertApiError(() -> userRoleService.clearAll(itUser.id()),
+                HttpStatus.CONFLICT, "ADMIN_HANDOFF_REQUIRED");
+
+        assertThat(jdbc.queryForObject(
+                "SELECT assignee_id FROM ticket WHERE id = ?", Long.class, ticketId))
+                .isEqualTo(itUser.id());
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM iam_user_role WHERE user_id = ? AND role_id IN (?, ?)
+                """, Integer.class, itUser.id(), roleId(EMPLOYEE), itRoleId))
+                .isEqualTo(2);
+        verify(authSessionRepository, never()).revokeAll(itUser.id());
+    }
 
     /**
      * 停用账号 + 全部工单换人 + 参与关系 + 交接记录在同一个 MySQL 事务里，

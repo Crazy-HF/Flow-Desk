@@ -5,7 +5,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { listRoles } from '@/api/rbac'
-import { disableUser, getActiveTicketAssignments, getHandoffCandidates, listUsers, replaceUserRoles } from '@/api/users'
+import { disableUser, getActiveTicketAssignments, getHandoffCandidates, getUser, listUsers, replaceUserRoles } from '@/api/users'
 import type { UserDetail } from '@/api/users'
 import { useAuthStore } from '@/stores/auth'
 import UserListView from './UserListView.vue'
@@ -65,7 +65,7 @@ function signIn(permissions: string[]): void {
   }
 }
 
-async function mountPage() {
+async function mountPage(query: Record<string, string> = {}) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -73,7 +73,7 @@ async function mountPage() {
       { path: '/admin/user-roles', name: 'admin-user-roles', component: { template: '<div />' } },
     ],
   })
-  await router.push('/admin/users')
+  await router.push({ name: 'admin-users', query })
   await router.isReady()
 
   const wrapper = mount(UserListView, { global: { plugins: [router] } })
@@ -101,6 +101,20 @@ describe('UserListView', () => {
     // 状态用开关表达，开关自带读屏说明（谁的状态、当前是启用还是停用）
     expect(wrapper.html()).toContain('演示管理员的账号状态，当前启用')
     expect(wrapper.findAll('[role="switch"]')).toHaveLength(2)
+  })
+
+  it('从授权页带 userId 进入时打开该用户的角色替换弹窗', async () => {
+    signIn(['USER_MANAGE', 'RBAC_MANAGE', 'TICKET_ADMIN_HANDOFF'])
+    vi.mocked(getUser).mockResolvedValue({
+      ...employeeAccount,
+      roles: [{ id: 2, code: 'IT_SUPPORT', name: 'IT 支持人员' }],
+    } as never)
+
+    const { wrapper } = await mountPage({ userId: '4' })
+    await vi.waitFor(() => expect(getUser).toHaveBeenCalledWith(4))
+    await flushPromises()
+    expect(wrapper.html()).toContain('调整用户角色')
+    expect(wrapper.html()).toContain('演示员工（employee）的角色将替换')
   })
 
   it('启用的管理员行带上受保护标记与原因', async () => {

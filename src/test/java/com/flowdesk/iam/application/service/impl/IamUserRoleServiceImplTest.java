@@ -16,6 +16,8 @@ import com.flowdesk.iam.mapper.IamRoleMapper;
 import com.flowdesk.iam.mapper.IamUserMapper;
 import com.flowdesk.iam.mapper.IamUserRoleMapper;
 import com.flowdesk.iam.application.port.CurrentOperatorPort;
+import com.flowdesk.iam.application.port.AdminHandoffPort;
+import com.flowdesk.iam.application.result.AdminHandoffAssignmentResult;
 import com.flowdesk.iam.application.port.SessionRevocationPort;
 import com.flowdesk.support.MybatisPlusTestMetadata;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
@@ -69,10 +71,11 @@ class IamUserRoleServiceImplTest {
     private final IamRoleMapper roleMapper = mock(IamRoleMapper.class);
     private final CurrentOperatorPort currentOperatorPort = mock(CurrentOperatorPort.class);
     private final SessionRevocationPort sessionRevocationPort = mock(SessionRevocationPort.class);
+    private final AdminHandoffPort adminHandoffPort = mock(AdminHandoffPort.class);
 
     private final IamUserRoleServiceImpl service = new IamUserRoleServiceImpl(
             CLOCK, currentOperatorPort, sessionRevocationPort,
-            userRoleMapper, userMapper, roleMapper);
+            userRoleMapper, userMapper, roleMapper, adminHandoffPort);
 
     @BeforeAll
     static void initializeMybatisPlusMetadata() {
@@ -334,6 +337,43 @@ class IamUserRoleServiceImplTest {
     // ---------- 单条撤销 ----------
 
     @Test
+    void rejectsRevokingItSupportWhileUserHasActiveTickets() {
+        when(roleMapper.selectByIdForUpdate(ROLE_SUPPORT))
+                .thenReturn(role(ROLE_SUPPORT, "IT_SUPPORT", "IT 支持"));
+        when(userMapper.selectByIdForUpdate(USER_ID))
+                .thenReturn(user(USER_ID, "it", IamUserStatus.ENABLED));
+        when(userRoleMapper.selectByUserIdForUpdate(USER_ID))
+                .thenReturn(List.of(grant(USER_ID, ROLE_SUPPORT, null)));
+        when(adminHandoffPort.findActiveAssignments(USER_ID)).thenReturn(List.of(
+                new AdminHandoffAssignmentResult("FD-001", "PROCESSING", USER_ID, "IT", 1L)));
+
+        assertApiException(() -> service.revoke(USER_ID, ROLE_SUPPORT),
+                HttpStatus.CONFLICT, "ADMIN_HANDOFF_REQUIRED");
+        verifyNoInteractions(sessionRevocationPort);
+        verify(userRoleMapper, never()).delete(any());
+    }
+
+    @Test
+    void revokingAnotherRoleDoesNotRequireHandoffEvenWithActiveTickets() {
+        when(roleMapper.selectByIdForUpdate(ROLE_EMPLOYEE))
+                .thenReturn(role(ROLE_EMPLOYEE, "EMPLOYEE", "员工"));
+        when(userMapper.selectByIdForUpdate(USER_ID))
+                .thenReturn(user(USER_ID, "it", IamUserStatus.ENABLED));
+        when(userRoleMapper.selectByUserIdForUpdate(USER_ID))
+                .thenReturn(List.of(
+                        grant(USER_ID, ROLE_EMPLOYEE, null),
+                        grant(USER_ID, ROLE_SUPPORT, null)));
+        when(adminHandoffPort.findActiveAssignments(USER_ID)).thenReturn(List.of(
+                new AdminHandoffAssignmentResult("FD-001", "PROCESSING", USER_ID, "IT", 1L)));
+
+        service.revoke(USER_ID, ROLE_EMPLOYEE);
+
+        verifyNoInteractions(adminHandoffPort);
+        verify(sessionRevocationPort).revokeAll(USER_ID);
+        verify(userRoleMapper).delete(any());
+    }
+
+    @Test
     void revokesGrantAfterLockingRoleThenUserAndRevokesSessionBeforeDelete() {
         when(roleMapper.selectByIdForUpdate(ROLE_SUPPORT))
                 .thenReturn(role(ROLE_SUPPORT, "IT_SUPPORT", "IT 支持"));
@@ -506,6 +546,27 @@ class IamUserRoleServiceImplTest {
     // ---------- 批量撤销（POST /user-roles/actions/revoke） ----------
 
     @Test
+    void rejectsWholeBatchWhenItSupportHasActiveTickets() {
+        when(roleMapper.selectByIdsForUpdate(List.of(ROLE_EMPLOYEE, ROLE_SUPPORT)))
+                .thenReturn(List.of(
+                        role(ROLE_EMPLOYEE, "EMPLOYEE", "员工"),
+                        role(ROLE_SUPPORT, "IT_SUPPORT", "IT 支持")));
+        when(userMapper.selectByIdForUpdate(USER_ID))
+                .thenReturn(user(USER_ID, "it", IamUserStatus.ENABLED));
+        when(userRoleMapper.selectByUserIdForUpdate(USER_ID)).thenReturn(List.of(
+                grant(USER_ID, ROLE_EMPLOYEE, null),
+                grant(USER_ID, ROLE_SUPPORT, null)));
+        when(adminHandoffPort.findActiveAssignments(USER_ID)).thenReturn(List.of(
+                new AdminHandoffAssignmentResult("FD-001", "PROCESSING", USER_ID, "IT", 1L)));
+
+        assertApiException(() -> service.revokeBatch(new RevokeUserRolesCommand(
+                        USER_ID, List.of(ROLE_EMPLOYEE, ROLE_SUPPORT))),
+                HttpStatus.CONFLICT, "ADMIN_HANDOFF_REQUIRED");
+        verifyNoInteractions(sessionRevocationPort);
+        verify(userRoleMapper, never()).delete(any());
+    }
+
+    @Test
     void revokesRequestedRolesInOneBatchAfterLockingRolesThenUser() {
         when(roleMapper.selectByIdsForUpdate(List.of(ROLE_EMPLOYEE, ROLE_SUPPORT)))
                 .thenReturn(List.of(
@@ -641,6 +702,27 @@ class IamUserRoleServiceImplTest {
     }
 
     // ---------- 清空全部角色（DELETE /user-roles/users/{userId}） ----------
+
+    @Test
+    void rejectsClearingItSupportWhileUserHasActiveTickets() {
+        when(userRoleMapper.selectList(any())).thenReturn(List.of(
+                grant(USER_ID, ROLE_EMPLOYEE, null), grant(USER_ID, ROLE_SUPPORT, null)));
+        when(roleMapper.selectByIdsForUpdate(List.of(ROLE_EMPLOYEE, ROLE_SUPPORT)))
+                .thenReturn(List.of(
+                        role(ROLE_EMPLOYEE, "EMPLOYEE", "员工"),
+                        role(ROLE_SUPPORT, "IT_SUPPORT", "IT 支持")));
+        when(userMapper.selectByIdForUpdate(USER_ID))
+                .thenReturn(user(USER_ID, "it", IamUserStatus.ENABLED));
+        when(userRoleMapper.selectByUserIdForUpdate(USER_ID)).thenReturn(List.of(
+                grant(USER_ID, ROLE_EMPLOYEE, null), grant(USER_ID, ROLE_SUPPORT, null)));
+        when(adminHandoffPort.findActiveAssignments(USER_ID)).thenReturn(List.of(
+                new AdminHandoffAssignmentResult("FD-001", "PROCESSING", USER_ID, "IT", 1L)));
+
+        assertApiException(() -> service.clearAll(USER_ID),
+                HttpStatus.CONFLICT, "ADMIN_HANDOFF_REQUIRED");
+        verifyNoInteractions(sessionRevocationPort);
+        verify(userRoleMapper, never()).delete(any());
+    }
 
     @Test
     void clearAllRemovesEveryGrantAndRevokesSessionOnce() {

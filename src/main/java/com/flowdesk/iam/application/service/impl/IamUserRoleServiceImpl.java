@@ -17,12 +17,14 @@ import com.flowdesk.iam.application.command.RevokeUserRolesCommand;
 import com.flowdesk.iam.mapper.IamRoleMapper;
 import com.flowdesk.iam.mapper.IamUserMapper;
 import com.flowdesk.iam.mapper.IamUserRoleMapper;
+import com.flowdesk.iam.application.port.AdminHandoffPort;
 import com.flowdesk.iam.application.port.CurrentOperatorPort;
 import com.flowdesk.iam.application.service.IamUserRoleService;
 import com.flowdesk.iam.application.port.SessionRevocationPort;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
@@ -38,6 +40,7 @@ import java.util.stream.Collectors;
 public class IamUserRoleServiceImpl implements IamUserRoleService {
     //系统管理员角色码
     private static final String SYSTEM_ADMIN = "SYSTEM_ADMIN";
+    private static final String IT_SUPPORT = "IT_SUPPORT";
     //排序白名单
     private static final Set<String> USER_ROLE_ORDER_FIELDS =
             Set.of("granted_at");
@@ -48,14 +51,16 @@ public class IamUserRoleServiceImpl implements IamUserRoleService {
     private final IamUserRoleMapper iamUserRoleMapper;
     private final IamUserMapper iamUserMapper;
     private final IamRoleMapper iamRoleMapper;
+    private final AdminHandoffPort adminHandoffPort;
 
-    public IamUserRoleServiceImpl(Clock clock, CurrentOperatorPort currentOperatorPort, SessionRevocationPort sessionRevocationPort, IamUserRoleMapper iamUserRoleMapper, IamUserMapper iamUserMapper, IamRoleMapper iamRoleMapper) {
+    public IamUserRoleServiceImpl(Clock clock, CurrentOperatorPort currentOperatorPort, SessionRevocationPort sessionRevocationPort, IamUserRoleMapper iamUserRoleMapper, IamUserMapper iamUserMapper, IamRoleMapper iamRoleMapper, AdminHandoffPort adminHandoffPort) {
         this.clock = clock;
         this.currentOperatorPort = currentOperatorPort;
         this.sessionRevocationPort = sessionRevocationPort;
         this.iamUserRoleMapper = iamUserRoleMapper;
         this.iamUserMapper = iamUserMapper;
         this.iamRoleMapper = iamRoleMapper;
+        this.adminHandoffPort = adminHandoffPort;
     }
 
     /**
@@ -120,7 +125,7 @@ public class IamUserRoleServiceImpl implements IamUserRoleService {
     }
 
     @Override
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public void revoke(long userId, long roleId) {
         try {
             doRevoke(userId, roleId);
@@ -137,7 +142,7 @@ public class IamUserRoleServiceImpl implements IamUserRoleService {
      * {@code SYSTEM_ADMIN}。实际删除前只撤销目标用户会话一次。</p>
      */
     @Override
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public void revokeBatch(RevokeUserRolesCommand request) {
         try {
             List<Long> roleIds = request.roleIds().stream()
@@ -195,6 +200,11 @@ public class IamUserRoleServiceImpl implements IamUserRoleService {
                 }
             }
 
+            if (roleIds.stream().map(roleMap::get)
+                    .anyMatch(role -> IT_SUPPORT.equals(role.getCode()))) {
+                requireNoActiveAssignments(user.getId());
+            }
+
             sessionRevocationPort.revokeAll(request.userId());
 
             int deletedCount = iamUserRoleMapper.delete(
@@ -217,7 +227,7 @@ public class IamUserRoleServiceImpl implements IamUserRoleService {
      * 启用的 {@code SYSTEM_ADMIN}，则拒绝清空。发生实际删除时只撤销一次会话。</p>
      */
     @Override
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public void clearAll(long userId) {
         try {
             List<Long> roleIds = iamUserRoleMapper.selectList(
@@ -274,6 +284,10 @@ public class IamUserRoleServiceImpl implements IamUserRoleService {
                 if (enabledAdminCount <= 1) {
                     throw lastAdminProtected();
                 }
+            }
+
+            if (roleIds.stream().anyMatch(roleId -> IT_SUPPORT.equals(roleMap.get(roleId).getCode()))) {
+                requireNoActiveAssignments(userId);
             }
 
             sessionRevocationPort.revokeAll(userId);
@@ -476,6 +490,10 @@ public class IamUserRoleServiceImpl implements IamUserRoleService {
             }
         }
 
+        if (IT_SUPPORT.equals(role.getCode())) {
+            requireNoActiveAssignments(userId);
+        }
+
         //5.先撤销会话，再删除复合主键关系
         sessionRevocationPort.revokeAll(userId);
 
@@ -536,5 +554,19 @@ public class IamUserRoleServiceImpl implements IamUserRoleService {
                 "RBAC_CONFLICT",
                 "RBAC 数据正在被并发修改，请稍后重试"
         );
+    }
+
+    /**
+     * 旧撤销入口没有工单版本和接替人方案；有在办工单时只能走用户管理的完整角色替换。
+     * READ_COMMITTED 让此处在取得目标用户锁后读到最新已提交工单。领取、转交和管理性交接
+     * 在写负责人前均须锁该用户行，因此检查后到角色删除期间不会新增其活动工单。
+     */
+    private void requireNoActiveAssignments(long userId) {
+        if (!adminHandoffPort.findActiveAssignments(userId).isEmpty()) {
+            throw new ApiException(
+                    HttpStatus.CONFLICT,
+                    "ADMIN_HANDOFF_REQUIRED",
+                    "该用户仍负责活动工单，请通过用户管理的角色替换完成交接");
+        }
     }
 }

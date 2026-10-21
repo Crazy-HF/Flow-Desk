@@ -15,6 +15,7 @@ import AppPage from '@/components/AppPage.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import { formatDateTime } from '@/utils/format'
 import { useAdminList } from '@/composables/useAdminList'
+import { useAuthStore } from '@/stores/auth'
 
 /**
  * 用户角色授权（`docs/api-design.md` 8.2.1，`TASK-060`）。
@@ -24,6 +25,7 @@ import { useAdminList } from '@/composables/useAdminList'
  */
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 
 const subject = ref<UserDetail | null>(null)
 const subjectOptions = shallowRef<UserDetail[]>([])
@@ -35,11 +37,15 @@ const granting = ref(false)
 const grantError = ref('')
 
 const subjectId = computed(() => subject.value?.id ?? 0)
+const canManageUsers = computed(() => auth.hasPermission('USER_MANAGE'))
 
 const { items, total, pageNo, pageSize, phase, errorMessage, retrying, search, load } =
   useAdminList<UserRoleGrant>((page) =>
     listUserRoleGrants({ ...page, userId: subjectId.value }),
   )
+const hasItSupportGrant = computed(() =>
+  subject.value?.roles.some((role) => role.code === 'IT_SUPPORT') ?? false,
+)
 
 /**
  * 分页变化：AppPagination 只报告"用户想要哪一页、每页多少条"，取数仍由 useAdminList.load 负责。
@@ -146,6 +152,12 @@ async function clearAll(): Promise<void> {
 
 function openPermissions(): void {
   void router.push({ name: 'admin-role-permissions' })
+}
+
+function openUserRoleHandoff(): void {
+  if (subject.value) {
+    void router.push({ name: 'admin-users', query: { userId: String(subject.value.id) } })
+  }
 }
 
 onMounted(async () => {
@@ -391,5 +403,20 @@ onMounted(async () => {
     >
       撤销单条授权用行内入口；批量与清空一次提交整批，不会出现只生效一半的情况。
     </p>
+    <div
+      v-if="subject && hasItSupportGrant"
+      class="admin-hint"
+    >
+      若该用户仍有在办工单，移除 IT 支持角色前须先交接。
+      <el-button
+        v-if="canManageUsers"
+        type="primary"
+        plain
+        @click="openUserRoleHandoff"
+      >
+        去用户管理完成交接
+      </el-button>
+      <span v-else>请联系具备用户管理与交接权限的管理员处理。</span>
+    </div>
   </AppPage>
 </template>

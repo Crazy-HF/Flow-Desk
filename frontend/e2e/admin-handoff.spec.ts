@@ -11,6 +11,71 @@ const assignee = {
 const pageOf = (items: unknown[]) => ({ items, page: 1, size: 20, totalElements: items.length, totalPages: 1 })
 const reply = (data: unknown) => ({ code: 'OK', message: 'OK', data })
 
+test('用户角色授权页把 IT 撤销引导到目标用户的角色替换弹窗', async ({ page }) => {
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
+  let loggedIn = false
+  const authUser = { id: 3, username: 'admin', displayName: '管理员', roles: ['SYSTEM_ADMIN'],
+    permissions: ['USER_MANAGE', 'RBAC_MANAGE', 'TICKET_ADMIN_HANDOFF'] }
+  await page.route('**/fd/v1/**', async (route) => {
+    const request = route.request()
+    const path = new URL(request.url()).pathname.replace('/fd/v1', '')
+    if (path === '/auth/refresh') {
+      await route.fulfill(loggedIn
+        ? { json: reply({ accessToken: 'ui-test-token', tokenType: 'Bearer', expiresIn: 900 }) }
+        : { status: 401, json: { code: 'AUTH_REQUIRED', message: '', data: null } })
+      return
+    }
+    if (path === '/auth/me') {
+      await route.fulfill({ json: reply(authUser) })
+      return
+    }
+    if (path === '/auth/login') {
+      loggedIn = true
+      await route.fulfill({ json: reply({
+        accessToken: 'ui-test-token', tokenType: 'Bearer', expiresIn: 900, user: authUser,
+      }) })
+      return
+    }
+    if (path === '/users/4') {
+      await route.fulfill({ json: reply(assignee) })
+      return
+    }
+    if (path === '/users' && request.method() === 'GET') {
+      await route.fulfill({ json: reply(pageOf([manager, assignee])) })
+      return
+    }
+    if (path === '/admin/roles') {
+      await route.fulfill({ json: reply(pageOf([
+        { id: 2, code: 'IT_SUPPORT', name: 'IT 支持人员' },
+        { id: 3, code: 'SYSTEM_ADMIN', name: '系统管理员' },
+      ])) })
+      return
+    }
+    if (path === '/admin/user-roles' && request.method() === 'GET') {
+      await route.fulfill({ json: reply(pageOf([{
+        userId: 4, username: 'it', roleId: 2, roleCode: 'IT_SUPPORT',
+        roleName: 'IT 支持人员', grantedBy: 3, grantedAt: '2026-10-21T00:00:00Z',
+      }])) })
+      return
+    }
+    await route.fulfill({ status: 404, json: { code: 'RESOURCE_NOT_FOUND', message: '', data: null } })
+  })
+
+  await page.goto('/login')
+  await page.getByPlaceholder('请输入登录名').fill('admin')
+  await page.getByPlaceholder('请输入密码').fill('ui-test-password')
+  await page.getByRole('button', { name: '登录' }).click()
+  await page.goto('/admin/user-roles?userId=4')
+  await page.getByRole('button', { name: '去用户管理完成交接' }).click()
+
+  await expect(page).toHaveURL(/\/admin\/users\?userId=4$/)
+  const dialog = page.getByRole('dialog', { name: '调整用户角色' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toContainText('原负责人（it）')
+  expect(pageErrors).toEqual([])
+})
+
 test('管理员停用在办负责人时逐单交接，窄屏弹窗可操作', async ({ page }, testInfo) => {
   const pageErrors: string[] = []
   page.on('pageerror', (error) => pageErrors.push(error.message))
