@@ -86,7 +86,7 @@ test('真实后端：停用与移除 IT 角色均逐单交接', async ({ page, r
   await page.goto('/admin/users')
 
   const firstRow = await findUser(page, firstName)
-  await firstRow.getByRole('switch').click()
+  await firstRow.locator('.el-switch').click()
   await page.locator('.el-popconfirm__action button:visible').filter({ hasText: '确定' }).click()
   const dialog = page.getByRole('dialog', { name: '交接在办工单' })
   await expect(dialog).toContainText(ticket.ticketNo)
@@ -107,7 +107,7 @@ test('真实后端：停用与移除 IT 角色均逐单交接', async ({ page, r
   await expect(dialog.getByRole('alert')).toContainText('交接期间数据发生变化')
   await dialog.getByRole('button', { name: '取消' }).click()
   await expect(dialog).toBeHidden()
-  await firstRow.getByRole('switch').click()
+  await firstRow.locator('.el-switch').click()
   await page.locator('.el-popconfirm__action button:visible').filter({ hasText: '确定' }).click()
   await expect(dialog).toContainText(ticket.ticketNo)
   await dialog.getByRole('textbox', { name: '交接原因' }).fill('真实栈停用交接')
