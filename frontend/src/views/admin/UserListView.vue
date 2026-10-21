@@ -12,16 +12,20 @@ import {
   createUser,
   disableUser,
   enableUser,
+  getActiveTicketAssignments,
+  getHandoffCandidates,
   listUsers,
+  replaceUserRoles,
   resetUserPassword,
   updateUser,
 } from '@/api/users'
-import type { UserDetail, UserStatus } from '@/api/users'
+import type { ActiveTicketAssignment, HandoffCandidate, UserDetail, UserStatus } from '@/api/users'
 import AdminListPanel from '@/components/AdminListPanel.vue'
 import AppPagination from '@/components/AppPagination.vue'
 import AppPage from '@/components/AppPage.vue'
 import ProtectedMark from '@/components/ProtectedMark.vue'
 import { isProtectedRole } from '@/constants/authorization'
+import { ticketStatusLabel } from '@/constants/tickets'
 import { useAuthStore } from '@/stores/auth'
 import { useAdminList } from '@/composables/useAdminList'
 
@@ -84,18 +88,29 @@ const emptyDescription = computed(() =>
 
 /** 角色下拉的数据源是 `/fd/v1/admin/roles`，它要求 `RBAC_MANAGE`；只有 `USER_MANAGE` 的账号不提问它。 */
 const canPickRole = computed(() => auth.hasPermission('RBAC_MANAGE'))
+const canHandoff = computed(() => auth.hasPermission('TICKET_ADMIN_HANDOFF'))
 const roleOptions = shallowRef<RoleDetail[]>([])
+const roleOptionsLoaded = ref(false)
 
 async function loadRoleOptions(): Promise<void> {
   if (!canPickRole.value) {
     return
   }
   try {
-    const result = await listRoles({ pageNo: 1, pageSize: 100 })
-    roleOptions.value = result.items
+    const roles: RoleDetail[] = []
+    let pageNo = 1
+    while (true) {
+      const result = await listRoles({ pageNo, pageSize: 100 })
+      roles.push(...result.items)
+      if (roles.length >= result.totalElements || result.items.length === 0) break
+      pageNo += 1
+    }
+    roleOptions.value = roles
+    roleOptionsLoaded.value = true
   } catch {
     // 角色下拉是筛选便利，不是数据源：取不到时保持空列表，列表本身仍可用
     roleOptions.value = []
+    roleOptionsLoaded.value = false
   }
 }
 
@@ -233,10 +248,123 @@ async function submitEdit(): Promise<void> {
 
 // ---------- 启用 / 停用 ----------
 
+interface HandoffRow {
+  ticketNo: string
+  ticketVersion: number
+  newAssigneeId: number | null
+}
+
+const roleEditing = ref<UserDetail | null>(null)
+const roleSelection = ref<number[]>([])
+const rolePending = ref(false)
+const roleError = ref('')
+const handoffTarget = ref<UserDetail | null>(null)
+const handoffAction = ref<'disable' | 'roles'>('disable')
+const handoffAssignments = shallowRef<ActiveTicketAssignment[]>([])
+const handoffOptions = shallowRef<Record<string, HandoffCandidate[]>>({})
+const handoffFormRef = ref<FormInstance>()
+const handoffForm = reactive<{ reason: string; rows: HandoffRow[] }>({ reason: '', rows: [] })
+const handoffPending = ref(false)
+const handoffLoading = ref(false)
+const handoffError = ref('')
+const handoffRules: FormRules = {
+  reason: [
+    { required: true, whitespace: true, message: '请输入交接原因', trigger: 'blur' },
+    { max: 1000, message: '交接原因最多 1000 个字符', trigger: 'blur' },
+  ],
+}
+
+function openRoleEdit(row: UserDetail): void {
+  if (!roleOptionsLoaded.value) {
+    ElMessage.error('角色列表未能加载，请刷新页面后重试')
+    return
+  }
+  roleSelection.value = row.roles.map((role) => role.id)
+  roleError.value = ''
+  roleEditing.value = row
+}
+
+async function prepareHandoff(row: UserDetail, action: 'disable' | 'roles'): Promise<boolean> {
+  if (!canHandoff.value) return false
+  handoffLoading.value = true
+  try {
+    const assignments = await getActiveTicketAssignments(row.id)
+    if (assignments.length === 0) return false
+    const options = await Promise.all(assignments.map((item) => getHandoffCandidates(item.ticketNo)))
+    handoffAssignments.value = assignments
+    handoffOptions.value = Object.fromEntries(assignments.map((item, index) => [item.ticketNo, options[index] ?? []]))
+    handoffForm.reason = ''
+    handoffForm.rows = assignments.map((item) => ({
+      ticketNo: item.ticketNo,
+      ticketVersion: item.version,
+      newAssigneeId: null,
+    }))
+    handoffError.value = ''
+    handoffAction.value = action
+    handoffTarget.value = row
+    return true
+  } catch (error) {
+    ElMessage.error(describeError(error, '交接信息未能加载，请刷新后重试'))
+    return true
+  } finally {
+    handoffLoading.value = false
+  }
+}
+
+async function submitHandoff(): Promise<void> {
+  const target = handoffTarget.value
+  if (!target || !await handoffFormRef.value?.validate().catch(() => false)) return
+  handoffPending.value = true
+  handoffError.value = ''
+  try {
+    const handoffs = handoffForm.rows.map((row) => ({
+      ticketNo: row.ticketNo,
+      ticketVersion: row.ticketVersion,
+      newAssigneeId: row.newAssigneeId!,
+    }))
+    const plan = { version: target.version, handoffReason: handoffForm.reason.trim(), handoffs }
+    if (handoffAction.value === 'disable') {
+      await disableUser(target.id, plan)
+      ElMessage.success('工单已交接，账号已停用且现有会话已失效')
+    } else {
+      await replaceUserRoles(target.id, { ...plan, roleIds: [...roleSelection.value] })
+      roleEditing.value = null
+      ElMessage.success('工单已交接，角色已更新')
+    }
+    handoffTarget.value = null
+    await search()
+  } catch (error) {
+    handoffError.value = describeError(error, '交接未生效，请刷新列表后重试')
+  } finally {
+    handoffPending.value = false
+  }
+}
+
+async function submitRoles(): Promise<void> {
+  const target = roleEditing.value
+  if (!target) return
+  const itRole = target.roles.find((role) => role.code === 'IT_SUPPORT')
+  const removesIt = itRole !== undefined && !roleSelection.value.includes(itRole.id)
+  if (removesIt && await prepareHandoff(target, 'roles')) return
+  rolePending.value = true
+  roleError.value = ''
+  try {
+    await replaceUserRoles(target.id, { roleIds: [...roleSelection.value], version: target.version })
+    roleEditing.value = null
+    ElMessage.success('角色已更新')
+    await search()
+  } catch (error) {
+    roleError.value = describeError(error, '角色没有更新，请刷新后重试')
+  } finally {
+    rolePending.value = false
+  }
+}
+
 async function toggleStatus(row: UserDetail): Promise<void> {
   statusPendingId.value = row.id
   try {
     if (row.status === 'ENABLED') {
+      if (await prepareHandoff(row, 'disable')) return
       await disableUser(row.id, row.version)
       ElMessage.success('账号已停用，该用户现有登录会话已失效')
     } else {
@@ -501,6 +629,16 @@ onMounted(() => {
         >
           重置密码
         </el-button>
+        <el-button
+          v-if="canPickRole"
+          :disabled="!selectedOne || !roleOptionsLoaded"
+          :icon="Share"
+          type="primary"
+          plain
+          @click="selectedOne && openRoleEdit(selectedOne)"
+        >
+          调整角色
+        </el-button>
 
         <div class="admin-action-bar__end">
           <el-tooltip
@@ -687,6 +825,156 @@ onMounted(() => {
         @change="onPaginationChange"
       />
     </section>
+
+    <el-dialog
+      class="admin-dialog"
+      :model-value="roleEditing !== null"
+      title="调整用户角色"
+      width="30rem"
+      :close-on-click-modal="false"
+      @update:model-value="roleEditing = null"
+    >
+      <p
+        v-if="roleEditing"
+        class="admin-hint"
+      >
+        {{ roleEditing.displayName }}（{{ roleEditing.username }}）的角色将替换为以下选择。
+      </p>
+      <el-select
+        v-model="roleSelection"
+        aria-label="调整后的角色"
+        class="admin-form-control"
+        filterable
+        multiple
+        placeholder="请选择角色"
+      >
+        <el-option
+          v-for="role in roleOptions"
+          :key="role.id"
+          :label="`${role.name}（${role.code}）`"
+          :value="role.id"
+        />
+      </el-select>
+      <p
+        v-if="roleError"
+        class="admin-error"
+        role="alert"
+      >
+        {{ roleError }}
+      </p>
+      <template #footer>
+        <el-button
+          type="info"
+          plain
+          @click="roleEditing = null"
+        >
+          取消
+        </el-button>
+        <el-button
+          :loading="rolePending || handoffLoading"
+          type="primary"
+          @click="submitRoles"
+        >
+          保存角色
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      class="admin-dialog"
+      :model-value="handoffTarget !== null"
+      title="交接在办工单"
+      width="46rem"
+      :close-on-click-modal="false"
+      @update:model-value="handoffTarget = null"
+    >
+      <p class="admin-hint">
+        先为每张在办工单指定新负责人。提交后将同时完成工单交接与账号变更。
+      </p>
+      <el-form
+        ref="handoffFormRef"
+        label-position="top"
+        :model="handoffForm"
+        :rules="handoffRules"
+      >
+        <div class="handoff-list">
+          <div
+            v-for="(ticket, index) in handoffAssignments"
+            :key="ticket.ticketNo"
+            class="handoff-list__row"
+          >
+            <div class="handoff-list__meta">
+              <strong>{{ ticket.ticketNo }}</strong>
+              <span>{{ ticketStatusLabel(ticket.status) }} · 当前负责人 {{ ticket.assigneeDisplayName }}</span>
+            </div>
+            <el-form-item
+              label="新负责人"
+              :prop="`rows.${index}.newAssigneeId`"
+              :rules="[{ required: true, message: '请选择新负责人', trigger: 'change' }]"
+            >
+              <el-select
+                v-model="handoffForm.rows[index]!.newAssigneeId"
+                :aria-label="`${ticket.ticketNo}的新负责人`"
+                class="admin-form-control"
+                filterable
+                placeholder="请选择新负责人"
+              >
+                <el-option
+                  v-for="candidate in handoffOptions[ticket.ticketNo] ?? []"
+                  :key="candidate.id"
+                  :label="candidate.displayName"
+                  :value="candidate.id"
+                />
+              </el-select>
+              <p
+                v-if="handoffOptions[ticket.ticketNo]?.length === 0"
+                class="admin-hint"
+              >
+                暂无可接替的 IT 人员，请先安排可用人员。
+              </p>
+            </el-form-item>
+          </div>
+        </div>
+        <el-form-item
+          label="交接原因"
+          prop="reason"
+          required
+        >
+          <el-input
+            v-model="handoffForm.reason"
+            aria-label="交接原因"
+            type="textarea"
+            :rows="3"
+            maxlength="1000"
+            show-word-limit
+            placeholder="请输入交接原因"
+          />
+        </el-form-item>
+      </el-form>
+      <p
+        v-if="handoffError"
+        class="admin-error"
+        role="alert"
+      >
+        {{ handoffError }}
+      </p>
+      <template #footer>
+        <el-button
+          type="info"
+          plain
+          @click="handoffTarget = null"
+        >
+          取消
+        </el-button>
+        <el-button
+          :loading="handoffPending"
+          type="primary"
+          @click="submitHandoff"
+        >
+          确认交接
+        </el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog
       v-model="createVisible"
