@@ -9,6 +9,8 @@ import {
   createUser,
   disableUser,
   enableUser,
+  getActiveTicketAssignments,
+  getHandoffCandidates,
   listUsers,
   replaceUserRoles,
   resetUserPassword,
@@ -81,6 +83,27 @@ describe('用户管理接口封装', () => {
       displayName: '新用户',
       initialPassword: 'initial-1234',
       roleIds: [],
+    })
+  })
+
+  it('交接查询只调用专用管理端点，停用时原样提交完整方案', async () => {
+    await getActiveTicketAssignments(7)
+    await getHandoffCandidates('FD-2026-001')
+    const handoffs = [{ ticketNo: 'FD-2026-001', ticketVersion: 8, newAssigneeId: 9 }]
+    await disableUser(7, { version: 4, handoffReason: '岗位调整', handoffs })
+
+    expect(http.get).toHaveBeenCalledWith('/admin/users/7/active-ticket-assignments')
+    expect(http.get).toHaveBeenCalledWith('/admin/tickets/FD-2026-001/handoff-candidates')
+    expect(http.post).toHaveBeenCalledWith('/users/7/actions/disable', {
+      version: 4,
+      handoffReason: '岗位调整',
+      handoffs,
+    })
+    await replaceUserRoles(7, {
+      version: 4, roleIds: [1], handoffReason: '岗位调整', handoffs,
+    })
+    expect(http.put).toHaveBeenCalledWith('/users/7/roles', {
+      version: 4, roleIds: [1], handoffReason: '岗位调整', handoffs,
     })
   })
 })

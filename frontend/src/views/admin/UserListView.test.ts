@@ -5,7 +5,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { listRoles } from '@/api/rbac'
-import { listUsers } from '@/api/users'
+import { disableUser, getActiveTicketAssignments, getHandoffCandidates, listUsers, replaceUserRoles } from '@/api/users'
 import type { UserDetail } from '@/api/users'
 import { useAuthStore } from '@/stores/auth'
 import UserListView from './UserListView.vue'
@@ -17,6 +17,8 @@ vi.mock('@/api/users', () => ({
   updateUser: vi.fn(),
   enableUser: vi.fn(),
   disableUser: vi.fn(),
+  getActiveTicketAssignments: vi.fn(),
+  getHandoffCandidates: vi.fn(),
   replaceUserRoles: vi.fn(),
   resetUserPassword: vi.fn(),
 }))
@@ -167,5 +169,60 @@ describe('UserListView', () => {
 
     expect(listRoles).not.toHaveBeenCalled()
     expect(wrapper.text()).not.toContain('请选择角色')
+  })
+
+  it('有管理性交接权限时，停用在办负责人先展示逐单接替方案', async () => {
+    signIn(['USER_MANAGE', 'TICKET_ADMIN_HANDOFF'])
+    vi.mocked(getActiveTicketAssignments).mockResolvedValue([{
+      ticketNo: 'FD-1', status: 'PROCESSING', assigneeId: 4,
+      assigneeDisplayName: '演示员工', version: 2,
+    }])
+    vi.mocked(getHandoffCandidates).mockResolvedValue([{ id: 9, displayName: '接替人' }])
+
+    const { wrapper } = await mountPage()
+    const row = wrapper.findAll('tbody tr').find((item) => item.text().includes('演示员工'))
+    const confirm = row?.findComponent({ name: 'ElPopconfirm' })
+    expect(confirm?.exists()).toBe(true)
+    confirm?.vm.$emit('confirm')
+    await flushPromises()
+
+    expect(getActiveTicketAssignments).toHaveBeenCalledWith(4)
+    expect(getHandoffCandidates).toHaveBeenCalledWith('FD-1')
+    expect(disableUser).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('交接在办工单')
+    expect(wrapper.text()).toContain('FD-1')
+  })
+
+  it('移除 IT 角色且有在办工单时先准备交接，不提前提交角色替换', async () => {
+    signIn(['USER_MANAGE', 'RBAC_MANAGE', 'TICKET_ADMIN_HANDOFF'])
+    const itAccount: UserDetail = {
+      ...employeeAccount,
+      roles: [{ id: 2, code: 'IT_SUPPORT', name: 'IT 支持人员' }],
+    }
+    vi.mocked(listUsers).mockResolvedValue(pageOf([itAccount]) as never)
+    vi.mocked(listRoles).mockResolvedValue({
+      items: [{ id: 2, code: 'IT_SUPPORT', name: 'IT 支持人员' }],
+      page: 1, size: 20, totalElements: 1, totalPages: 1,
+    } as never)
+    vi.mocked(getActiveTicketAssignments).mockResolvedValue([{
+      ticketNo: 'FD-2', status: 'WAITING_FOR_CONFIRMATION', assigneeId: 4,
+      assigneeDisplayName: '演示员工', version: 3,
+    }])
+    vi.mocked(getHandoffCandidates).mockResolvedValue([{ id: 9, displayName: '接替人' }])
+
+    const { wrapper } = await mountPage()
+    const vm = wrapper.vm as unknown as {
+      openRoleEdit: (row: UserDetail) => void
+      roleSelection: number[]
+      submitRoles: () => Promise<void>
+    }
+    vm.openRoleEdit(itAccount)
+    vm.roleSelection = []
+    await vm.submitRoles()
+    await flushPromises()
+
+    expect(getActiveTicketAssignments).toHaveBeenCalledWith(4)
+    expect(replaceUserRoles).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('交接在办工单')
   })
 })

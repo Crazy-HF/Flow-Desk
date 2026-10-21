@@ -2549,7 +2549,37 @@ h1 {
   background: var(--fd-color-primary);
 }
 
+.handoff-list {
+  display: grid;
+  gap: var(--fd-space-3);
+  margin-block: var(--fd-space-4);
+}
+
+.handoff-list__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--fd-space-4);
+  padding-block: var(--fd-space-3);
+  border-bottom: thin solid var(--fd-color-border);
+}
+
+.handoff-list__meta {
+  display: grid;
+  align-content: start;
+  gap: var(--fd-space-2);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.handoff-list__meta span {
+  color: var(--fd-color-text-muted);
+}
+
 @media (max-width: 52rem) {
+  .handoff-list__row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--fd-space-2);
+  }
   /* 窄屏气泡跟随视口，不超出屏幕。 */
   .notification-popover {
     width: min(var(--fd-notification-popover-width), 88vw);

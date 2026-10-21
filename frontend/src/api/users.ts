@@ -57,6 +57,33 @@ export interface ReplaceUserRolesPayload {
   /** 目标用户最终应当持有的全部角色；空数组表示清空。 */
   roleIds: number[]
   version: number
+  handoffReason?: string
+  handoffs?: HandoffInstruction[]
+}
+
+export interface ActiveTicketAssignment {
+  ticketNo: string
+  status: 'PROCESSING' | 'WAITING_FOR_REQUESTER' | 'WAITING_FOR_CONFIRMATION'
+  assigneeId: number
+  assigneeDisplayName: string
+  version: number
+}
+
+export interface HandoffCandidate {
+  id: number
+  displayName: string
+}
+
+export interface HandoffInstruction {
+  ticketNo: string
+  ticketVersion: number
+  newAssigneeId: number
+}
+
+export interface DisableUserPayload {
+  version: number
+  handoffReason?: string
+  handoffs?: HandoffInstruction[]
 }
 
 export interface ResetUserPasswordPayload {
@@ -99,10 +126,24 @@ export async function enableUser(userId: number, version: number): Promise<UserD
   return response.data.data
 }
 
-export async function disableUser(userId: number, version: number): Promise<UserDetail> {
-  const response = await http.post<ApiEnvelope<UserDetail>>(`/users/${userId}/actions/disable`, {
-    version,
-  })
+export async function getActiveTicketAssignments(userId: number): Promise<ActiveTicketAssignment[]> {
+  const response = await http.get<ApiEnvelope<ActiveTicketAssignment[]>>(
+    `/admin/users/${userId}/active-ticket-assignments`,
+  )
+  return response.data.data
+}
+
+export async function getHandoffCandidates(ticketNo: string): Promise<HandoffCandidate[]> {
+  const response = await http.get<ApiEnvelope<HandoffCandidate[]>>(
+    `/admin/tickets/${encodeURIComponent(ticketNo)}/handoff-candidates`,
+  )
+  return response.data.data
+}
+
+export async function disableUser(userId: number, payload: number | DisableUserPayload): Promise<UserDetail> {
+  const response = await http.post<ApiEnvelope<UserDetail>>(`/users/${userId}/actions/disable`,
+    typeof payload === 'number' ? { version: payload } : payload,
+  )
   return response.data.data
 }
 
