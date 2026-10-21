@@ -35,7 +35,7 @@ FlowDesk 是一个企业工单协作平台，由开发者与 Codex 协作完成�
 
 ## 当前状态
 
-**2026-10-21 更新**：超时批次已并入 `main`（`a61a4f9`）。独立分支 `flow-desk/admin-handoff-ui` 已接入用户管理页的停用及完整角色替换交接弹窗；类型检查、Lint、构建、单测、模拟接口的交接浏览器用例与既有管理端真实栈 E2E（4/4）通过。新增交接弹窗的真实栈端到端用例仍待补，本批尚未提交或交接；以 `PROJECT_STATUS.md` 顶部和 `.ui-craft/reviews/2026-10-21-admin-handoff-ui/report.md` 为准。
+**2026-10-21 更新**：超时批次已并入 `main`（`a61a4f9`）。独立分支 `flow-desk/admin-handoff-ui` 已接入用户管理页的停用及完整角色替换交接弹窗；本地类型检查、Lint、构建、单测和模拟接口浏览器用例通过。新增真实栈交接浏览器用例在 [PR #26](https://github.com/Crazy-HF/Flow-Desk/pull/26) 的 CI 首轮通过，三个 job 均成功；全量浏览器有一项既有用例首轮失败、重试通过。分支交接状态以 `PROJECT_STATUS.md` 顶部为准。
 
 **2026-10-20 当前入口**：`main` 已包含站内信、两个工单超时处置、超时事件通知及到期前提醒（`V10`～`V12`）。`flow-desk/timeout-batch-verify` 已完成测试与真实栈验收，正进行分支交接，并以 `V13` 修复自动关闭编码超出原 `close_method` 列宽的问题；通过情况和下一步以 `PROJECT_STATUS.md` 顶部为准。下方长段保留了各阶段的历史交付记录，其中“当前分支”“附件待做”等当时表述不再代表现在。
 
