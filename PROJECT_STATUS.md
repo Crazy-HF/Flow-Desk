@@ -1,6 +1,6 @@
 # FlowDesk 项目状态
 
-## 2026-10-21 交付：数据概览（`flow-desk/ticket-dashboard`，基线 `main@58a59ce`；交接中）
+## 2026-10-21 交付：数据概览（`flow-desk/ticket-dashboard`，基线 `main@58a59ce`；已并入 `main`）
 
 - **范围与契约**：按 `docs/api-design.md` 8.5 与 `docs/superpowers/specs/2026-10-21-ticket-dashboard-design.md` 实现 `GET /fd/v1/dashboard/tickets` 与 `/dashboard` 页面。**无迁移、无新基础设施、无缓存**（`V1`～`V13` 未改动）。设计取舍：单次只选一个 IT 范围（`PENDING_QUEUE` / `ASSIGNED_TO_ME` / `PARTICIPATED_BY_ME`），不做三范围并集、不做全局报表、不做钻取、趋势与导出。
 - **后端**：`TicketDashboardQuery` / `TicketDashboardResult`（含四个分组记录）/ `TicketDashboardService(Impl)` / `TicketDashboardMapper` / `TicketDashboardController`，新增 IAM 侧身份端口 `TicketOperatorRolePort` + `IamTicketOperatorRoleAdapter`。授权三层依次为 `DASHBOARD_VIEW`（控制器 `@PreAuthorize`）→ **当前持有 `IT_SUPPORT`（查 IAM 表，不看权限码）** → 选中范围的 `TICKET_VIEW_QUEUE` / `TICKET_VIEW_PARTICIPATED`；后两层不足统一 `403/ACCESS_DENIED`，且不触碰 Mapper。范围谓词与 `TicketMapper.selectScopedPage` 的 `<choose>` 分支逐字对应（待受理只取 `status='PENDING'`、我负责的取 `assignee_id`、我参与的用 `ticket_participant` 的 `EXISTS`），五个聚合（总数 + 四组）由**同一个常量筛选条件**拼装、在同一个 `@Transactional(readOnly = true)` 事务内读取，MySQL `REPEATABLE READ` 提供同一快照。`REQUESTED_BY_ME`、缺范围、反向时间区间、非正分类均 `400/VALIDATION_FAILED`；白名单外的查询参数（`userId` / `assigneeId` / `page` / `status` 等）显式 `400`，不静默忽略。
@@ -8,7 +8,7 @@
 - **验证（本轮实跑）**：后端 `./mvnw -B -o clean verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → surefire **1302**、failsafe **215**，零失败 / 零错误，`BUILD SUCCESS`（基线 1265 / 198；本批 +15 服务单测、+22 Web 契约、+17 真实 MySQL 集成）。前端 `typecheck` / `lint`（含 stylelint）/ `build` 退出码 0，Vitest **29 套件 / 275 项**通过（基线 28 / 265），`e2e/ticket-dashboard.spec.ts` **3/3** 通过（1440、375、失败态；375 与 1440 整页横向溢出均为 0）。
 - **EXPLAIN（2000 行 + `ANALYZE TABLE`，由 `TicketDashboardServiceIT` 记录）**：队列 `ref / idx_ticket_status_deadline / rows=40`；当前负责人 `ref / idx_ticket_assignee_status_updated / rows=59`；历史参与 `ref / idx_ticket_participant_user_ticket / rows=1` 再 `eq_ref PRIMARY`。**未新增索引**——现有三条已覆盖三个范围的谓词，无证据支持新增。
 - **未跑 / 限制**：真实后端 + 真实浏览器的联调未做（浏览器验收用路由拦截的模拟接口，统计口径由真实 MySQL 集成测试覆盖，两者未串起来跑一次）；`S3AttachmentStorageIT` 仍因本机无 MinIO 镜像按 `Assumptions.abort` 未执行（`Tests run: 0`，不计入 215，也不视为通过）；前端全量 Playwright 未跑（只跑本页 3 项）。
-- **交接**：用户 2026-10-22 已授权提交、推送并合并数据概览，随后明确指示直接推送、不等前端全量单测复跑。交接前后端全量 `clean verify` 复跑：surefire **1302**、failsafe **215**，零失败 / 错误，`BUILD SUCCESS`；前端数据概览组件测试按线程池独立复跑 **10/10**。前端全量 Vitest 本次复跑未取得结果，不把先前记录的 275 项当成本次复跑结果；真实后端与浏览器联调、前端全量 Playwright 仍按上条如实保留为未跑项。按用户最新指示，提交并推送主题分支后直接合并到远程 `main`，本地 `main` 仅快进同步。证据与设计记录见 `.ui-craft/reviews/2026-10-21-ticket-dashboard/report.md`。
+- **交接**：用户 2026-10-22 已授权提交、推送并合并数据概览，随后明确指示直接推送、不等前端全量单测复跑。交接前后端全量 `clean verify` 复跑：surefire **1302**、failsafe **215**，零失败 / 错误，`BUILD SUCCESS`；前端数据概览组件测试按线程池独立复跑 **10/10**，生产构建通过。前端全量 Vitest 本次复跑未取得结果，不把先前记录的 275 项当成本次复跑结果；真实后端与浏览器联调、前端全量 Playwright 仍按上条如实保留为未跑项。主题提交 `13980c1` 已推送分支并快进并入远程 `main`，本地 `main` 同步；本条为合并后的状态收口。证据与设计记录见 `.ui-craft/reviews/2026-10-21-ticket-dashboard/report.md`。
 
 ## 2026-10-21 旧用户角色撤销入口交接保护（`flow-desk/user-role-handoff-guard`）
 
