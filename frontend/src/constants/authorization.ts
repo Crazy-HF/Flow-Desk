@@ -69,9 +69,17 @@ export interface NavigationEntry {
   activeRouteNames?: string[]
   /** 具备其中任一权限即可看到该入口。 */
   permission: string | string[]
+  /**
+   * 除权限码外还必须持有的角色编码。
+   *
+   * <p>用于"权限码与身份同时成立"的入口：数据概览（8.5）要求 `DASHBOARD_VIEW` **与**
+   * `IT_SUPPORT` 同时成立——权限码可以由任意角色授予，多角色管理员有码但没有 IT 身份时，
+   * 页面会得到 `403`。界面据此隐藏入口，后端仍独立核验。</p>
+   */
+  role?: string
 }
 
-/** 侧栏导航条目；尚未实现的页面指向占位页，但仍然按权限展示。 */
+/** 侧栏导航条目；尚未实现的页面（当前只有用户详情）指向占位页，但仍然按权限展示。 */
 export const navigationEntries: NavigationEntry[] = [
   {
     name: 'tickets',
@@ -95,7 +103,13 @@ export const navigationEntries: NavigationEntry[] = [
     group: 'work',
     permission: 'TICKET_VIEW_QUEUE',
   },
-  { name: 'dashboard', label: '数据概览', group: 'work', permission: 'DASHBOARD_VIEW' },
+  {
+    name: 'dashboard',
+    label: '数据概览',
+    group: 'work',
+    permission: 'DASHBOARD_VIEW',
+    role: 'IT_SUPPORT',
+  },
   {
     name: 'admin-users',
     label: '用户管理',

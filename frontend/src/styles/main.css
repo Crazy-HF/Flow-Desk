@@ -2585,3 +2585,182 @@ h1 {
     width: min(var(--fd-notification-popover-width), 88vw);
   }
 }
+
+/* ============================================================
+ * 数据概览（2026-10-21，`docs/api-design.md` 8.5）
+ *
+ * 一页只有两块：筛选卡与统计面板。统计面板是**一张**账本，不是四张并列卡片：
+ * 左栏是总数（展示级数字），右栏是状态 / 优先级 / 分类 / 负责人四列，共用同一条行基线。
+ * 这样"总数"与"分组"是同一件事的两种读法，而不是四个互不相干的模块；
+ * 四张等宽卡片那种写法会把"它们加起来等于总数"这层关系藏起来。
+ * ============================================================ */
+
+.ticket-dashboard-page .admin-filter-fields {
+  padding-top: var(--fd-space-4);
+}
+
+.dashboard-data {
+  padding-top: var(--fd-space-5);
+}
+
+/* 左窄右宽的非对称分割：总数是锚点，四组是明细。窄屏改为上下两段。 */
+.dashboard-summary,
+.dashboard-skeleton__body {
+  display: grid;
+  grid-template-columns: minmax(13rem, 17rem) minmax(0, 1fr);
+  gap: var(--fd-space-6);
+  padding: var(--fd-space-6);
+  border: thin solid var(--fd-color-border);
+  border-radius: var(--fd-radius-md);
+  background: var(--fd-color-surface);
+}
+
+.dashboard-total {
+  display: grid;
+  align-content: start;
+  gap: var(--fd-space-1);
+  min-width: 0;
+  padding-right: var(--fd-space-5);
+  border-right: thin solid var(--fd-color-border-subtle);
+}
+
+.dashboard-total__scope {
+  margin: 0;
+  color: var(--fd-color-text-muted);
+  font-size: var(--fd-font-size-sm);
+  letter-spacing: var(--fd-tracking-wide);
+}
+
+/* 每页只允许一处展示级字号：它就是"这一屏有多少"的答案。 */
+.dashboard-total__value {
+  margin: 0;
+  color: var(--fd-color-text-strong);
+  font-size: var(--fd-font-size-display);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--fd-font-weight-semibold);
+  letter-spacing: var(--fd-tracking-tight);
+  line-height: var(--fd-line-height-display);
+}
+
+.dashboard-total__caption {
+  margin: 0;
+  color: var(--fd-color-text-subtle);
+  font-size: var(--fd-font-size-sm);
+}
+
+/* 生效中的筛选条件：数字变小时，原因要能在同一屏里读到。 */
+.dashboard-total__filter {
+  margin: var(--fd-space-3) 0 0;
+  padding-top: var(--fd-space-3);
+  border-top: thin solid var(--fd-color-border-subtle);
+  color: var(--fd-color-text-muted);
+  font-size: var(--fd-font-size-xs);
+  line-height: var(--fd-line-height-relaxed);
+  overflow-wrap: anywhere;
+}
+
+.dashboard-groups,
+.dashboard-skeleton__grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--fd-space-5);
+  min-width: 0;
+}
+
+.dashboard-group {
+  min-width: 0;
+}
+
+.dashboard-group__title {
+  margin: 0 0 var(--fd-space-3);
+  padding-bottom: var(--fd-space-2);
+  border-bottom: thin solid var(--fd-color-border-subtle);
+  color: var(--fd-color-text-muted);
+  font-size: var(--fd-font-size-sm);
+  font-weight: var(--fd-font-weight-medium);
+}
+
+.dashboard-group__list {
+  display: grid;
+  gap: var(--fd-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dashboard-group__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--fd-space-3);
+  min-width: 0;
+}
+
+/* 名称过长时截断并保留完整名称（title 属性），不把整页撑宽。 */
+.dashboard-group__label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fd-space-2);
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fd-color-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-group__count {
+  flex: none;
+  color: var(--fd-color-text-strong);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--fd-font-weight-semibold);
+}
+
+/* 零结果时占位块落在右栏：左栏仍显示 0，空态解释为什么是 0。 */
+.dashboard-empty {
+  align-self: center;
+  grid-column: 2;
+}
+
+.dashboard-skeleton__total,
+.dashboard-skeleton__group {
+  height: 9rem;
+  border-radius: var(--fd-radius-sm);
+}
+
+@media (max-width: 52rem) {
+  .dashboard-summary,
+  .dashboard-skeleton__body {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--fd-space-5);
+    padding: var(--fd-space-5);
+  }
+  /* 窄屏改上下两段：总数在上，四组在下；分隔线从"竖"改成"横"。 */
+  .dashboard-total {
+    padding-right: 0;
+    padding-bottom: var(--fd-space-4);
+    border-right: 0;
+    border-bottom: thin solid var(--fd-color-border-subtle);
+  }
+  .dashboard-groups,
+  .dashboard-skeleton__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--fd-space-4) var(--fd-space-5);
+  }
+  .dashboard-empty {
+    grid-column: 1;
+  }
+  /* 时间范围控件在窄屏必须真的跟着容器收缩：`width: 24rem` 的固定值会让它比视口宽，
+     而 `max-width: 100%` 只能约束到父级——父级自己也是被内容撑开的（flex 项默认
+     min-width: auto）。两处都放开最小宽度，它才会落到可用宽度里。 */
+  .ticket-dashboard-page .admin-filter-field {
+    min-width: 0;
+  }
+  .ticket-dashboard-page .ticket-filter-range {
+    width: 100%;
+    min-width: 0;
+  }
+  .dashboard-skeleton__total,
+  .dashboard-skeleton__group {
+    height: 6rem;
+  }
+}

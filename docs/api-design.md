@@ -639,14 +639,18 @@ MySQL 与 Redis 之间不存在天然原子事务。工程准备阶段必须明�
 
 ### 8.5 数据概览
 
+**设计细化（2026-10-21；同日实现）**：参考 GitHub 工单系统实现并对照现有工单列表后，采用“单次一个 IT 可见范围 + 同一集合的总数与四类分组”。完整设计、外部参考、响应示例和验收矩阵见 `docs/superpowers/specs/2026-10-21-ticket-dashboard-design.md`。实现落点：`TicketDashboardController`、`TicketDashboardServiceImpl`、`TicketDashboardMapper`（范围谓词与 `selectScopedPage` 一致，五个聚合在同一只读事务内读取同一快照）与前端 `views/work/TicketDashboardView.vue`；验证结果与已知边界见 `PROJECT_STATUS.md` 顶部。本段仍是实施契约，行为以代码与验收记录为准。
+
 | 项目 | 契约 |
 | --- | --- |
 | 方法与路径 | `GET /fd/v1/dashboard/tickets` |
-| 权限 | `DASHBOARD_VIEW` |
-| 查询范围 | 复用工单列表的 `PENDING_QUEUE`、`ASSIGNED_TO_ME`、`PARTICIPATED_BY_ME` |
+| 权限 | `DASHBOARD_VIEW` + 当前持有 `IT_SUPPORT` + 选中范围的工单查看权限 |
+| 必填 `scope` | 单次只选 `PENDING_QUEUE`、`ASSIGNED_TO_ME`、`PARTICIPATED_BY_ME` 之一；不支持 `REQUESTED_BY_ME` 或三范围并集 |
 | 可选筛选 | `createdFrom`、`createdTo`、`categoryId` |
 
-响应使用 `R<TicketDashboard>`，一次返回当前权限范围内的工单总数，以及按状态、优先级、分类和负责人分组的数量。所有统计先应用与列表一致的可见范围，不能先统计全量数据再只隐藏页面入口。
+响应使用 `R<TicketDashboard>`；`data` 包含 `scope`、`total`、`byStatus[]`、`byPriority[]`、`byCategory[]`、`byAssignee[]`。四组各自基于同一个可见工单集合聚合，组内数量之和均等于 `total`；历史参与用 `EXISTS` 判定，同一工单只计一次。状态与优先级用编码分组，分类用当前 `id/name`，负责人用当前 `id/displayName`；负责人为空时该组元素省略 `assignee` 字段并由页面标为“未分配”。无匹配工单时总数为 0、四组为空数组。所有统计先应用与列表一致的可见范围，不能先统计全量数据再只隐藏页面入口。
+
+`PENDING_QUEUE` 要求 `TICKET_VIEW_QUEUE`，另两个范围要求 `TICKET_VIEW_PARTICIPATED`。当前用户从认证上下文取得，不接受指定他人的用户或负责人参数。时间沿用列表的带偏移量输入和 UTC 创建时间闭区间，起点晚于终点返回 `400/VALIDATION_FAILED`；无效/缺失范围也返回 `400`，权限不足返回 `403`。未传时间条件时不施加默认“近 30 天”窗口。分类停用不影响历史工单统计和筛选。
 
 系统管理员角色本身不具有数据概览权限；多角色管理员只有在同时具有 IT 角色，并符合具体工单查看范围时才能看到对应统计。v1 不提供导出、趋势图、跨权限全局报表或独立统计库。
 

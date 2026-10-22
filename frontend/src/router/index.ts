@@ -14,6 +14,7 @@ import HomeView from '@/views/work/HomeView.vue'
 import NotificationListView from '@/views/work/NotificationListView.vue'
 import PlannedWorkView from '@/views/work/PlannedWorkView.vue'
 import TicketCreateView from '@/views/work/TicketCreateView.vue'
+import TicketDashboardView from '@/views/work/TicketDashboardView.vue'
 import TicketDetailView from '@/views/work/TicketDetailView.vue'
 import TicketListView from '@/views/work/TicketListView.vue'
 import TicketQueueView from '@/views/work/TicketQueueView.vue'
@@ -87,10 +88,14 @@ const router = createRouter({
       meta: { title: '站内信' },
     },
     {
+      /**
+       * 数据概览（`docs/api-design.md` 8.5）。守卫只校验 `DASHBOARD_VIEW`：IT 身份与范围权限
+       * 需要看数据才能判断，由页面按"不发请求 + 解释原因"处理，后端仍独立鉴权。
+       */
       path: '/dashboard',
       name: 'dashboard',
-      component: PlannedWorkView,
-      meta: { title: '数据概览', permission: 'DASHBOARD_VIEW', plannedTask: '完整版 backlog：数据概览' },
+      component: TicketDashboardView,
+      meta: { title: '数据概览', permission: 'DASHBOARD_VIEW' },
     },
     {
       path: '/admin/users',

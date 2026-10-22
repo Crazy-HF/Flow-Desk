@@ -9,6 +9,7 @@ import com.flowdesk.iam.mapper.IamUserMapper;
 import com.flowdesk.iam.mapper.IamUserRoleMapper;
 import com.flowdesk.notification.mapper.NotificationMapper;
 import com.flowdesk.ticket.mapper.TicketAttachmentMapper;
+import com.flowdesk.ticket.mapper.TicketDashboardMapper;
 import com.flowdesk.ticket.mapper.TicketDailySequenceMapper;
 import com.flowdesk.ticket.mapper.TicketMapper;
 import com.flowdesk.ticket.mapper.TicketParticipantMapper;
@@ -80,6 +81,12 @@ public class MockedPersistenceConfiguration {
     @Bean
     TicketMapper ticketMapper() {
         return Mockito.mock(TicketMapper.class);
+    }
+
+    /** 数据概览的聚合查询（{@code docs/api-design.md} 8.5）：只读，不参与工单状态机。 */
+    @Bean
+    TicketDashboardMapper ticketDashboardMapper() {
+        return Mockito.mock(TicketDashboardMapper.class);
     }
 
     /** 工单不可变记录（时间线与创建时写入首条记录）依赖。 */

@@ -19,10 +19,15 @@ const route = useRoute()
  *
  * <p>图标位随 `NavigationEntry.icon` 预留：后端暂无菜单与 icon 契约，字段为空时不出图标，
  * 因此当前每行只有文字，行高与选中态不受图标缺失影响。</p>
+ *
+ * <p>声明了 `role` 的入口还要求持有该角色：数据概览（8.5）要求 `DASHBOARD_VIEW` 与
+ * `IT_SUPPORT` 同时成立，只有权限码的账号点进去也只会得到 `403`。</p>
  */
 const visibleEntries = computed(() =>
-  navigationEntries.filter((entry) =>
-    auth.hasAnyPermission(Array.isArray(entry.permission) ? entry.permission : [entry.permission]),
+  navigationEntries.filter(
+    (entry) =>
+      auth.hasAnyPermission(Array.isArray(entry.permission) ? entry.permission : [entry.permission]) &&
+      (entry.role === undefined || auth.roles.includes(entry.role)),
   ),
 )
 
