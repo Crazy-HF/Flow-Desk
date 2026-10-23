@@ -2,6 +2,8 @@
 
 ## 2026-10-22 准备与单次连通验证：AI 工单处理辅助（`flow-desk/ai-ticket-assistant-analysis`）
 
+- **2026-10-23 接续**：用户确认北京时间自然日日额度、占额后失败仍计数、同一 `requestId` 不重复调用、模型成功但历史保存失败要报错。已新增未提交的 `V14__add_ticket_ai_assistant.sql`：`TICKET_AI_ASSIST` 默认授予 `IT_SUPPORT`，并建额度、请求元数据、独立建议历史三表和终态清理索引。完整口径见 `docs/modules/ai-ticket-assistant.md` 6.2。迁移尚未在真实 MySQL 上运行；现有 `DatabaseMigrationIT` 的固定版本/表/权限基线也尚未更新。下一步由用户按聊天内容写入 Java 契约与业务实现，业务代码完成后交 WorkBuddy 测试。
+
 - **阶段与入口**：单张工单 AI 处理辅助已完成方案分析、Spring AI 依赖与配置准备，以及一张虚构工单的手动连通探针；正式业务接口、权限、存储和页面尚未实现。完整范围见 `docs/modules/ai-ticket-assistant.md`，实施顺序见 `docs/superpowers/plans/2026-10-22-ai-ticket-assistant.md`。
 - **演示范围**：先用虚构或脱敏工单；选 DeepSeek `deepseek-flash` + Spring AI（Boot 3.5 对应候选 1.0.x）。首次只在开发、演示环境启用，真实工单环境默认关闭；长期目标包括真实工单，其告知和数据规则待后续单独确定。
 - **输入与权限**：生成只供处理中工单的当前负责人使用，要求 `TICKET_PROCESS`、工单可见性及独立 AI 权限（默认给 `IT_SUPPORT`，暂拟 `TICKET_AI_ASSIST`）。负责人预览拟发送的标题、描述、分类、优先级、状态，可删改标题/描述并再次确认；首版不送处理记录或附件。

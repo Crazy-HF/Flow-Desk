@@ -42,12 +42,9 @@ spring:
       max-request-size: 30MB
 
   ai:
-    deepseek:
-      api-key: ${DEEPSEEK_API_KEY:}
-      chat:
-        enabled: ${FLOWDESK_AI_ENABLED:false}
-        options:
-          model: deepseek-flash
+    # 禁止 Spring AI 自动创建模型；下方适配器只在 flowdesk.ai.enabled=true 时创建。
+    model:
+      chat: none
     retry:
       max-attempts: 1
 
@@ -130,6 +127,8 @@ flowdesk:
 
   ai:
     enabled: ${FLOWDESK_AI_ENABLED:false}
+    # 每人北京时间自然日最多占用 10 次；可按环境调低。
+    daily-limit: ${FLOWDESK_AI_DAILY_LIMIT:10}
 
 jwt:
   secret: ${FLOWDESK_JWT_SECRET}

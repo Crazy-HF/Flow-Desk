@@ -61,6 +61,7 @@ import { formatDateTime } from '@/utils/format'
 import TicketActionContentField from './TicketActionContentField.vue'
 import TicketActionSelectField from './TicketActionSelectField.vue'
 import TicketActionTextField from './TicketActionTextField.vue'
+import TicketAiSuggestionPanel from './TicketAiSuggestionPanel.vue'
 
 /**
  * 工单详情与处理时间线（`docs/api-design.md` 5.4 / 5.5），以及这张工单上可执行的动作
@@ -201,6 +202,21 @@ const availableActions = computed(() =>
 
 /** 正在执行的动作名；同一时刻只放行一个，按钮据此整体禁用。 */
 const runningAction = ref<TicketActionName | null>(null)
+
+/** AI 历史仅属于当前或最后负责人；新生成还需要处理中状态与双重权限。 */
+const canViewAiHistory = computed(() =>
+  detail.value?.assignee?.id === auth.user?.id,
+)
+const canGenerateAi = computed(() =>
+  canViewAiHistory.value
+  && detail.value?.status === 'PROCESSING'
+  && auth.hasPermission('TICKET_PROCESS')
+  && auth.hasPermission('TICKET_AI_ASSIST')
+  && runningAction.value === null,
+)
+const canFillAiRecord = computed(() =>
+  runningAction.value === null && availableActions.value.includes('add-processing-record'),
+)
 
 /**
  * 期限这一栏怎么读。
@@ -747,10 +763,13 @@ function buildActionDialog(meta: TicketActionMeta) {
  * 所以输入不完整时提示一句、**不调用 `done()`**，用户写好的其它内容与弹窗都还在原处；
  * 若先关掉再提示，用户得重新点一次按钮、重写一遍。</p>
  */
-async function runAction(name: TicketActionName): Promise<void> {
+async function runAction(name: TicketActionName, initialContent = ''): Promise<void> {
+  if (runningAction.value) {
+    return
+  }
   const meta = TICKET_ACTIONS[name]
   actionError.value = ''
-  actionContent.value = ''
+  actionContent.value = initialContent
   actionTarget.value = undefined
   actionConditionalText.value = ''
   actionAttachmentIds.value = []
@@ -1025,6 +1044,16 @@ async function runAction(name: TicketActionName): Promise<void> {
           >
             {{ actionError }}
           </p>
+
+          <TicketAiSuggestionPanel
+            v-if="canViewAiHistory"
+            :key="detail.ticketNo"
+            :ticket="detail"
+            :can-generate="canGenerateAi"
+            :can-fill-record="canFillAiRecord"
+            @fill-record="(content) => runAction('add-processing-record', content)"
+            @refresh-detail="loadDetail(true)"
+          />
 
           <section
             class="ticket-panel"

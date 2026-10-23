@@ -1031,4 +1031,21 @@ public interface TicketMapper extends BaseMapper<Ticket> {
             @Param("expectedVersion") long expectedVersion,
             @Param("actorId") long actorId,
             @Param("now") LocalDateTime now);
+
+
+    /**
+     * 只在占额前、结果保存前的短事务中使用。
+     * 模型调用期间绝不能持有这把工单行锁。
+     */
+    @Select("""
+        SELECT id,
+               version,
+               status,
+               assignee_id AS assigneeId
+        FROM ticket
+        WHERE id = #{ticketId}
+        FOR UPDATE
+        """)
+    TicketAiTicketStateRow selectAiStateForUpdate(
+            @Param("ticketId") long ticketId);
 }

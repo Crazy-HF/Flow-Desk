@@ -42,7 +42,8 @@ class DatabaseMigrationIT {
     private static final Set<String> EXPECTED_TABLES = Set.of(
             "iam_user", "iam_role", "iam_permission", "iam_user_role", "iam_role_permission",
             "ticket_category", "ticket", "ticket_record", "attachment", "ticket_attachment",
-            "ticket_relation", "ticket_participant", "ticket_daily_sequence", "notification");
+            "ticket_relation", "ticket_participant", "ticket_daily_sequence", "notification",
+            "ticket_ai_daily_quota", "ticket_ai_request", "ticket_ai_suggestion");
 
     private static final Set<String> EXPECTED_INDEXES = Set.of(
             "uk_iam_user_username", "uk_iam_role_code", "uk_iam_permission_code",
@@ -58,7 +59,10 @@ class DatabaseMigrationIT {
             "idx_ticket_record_actor_created", "idx_ticket_attachment_record",
             "idx_ticket_relation_target_type_source", "idx_ticket_participant_user_ticket",
             "uk_notification_recipient_dedup", "idx_notification_recipient_read",
-            "idx_notification_read_at");
+            "idx_notification_read_at", "idx_ticket_ended_at_id",
+            "uk_ticket_ai_request_user_request", "uk_ticket_ai_request_id_ticket",
+            "idx_ticket_ai_request_ticket_created", "idx_ticket_ai_request_status_created",
+            "uk_ticket_ai_suggestion_request", "idx_ticket_ai_suggestion_ticket_created");
 
     /**
      * 记录类型白名单的完整基线：V1 的 15 个 + V7 追加的 4 个 + V8 追加的 1 个。
@@ -79,7 +83,7 @@ class DatabaseMigrationIT {
             "TICKET_VIEW_QUEUE", "TICKET_CLAIM", "TICKET_VIEW_PARTICIPATED",
             "TICKET_PROCESS", "TICKET_TRANSFER", "TICKET_CLOSE",
             "TICKET_ADMIN_HANDOFF", "USER_MANAGE", "CATEGORY_MANAGE", "DASHBOARD_VIEW",
-            "RBAC_MANAGE");
+            "RBAC_MANAGE", "TICKET_AI_ASSIST");
 
     private static JdbcTemplate jdbc;
 
@@ -100,7 +104,7 @@ class DatabaseMigrationIT {
         var history = jdbc.queryForList(
                 "SELECT version, success FROM flyway_schema_history ORDER BY installed_rank");
         assertThat(history).extracting(row -> String.valueOf(row.get("version")))
-                .containsExactly("1", "2", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13");
+                .containsExactly("1", "2", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14");
         assertThat(history).allSatisfy(row ->
                 assertThat(row.get("success")).isEqualTo(Boolean.TRUE));
 
@@ -116,7 +120,7 @@ class DatabaseMigrationIT {
         var foreignKeys = jdbc.queryForList(
                 "SELECT constraint_name, delete_rule FROM information_schema.referential_constraints "
                         + "WHERE constraint_schema = DATABASE()");
-        assertThat(foreignKeys).hasSize(25);
+        assertThat(foreignKeys).hasSize(30);
         assertThat(foreignKeys).allSatisfy(row ->
                 assertThat(row.get("delete_rule")).isEqualTo("NO ACTION"));
 
@@ -238,13 +242,13 @@ class DatabaseMigrationIT {
         assertThat(roles).containsExactly("EMPLOYEE", "IT_SUPPORT", "SYSTEM_ADMIN");
 
         var permissions = jdbc.queryForList("SELECT code FROM iam_permission ORDER BY id", String.class);
-        assertThat(permissions).hasSize(14);
+        assertThat(permissions).hasSize(15);
         assertThat(permissions).containsExactlyInAnyOrderElementsOf(EXPECTED_PERMISSIONS);
 
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM iam_role_permission", Integer.class))
-                .isEqualTo(14);
+                .isEqualTo(15);
         assertThat(rolePermissionCount("EMPLOYEE")).isEqualTo(3);
-        assertThat(rolePermissionCount("IT_SUPPORT")).isEqualTo(7);
+        assertThat(rolePermissionCount("IT_SUPPORT")).isEqualTo(8);
         // 系统管理员角色不包含查看具体工单内容的权限，但独占动态 RBAC 管理权限。
         assertThat(rolePermissionCount("SYSTEM_ADMIN")).isEqualTo(4);
 
@@ -258,13 +262,23 @@ class DatabaseMigrationIT {
                 """, String.class);
         assertThat(rbacManageRoleCodes).containsExactly("SYSTEM_ADMIN");
 
+        var aiAssistRoleCodes = jdbc.queryForList("""
+                SELECT role.code
+                FROM iam_role_permission role_permission
+                JOIN iam_role role ON role.id = role_permission.role_id
+                JOIN iam_permission permission ON permission.id = role_permission.permission_id
+                WHERE permission.code = 'TICKET_AI_ASSIST'
+                ORDER BY role.code
+                """, String.class);
+        assertThat(aiAssistRoleCodes).containsExactly("IT_SUPPORT");
+
         var seedGrantAuditNullCount = jdbc.queryForObject("""
                 SELECT COUNT(*)
                 FROM iam_role_permission
                 WHERE granted_by IS NULL
                   AND granted_at IS NULL
                 """, Integer.class);
-        assertThat(seedGrantAuditNullCount).isEqualTo(14);
+        assertThat(seedGrantAuditNullCount).isEqualTo(15);
 
         // 公共迁移不创建任何用户或默认管理员
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM iam_user", Integer.class)).isZero();
