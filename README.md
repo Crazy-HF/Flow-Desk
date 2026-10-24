@@ -56,8 +56,8 @@ MVP 主链固定使用普通员工、IT 支持人员、系统管理员三种内�
 ### 环境要求
 
 - JDK 21
-- Node.js 24.20.0
-- pnpm 12.3.4
+- Node.js 24.x
+- npm（随 Node.js 提供）或 pnpm；本地不强制 pnpm 版本，CI 仍使用固定的 pnpm 版本和锁文件
 - Docker 与 Docker Compose
 
 ### 首次准备
@@ -82,6 +82,12 @@ docker compose up -d mysql redis
 pnpm --dir frontend install --frozen-lockfile
 pnpm --dir frontend dev
 ```
+
+本地也可使用 npm：`npm --prefix frontend install --no-package-lock`，然后运行 `npm --prefix frontend run dev`。仓库保留 pnpm 锁文件供 CI 固定依赖；npm 本地安装不生成第二份锁文件。
+
+### AI 工单处理辅助的当前状态
+
+单张工单的 AI 建议生成、独立历史、日额度、30 天清理与详情页预览/草稿入口已实现。DeepSeek Key 仅填写在 Git 忽略的根目录 `.env` 的 `DEEPSEEK_API_KEY` 中；真实工单环境保持 `FLOWDESK_AI_ENABLED=false`。真实 MySQL、前端单测与模拟接口浏览器测试已有通过记录；十张虚构样本的最终 `v4` 真实模型评估为 10/10 完整输出、Codex 判定 9/10 稍改即用。详细证据与待决项见 `PROJECT_STATUS.md` 顶部、`docs/modules/ai-ticket-assistant.md` §6.3 与 `docs/acceptance/2026-10-23-ai-ticket-evaluation.md`。
 
 后端健康检查位于 `http://localhost:8081/actuator/health`，前端开发入口位于 `http://localhost:5173`。前端将 `/fd` 请求代理到后端。普通停止使用 `docker compose down`，不要附加 `-v`，以免删除本地数据卷。
 
@@ -113,10 +119,12 @@ pnpm --dir frontend test:unit --run --maxWorkers=1
 pnpm --dir frontend test:e2e
 ```
 
+使用 npm 时，进入 `frontend/` 后运行同名脚本：`npm run typecheck`、`npm run lint`、`npm run build`、`npm run test:unit -- --run --maxWorkers=1`、`npm run test:e2e`。
+
 - `-DargLine=-Djdk.attach.allowAttachSelf=true` 不是可选项：Mockito 的 inline mock maker 需要自附加，JDK 21 默认关闭该开关，缺少它会看到"几乎所有 Spring 测试一起失败"的假回归。CI（temurin 21）不需要该参数，因此没有写进 `pom.xml`。
 - 集成测试需要 Docker；测试会自行拉起 MySQL 容器，**不碰本地演示库**。
-- E2E 走 `vite preview`（端口 4173），前置条件是：MySQL/Redis 已启动、后端以 `local` profile 跑在 8081、`.env` 的 `FLOWDESK_ALLOWED_ORIGINS` 含 `http://127.0.0.1:4173`，并且**先执行 `pnpm --dir frontend build`**（否则预览的是旧包）。E2E 会向演示库写入数据，清理 SQL 写在各 spec 文件头部。
-- 内存紧张的机器请串行执行：容器与 vitest 并行会互相挤掉。本机 `pnpm` 全局 shim 已损坏，此类环境下改用安装目录里的 `pnpm.cmd`（见 `PROJECT_STATUS.md`「环境前置」）。
+- E2E 走 `vite preview`（端口 4173），前置条件是：MySQL/Redis 已启动、后端以 `local` profile 跑在 8081、`.env` 的 `FLOWDESK_ALLOWED_ORIGINS` 含 `http://127.0.0.1:4173`，并且**先执行前端 build 脚本（npm 或 pnpm）**（否则预览的是旧包）。E2E 会向演示库写入数据，清理 SQL 写在各 spec 文件头部。
+- 内存紧张的机器请串行执行：容器与 vitest 并行会互相挤掉。若本机 pnpm 命令不可用，可使用上面的 npm 命令。
 
 MVP 阶段 1 Auth 身份入口已完成并通过 PR #5 合并进入 `main`：访问 `http://localhost:5173` 会被引导到 `/login`，用演示账号登录后进入受保护首页（显示当前身份与按权限展示的能力清单）。登录后的应用壳按四层职责组织——整幅顶栏（品牌位 + 搜索位 + 全屏 + 账号菜单）、按权限生成的侧栏、表达当前位置的面包屑、主体内容；导航条目与面包屑层级共用 `frontend/src/constants/authorization.ts` 的同一份声明。系统管理端 RBAC 已完成并通过 PR #8 合并 main：`TASK-055`～`TASK-062` 全部完成，验收标准第 4 条的四条手工真实栈链路已于 2026-09-28 在真实栈上执行并通过（逐条留 `traceId`，见 `docs/modules/rbac.md` 11.2）。验证证据：后端 **394** 单元/Web + **88** 集成全绿，前端 typecheck/lint/build、74 项单测和 13 项 E2E 全绿；`frontend/src/views/admin/` 下五页可走通真实授权闭环。`auth`、`iam` 生产代码已完成应用层重构，约定见 `docs/technical-architecture.md` 5.1；用户管理已登记为 `TASK-061`/`TASK-062`，零角色是合法终态。
 

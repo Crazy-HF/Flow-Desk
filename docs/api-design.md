@@ -508,6 +508,21 @@ v1 仍不提供附件替换与分片上传接口；**删除见下方**，**预�
 
 **前端**：顶栏铃铛（未读徽标 + 最近 5 条下拉 + 「查看全部」）与收件箱页 `/notifications`（分页列表、`只看未读` 开关、单条与全部标记已读、点行深链到工单详情）**已实现**；未读数 60s 轮询，失败静默。**未跑**前端全量 E2E 与渲染截图自查。
 
+### 7.8 单张工单 AI 处理建议（2026-10-23）
+
+| 用例 | 方法与路径 | 输入与返回 |
+| --- | --- | --- |
+| 生成并保存建议 | `POST /fd/v1/tickets/{ticketNo}/ai-suggestions` | JSON：`requestId`（UUID）、`version`、`title`（1～200）、`description`（1～10000）；返回 `R<TicketAiSuggestionResult>` |
+| 受限历史 | `GET /fd/v1/tickets/{ticketNo}/ai-suggestions` | `pageNo` / `pageSize`（默认 1 / 20，最大 100），固定创建时间与 ID 倒序；返回 `R<PageResult<TicketAiSuggestionResult>>` |
+
+生成只对可见工单的当前负责人开放，并同时要求 `PROCESSING`、`TICKET_PROCESS`、`TICKET_AI_ASSIST` 及匹配的工单版本。功能开关 `FLOWDESK_AI_ENABLED` 默认关闭。发送给模型的字段只有负责人确认后的标题、描述与服务端读取的分类、优先级、状态；附件、用户与处理记录不外发。成功结果含三部分建议、上述五项输入快照、模型/提示词版本、可用时的 token 用量与保存时间。AI 建议历史保存在独立表，不进入普通工单时间线；负责人手动提交草稿后，新的普通处理记录才按工单规则共享。
+
+历史须先通过普通工单可见性，再要求当前或终态最后负责人；**不要求仍持有 AI 生成权限**。转交后原负责人不能查看；结束满 30 天即使清理任务延迟也返回空历史。未知查询参数被拒绝，不支持客户端自选排序。
+
+`requestId` 在用户范围内唯一：同 ID 同输入的成功请求返回原结果，不再次占额或调用模型；同 ID 不同工单、版本或输入返回 `409/AI_REQUEST_ID_REUSED`。一次确认至多一次供应商调用；失败后手动重试必须重新确认并换新 ID。日额度按北京时间自然日，默认每人 10 次，可配置为 1～10；占额成功后失败仍计数。模型调用位于两段短写事务之外，保存前重新锁工单复核状态、负责人和版本。
+
+稳定错误码：`AI_DISABLED`（503）、`AI_GENERATION_FORBIDDEN`（403）、`AI_HISTORY_FORBIDDEN`（403）、`AI_UNAVAILABLE`（503）、`AI_DAILY_LIMIT_REACHED`（429）、`AI_REQUEST_ID_REUSED`（409）、`AI_REQUEST_IN_PROGRESS`（409）、`AI_RESULT_UNCERTAIN`（503）、`AI_PROVIDER_TIMEOUT`（504）、`AI_PROVIDER_ERROR` / `AI_INVALID_OUTPUT`（502）、`AI_SAVE_FAILED`（503）；工单不可见复用 `TICKET_NOT_FOUND`（404），状态、负责人或版本变化复用 `TICKET_CONFLICT`（409）。
+
 ## 8. 系统管理与数据概览接口草案
 
 ### 8.1 管理接口通用规则

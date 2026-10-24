@@ -25,7 +25,7 @@
 
 2026-09-28 用户明确要求管理页按钮使用 Element Plus 有色按钮与 icon；五页按操作采用 primary/success/warning/danger/info 语义色，次操作用 plain，优先于旧单强调色和中性行操作约定。操作列只显示图标，保留 tooltip 与 aria-label；查询、工具栏、弹窗仍图标配文字。
 
-- Vue 3.5 + `<script setup>` + Composition API + TypeScript + Vite 8 + pnpm。
+- Vue 3.5 + `<script setup>` + Composition API + TypeScript + Vite 8；本地可用 npm 或 pnpm，不强制特定 pnpm 版本。CI 继续按其锁文件使用 pnpm。
 - Element Plus 2.14（组件用 `el-` 前缀）。禁止 Vue 2 语法，禁止 Element UI（Vue 2 版）的 API。
 - 状态用 Pinia，路由用 vue-router 5，网络用 `src/api/` 下已有的封装，不要另起一套 request 工具。
 - 测试：Vitest（单测/组件）、Playwright（E2E）。用例放在被测文件同目录，命名为 `*.test.ts`。
@@ -85,7 +85,7 @@
 - `tokens.css` 必须在 `element-plus` 样式之后引入（`src/main.ts` 已按此顺序排列），否则 `--el-*` 覆盖不生效。
 - 数字一律加 `font-variant-numeric: tabular-nums`，避免表格与指标跳动。
 - 动效只动 `transform` 与 `opacity`，时长用 `--fd-duration-*`、缓动用 `--fd-ease-standard`；禁止 `transition: all`，必须列出具体属性。
-- 以上不是口头约定：`pnpm lint` 已包含 `stylelint`（规则见 `frontend/stylelint.config.js`），
+- 以上不是口头约定：`npm run lint` / `pnpm lint` 均包含 `stylelint`（规则见 `frontend/stylelint.config.js`），
   颜色 / 间距 / 字号 / 圆角 / 阴影 / 动效六个轴的属性，值里必须出现 `var(--fd-*)` 或 `var(--el-*)`。
   字面量的合法归宿只有 `tokens.css` 与 `styles/element/var-override.scss` 两个文件；其余位置确实无法
   用变量解决时，用 `stylelint-disable-next-line declaration-property-value-allowed-list -- 理由`
@@ -184,7 +184,7 @@
    **列表页优先用脚手架生成骨架**，不要手抄别的页面：
    `node scripts/scaffold.mjs --layer admin --page NoticeListView --title 通知管理 --api notices --permission RBAC_MANAGE`
    生成的页面自带四区结构、六态、权限收口与同目录单测。路由与 `constants/authorization.ts` 由脚本打印片段、人工粘贴（那两处需要判断权限语义，不适合自动改）。
-3. 改完必须跑：`pnpm typecheck`、`pnpm lint`、`pnpm build`；涉及接口或身份流程时补 `pnpm test:unit --run`、`pnpm test:e2e`。
+3. 改完必须跑：`npm run typecheck`、`npm run lint`、`npm run build`（也可使用同名 pnpm 脚本）；涉及接口或身份流程时补 `npm run test:unit -- --run`、`npm run test:e2e`。
 4. 涉及视觉的改动，必须用浏览器打开改后的页面截图自查（登录用例见 `PROJECT_STATUS.md` 的演示账号），
    确认无溢出、无错位、无默认蓝色残留后再报告完成，并在报告里说明截图看到的结果。
 5. 报告时区分"已验证"与"未验证"：跑过的命令贴命令与结果，没跑的要明说。

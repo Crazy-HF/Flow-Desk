@@ -41,6 +41,13 @@ spring:
       max-file-size: 10MB
       max-request-size: 30MB
 
+  ai:
+    # 禁止 Spring AI 自动创建模型；下方适配器只在 flowdesk.ai.enabled=true 时创建。
+    model:
+      chat: none
+    retry:
+      max-attempts: 1
+
 server:
   port: 8081
   shutdown: graceful
@@ -117,6 +124,11 @@ flowdesk:
     # 未读通知的保留期（按 created_at 计）：收件人长期不看就清掉，否则未读徽标会被历史消息永久占住。
     # 缺失时取默认值 3d；口径变更见迁移 V11 与 docs/database-design.md 19.6。
     unread-retention: 3d
+
+  ai:
+    enabled: ${FLOWDESK_AI_ENABLED:false}
+    # 每人北京时间自然日最多占用 10 次；可按环境调低。
+    daily-limit: ${FLOWDESK_AI_DAILY_LIMIT:10}
 
 jwt:
   secret: ${FLOWDESK_JWT_SECRET}

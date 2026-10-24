@@ -1,5 +1,26 @@
 # FlowDesk 项目状态
 
+## 2026-10-24 AI 工单处理辅助验证与待验收项（`flow-desk/ai-ticket-assistant-analysis`）
+
+- **已实现**：DeepSeek `deepseek-flash`（界面名 DeepSeek-V4.1 Flash）的单张工单生成、受限历史、每日额度、幂等请求、30 天清理与详情页删敏预览/可编辑处理记录草稿。`FLOWDESK_AI_ENABLED` 默认关闭。真实评估发现 `v1` 的模糊输入偶发无效输出；提示词迭代到 `v4`（简短结构与未备份数据保护），模型输出上限由 1000 调整为 1600 tokens，解析器只提取三个白名单字段且继续校验必填字段与类型。接口见 `docs/api-design.md` 7.8，固定虚构样本与证据见 `docs/acceptance/2026-10-23-ai-ticket-evaluation.md`。
+- **本轮实测**：V14 的 Testcontainers MySQL 迁移 7/7；进程中断遗留 `RESERVED` 请求收敛修复后，最新提示词与解析器改动后的后端 `clean verify` Surefire **1304**、Failsafe **222**（含 AI 服务真实 MySQL 专项 7/7），全部 0 失败/0 错误、0 跳过，`BUILD SUCCESS`（2026-10-24，本轮交接前已完成；用户随后要求不再跑测试）。前端此前 29 套件 275 项、AI Playwright 桌面及 375 宽度 2/2，`typecheck`、`lint`、`build` 均通过；这些前端检查未在本次交接重新执行。当前版本另有 10 张虚构工单真实模型调用证据。
+- **真实模型质量评估（2026-10-24）**：最终 `v4` 固定 10 张虚构工单首轮 10/10 完整三部分、0 条虚构已执行事实；Codex 逐条评分后判定 **9/10 稍改即用**。A05 的未备份数据保护问题已修复；A08 仍需删去关于注入文本的过程描述并修正“在不改设置下切换输入源”的矛盾。平台人民币余额在本轮 49 次实际请求前后由 ¥10.09 变为 ¥9.96，22:24 当前观察到差额 ¥0.13，低于 ¥5 预算；余额显示粒度与入账延迟使其不能替代最终逐笔账单。完整输出见 `docs/acceptance/2026-10-24-ai-ticket-model-outputs.json`，评分和费用口径见前述评估文档。
+- **仍待**：若按原方案坚持用户本人评分，还需用户阅评；真实浏览器经业务接口调用 DeepSeek 并保存历史的整链路尚未实测。关闭开关时前端仍显示生成按钮，点击后由后端返回 `AI_DISABLED`。真实工单环境继续关闭，启用时另行确定数据规则。已推送提交 `bc5e862` 误含 `.ui-craft/` 124 个无关文件删除；本次交接补回与父提交逐文件哈希一致的 124 个文件，不改其内容。
+
+## 2026-10-22 准备与单次连通验证：AI 工单处理辅助（`flow-desk/ai-ticket-assistant-analysis`）
+
+- **2026-10-23 接续**：用户确认北京时间自然日日额度、占额后失败仍计数、同一 `requestId` 不重复调用、模型成功但历史保存失败要报错。已新增未提交的 `V14__add_ticket_ai_assistant.sql`：`TICKET_AI_ASSIST` 默认授予 `IT_SUPPORT`，并建额度、请求元数据、独立建议历史三表和终态清理索引。完整口径见 `docs/modules/ai-ticket-assistant.md` 6.2。迁移尚未在真实 MySQL 上运行；现有 `DatabaseMigrationIT` 的固定版本/表/权限基线也尚未更新。下一步由用户按聊天内容写入 Java 契约与业务实现，业务代码完成后交 WorkBuddy 测试。
+
+- **阶段与入口**：单张工单 AI 处理辅助已完成方案分析、Spring AI 依赖与配置准备，以及一张虚构工单的手动连通探针；正式业务接口、权限、存储和页面尚未实现。完整范围见 `docs/modules/ai-ticket-assistant.md`，实施顺序见 `docs/superpowers/plans/2026-10-22-ai-ticket-assistant.md`。
+- **演示范围**：先用虚构或脱敏工单；选 DeepSeek `deepseek-flash` + Spring AI（Boot 3.5 对应候选 1.0.x）。首次只在开发、演示环境启用，真实工单环境默认关闭；长期目标包括真实工单，其告知和数据规则待后续单独确定。
+- **输入与权限**：生成只供处理中工单的当前负责人使用，要求 `TICKET_PROCESS`、工单可见性及独立 AI 权限（默认给 `IT_SUPPORT`，暂拟 `TICKET_AI_ASSIST`）。负责人预览拟发送的标题、描述、分类、优先级、状态，可删改标题/描述并再次确认；首版不送处理记录或附件。
+- **输出与使用**：返回摘要、待核实问题、建议步骤；三部分可标为“AI 草稿”预填现有处理记录编辑框，由负责人修改并手动提交。普通 `PROCESS` 记录对提交人及后续接手人可见，不能把尚未执行的建议写成已完成事实。
+- **历史**：每次成功生成保存确认后实际发送的五项输入快照和输出；只供当前/最后负责人按工单可见性查看，转交后原负责人失去查看权。独立 AI 权限只控制新生成。未结束工单保留历史，结束后再保留 30 天（按 `ended_at`）。
+- **调用与验收**：每人每天最多 10 次（可配置）；同步等待，失败不自动重试。Codex 准备 10 张样本与评分表并检查结构，用户逐张判断可用性；要求 10/10 输出完整、0 条虚构已执行事实、至少 8/10 经用户判断稍作修改即可用。付费验证预算上限人民币 5 元。
+- **已写入与实测**：`pom.xml` 加入 Spring AI `1.0.9` BOM 和 DeepSeek starter；`application.yml` 以 `DEEPSEEK_API_KEY` 与默认关闭的 `FLOWDESK_AI_ENABLED` 配置 `deepseek-flash`、最大尝试次数 1；`.env.example` 为全部变量补逐项注释。手动探针在 `src/test/java/com/flowdesk/devtools/DeepSeekManualProbe.java`，使用虚构投影仪工单和单次调用，不属于自动测试。用户 2026-10-22 手动运行返回模型 `deepseek-flash`、耗时 3338 ms、输入 173 / 输出 440 / 合计 613 tokens，回答含摘要、待核实问题和建议步骤，Maven 报 `BUILD SUCCESS`。此证据只证明该次适配调用成功；平台实际扣费、无 Key 关闭状态启动、异常/截断处理及正式业务链路均未验证。密钥值未写入仓库或文档。
+- **本次提交前检查**：`.\mvnw.cmd -B -DskipTests test-compile` 成功（只编译生产及测试源码，未运行测试或付费探针）；`npm --prefix frontend run lint`、`npm --prefix frontend run build` 成功。Maven `dependency:tree` 因插件首次下载耗时而按用户“无需其他检查”的指示中止，未取得结果；全量业务测试与真实栈验收未运行。
+- **分工与下一步**：AI 代码由用户按对话给出的完整内容亲自写入；后续业务代码完成后的业务测试交给 WorkBuddy，Codex 独立核对文件、Git 与测试证据。本分支下一步先确定生成/历史 API、独立历史与日额度结构、并发/失败契约，再由用户逐步写迁移、后端和前端；首轮 10 张虚构工单与评分表由 Codex 准备。真实工单环境保持关闭，持续预算和数据规则留待启用阶段确认。
+
 ## 2026-10-21 交付：数据概览（`flow-desk/ticket-dashboard`，基线 `main@58a59ce`；已并入 `main`）
 
 - **范围与契约**：按 `docs/api-design.md` 8.5 与 `docs/superpowers/specs/2026-10-21-ticket-dashboard-design.md` 实现 `GET /fd/v1/dashboard/tickets` 与 `/dashboard` 页面。**无迁移、无新基础设施、无缓存**（`V1`～`V13` 未改动）。设计取舍：单次只选一个 IT 范围（`PENDING_QUEUE` / `ASSIGNED_TO_ME` / `PARTICIPATED_BY_ME`），不做三范围并集、不做全局报表、不做钻取、趋势与导出。
