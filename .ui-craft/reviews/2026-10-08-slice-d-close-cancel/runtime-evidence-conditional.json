@@ -1,0 +1,19 @@
+{
+  "ticketNo": "FD-20261008-076",
+  "title": "E2E 片D条件输入 827605",
+  "steps": [
+    {
+      "step": "create",
+      "status": 201,
+      "traceId": "4c5520da-210d-473b-944b-5db6b1a17b18",
+      "detail": "FD-20261008-076 由员工通过界面创建"
+    },
+    {
+      "step": "claim",
+      "status": 200,
+      "traceId": "9f956655-a60c-4a30-a4a6-a82e59c2b465",
+      "detail": "IT 领取成功，工单进入「处理中」"
+    }
+  ],
+  "note": "只验证条件输入的出现与消失，未提交关闭动作"
+}

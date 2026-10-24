@@ -33,6 +33,7 @@ import java.util.Objects;
 public class TicketAiRetentionTask {
 
     private static final int BATCH_SIZE = 200;
+    private static final Duration RESERVATION_GRACE_PERIOD = Duration.ofHours(1);
 
     private final TicketAiRequestMapper requestMapper;
     private final TicketAiSuggestionMapper suggestionMapper;
@@ -73,6 +74,25 @@ public class TicketAiRetentionTask {
 
         if (totalDeleted > 0) {
             log.info("已清理过期 AI 建议请求 {} 条", totalDeleted);
+        }
+    }
+
+    /**
+     * 应用在模型调用后中断时，遗留的 RESERVED 不能永久显示为处理中。
+     * 一小时宽限远大于当前调用超时；同一 requestId 仍不允许重发模型请求。
+     */
+    @Scheduled(cron = "0 */10 * * * *", zone = "Asia/Shanghai")
+    public void resolveAbandonedRequests() {
+        LocalDateTime now = LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
+        LocalDateTime cutoff = now.minus(RESERVATION_GRACE_PERIOD);
+        int resolved;
+        int totalResolved = 0;
+        do {
+            resolved = requestMapper.resolveAbandonedReservations(cutoff, now, BATCH_SIZE);
+            totalResolved += resolved;
+        } while (resolved == BATCH_SIZE);
+        if (totalResolved > 0) {
+            log.warn("已将 {} 条遗留 AI 生成请求标记为结果不确定", totalResolved);
         }
     }
 

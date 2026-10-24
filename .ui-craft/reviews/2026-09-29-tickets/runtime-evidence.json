@@ -1,0 +1,21 @@
+{
+  "ticketNo": "FD-20261007-020",
+  "title": "E2E 联调工单 596550",
+  "isolationUsername": "E2E_ticket_isolation_596550",
+  "creationStatus": 201,
+  "creationTraceId": "d37e9af7-f5ae-4aa2-a58e-47371674443b",
+  "creationRequests": 1,
+  "uniqueSubmissionKeys": 1,
+  "matchingOwnRows": 1,
+  "timelineRecords": 1,
+  "refreshed": true,
+  "otherEmployeeOwnRows": 0,
+  "otherEmployeeDetailStatus": 404,
+  "isolationTraceId": "9c57a562-2cd7-4730-b5db-059c43281cf4",
+  "viewports": [
+    1440,
+    375
+  ],
+  "horizontalOverflow": 0,
+  "pageErrors": []
+}

@@ -1,0 +1,54 @@
+{
+  "ticketNo": "FD-20261009-022",
+  "title": "E2E 片D往返 181782",
+  "steps": [
+    {
+      "step": "create",
+      "status": 201,
+      "traceId": "74af7b82-3aa2-4ed0-9944-b7a83a905584",
+      "detail": "FD-20261009-022 由员工通过界面创建"
+    },
+    {
+      "step": "claim",
+      "status": 200,
+      "traceId": "770a89b4-4462-4dfe-b4e4-067d3ccf4d04",
+      "detail": "IT 领取成功，工单进入「处理中」"
+    },
+    {
+      "step": "request-cancel",
+      "status": 200,
+      "traceId": "520fdfdf-ca6b-45fb-8f7e-98ffa851a75d",
+      "detail": "提交人发起撤销申请：这次先问一下能不能撤销。"
+    },
+    {
+      "step": "reject-cancel",
+      "status": 200,
+      "traceId": "cb203c06-c16e-43b3-a5f9-2936c8af7596",
+      "detail": "当前负责人驳回撤销申请，工单保留原状态"
+    },
+    {
+      "step": "request-cancel",
+      "status": 200,
+      "traceId": "bba93739-b0be-4e2a-9413-a3ea61c3988a",
+      "detail": "提交人发起撤销申请：问题已经自行解决，确实不需要处理了。"
+    },
+    {
+      "step": "withdraw-cancel-request",
+      "status": 200,
+      "traceId": "e83261e8-8ca7-42d5-868a-1b81564fad15",
+      "detail": "提交人撤回自己的撤销申请"
+    },
+    {
+      "step": "request-cancel",
+      "status": 200,
+      "traceId": "4913dc50-42c3-407b-b314-5920d4dcd907",
+      "detail": "提交人发起撤销申请：问题已经自行解决，确实不需要处理了。"
+    },
+    {
+      "step": "approve-cancel",
+      "status": 200,
+      "traceId": "82566b0e-fd5c-40a9-8cd5-2764a03ed808",
+      "detail": "当前负责人同意撤销，工单进入「已取消」"
+    }
+  ]
+}

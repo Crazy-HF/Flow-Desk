@@ -87,7 +87,7 @@ pnpm --dir frontend dev
 
 ### AI 工单处理辅助的当前状态
 
-当前只完成 Spring AI 1.0.9 / DeepSeek 的依赖与默认关闭的配置，以及一张虚构工单的手动连通验证；正式工单 API、授权、建议历史和页面尚未实现。DeepSeek Key 仅填写在 Git 忽略的根目录 `.env` 的 `DEEPSEEK_API_KEY` 中，真实工单环境保持 `FLOWDESK_AI_ENABLED=false`。已完成证据、未验证项和下一步见 `docs/modules/ai-ticket-assistant.md` §6.1 与 `docs/superpowers/plans/2026-10-22-ai-ticket-assistant.md`。后续业务代码由用户编写，业务测试在代码完成后交给 WorkBuddy。
+单张工单的 AI 建议生成、独立历史、日额度、30 天清理与详情页预览/草稿入口已实现。DeepSeek Key 仅填写在 Git 忽略的根目录 `.env` 的 `DEEPSEEK_API_KEY` 中；真实工单环境保持 `FLOWDESK_AI_ENABLED=false`。真实 MySQL、前端单测与模拟接口浏览器测试已有通过记录；十张虚构样本的最终 `v4` 真实模型评估为 10/10 完整输出、Codex 判定 9/10 稍改即用。详细证据与待决项见 `PROJECT_STATUS.md` 顶部、`docs/modules/ai-ticket-assistant.md` §6.3 与 `docs/acceptance/2026-10-23-ai-ticket-evaluation.md`。
 
 后端健康检查位于 `http://localhost:8081/actuator/health`，前端开发入口位于 `http://localhost:5173`。前端将 `/fd` 请求代理到后端。普通停止使用 `docker compose down`，不要附加 `-v`，以免删除本地数据卷。
 

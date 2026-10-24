@@ -66,6 +66,24 @@ public interface TicketAiRequestMapper {
             @Param("finishedAt") LocalDateTime finishedAt);
 
     /**
+     * 将超过模型调用最大预期时长的遗留占位请求收敛为结果不确定。
+     * 状态条件确保不会覆盖已经保存成功或正常失败的结果。
+     */
+    @Update("""
+            UPDATE ticket_ai_request
+            SET status = 'UNKNOWN',
+                failure_code = 'AI_RESULT_UNCERTAIN',
+                finished_at = #{finishedAt}
+            WHERE status = 'RESERVED'
+              AND created_at < #{cutoff}
+            LIMIT #{limit}
+            """)
+    int resolveAbandonedReservations(
+            @Param("cutoff") LocalDateTime cutoff,
+            @Param("finishedAt") LocalDateTime finishedAt,
+            @Param("limit") int limit);
+
+    /**
      * 找出结束时间已超过 30 天的工单所关联的请求 ID。
      * 按请求 ID 固定顺序取一批；未结束工单不会命中。
      */

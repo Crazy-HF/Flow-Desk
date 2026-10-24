@@ -1,0 +1,36 @@
+{
+  "name": "E2E_STAGE2_CATEGORY_1791339604296",
+  "checks": [
+    {
+      "action": "create",
+      "status": 201,
+      "traceId": "e226e78d-1441-41d5-b2b8-e7310b33ed52"
+    },
+    {
+      "action": "update",
+      "status": 200,
+      "traceId": "935bdd10-18b8-40ce-adaf-c44251eeb9f5"
+    },
+    {
+      "action": "disable",
+      "status": 200,
+      "traceId": "1ebe0b83-7ee5-4dab-96bf-71a66ea21a73"
+    },
+    {
+      "action": "enable",
+      "status": 200,
+      "traceId": "26dac5e8-9ddd-4673-887d-6c2c259085de"
+    },
+    {
+      "action": "delete",
+      "status": 200,
+      "traceId": "db5b0d1f-8d47-468d-81bb-baedba666665"
+    }
+  ],
+  "viewports": [
+    1440,
+    375
+  ],
+  "horizontalOverflow": 0,
+  "pageErrors": []
+}

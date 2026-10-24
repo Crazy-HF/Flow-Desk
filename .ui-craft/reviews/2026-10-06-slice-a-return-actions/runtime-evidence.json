@@ -1,0 +1,36 @@
+{
+  "ticketNo": "FD-20261006-059",
+  "title": "E2E 片A未解决 291098",
+  "steps": [
+    {
+      "step": "create",
+      "status": 201,
+      "traceId": "f78177ca-21d7-43b6-b5b0-06ced0155065",
+      "detail": "FD-20261006-059 由员工通过界面创建"
+    },
+    {
+      "step": "claim",
+      "status": 200,
+      "traceId": "7c6a9495-939d-49c6-b43b-7d6fead3ea5d",
+      "detail": "IT 领取成功"
+    },
+    {
+      "step": "submit-resolution",
+      "status": 200,
+      "traceId": "ab244794-6cb6-4c67-b307-28306df6cfc9",
+      "detail": "进入待员工确认并生成确认期限"
+    },
+    {
+      "step": "report-unresolved",
+      "status": 200,
+      "traceId": "fd2be886-761c-4c82-94b0-dff65dc73838",
+      "detail": "工单退回处理中"
+    },
+    {
+      "step": "add-processing-record",
+      "status": 200,
+      "traceId": "b16be644-5651-4e99-8c3e-79a7b813783f",
+      "detail": "退回后可继续处理"
+    }
+  ]
+}

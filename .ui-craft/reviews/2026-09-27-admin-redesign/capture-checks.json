@@ -1,0 +1,37 @@
+{
+  "checks": [
+    {
+      "identity": "http://localhost:5173/admin/users",
+      "title": "FlowDesk",
+      "overlay": 0
+    },
+    {
+      "width": 1920,
+      "viewport": 1920,
+      "document": 1920,
+      "workspace": 1648,
+      "row": 49,
+      "input": 34
+    },
+    {
+      "width": 1440,
+      "viewport": 1440,
+      "document": 1440,
+      "workspace": 1168,
+      "row": 49,
+      "input": 34
+    },
+    {
+      "width": 375,
+      "viewport": 375,
+      "document": 375,
+      "workspace": 343,
+      "row": 61,
+      "input": 34
+    }
+  ],
+  "errors": [],
+  "injectedErrors": [
+    "Failed to load resource: net::ERR_FAILED"
+  ]
+}

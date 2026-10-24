@@ -245,6 +245,30 @@ class TicketAiSuggestionServiceIT {
         verify(modelPort, never()).generate(any());
     }
 
+    @Test
+    void abandonedReservationBecomesUncertainWithoutCallingModelAgain() {
+        String requestId = UUID.randomUUID().toString();
+        jdbc.update("""
+                INSERT INTO ticket_ai_request
+                    (ticket_id, user_id, request_id, ticket_version, input_sha256,
+                     status, created_at)
+                VALUES (?, ?, ?, 0, REPEAT('a', 64), 'RESERVED', ?)
+                """, ticketId, assigneeId, requestId,
+                LocalDateTime.now(ZoneOffset.UTC).minusHours(2));
+
+        retentionTask.resolveAbandonedRequests();
+
+        assertThat(jdbc.queryForObject("""
+                SELECT status FROM ticket_ai_request
+                WHERE user_id = ? AND request_id = ?
+                """, String.class, assigneeId, requestId)).isEqualTo("UNKNOWN");
+        assertThat(jdbc.queryForObject("""
+                SELECT failure_code FROM ticket_ai_request
+                WHERE user_id = ? AND request_id = ?
+                """, String.class, assigneeId, requestId)).isEqualTo("AI_RESULT_UNCERTAIN");
+        verify(modelPort, never()).generate(any());
+    }
+
     private GenerateTicketAiSuggestionCommand command() {
         return new GenerateTicketAiSuggestionCommand(
                 UUID.randomUUID().toString(), 0L, "删敏后的投影仪问题", "只描述设备现象");

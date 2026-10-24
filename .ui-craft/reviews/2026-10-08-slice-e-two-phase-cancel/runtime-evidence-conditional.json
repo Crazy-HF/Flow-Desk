@@ -1,0 +1,19 @@
+{
+  "ticketNo": "FD-20261009-021",
+  "title": "E2E 片D条件输入 176882",
+  "steps": [
+    {
+      "step": "create",
+      "status": 201,
+      "traceId": "ddd381c7-ee18-433e-8cb9-a9d49c04140e",
+      "detail": "FD-20261009-021 由员工通过界面创建"
+    },
+    {
+      "step": "claim",
+      "status": 200,
+      "traceId": "04746b2d-7a6e-46a1-b44c-361e37d9b900",
+      "detail": "IT 领取成功，工单进入「处理中」"
+    }
+  ],
+  "note": "只验证条件输入的出现与消失，未提交关闭动作"
+}

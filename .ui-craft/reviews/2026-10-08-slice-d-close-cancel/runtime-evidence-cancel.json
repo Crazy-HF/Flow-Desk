@@ -1,0 +1,24 @@
+{
+  "ticketNo": "FD-20261008-074",
+  "title": "E2E 片D撤销 814872",
+  "steps": [
+    {
+      "step": "create",
+      "status": 201,
+      "traceId": "7a973b14-e2d6-44c5-9b16-82bc5597d602",
+      "detail": "FD-20261008-074 由员工通过界面创建"
+    },
+    {
+      "step": "claim",
+      "status": 200,
+      "traceId": "aa6eb519-76b6-42dd-a030-dc94b8aa3e39",
+      "detail": "IT 领取成功，工单进入「处理中」"
+    },
+    {
+      "step": "cancel",
+      "status": 200,
+      "traceId": "d4d8a2ec-9385-422b-a6de-11b043799c5f",
+      "detail": "提交人在「处理中」撤销成功，工单进入「已取消」"
+    }
+  ]
+}
