@@ -1,0 +1,82 @@
+{
+  "rows": [
+    {
+      "user": "admin",
+      "name": "permissions",
+      "url": "/admin/permissions",
+      "overflow": 0,
+      "heading": "权限管理"
+    },
+    {
+      "user": "admin",
+      "name": "categories",
+      "url": "/admin/categories",
+      "overflow": 0,
+      "heading": "分类管理"
+    },
+    {
+      "user": "admin",
+      "name": "user-roles",
+      "url": "/admin/user-roles?userId=3",
+      "overflow": 0,
+      "heading": "用户角色授权"
+    },
+    {
+      "user": "admin",
+      "name": "role-permissions",
+      "url": "/admin/role-permissions?roleId=1",
+      "overflow": 0,
+      "heading": "角色权限授权"
+    },
+    {
+      "user": "admin",
+      "name": "notifications",
+      "url": "/notifications",
+      "overflow": 0,
+      "heading": "站内信"
+    },
+    {
+      "user": "admin",
+      "name": "tickets",
+      "url": "/tickets",
+      "overflow": 0,
+      "heading": "没有访问权限"
+    },
+    {
+      "user": "admin",
+      "name": "forbidden",
+      "url": "/403",
+      "overflow": 0,
+      "heading": "没有访问权限"
+    },
+    {
+      "user": "admin",
+      "name": "not-found",
+      "url": "/nope",
+      "overflow": 0,
+      "heading": "页面不存在"
+    },
+    {
+      "user": "it",
+      "name": "dashboard",
+      "url": "/dashboard",
+      "overflow": 0,
+      "heading": "数据概览"
+    },
+    {
+      "user": "it",
+      "name": "it-queue",
+      "url": "/it/queue",
+      "overflow": 0,
+      "heading": "IT 工作台"
+    },
+    {
+      "user": "employee",
+      "name": "ticket-new",
+      "url": "/tickets/new",
+      "overflow": 0,
+      "heading": "新建工单"
+    }
+  ],
+  "errors": []
+}

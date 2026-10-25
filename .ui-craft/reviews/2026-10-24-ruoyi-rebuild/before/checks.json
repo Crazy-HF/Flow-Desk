@@ -1,0 +1,62 @@
+[
+  {
+    "viewport": "1920x1080",
+    "page": "home",
+    "overflowX": 0,
+    "file": "1920x1080-home.png"
+  },
+  {
+    "viewport": "1920x1080",
+    "page": "users",
+    "overflowX": 0,
+    "file": "1920x1080-users.png"
+  },
+  {
+    "viewport": "1920x1080",
+    "page": "roles",
+    "overflowX": 0,
+    "file": "1920x1080-roles.png"
+  },
+  {
+    "viewport": "1440x900",
+    "page": "home",
+    "overflowX": 0,
+    "file": "1440x900-home.png"
+  },
+  {
+    "viewport": "1440x900",
+    "page": "users",
+    "overflowX": 0,
+    "file": "1440x900-users.png"
+  },
+  {
+    "viewport": "1440x900",
+    "page": "roles",
+    "overflowX": 0,
+    "file": "1440x900-roles.png"
+  },
+  {
+    "viewport": "375x812",
+    "page": "home",
+    "overflowX": 0,
+    "file": "375x812-home.png"
+  },
+  {
+    "viewport": "375x812",
+    "page": "users",
+    "overflowX": 0,
+    "file": "375x812-users.png"
+  },
+  {
+    "viewport": "375x812",
+    "page": "roles",
+    "overflowX": 0,
+    "file": "375x812-roles.png"
+  },
+  {
+    "viewport": "1440x900",
+    "page": "ticket-detail",
+    "overflowX": 0,
+    "file": "1440x900-ticket-detail.png"
+  }
+]

@@ -1,0 +1,27 @@
+[
+  {
+    "page": "1440x900-users-loading",
+    "overflowX": 0,
+    "file": "1440x900-users-loading.png"
+  },
+  {
+    "page": "1440x900-users-error",
+    "overflowX": 0,
+    "file": "1440x900-users-error.png"
+  },
+  {
+    "page": "1440x900-drawer-loading",
+    "overflowX": 0,
+    "file": "1440x900-drawer-loading.png"
+  },
+  {
+    "page": "1440x900-drawer-error",
+    "overflowX": 0,
+    "file": "1440x900-drawer-error.png"
+  },
+  {
+    "page": "1440x900-drawer-saving",
+    "overflowX": 0,
+    "file": "1440x900-drawer-saving.png"
+  }
+]
