@@ -63,8 +63,9 @@ const crumbs = computed<BreadcrumbCrumb[]>(() => {
     class="app-breadcrumb"
     aria-label="面包屑"
   >
-    <!-- 不用 / 分隔：每一级各自成块，层级靠底色与字重区分，间距由 CSS 的 gap 给 -->
-    <el-breadcrumb separator="">
+    <!-- 分隔符交给 Element Plus 的默认 "/"：它在 .el-breadcrumb__inner 之外，
+         既不影响各级文字，也不必再用伪元素补一个看不见的字符。 -->
+    <el-breadcrumb separator="/">
       <el-breadcrumb-item
         v-for="(crumb, index) in crumbs"
         :key="`${crumb.label}-${index}`"

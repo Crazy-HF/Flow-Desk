@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { Bell, FullScreen, Search } from '@element-plus/icons-vue'
+import { ArrowDown, Bell, Expand, Fold, FullScreen, Search } from '@element-plus/icons-vue'
 import { storeToRefs } from 'pinia'
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import {
@@ -16,15 +16,20 @@ import { useAuthStore } from '@/stores/auth'
 import { formatDateTime } from '@/utils/format'
 
 /**
- * 顶栏的账户区（顶栏右侧）。
+ * 顶栏：左侧是壳层开关与面包屑，右侧是"当前身份能做什么"。
  *
- * <p>品牌位在 `layout/index.vue` 里，与侧栏同宽；这里只管"当前身份能做什么"：
- * 搜索入口、站内信铃铛、全屏、当前身份与账号菜单。</p>
+ * <p>面包屑由布局通过默认插槽传入——它属于"我在哪"，和账户区共用同一条 52px 的横带，
+ * 这样页面标签带才能独占下一行。品牌位在侧栏，不在这里重复。</p>
  *
  * <p>站内信端点只要求认证、没有权限码，所以这里不做权限收口，只按当前身份轮询未读数。
  * 轮询失败一律静默：通知接口失败不该弹全局错误，也不该打断顶栏其它功能。</p>
  */
-defineEmits<{
+const props = defineProps<{
+  collapsed?: boolean
+}>()
+
+const emit = defineEmits<{
+  toggleCollapse: []
   toggleNavigation: []
 }>()
 
@@ -34,6 +39,9 @@ const router = useRouter()
 
 const passwordDialogVisible = ref(false)
 const isFullscreen = ref(false)
+
+/** 头像位只有姓名首字：没有头像上传能力，就不摆一个假照片。 */
+const avatarInitial = computed(() => user.value?.displayName?.slice(0, 1) ?? '·')
 
 // ---------- 站内信 ----------
 
@@ -147,14 +155,32 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="app-header">
-    <el-button
-      class="app-header__menu-button"
-      text
+    <!-- 窄屏：导航收进抽屉；宽屏：侧栏可收起为图标列。两个入口互斥，避免同一位置有两种含义。 -->
+    <button
+      class="app-header__icon-button app-header__menu-button"
+      type="button"
       aria-label="打开主导航"
-      @click="$emit('toggleNavigation')"
+      title="打开主导航"
+      @click="emit('toggleNavigation')"
     >
-      菜单
-    </el-button>
+      <el-icon aria-hidden="true">
+        <Expand />
+      </el-icon>
+    </button>
+
+    <button
+      class="app-header__icon-button app-header__collapse-button"
+      type="button"
+      :aria-label="props.collapsed ? '展开侧栏' : '收起侧栏'"
+      :title="props.collapsed ? '展开侧栏' : '收起侧栏'"
+      @click="emit('toggleCollapse')"
+    >
+      <el-icon aria-hidden="true">
+        <component :is="props.collapsed ? Expand : Fold" />
+      </el-icon>
+    </button>
+
+    <slot />
 
     <div class="app-header__actions">
       <!-- 后端还没有检索接口：保留搜索位并明确禁用，不用可点击的假输入框冒充功能。 -->
@@ -263,12 +289,33 @@ onBeforeUnmount(() => {
         </el-icon>
       </button>
 
-      <span class="app-header__identity">{{ user?.displayName }}</span>
+      <span
+        class="app-header__divider"
+        aria-hidden="true"
+      />
 
       <el-dropdown trigger="click">
-        <el-button text>
-          账号
-        </el-button>
+        <button
+          class="app-header__account"
+          type="button"
+          aria-label="账号"
+          title="账号"
+        >
+          <span
+            class="app-header__avatar"
+            aria-hidden="true"
+          >{{ avatarInitial }}</span>
+          <span class="app-header__account-text">
+            <span class="app-header__identity">{{ user?.displayName }}</span>
+            <span class="app-header__account-hint">当前身份</span>
+          </span>
+          <el-icon
+            class="app-header__account-chevron"
+            aria-hidden="true"
+          >
+            <ArrowDown />
+          </el-icon>
+        </button>
         <template #dropdown>
           <el-dropdown-menu>
             <el-dropdown-item @click="passwordDialogVisible = true">

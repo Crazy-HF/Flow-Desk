@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, Refresh } from '@element-plus/icons-vue'
+import { ArrowDown, Check, Refresh } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
@@ -44,6 +44,9 @@ const COLUMN = {
 } as const
 
 /** 只看未读（改了它要重新请求，所以属于筛选条件，放在筛选卡里）。 */
+/** 筛选面板的展开状态：只有一个开关，收起后多留一行给列表。 */
+const filtersOpen = ref(true)
+
 const unreadOnly = ref(false)
 
 const { items, total, pageNo, pageSize, phase, errorMessage, retrying, search, load } =
@@ -158,19 +161,48 @@ onMounted(() => {
   >
     <section
       class="admin-filter-card"
+      :class="{ 'admin-filter-card--collapsed': !filtersOpen }"
       aria-label="站内信筛选"
     >
-      <div class="admin-filter-fields">
-        <span class="admin-filter-field">
-          状态
-          <el-switch
-            id="notification-unread-only"
-            v-model="unreadOnly"
-            active-text="只看未读"
-            aria-label="只看未读通知"
-            @change="onUnreadOnlyChange"
-          />
-        </span>
+      <header class="admin-filter-card__head">
+        <h2 class="admin-filter-card__title">
+          筛选条件
+        </h2>
+        <button
+          class="admin-filter-card__toggle"
+          type="button"
+          aria-controls="notification-filter-fields"
+          :aria-expanded="filtersOpen"
+          @click="filtersOpen = !filtersOpen"
+        >
+          {{ filtersOpen ? '收起' : '展开' }}
+          <el-icon
+            class="admin-filter-card__chevron"
+            :class="{ 'admin-filter-card__chevron--collapsed': !filtersOpen }"
+            aria-hidden="true"
+          >
+            <ArrowDown />
+          </el-icon>
+        </button>
+      </header>
+
+      <div
+        v-show="filtersOpen"
+        id="notification-filter-fields"
+        class="admin-filter-card__body"
+      >
+        <div class="admin-filter-fields">
+          <span class="admin-filter-field">
+            状态
+            <el-switch
+              id="notification-unread-only"
+              v-model="unreadOnly"
+              active-text="只看未读"
+              aria-label="只看未读通知"
+              @change="onUnreadOnlyChange"
+            />
+          </span>
+        </div>
       </div>
     </section>
 
@@ -178,31 +210,50 @@ onMounted(() => {
       class="admin-data notification-data"
       aria-label="站内信数据"
     >
-      <div class="admin-action-bar">
-        <el-button
-          :icon="Check"
-          type="primary"
-          @click="onMarkAllClick"
-        >
-          全部已读
-        </el-button>
-
-        <div class="admin-action-bar__end">
-          <el-tooltip
-            content="刷新列表"
-            placement="top"
-          >
-            <el-button
-              :icon="Refresh"
-              :loading="retrying"
-              aria-label="刷新列表"
-              type="info"
-              plain
-              @click="search"
-            />
-          </el-tooltip>
+      <header class="admin-data__head">
+        <div class="admin-data__heading">
+          <h2 class="admin-data__title">
+            站内信列表
+          </h2>
+          <p class="admin-data__summary">
+            <template v-if="phase === 'ready'">
+              共 {{ total }} 条通知，未读的会一直保留在这里。
+            </template>
+            <template v-else-if="phase === 'loading'">
+              正在读取站内信…
+            </template>
+            <template v-else>
+              记录数暂时无法读取。
+            </template>
+          </p>
         </div>
-      </div>
+
+        <div class="admin-action-bar">
+          <el-button
+            :icon="Check"
+            type="primary"
+            @click="onMarkAllClick"
+          >
+            全部已读
+          </el-button>
+
+          <div class="admin-action-bar__end">
+            <el-tooltip
+              content="刷新列表"
+              placement="top"
+            >
+              <el-button
+                :icon="Refresh"
+                :loading="retrying"
+                aria-label="刷新列表"
+                type="info"
+                plain
+                @click="search"
+              />
+            </el-tooltip>
+          </div>
+        </div>
+      </header>
 
       <AdminListPanel
         :empty-description="emptyDescription"

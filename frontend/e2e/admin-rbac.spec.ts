@@ -31,46 +31,9 @@ function rowWith(page: Page, text: string) {
   return page.locator('tbody tr').filter({ hasText: text })
 }
 
-/**
- * 在下拉里选一项（按控件自己的可访问名定位它所在的筛选字段）。
- *
- * <p>点 select 的根元素而不是内部的 input：内部 input 被占位符覆盖，Playwright 会判定
- * "pointer events 被拦截"。选完用 `toContainText` 断言命中的确实是目标项——否则选错
- * 下拉会静默变成"没选"，表现为后面那句成功提示永远等不到。</p>
- */
-async function pickOption(page: Page, fieldLabel: string, query: string): Promise<void> {
-  const select = page.locator(`.admin-filter-field:has([aria-label="${fieldLabel}"]) .el-select`)
-  await select.click()
-  await page.keyboard.type(query)
-  const option = page.locator('.el-select-dropdown__item:visible').first()
-  await expect(option).toContainText(query)
-  await option.click()
-  await page.keyboard.press('Escape')
-  await expect(select).toContainText(query)
-}
-
 /** popconfirm 的确认按钮渲染在挂载到 body 的弹层里，只取当前可见的那个。 */
 async function confirmPopconfirm(page: Page): Promise<void> {
   await page.locator('.el-popconfirm__action button:visible').filter({ hasText: '确定' }).click()
-}
-
-/**
- * 点「批量授予」，并直接断言批量端点的响应。
- *
- * <p>比对提示文案更可靠：提示只活 3 秒，超时后什么都看不到；这里拿到的是状态码与
- * `data` 长度，失败时能直接看到后端说了什么。</p>
- */
-async function submitGrant(page: Page, endpoint: string, expectedNew: number): Promise<void> {
-  const [response] = await Promise.all([
-    page.waitForResponse(
-      (candidate) =>
-        candidate.url().endsWith(endpoint) && candidate.request().method() === 'POST',
-    ),
-    page.getByRole('button', { name: '批量授予' }).click(),
-  ])
-  expect(response.status(), await response.text()).toBe(200)
-  const body = (await response.json()) as { data: unknown[] }
-  expect(body.data).toHaveLength(expectedNew)
 }
 
 test('角色与权限闭环：建角色 → 授权限 → 清空并删除，清理干净', async ({ page }, testInfo) => {
@@ -92,21 +55,26 @@ test('角色与权限闭环：建角色 → 授权限 → 清空并删除，清�
   await expect(page.getByText('角色已创建')).toBeVisible()
   await expect(rowWith(page, roleCode)).toBeVisible()
 
-  // 授权限：从角色行进入角色权限授权页，角色已被带过去（新角色还没有任何权限）
-  await rowWith(page, roleCode).getByRole('button', { name: '维护角色权限' }).click()
-  await expect(page).toHaveURL(/\/admin\/role-permissions\?roleId=\d+/)
-  await expect(page.getByText('该角色当前没有权限')).toBeVisible()
+  // 授权限：从角色行打开抽屉，角色已被带进去（新角色还没有任何权限）
+  await rowWith(page, roleCode).getByRole('button', { name: '分配权限' }).click()
+  const drawer = page.locator('.grant-drawer')
+  await expect(drawer).toBeVisible()
+  await expect(drawer.getByText('该角色当前没有权限')).toBeVisible()
 
-  await pickOption(page, '要授予的权限', 'TICKET_CREATE')
-  await submitGrant(page, '/admin/role-permissions', 1)
-  await expect(page.locator('.grant-row').filter({ hasText: 'TICKET_CREATE' })).toBeVisible()
+  await drawer.getByPlaceholder('请输入权限编码或名称').fill('TICKET_CREATE')
+  await drawer.locator('.grant-choice').filter({ hasText: 'TICKET_CREATE' }).click()
+  await drawer.getByRole('button', { name: '保存' }).click()
+  await expect(page.getByText(/已提交 1 个权限/)).toBeVisible()
+  await expect(drawer.locator('.grant-drawer__row').filter({ hasText: 'TICKET_CREATE' })).toBeVisible()
 
-  await page.screenshot({ path: testInfo.outputPath('admin-role-permissions.png'), fullPage: true })
+  await page.screenshot({ path: testInfo.outputPath('admin-role-permissions-drawer.png'), fullPage: true })
 
-  // 清理：先清空该角色全部权限，再删除角色
-  await page.getByRole('button', { name: '清空全部权限' }).click()
+  // 清理：先在抽屉里清空该角色全部权限，再关闭抽屉删除角色
+  await drawer.getByRole('button', { name: '清空全部' }).click()
   await confirmPopconfirm(page)
   await expect(page.getByText('已清空该角色的全部权限')).toBeVisible()
+  await drawer.getByRole('button', { name: '关闭' }).click()
+  await expect(drawer).toBeHidden()
 
   await openEntry(page, '角色管理')
   await rowWith(page, roleCode).getByRole('button', { name: '删除角色' }).click()
@@ -137,24 +105,27 @@ test('用户角色闭环：给员工授临时角色 → 撤销，并保护内置
   await expect(rowWith(page, 'admin').first()).toContainText('管理员保护')
   await page.screenshot({ path: testInfo.outputPath('admin-users.png'), fullPage: true })
 
-  await rowWith(page, 'employee').first().getByRole('button', { name: '角色授权' }).click()
-  await expect(page).toHaveURL(/\/admin\/user-roles\?userId=\d+/)
+  // 行上的「分配角色」打开抽屉：列表的筛选与页码留在原处
+  await rowWith(page, 'employee').first().getByRole('button', { name: '分配角色' }).click()
+  const userDrawer = page.locator('.grant-drawer')
+  await expect(userDrawer).toBeVisible()
+  await expect(userDrawer.getByText('当前角色')).toBeVisible()
 
-  // 路由跳转先于预选用户的异步初始化；初始化会清空角色选择，等关系加载后再操作。
-  await expect(page.locator('.grant-row').filter({ hasText: 'employee' }).first()).toBeVisible()
+  await userDrawer.locator('.grant-choice').filter({ hasText: roleCode }).click()
+  await userDrawer.getByRole('button', { name: '保存' }).click()
+  await expect(page.getByText(/已提交 1 个角色/)).toBeVisible()
 
-  await pickOption(page, '要授予的角色', roleCode)
-  await submitGrant(page, '/admin/user-roles', 1)
-
-  const granted = page.locator('.grant-row').filter({ hasText: roleCode })
+  const granted = userDrawer.locator('.grant-drawer__row').filter({ hasText: roleCode })
   await expect(granted).toBeVisible()
-  await page.screenshot({ path: testInfo.outputPath('admin-user-roles.png'), fullPage: true })
+  await page.screenshot({ path: testInfo.outputPath('admin-user-roles-drawer.png'), fullPage: true })
 
-  // 清理：撤销这条关系，再删除临时角色
+  // 清理：撤销这条关系，关闭抽屉，再删除临时角色
   await granted.getByRole('button', { name: '撤销' }).click()
   await confirmPopconfirm(page)
   await expect(page.getByText(/已撤销/)).toBeVisible()
-  await expect(page.locator('.grant-row').filter({ hasText: roleCode })).toHaveCount(0)
+  await expect(userDrawer.locator('.grant-drawer__row').filter({ hasText: roleCode })).toHaveCount(0)
+  await userDrawer.getByRole('button', { name: '关闭' }).click()
+  await expect(userDrawer).toBeHidden()
 
   await openEntry(page, '角色管理')
   await rowWith(page, roleCode).getByRole('button', { name: '删除角色' }).click()
@@ -212,10 +183,10 @@ test.describe('窄屏', () => {
     await page.screenshot({ path: testInfo.outputPath('admin-users-narrow.png'), fullPage: true })
 
     await page.goto('/admin/roles')
-    await rowWith(page, 'SYSTEM_ADMIN').first().getByRole('button', { name: '维护角色权限' }).click()
-    await expect(page).toHaveURL(/\/admin\/role-permissions\?roleId=\d+/)
-    await expect(page.locator('.grant-row').first()).toBeVisible()
-    await expect(page.locator('.grant-row__axis').first()).toBeHidden()
+    await rowWith(page, 'SYSTEM_ADMIN').first().getByRole('button', { name: '分配权限' }).click()
+    const drawer = page.locator('.grant-drawer')
+    await expect(drawer).toBeVisible()
+    await expect(drawer.locator('.grant-drawer__row').first()).toBeVisible()
     expect(await documentOverflow(page)).toBeLessThanOrEqual(0)
   })
 })

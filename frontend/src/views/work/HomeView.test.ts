@@ -78,11 +78,11 @@ describe('HomeView', () => {
     const wrapper = mountHome()
 
     expect(wrapper.find('[aria-busy="true"]').exists()).toBe(true)
-    expect(wrapper.text()).toContain('正在恢复你的身份与工作入口')
+    expect(wrapper.find('.home-skeleton').exists()).toBe(true)
 
     completeLoad()
     await flushPromises()
-    expect(wrapper.text()).toContain('你的工作入口')
+    expect(wrapper.text()).toContain('工作入口')
   })
 
   it('身份加载失败时可原位重试', async () => {
@@ -102,6 +102,6 @@ describe('HomeView', () => {
     await flushPromises()
 
     expect(wrapper.find('[role="alert"]').exists()).toBe(false)
-    expect(wrapper.text()).toContain('你的工作入口')
+    expect(wrapper.text()).toContain('工作入口')
   })
 })

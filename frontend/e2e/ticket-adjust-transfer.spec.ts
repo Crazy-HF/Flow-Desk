@@ -80,7 +80,7 @@ function record(
 
 /** 管理接口登录后的请求头；调用方负责在 finally 里退出登录。 */
 async function adminHeaders(request: APIRequestContext) {
-  const origin = { Origin: 'http://127.0.0.1:4173' }
+  const origin = { Origin: process.env.E2E_ORIGIN ?? 'http://127.0.0.1:4173' }
   const login = await request.post('/fd/v1/auth/login', {
     headers: origin,
     data: { username: adminUsername, password },
@@ -224,7 +224,7 @@ test('片 C：IT 调整分类与优先级、转交给另一名 IT，接手人能
   const created = await creating
   expect(created.status()).toBe(201)
   await expect(page).toHaveURL(/\/tickets\/FD-\d{8}-\d{3}$/)
-  const ticketNo = (await page.locator('.ticket-meta__no').innerText()).trim()
+  const ticketNo = (await page.locator('.ticket-hero__no').innerText()).trim()
   record(steps, 'create', created, `${ticketNo} 由员工通过界面创建`)
   await signOut(page)
 
@@ -247,7 +247,7 @@ test('片 C：IT 调整分类与优先级、转交给另一名 IT，接手人能
   expect(claimed.status()).toBe(200)
   record(steps, 'claim', claimed, 'IT 领取成功')
 
-  await expect(page.locator('.ticket-meta')).toContainText('处理中')
+  await expect(page.locator('.ticket-hero')).toContainText('处理中')
   expect(await actionLabels(page)).toEqual([
     '记录处理过程',
     '提交解决结果',
@@ -271,7 +271,7 @@ test('片 C：IT 调整分类与优先级、转交给另一名 IT，接手人能
     categoryChange.response,
     `分类改为「${categoryChange.chosen}」，状态与负责人不变`,
   )
-  await expect(page.locator('.ticket-meta')).toContainText('处理中')
+  await expect(page.locator('.ticket-hero')).toContainText('处理中')
   await expect(facts(page)).toContainText(categoryChange.chosen)
 
   const priorityChange = await performSelectAction(page, '调整优先级', {
@@ -309,7 +309,7 @@ test('片 C：IT 调整分类与优先级、转交给另一名 IT，接手人能
   expect(transfer.response.status()).toBe(200)
   record(steps, 'transfer', transfer.response, `负责人替换为 ${target.displayName}`)
 
-  await expect(page.locator('.ticket-meta')).toContainText('处理中')
+  await expect(page.locator('.ticket-hero')).toContainText('处理中')
   await expect(facts(page)).toContainText(target.displayName)
   const transferRecord = page.locator('.ticket-timeline__item').filter({ hasText: '转交工单' })
   await expect(transferRecord).toHaveCount(1)
@@ -324,7 +324,7 @@ test('片 C：IT 调整分类与优先级、转交给另一名 IT，接手人能
   await signIn(page, target.username, target.password)
   await page.goto(`/tickets/${ticketNo}`)
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(title)
-  await expect(page.locator('.ticket-meta')).toContainText('处理中')
+  await expect(page.locator('.ticket-hero')).toContainText('处理中')
   expect(await actionLabels(page)).toEqual([
     '记录处理过程',
     '提交解决结果',
@@ -356,7 +356,7 @@ test('片 C：IT 调整分类与优先级、转交给另一名 IT，接手人能
   const resolved = await resolving
   expect(resolved.status()).toBe(200)
   record(steps, 'submit-resolution', resolved, '接手人提交解决结果')
-  await expect(page.locator('.ticket-meta')).toContainText('待员工确认')
+  await expect(page.locator('.ticket-hero')).toContainText('待员工确认')
   await signOut(page)
 
   // ---------- 5. 员工确认，工单完成：转交出去的工作确实被接完了 ----------
@@ -373,7 +373,7 @@ test('片 C：IT 调整分类与优先级、转交给另一名 IT，接手人能
   const confirmed = await confirming
   expect(confirmed.status()).toBe(200)
   record(steps, 'confirm-resolution', confirmed, '员工确认，工单进入已完成')
-  await expect(page.locator('.ticket-meta')).toContainText('已完成')
+  await expect(page.locator('.ticket-hero')).toContainText('已完成')
   await expect(page.locator('.ticket-action-panel')).toHaveCount(0)
 
   // 时间线：调整与转交都能在完成后的工单上回看

@@ -25,13 +25,15 @@ async function mountLayout(path = '/') {
 }
 
 describe('AppLayout', () => {
-  it('顶栏由品牌位与账户区两段拼成，品牌链接指向首页', async () => {
+  it('品牌位移到侧栏顶部，顶栏只剩开关、面包屑与账户区', async () => {
     const { wrapper } = await mountLayout()
 
     expect(wrapper.find('.app-shell__header').exists()).toBe(true)
-    expect(wrapper.get('.app-shell__brand-link').text()).toBe('FlowDesk')
-    expect(wrapper.get('.app-shell__brand-link').attributes('href')).toBe('/')
+    // 品牌位属于侧栏：顶栏不再重复一次产品名
+    expect(wrapper.get('.app-sidebar__brand-name').text()).toBe('FlowDesk')
+    expect(wrapper.get('.app-sidebar__brand').attributes('href')).toBe('/')
     expect(wrapper.find('.app-header__search').exists()).toBe(true)
+    expect(wrapper.find('.app-shell__tabs').exists()).toBe(true)
   })
 
   it('侧栏与面包屑各占一层，主体内容挂在 main 上供跳过链接定位', async () => {
@@ -46,7 +48,8 @@ describe('AppLayout', () => {
   it('首页不重复出现"首页"面包屑，只标出当前位置', async () => {
     const { wrapper } = await mountLayout()
 
-    expect(wrapper.get('nav[aria-label="面包屑"]').text()).toBe('首页')
+    // 分隔符由 Element Plus 渲染在每一级内部，只取文字层才能确认没有重复的"首页"
+    expect(wrapper.get('nav[aria-label="面包屑"] .el-breadcrumb__inner').text()).toBe('首页')
     expect(wrapper.findAll('.el-breadcrumb__item')).toHaveLength(1)
   })
 })

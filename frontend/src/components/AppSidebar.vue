@@ -1,11 +1,20 @@
 <script setup lang="ts">
-import { ArrowDown } from '@element-plus/icons-vue'
+import { ArrowDown, Close, HomeFilled, Tickets } from '@element-plus/icons-vue'
+import type { Component } from 'vue'
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
 import { navigationEntries, navigationGroupLabels } from '@/constants/authorization'
-import type { NavigationGroup } from '@/constants/authorization'
+import type { NavigationEntry, NavigationGroup } from '@/constants/authorization'
+import { groupIcons, iconForRoute } from '@/constants/navigationIcons'
 import { useAuthStore } from '@/stores/auth'
+
+const props = defineProps<{
+  /** 桌面端收起：只留图标列。窄屏抽屉始终以完整形态渲染。 */
+  collapsed?: boolean
+  /** 抽屉形态：多一个显式关闭按钮，不能只靠遮罩与 Esc。 */
+  dismissible?: boolean
+}>()
 
 const emit = defineEmits<{
   navigate: []
@@ -15,10 +24,12 @@ const auth = useAuthStore()
 const route = useRoute()
 
 /**
+ * 图标来自 `constants/navigationIcons.ts`：侧栏与首页入口共用同一份映射，
+ * 同一个页面不会在两处得到两个图标。
+ */
+
+/**
  * 这里只控制界面入口；服务端仍会对每个请求重新鉴权。
- *
- * <p>图标位随 `NavigationEntry.icon` 预留：后端暂无菜单与 icon 契约，字段为空时不出图标，
- * 因此当前每行只有文字，行高与选中态不受图标缺失影响。</p>
  *
  * <p>声明了 `role` 的入口还要求持有该角色：数据概览（8.5）要求 `DASHBOARD_VIEW` 与
  * `IT_SUPPORT` 同时成立，只有权限码的账号点进去也只会得到 `403`。</p>
@@ -52,14 +63,42 @@ function isActive(name: string, activeRouteNames: string[] = []): boolean {
   return route.name === name || activeRouteNames.includes(String(route.name))
 }
 
-/** 一级项与首页同规格；只有"有二级菜单的栏目"才是可折叠的。 */
-function groupHasActiveEntry(entries: { name: string; activeRouteNames?: string[] }[]): boolean {
-  return entries.some((entry) => isActive(entry.name, entry.activeRouteNames))
+function iconFor(entry: NavigationEntry): Component {
+  return iconForRoute(entry.name, entry.group)
 }
 </script>
 
 <template>
   <aside class="app-sidebar">
+    <RouterLink
+      class="app-sidebar__brand"
+      to="/"
+      aria-label="FlowDesk 首页"
+      @click="emit('navigate')"
+    >
+      <span
+        class="app-sidebar__mark"
+        aria-hidden="true"
+      >
+        <el-icon><Tickets /></el-icon>
+      </span>
+      <span class="app-sidebar__brand-name">FlowDesk</span>
+    </RouterLink>
+
+    <!-- 抽屉形态的显式关闭入口：放在品牌链接之外，避免按钮嵌在链接里（交互元素不能嵌套）。 -->
+    <button
+      v-if="props.dismissible"
+      class="app-sidebar__dismiss"
+      type="button"
+      aria-label="关闭主导航"
+      title="关闭主导航"
+      @click="emit('navigate')"
+    >
+      <el-icon aria-hidden="true">
+        <Close />
+      </el-icon>
+    </button>
+
     <nav
       class="app-sidebar__navigation"
       aria-label="主导航"
@@ -68,10 +107,18 @@ function groupHasActiveEntry(entries: { name: string; activeRouteNames?: string[
         class="app-sidebar__link"
         :class="{ 'app-sidebar__link--active': route.name === 'home' }"
         :aria-current="route.name === 'home' ? 'page' : undefined"
+        :aria-label="props.collapsed ? '首页' : undefined"
+        :title="props.collapsed ? '首页' : undefined"
         :to="{ name: 'home' }"
         @click="emit('navigate')"
       >
-        首页
+        <el-icon
+          class="app-sidebar__icon"
+          aria-hidden="true"
+        >
+          <HomeFilled />
+        </el-icon>
+        <span class="app-sidebar__label">首页</span>
       </RouterLink>
 
       <section
@@ -81,14 +128,19 @@ function groupHasActiveEntry(entries: { name: string; activeRouteNames?: string[
       >
         <button
           :id="`nav-group-${group.key}`"
-          class="app-sidebar__link app-sidebar__group-toggle"
-          :class="{ 'app-sidebar__group-toggle--active': groupHasActiveEntry(group.entries) }"
+          class="app-sidebar__group-label"
           type="button"
           :aria-controls="`nav-group-${group.key}-items`"
           :aria-expanded="expanded[group.key]"
           @click="toggleGroup(group.key)"
         >
-          <span>{{ group.label }}</span>
+          <el-icon
+            class="app-sidebar__icon"
+            aria-hidden="true"
+          >
+            <component :is="groupIcons[group.key]" />
+          </el-icon>
+          <span class="app-sidebar__label">{{ group.label }}</span>
           <el-icon
             class="app-sidebar__chevron"
             :class="{ 'app-sidebar__chevron--expanded': expanded[group.key] }"
@@ -99,7 +151,7 @@ function groupHasActiveEntry(entries: { name: string; activeRouteNames?: string[
         </button>
 
         <ul
-          v-show="expanded[group.key]"
+          v-show="props.collapsed || expanded[group.key]"
           :id="`nav-group-${group.key}-items`"
           :aria-labelledby="`nav-group-${group.key}`"
         >
@@ -113,10 +165,18 @@ function groupHasActiveEntry(entries: { name: string; activeRouteNames?: string[
                 'app-sidebar__link--active': isActive(entry.name, entry.activeRouteNames),
               }"
               :aria-current="isActive(entry.name, entry.activeRouteNames) ? 'page' : undefined"
+              :aria-label="props.collapsed ? entry.label : undefined"
+              :title="props.collapsed ? entry.label : undefined"
               :to="{ name: entry.name }"
               @click="emit('navigate')"
             >
-              {{ entry.label }}
+              <el-icon
+                class="app-sidebar__icon"
+                aria-hidden="true"
+              >
+                <component :is="iconFor(entry)" />
+              </el-icon>
+              <span class="app-sidebar__label">{{ entry.label }}</span>
             </RouterLink>
           </li>
         </ul>

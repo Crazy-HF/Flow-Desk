@@ -1,0 +1,195 @@
+[
+  {
+    "viewport": "1920x1080",
+    "page": "home",
+    "overflowX": 0,
+    "file": "1920x1080-home.png"
+  },
+  {
+    "viewport": "1920x1080",
+    "page": "users",
+    "overflowX": 0,
+    "file": "1920x1080-users.png"
+  },
+  {
+    "viewport": "1920x1080",
+    "page": "roles",
+    "overflowX": 0,
+    "file": "1920x1080-roles.png"
+  },
+  {
+    "viewport": "1920x1080",
+    "page": "drawer-user-roles",
+    "overflowX": 0,
+    "file": "1920x1080-drawer-user-roles.png"
+  },
+  {
+    "viewport": "1920x1080",
+    "page": "drawer-user-roles-focus",
+    "focusAria": "分配角色"
+  },
+  {
+    "viewport": "1920x1080",
+    "page": "drawer-role-permissions",
+    "overflowX": 0,
+    "file": "1920x1080-drawer-role-permissions.png"
+  },
+  {
+    "viewport": "1920x1080",
+    "pageErrors": []
+  },
+  {
+    "viewport": "1440x900",
+    "page": "home",
+    "overflowX": 0,
+    "file": "1440x900-home.png"
+  },
+  {
+    "viewport": "1440x900",
+    "page": "users",
+    "overflowX": 0,
+    "file": "1440x900-users.png"
+  },
+  {
+    "viewport": "1440x900",
+    "page": "roles",
+    "overflowX": 0,
+    "file": "1440x900-roles.png"
+  },
+  {
+    "viewport": "1440x900",
+    "page": "users-empty",
+    "overflowX": 0,
+    "file": "1440x900-users-empty.png"
+  },
+  {
+    "viewport": "1440x900",
+    "page": "drawer-user-roles",
+    "overflowX": 0,
+    "file": "1440x900-drawer-user-roles.png"
+  },
+  {
+    "viewport": "1440x900",
+    "page": "drawer-user-roles-focus",
+    "focusAria": "分配角色"
+  },
+  {
+    "viewport": "1440x900",
+    "page": "drawer-role-permissions",
+    "overflowX": 0,
+    "file": "1440x900-drawer-role-permissions.png"
+  },
+  {
+    "viewport": "1440x900",
+    "page": "tabs",
+    "before": [
+      "首页",
+      "用户管理",
+      "角色管理"
+    ],
+    "afterCloseInactive": {
+      "url": "/admin/roles",
+      "tabs": [
+        "首页",
+        "角色管理"
+      ]
+    },
+    "afterCloseActive": {
+      "url": "/",
+      "tabs": [
+        "首页"
+      ]
+    }
+  },
+  {
+    "viewport": "1440x900",
+    "page": "home-after-tab-close",
+    "overflowX": 0,
+    "file": "1440x900-home-after-tab-close.png"
+  },
+  {
+    "viewport": "1440x900",
+    "page": "sidebar-collapsed",
+    "labelDisplays": [
+      "none"
+    ]
+  },
+  {
+    "viewport": "1440x900",
+    "page": "users-sidebar-collapsed",
+    "overflowX": 0,
+    "file": "1440x900-users-sidebar-collapsed.png"
+  },
+  {
+    "viewport": "1440x900",
+    "pageErrors": []
+  },
+  {
+    "viewport": "375x812",
+    "page": "home",
+    "overflowX": 0,
+    "file": "375x812-home.png"
+  },
+  {
+    "viewport": "375x812",
+    "page": "users",
+    "overflowX": 0,
+    "file": "375x812-users.png"
+  },
+  {
+    "viewport": "375x812",
+    "page": "roles",
+    "overflowX": 0,
+    "file": "375x812-roles.png"
+  },
+  {
+    "viewport": "375x812",
+    "page": "drawer-user-roles",
+    "overflowX": 0,
+    "file": "375x812-drawer-user-roles.png"
+  },
+  {
+    "viewport": "375x812",
+    "page": "drawer-user-roles-focus",
+    "focusAria": "分配角色"
+  },
+  {
+    "viewport": "375x812",
+    "page": "drawer-role-permissions",
+    "overflowX": 0,
+    "file": "375x812-drawer-role-permissions.png"
+  },
+  {
+    "viewport": "375x812",
+    "pageErrors": []
+  },
+  {
+    "viewport": "1440x900",
+    "page": "ticket-detail",
+    "overflowX": 0,
+    "file": "1440x900-ticket-detail.png"
+  },
+  {
+    "viewport": "1440x900",
+    "page": "forbidden",
+    "overflowX": 0,
+    "file": "1440x900-forbidden.png"
+  },
+  {
+    "viewport": "1440x900",
+    "page": "employee-pageErrors",
+    "pageErrors": []
+  },
+  {
+    "viewport": "375x812",
+    "page": "ticket-detail",
+    "overflowX": 0,
+    "file": "375x812-ticket-detail.png"
+  },
+  {
+    "viewport": "375x812",
+    "page": "navigation-drawer",
+    "overflowX": 0,
+    "file": "375x812-navigation-drawer.png"
+  }
+]

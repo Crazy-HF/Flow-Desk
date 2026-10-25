@@ -20,7 +20,7 @@ async function signIn(page: Page, username: string): Promise<void> {
 }
 
 function breadcrumbItems(page: Page) {
-  return page.getByRole('navigation', { name: '面包屑' }).locator('.el-breadcrumb__item')
+  return page.getByRole('navigation', { name: '面包屑' }).locator('.el-breadcrumb__inner')
 }
 
 test('面包屑按侧栏层级显示，同一栏目内切换页面不替换栏目', async ({ page }, testInfo) => {

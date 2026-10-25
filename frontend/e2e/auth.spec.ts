@@ -17,7 +17,7 @@ async function expectSignedIn(page: Page): Promise<void> {
   const identity = page.getByRole('banner').locator('.app-header__identity')
   await expect(identity).not.toHaveText('')
   const displayName = (await identity.textContent())?.trim()
-  await expect(page.locator('.page__description')).toContainText(displayName ?? '')
+  await expect(page.locator('.home-hero__meta')).toContainText(displayName ?? '')
 }
 
 test('未登录访问受保护页面会回到登录页', async ({ page }) => {
@@ -33,8 +33,8 @@ test('登录后进入首页并显示当前身份', async ({ page }) => {
 
   await expect(page).toHaveURL(/\/$/)
   await expectSignedIn(page)
-  // 角色名随 page__description 一起呈现（"显示名 · 角色名"），没有独立节点可精确匹配
-  await expect(page.locator('.page__description')).toContainText('普通员工')
+  // 角色名随首页身份行一起呈现（"显示名 · 角色名"），没有独立节点可精确匹配
+  await expect(page.locator('.home-hero__meta')).toContainText('普通员工')
   await expect(page.getByRole('link', { name: 'FlowDesk' })).toBeVisible()
 })
 

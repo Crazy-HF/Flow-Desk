@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, CircleClose, Delete, Edit, Plus, Refresh, Search } from '@element-plus/icons-vue'
+import { ArrowDown, Check, CircleClose, Delete, Edit, Plus, Refresh, Search } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { computed, onMounted, reactive, ref } from 'vue'
@@ -45,6 +45,8 @@ const COLUMN = {
   actions: 120,
 } as const
 
+/** 筛选面板的展开状态：字段不多，但收起后能多留一行给表格。 */
+const filtersOpen = ref(true)
 const keyword = ref('')
 const statusFilter = ref<CategoryStatus | ''>('')
 
@@ -281,59 +283,88 @@ onMounted(() => {
   >
     <section
       class="admin-filter-card"
+      :class="{ 'admin-filter-card--collapsed': !filtersOpen }"
       aria-label="分类查询条件"
     >
-      <div class="admin-filter-fields">
-        <span class="admin-filter-field">
-          分类名称
-          <el-input
-            id="category-keyword"
-            v-model="keyword"
-            aria-label="分类名称"
-            class="admin-filter-input admin-filter-input--wide"
-            clearable
-            placeholder="请输入分类名称"
-            @keyup.enter="search"
-          />
-        </span>
+      <header class="admin-filter-card__head">
+        <h2 class="admin-filter-card__title">
+          筛选条件
+        </h2>
+        <button
+          class="admin-filter-card__toggle"
+          type="button"
+          aria-controls="category-filter-fields"
+          :aria-expanded="filtersOpen"
+          @click="filtersOpen = !filtersOpen"
+        >
+          {{ filtersOpen ? '收起' : '展开' }}
+          <el-icon
+            class="admin-filter-card__chevron"
+            :class="{ 'admin-filter-card__chevron--collapsed': !filtersOpen }"
+            aria-hidden="true"
+          >
+            <ArrowDown />
+          </el-icon>
+        </button>
+      </header>
 
-        <span class="admin-filter-field">
-          分类状态
-          <el-select
-            id="category-status"
-            v-model="statusFilter"
-            aria-label="分类状态"
-            class="admin-filter-input admin-filter-input--narrow"
-            clearable
-            placeholder="请选择分类状态"
-          >
-            <el-option
-              label="启用"
-              value="ENABLED"
+      <div
+        v-show="filtersOpen"
+        id="category-filter-fields"
+        class="admin-filter-card__body"
+      >
+        <div class="admin-filter-fields">
+          <span class="admin-filter-field">
+            分类名称
+            <el-input
+              id="category-keyword"
+              v-model="keyword"
+              aria-label="分类名称"
+              class="admin-filter-input admin-filter-input--wide"
+              clearable
+              placeholder="请输入分类名称"
+              @keyup.enter="search"
             />
-            <el-option
-              label="停用"
-              value="DISABLED"
-            />
-          </el-select>
-        </span>
+          </span>
 
-        <div class="admin-filter-actions">
-          <el-button
-            :icon="Search"
-            type="primary"
-            @click="search"
-          >
-            查询
-          </el-button>
-          <el-button
-            :icon="Refresh"
-            type="info"
-            plain
-            @click="resetFilters"
-          >
-            重置
-          </el-button>
+          <span class="admin-filter-field">
+            分类状态
+            <el-select
+              id="category-status"
+              v-model="statusFilter"
+              aria-label="分类状态"
+              class="admin-filter-input admin-filter-input--narrow"
+              clearable
+              placeholder="请选择分类状态"
+            >
+              <el-option
+                label="启用"
+                value="ENABLED"
+              />
+              <el-option
+                label="停用"
+                value="DISABLED"
+              />
+            </el-select>
+          </span>
+
+          <div class="admin-filter-actions">
+            <el-button
+              :icon="Search"
+              type="primary"
+              @click="search"
+            >
+              查询
+            </el-button>
+            <el-button
+              :icon="Refresh"
+              type="info"
+              plain
+              @click="resetFilters"
+            >
+              重置
+            </el-button>
+          </div>
         </div>
       </div>
     </section>
@@ -342,82 +373,101 @@ onMounted(() => {
       class="admin-data"
       aria-label="分类数据"
     >
-      <div class="admin-action-bar">
-        <el-button
-          :icon="Plus"
-          type="primary"
-          @click="openCreate"
-        >
-          新增
-        </el-button>
-        <el-button
-          :disabled="!selectedOne"
-          :icon="Edit"
-          type="success"
-          plain
-          @click="selectedOne && openEdit(selectedOne)"
-        >
-          编辑
-        </el-button>
-        <el-popconfirm
-          :disabled="!selectedOne"
-          :title="
-            selectedOne?.status === 'ENABLED'
-              ? '停用后员工在「新建工单」里选不到它，历史工单不受影响。确定停用？'
-              : '确定启用该分类？'
-          "
-          cancel-button-text="取消"
-          confirm-button-text="确定"
-          width="17rem"
-          @confirm="toggleSelectedStatus"
-        >
-          <template #reference>
-            <el-button
-              :disabled="!selectedOne"
-              :icon="selectedOne?.status === 'ENABLED' ? CircleClose : Check"
-              :type="selectedOne?.status === 'DISABLED' ? 'success' : 'danger'"
-              plain
-            >
-              {{ statusActionLabel }}
-            </el-button>
-          </template>
-        </el-popconfirm>
-        <el-popconfirm
-          :disabled="!selectedOne"
-          title="只有从未被工单使用的分类才能删除；已被使用的分类会被拒绝，只能停用。确定删除？"
-          cancel-button-text="取消"
-          confirm-button-text="确定"
-          width="19rem"
-          @confirm="removeSelected"
-        >
-          <template #reference>
-            <el-button
-              :disabled="!selectedOne"
-              :icon="Delete"
-              type="danger"
-              plain
-            >
-              删除
-            </el-button>
-          </template>
-        </el-popconfirm>
-
-        <div class="admin-action-bar__end">
-          <el-tooltip
-            content="刷新列表"
-            placement="top"
-          >
-            <el-button
-              :icon="Refresh"
-              :loading="retrying"
-              aria-label="刷新列表"
-              type="info"
-              plain
-              @click="search"
-            />
-          </el-tooltip>
+      <header class="admin-data__head">
+        <div class="admin-data__heading">
+          <h2 class="admin-data__title">
+            分类列表
+          </h2>
+          <p class="admin-data__summary">
+            <template v-if="phase === 'ready'">
+              共 {{ total }} 条记录，停用只影响新工单。
+            </template>
+            <template v-else-if="phase === 'loading'">
+              正在读取列表…
+            </template>
+            <template v-else>
+              记录数暂时无法读取。
+            </template>
+          </p>
         </div>
-      </div>
+
+        <div class="admin-action-bar">
+          <el-button
+            :icon="Plus"
+            type="primary"
+            @click="openCreate"
+          >
+            新增
+          </el-button>
+          <el-button
+            :disabled="!selectedOne"
+            :icon="Edit"
+            type="success"
+            plain
+            @click="selectedOne && openEdit(selectedOne)"
+          >
+            编辑
+          </el-button>
+          <el-popconfirm
+            :disabled="!selectedOne"
+            :title="
+              selectedOne?.status === 'ENABLED'
+                ? '停用后员工在「新建工单」里选不到它，历史工单不受影响。确定停用？'
+                : '确定启用该分类？'
+            "
+            cancel-button-text="取消"
+            confirm-button-text="确定"
+            width="17rem"
+            @confirm="toggleSelectedStatus"
+          >
+            <template #reference>
+              <el-button
+                :disabled="!selectedOne"
+                :icon="selectedOne?.status === 'ENABLED' ? CircleClose : Check"
+                :type="selectedOne?.status === 'DISABLED' ? 'success' : 'danger'"
+                plain
+              >
+                {{ statusActionLabel }}
+              </el-button>
+            </template>
+          </el-popconfirm>
+          <el-popconfirm
+            :disabled="!selectedOne"
+            title="只有从未被工单使用的分类才能删除；已被使用的分类会被拒绝，只能停用。确定删除？"
+            cancel-button-text="取消"
+            confirm-button-text="确定"
+            width="19rem"
+            @confirm="removeSelected"
+          >
+            <template #reference>
+              <el-button
+                :disabled="!selectedOne"
+                :icon="Delete"
+                type="danger"
+                plain
+              >
+                删除
+              </el-button>
+            </template>
+          </el-popconfirm>
+
+          <div class="admin-action-bar__end">
+            <el-tooltip
+              content="刷新列表"
+              placement="top"
+            >
+              <el-button
+                :icon="Refresh"
+                :loading="retrying"
+                aria-label="刷新列表"
+                type="info"
+                plain
+                @click="search"
+              />
+            </el-tooltip>
+          </div>
+        </div>
+      </header>
 
       <AdminListPanel
         :empty-description="emptyDescription"

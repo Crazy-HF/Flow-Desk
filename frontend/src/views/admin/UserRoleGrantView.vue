@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Delete, Plus, Refresh, Setting } from '@element-plus/icons-vue'
+import { ArrowDown, Delete, Plus, Refresh, Setting } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { computed, onMounted, ref, shallowRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -26,6 +26,9 @@ import { useAuthStore } from '@/stores/auth'
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+
+/** 授权表单的展开状态：收起后把整屏留给关系列表。 */
+const filtersOpen = ref(true)
 
 const subject = ref<UserDetail | null>(null)
 const subjectOptions = shallowRef<UserDetail[]>([])
@@ -178,129 +181,180 @@ onMounted(async () => {
   >
     <section
       class="admin-filter-card grant-form"
+      :class="{ 'admin-filter-card--collapsed': !filtersOpen }"
       aria-label="授予用户角色"
     >
-      <div class="admin-filter-fields">
-        <span class="admin-filter-field">
-          授权对象
-          <el-select
-            id="grant-subject"
-            aria-label="授权对象"
-            class="admin-filter-input admin-filter-input--wide"
-            clearable
-            filterable
-            :loading="subjectLoading"
-            :model-value="subject?.id ?? null"
-            placeholder="请输入登录名或显示名检索"
-            remote
-            reserve-keyword
-            :remote-method="searchSubjects"
-            size="small"
-            @change="onSubjectChange"
+      <header class="admin-filter-card__head">
+        <h2 class="admin-filter-card__title">
+          授予角色
+        </h2>
+        <button
+          class="admin-filter-card__toggle"
+          type="button"
+          aria-controls="user-grant-fields"
+          :aria-expanded="filtersOpen"
+          @click="filtersOpen = !filtersOpen"
+        >
+          {{ filtersOpen ? '收起' : '展开' }}
+          <el-icon
+            class="admin-filter-card__chevron"
+            :class="{ 'admin-filter-card__chevron--collapsed': !filtersOpen }"
+            aria-hidden="true"
           >
-            <el-option
-              v-for="user in subjectOptions"
-              :key="user.id"
-              :label="`${user.displayName}（${user.username}）`"
-              :value="user.id"
-            />
-          </el-select>
-        </span>
+            <ArrowDown />
+          </el-icon>
+        </button>
+      </header>
 
-        <span class="admin-filter-field">
-          要授予的角色
-          <el-select
-            id="grant-roles"
-            v-model="selectedRoleIds"
-            aria-label="要授予的角色"
-            class="admin-filter-input"
-            collapse-tags
-            filterable
-            multiple
-            placeholder="请选择角色"
-            size="small"
-          >
-            <el-option
-              v-for="role in roleOptions"
-              :key="role.id"
-              :label="`${role.name}（${role.code}）`"
-              :value="role.id"
-            />
-          </el-select>
-        </span>
-
-        <div class="admin-filter-actions">
-          <el-button
-            :icon="Plus"
-            :loading="granting"
-            size="small"
-            type="primary"
-            @click="submitGrant"
-          >
-            批量授予
-          </el-button>
-        </div>
-      </div>
-
-      <p
-        v-if="grantError"
-        class="admin-error"
-        role="alert"
+      <div
+        v-show="filtersOpen"
+        id="user-grant-fields"
+        class="admin-filter-card__body"
       >
-        {{ grantError }}
-      </p>
+        <div class="admin-filter-fields">
+          <span class="admin-filter-field">
+            授权对象
+            <el-select
+              id="grant-subject"
+              aria-label="授权对象"
+              class="admin-filter-input admin-filter-input--wide"
+              clearable
+              filterable
+              :loading="subjectLoading"
+              :model-value="subject?.id ?? null"
+              placeholder="请输入登录名或显示名检索"
+              remote
+              reserve-keyword
+              :remote-method="searchSubjects"
+              size="small"
+              @change="onSubjectChange"
+            >
+              <el-option
+                v-for="user in subjectOptions"
+                :key="user.id"
+                :label="`${user.displayName}（${user.username}）`"
+                :value="user.id"
+              />
+            </el-select>
+          </span>
+
+          <span class="admin-filter-field">
+            要授予的角色
+            <el-select
+              id="grant-roles"
+              v-model="selectedRoleIds"
+              aria-label="要授予的角色"
+              class="admin-filter-input"
+              collapse-tags
+              filterable
+              multiple
+              placeholder="请选择角色"
+              size="small"
+            >
+              <el-option
+                v-for="role in roleOptions"
+                :key="role.id"
+                :label="`${role.name}（${role.code}）`"
+                :value="role.id"
+              />
+            </el-select>
+          </span>
+
+          <div class="admin-filter-actions">
+            <el-button
+              :icon="Plus"
+              :loading="granting"
+              size="small"
+              type="primary"
+              @click="submitGrant"
+            >
+              批量授予
+            </el-button>
+          </div>
+        </div>
+
+        <p
+          v-if="grantError"
+          class="admin-error"
+          role="alert"
+        >
+          {{ grantError }}
+        </p>
+      </div>
     </section>
 
     <section
       class="admin-data"
       aria-label="用户角色授权数据"
     >
-      <div
-        v-if="subject"
-        class="admin-action-bar"
-      >
-        <el-popconfirm
-          title="清空后该用户不再有任何角色，账号仍可登录但没有业务权限。确定清空？"
-          cancel-button-text="取消"
-          confirm-button-text="确定"
-          width="19rem"
-          @confirm="clearAll"
-        >
-          <template #reference>
-            <el-button
-              :icon="Delete"
-              type="danger"
-              plain
-            >
-              清空全部角色
-            </el-button>
-          </template>
-        </el-popconfirm>
-        <el-button
-          :icon="Setting"
-          type="info"
-          plain
-          @click="openPermissions"
-        >
-          去维护角色权限
-        </el-button>
-
-        <div class="admin-action-bar__end">
-          <el-tooltip
-            content="刷新列表"
-            placement="top"
-          >
-            <el-button
-              :icon="Refresh"
-              :loading="retrying"
-              aria-label="刷新列表"
-              type="info"
-              plain
-              @click="search"
-            />
-          </el-tooltip>
+      <header class="admin-data__head">
+        <div class="admin-data__heading">
+          <h2 class="admin-data__title">
+            已授予角色
+          </h2>
+          <p class="admin-data__summary">
+            <template v-if="!subject">
+              先选择要授权的用户，这里会列出他当前持有的角色。
+            </template>
+            <template v-else-if="phase === 'ready'">
+              共 {{ total }} 条授权记录，撤销后立即失效。
+            </template>
+            <template v-else-if="phase === 'loading'">
+              正在读取授权关系…
+            </template>
+            <template v-else>
+              记录数暂时无法读取。
+            </template>
+          </p>
         </div>
-      </div>
+
+        <div
+          v-if="subject"
+          class="admin-action-bar"
+        >
+          <el-popconfirm
+            title="清空后该用户不再有任何角色，账号仍可登录但没有业务权限。确定清空？"
+            cancel-button-text="取消"
+            confirm-button-text="确定"
+            width="19rem"
+            @confirm="clearAll"
+          >
+            <template #reference>
+              <el-button
+                :icon="Delete"
+                type="danger"
+                plain
+              >
+                清空全部角色
+              </el-button>
+            </template>
+          </el-popconfirm>
+          <el-button
+            :icon="Setting"
+            type="info"
+            plain
+            @click="openPermissions"
+          >
+            去维护角色权限
+          </el-button>
+
+          <div class="admin-action-bar__end">
+            <el-tooltip
+              content="刷新列表"
+              placement="top"
+            >
+              <el-button
+                :icon="Refresh"
+                :loading="retrying"
+                aria-label="刷新列表"
+                type="info"
+                plain
+                @click="search"
+              />
+            </el-tooltip>
+          </div>
+        </div>
+      </header>
 
       <EmptyState
         v-if="!subject"
@@ -395,28 +449,30 @@ onMounted(async () => {
         :total-elements="total"
         @change="onPaginationChange"
       />
-    </section>
 
-    <p
-      v-if="subject"
-      class="admin-hint"
-    >
-      撤销单条授权用行内入口；批量与清空一次提交整批，不会出现只生效一半的情况。
-    </p>
-    <div
-      v-if="subject && hasItSupportGrant"
-      class="admin-hint"
-    >
-      若该用户仍有在办工单，移除 IT 支持角色前须先交接。
-      <el-button
-        v-if="canManageUsers"
-        type="primary"
-        plain
-        @click="openUserRoleHandoff"
+      <div
+        v-if="subject"
+        class="admin-data__foot"
       >
-        去用户管理完成交接
-      </el-button>
-      <span v-else>请联系具备用户管理与交接权限的管理员处理。</span>
-    </div>
+        <p class="admin-hint">
+          撤销单条授权用行内入口；批量与清空一次提交整批，不会出现只生效一半的情况。
+        </p>
+        <div
+          v-if="hasItSupportGrant"
+          class="admin-hint"
+        >
+          若该用户仍有在办工单，移除 IT 支持角色前须先交接。
+          <el-button
+            v-if="canManageUsers"
+            type="primary"
+            plain
+            @click="openUserRoleHandoff"
+          >
+            去用户管理完成交接
+          </el-button>
+          <span v-else>请联系具备用户管理与交接权限的管理员处理。</span>
+        </div>
+      </div>
+    </section>
   </AppPage>
 </template>
