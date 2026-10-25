@@ -150,7 +150,7 @@ test('阶段 3 主链：员工提交 → IT 领取 → 处理 → 提交解决 �
   expect(created.status()).toBe(201)
   await expect(page).toHaveURL(/\/tickets\/FD-\d{8}-\d{3}$/)
 
-  const ticketNo = (await page.locator('.ticket-meta__no').innerText()).trim()
+  const ticketNo = (await page.locator('.ticket-hero__no').innerText()).trim()
   expect(ticketNo).toMatch(/^FD-\d{8}-\d{3}$/)
   record(steps, 'create', created, `${ticketNo} 由员工通过界面创建`)
 
@@ -160,7 +160,7 @@ test('阶段 3 主链：员工提交 → IT 领取 → 处理 → 提交解决 �
    * 这一格恰好证明按钮来自服务端返回的 `allowedActions`：同一个界面、同一张工单，
    * 员工看到撤销、IT 看到领取。
    */
-  await expect(page.locator('.ticket-meta')).toContainText('待受理')
+  await expect(page.locator('.ticket-hero')).toContainText('待受理')
   expect(await actionLabels(page)).toEqual(['撤销工单'])
   await signOut(page)
 
@@ -186,7 +186,7 @@ test('阶段 3 主链：员工提交 → IT 领取 → 处理 → 提交解决 �
   await queueRow.locator('.ticket-cell__title').click()
 
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(title)
-  await expect(page.locator('.ticket-meta')).toContainText('待受理')
+  await expect(page.locator('.ticket-hero')).toContainText('待受理')
   expect(await actionLabels(page)).toEqual(['领取工单'])
   await page.screenshot({ path: resolve(reviewDir, 'it-detail-claim-1440.png'), fullPage: true })
 
@@ -195,7 +195,7 @@ test('阶段 3 主链：员工提交 → IT 领取 → 处理 → 提交解决 �
   record(steps, 'claim', claimed, 'IT 领取成功，工单进入处理中')
 
   // 领取后按钮立刻换成处理动作：版本已经 +1，界面必须按新快照重算
-  await expect(page.locator('.ticket-meta')).toContainText('处理中')
+  await expect(page.locator('.ticket-hero')).toContainText('处理中')
   // 处理中状态下负责人具备七个动作（片 B 起多了「请求补充信息」，片 C 起多了调整分类、
   // 调整优先级与转交，片 D 起多了关闭），顺序由前端登记表决定
   expect(await actionLabels(page)).toEqual([
@@ -246,7 +246,7 @@ test('阶段 3 主链：员工提交 → IT 领取 → 处理 → 提交解决 �
   expect(resolved.status()).toBe(200)
   record(steps, 'submit-resolution', resolved, '进入待员工确认，确认期限由服务端给出')
 
-  await expect(page.locator('.ticket-meta')).toContainText('待员工确认')
+  await expect(page.locator('.ticket-hero')).toContainText('待员工确认')
   // 交出解决结果之后 IT 侧不能再改处理记录
   expect(await actionLabels(page)).toEqual([])
   /**
@@ -289,7 +289,7 @@ test('阶段 3 主链：员工提交 → IT 领取 → 处理 → 提交解决 �
   expect(confirmed.status()).toBe(200)
   record(steps, 'confirm-resolution', confirmed, '员工确认，工单进入终态已完成')
 
-  await expect(page.locator('.ticket-meta')).toContainText('已完成')
+  await expect(page.locator('.ticket-hero')).toContainText('已完成')
   await expect(page.locator('.ticket-facts dt:has-text("完成方式") + dd')).toHaveText('员工确认完成')
   expect(await actionLabels(page)).toEqual([])
 

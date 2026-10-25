@@ -43,8 +43,12 @@ async function mountBreadcrumb(path: string): Promise<{ wrapper: VueWrapper; rou
   return { wrapper, router }
 }
 
+/**
+ * 只取每一级的文字，不含分隔符：Element Plus 把 "/" 渲染在 `.el-breadcrumb__item` 内部，
+ * 直接读 item 的 textContent 会把分隔符也读进来，断言就变成在验证分隔符。
+ */
 function crumbLabels(wrapper: VueWrapper): string[] {
-  return wrapper.findAll('.el-breadcrumb__item').map((item) => item.text())
+  return wrapper.findAll('.el-breadcrumb__inner').map((item) => item.text())
 }
 
 function linkLabels(wrapper: VueWrapper): string[] {
@@ -63,7 +67,7 @@ describe('AppBreadcrumb', () => {
     const { wrapper, router } = await mountBreadcrumb('/tickets')
 
     expect(crumbLabels(wrapper)).toEqual(['首页', '业务工作', '工单'])
-    expect(wrapper.get('.app-breadcrumb__group').text()).toBe('业务工作')
+    expect(wrapper.get('.app-breadcrumb__group .el-breadcrumb__inner').text()).toBe('业务工作')
     // 栏目没有目标页，所以只有"首页"是可点的
     expect(linkLabels(wrapper)).toEqual(['首页'])
 

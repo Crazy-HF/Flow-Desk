@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { Check, CircleClose, Edit, Key, Plus, Refresh, Search, Share } from '@element-plus/icons-vue'
+import { ArrowDown, Check, CircleClose, Edit, Key, Plus, Refresh, Search, Share } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
-import { computed, onMounted, reactive, ref, shallowRef } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, nextTick, onMounted, reactive, ref, shallowRef, watch } from 'vue'
+import { useRoute } from 'vue-router'
 
 import { describeError } from '@/api/errorMessages'
 import { listRoles } from '@/api/rbac'
@@ -25,6 +25,7 @@ import AdminListPanel from '@/components/AdminListPanel.vue'
 import AppPagination from '@/components/AppPagination.vue'
 import AppPage from '@/components/AppPage.vue'
 import ProtectedMark from '@/components/ProtectedMark.vue'
+import UserRoleDrawer from '@/components/UserRoleDrawer.vue'
 import { isProtectedRole } from '@/constants/authorization'
 import { ticketStatusLabel } from '@/constants/tickets'
 import { useAuthStore } from '@/stores/auth'
@@ -33,7 +34,6 @@ import { useAdminList } from '@/composables/useAdminList'
 /** 用户管理（`docs/api-design.md` 8.2，`TASK-062`）。 */
 const auth = useAuthStore()
 const route = useRoute()
-const router = useRouter()
 
 /**
  * 列宽。
@@ -54,6 +54,12 @@ const COLUMN = {
 const keyword = ref('')
 const statusFilter = ref<UserStatus | ''>('')
 const roleFilter = ref<number | ''>('')
+/** 筛选面板展开状态：默认展开，收起只影响视觉，不影响已生效的条件。 */
+const filtersOpen = ref(true)
+/** 角色分配抽屉：从行入口打开，保存后刷新列表但保留筛选与页码。 */
+const drawerOpen = ref(false)
+const drawerUser = ref<UserDetail | null>(null)
+const roleTrigger = ref<HTMLElement | null>(null)
 
 const { items, total, pageNo, pageSize, phase, errorMessage, retrying, search, load } =
   useAdminList<UserDetail>((page) =>
@@ -469,9 +475,22 @@ const statusActionLabel = computed(() => {
   return selectedOne.value.status === 'ENABLED' ? '停用' : '启用'
 })
 
-function openGrants(row: UserDetail): void {
-  void router.push({ name: 'admin-user-roles', query: { userId: String(row.id) } })
+function openGrants(row: UserDetail, event?: MouseEvent): void {
+  if (!roleOptionsLoaded.value) {
+    ElMessage.error('角色列表未能加载，请刷新页面后重试')
+    return
+  }
+  roleTrigger.value = (event?.currentTarget as HTMLElement | null) ?? null
+  drawerUser.value = row
+  drawerOpen.value = true
 }
+
+/** 抽屉关闭后把焦点还给触发行：键盘用户不应该被丢回页面顶部。 */
+watch(drawerOpen, (open) => {
+  if (!open) {
+    void nextTick(() => roleTrigger.value?.focus())
+  }
+})
 
 async function toggleSelectedStatus(): Promise<void> {
   if (selectedOne.value) {
@@ -505,166 +524,214 @@ onMounted(async () => {
   >
     <section
       class="admin-filter-card"
+      :class="{ 'admin-filter-card--collapsed': !filtersOpen }"
       aria-label="用户查询条件"
     >
-      <div class="admin-filter-fields">
-        <span class="admin-filter-field">
-          登录名
-          <el-input
-            id="user-keyword"
-            v-model="keyword"
-            aria-label="登录名"
-            class="admin-filter-input admin-filter-input--wide"
-            clearable
-            placeholder="请输入登录名或显示名"
-            @keyup.enter="search"
-          />
-        </span>
-
-        <span class="admin-filter-field">
-          账号状态
-          <el-select
-            id="user-status"
-            v-model="statusFilter"
-            aria-label="账号状态"
-            class="admin-filter-input admin-filter-input--narrow"
-            clearable
-            placeholder="请选择账号状态"
-          >
-            <el-option
-              label="启用"
-              value="ENABLED"
-            />
-            <el-option
-              label="停用"
-              value="DISABLED"
-            />
-          </el-select>
-        </span>
-
-        <span
-          v-if="canPickRole"
-          class="admin-filter-field"
+      <header class="admin-filter-card__head">
+        <h2 class="admin-filter-card__title">
+          筛选条件
+        </h2>
+        <button
+          class="admin-filter-card__toggle"
+          type="button"
+          aria-controls="user-filter-fields"
+          :aria-expanded="filtersOpen"
+          @click="filtersOpen = !filtersOpen"
         >
-          角色
-          <el-select
-            id="user-role"
-            v-model="roleFilter"
-            aria-label="角色"
-            class="admin-filter-input admin-filter-input--narrow"
-            clearable
-            filterable
-            placeholder="请选择角色"
+          {{ filtersOpen ? '收起' : '展开' }}
+          <el-icon
+            class="admin-filter-card__chevron"
+            :class="{ 'admin-filter-card__chevron--collapsed': !filtersOpen }"
+            aria-hidden="true"
           >
-            <el-option
-              v-for="role in roleOptions"
-              :key="role.id"
-              :label="`${role.name}（${role.code}）`"
-              :value="role.id"
-            />
-          </el-select>
-        </span>
+            <ArrowDown />
+          </el-icon>
+        </button>
+      </header>
 
-        <div class="admin-filter-actions">
-          <el-button
-            :icon="Search"
-            type="primary"
-            @click="search"
+      <div
+        v-show="filtersOpen"
+        id="user-filter-fields"
+        class="admin-filter-card__body"
+      >
+        <div class="admin-filter-fields">
+          <span class="admin-filter-field">
+            登录名
+            <el-input
+              id="user-keyword"
+              v-model="keyword"
+              aria-label="登录名"
+              class="admin-filter-input admin-filter-input--wide"
+              clearable
+              placeholder="请输入登录名或显示名"
+              @keyup.enter="search"
+            />
+          </span>
+
+          <span class="admin-filter-field">
+            账号状态
+            <el-select
+              id="user-status"
+              v-model="statusFilter"
+              aria-label="账号状态"
+              class="admin-filter-input admin-filter-input--narrow"
+              clearable
+              placeholder="请选择账号状态"
+            >
+              <el-option
+                label="启用"
+                value="ENABLED"
+              />
+              <el-option
+                label="停用"
+                value="DISABLED"
+              />
+            </el-select>
+          </span>
+
+          <span
+            v-if="canPickRole"
+            class="admin-filter-field"
           >
-            查询
-          </el-button>
-          <el-button
-            :icon="Refresh"
-            type="info"
-            plain
-            @click="resetFilters"
-          >
-            重置
-          </el-button>
+            角色
+            <el-select
+              id="user-role"
+              v-model="roleFilter"
+              aria-label="角色"
+              class="admin-filter-input admin-filter-input--narrow"
+              clearable
+              filterable
+              placeholder="请选择角色"
+            >
+              <el-option
+                v-for="role in roleOptions"
+                :key="role.id"
+                :label="`${role.name}（${role.code}）`"
+                :value="role.id"
+              />
+            </el-select>
+          </span>
+
+          <div class="admin-filter-actions">
+            <el-button
+              :icon="Search"
+              type="primary"
+              @click="search"
+            >
+              搜索
+            </el-button>
+            <el-button
+              :icon="Refresh"
+              type="info"
+              plain
+              @click="resetFilters"
+            >
+              重置
+            </el-button>
+          </div>
         </div>
       </div>
     </section>
 
     <section
-      class="user-list-data"
+      class="admin-data"
       aria-label="用户数据"
     >
-      <div class="admin-action-bar">
-        <el-button
-          :icon="Plus"
-          type="primary"
-          @click="openCreate"
-        >
-          新增
-        </el-button>
-        <el-button
-          :disabled="!selectedOne"
-          :icon="Edit"
-          type="success"
-          plain
-          @click="selectedOne && openEdit(selectedOne)"
-        >
-          编辑
-        </el-button>
-        <el-popconfirm
-          :disabled="!selectedOne"
-          :title="
-            selectedOne?.status === 'ENABLED'
-              ? '停用后该用户全部登录会话立即失效。确定停用？'
-              : '确定启用该账号？'
-          "
-          cancel-button-text="取消"
-          confirm-button-text="确定"
-          width="17rem"
-          @confirm="toggleSelectedStatus"
-        >
-          <template #reference>
-            <el-button
-              :disabled="!selectedOne"
-              :icon="selectedOne?.status === 'ENABLED' ? CircleClose : Check"
-              :type="selectedOne?.status === 'DISABLED' ? 'success' : 'danger'"
-              plain
-            >
-              {{ statusActionLabel }}
-            </el-button>
-          </template>
-        </el-popconfirm>
-        <el-button
-          :disabled="!selectedOne"
-          :icon="Key"
-          type="warning"
-          plain
-          @click="selectedOne && openReset(selectedOne)"
-        >
-          重置密码
-        </el-button>
-        <el-button
-          v-if="canPickRole"
-          :disabled="!selectedOne || !roleOptionsLoaded"
-          :icon="Share"
-          type="primary"
-          plain
-          @click="selectedOne && openRoleEdit(selectedOne)"
-        >
-          调整角色
-        </el-button>
-
-        <div class="admin-action-bar__end">
-          <el-tooltip
-            content="刷新列表"
-            placement="top"
-          >
-            <el-button
-              :icon="Refresh"
-              :loading="retrying"
-              type="info"
-              plain
-              aria-label="刷新列表"
-              @click="search"
-            />
-          </el-tooltip>
+      <header class="admin-data__head">
+        <div class="admin-data__heading">
+          <h2 class="admin-data__title">
+            用户列表
+          </h2>
+          <p class="admin-data__summary">
+            <template v-if="phase === 'ready'">
+              共 {{ total }} 条记录，支持按登录名、账号状态与角色筛选。
+            </template>
+            <template v-else-if="phase === 'loading'">
+              正在读取账号列表…
+            </template>
+            <template v-else>
+              记录数暂时无法读取。
+            </template>
+          </p>
         </div>
-      </div>
+
+        <div class="admin-action-bar">
+          <el-button
+            :icon="Plus"
+            type="primary"
+            @click="openCreate"
+          >
+            新增
+          </el-button>
+          <el-button
+            :disabled="!selectedOne"
+            :icon="Edit"
+            type="success"
+            plain
+            @click="selectedOne && openEdit(selectedOne)"
+          >
+            编辑
+          </el-button>
+          <el-popconfirm
+            :disabled="!selectedOne"
+            :title="
+              selectedOne?.status === 'ENABLED'
+                ? '停用后该用户全部登录会话立即失效。确定停用？'
+                : '确定启用该账号？'
+            "
+            cancel-button-text="取消"
+            confirm-button-text="确定"
+            width="17rem"
+            @confirm="toggleSelectedStatus"
+          >
+            <template #reference>
+              <el-button
+                :disabled="!selectedOne"
+                :icon="selectedOne?.status === 'ENABLED' ? CircleClose : Check"
+                :type="selectedOne?.status === 'DISABLED' ? 'success' : 'danger'"
+                plain
+              >
+                {{ statusActionLabel }}
+              </el-button>
+            </template>
+          </el-popconfirm>
+          <el-button
+            :disabled="!selectedOne"
+            :icon="Key"
+            type="warning"
+            plain
+            @click="selectedOne && openReset(selectedOne)"
+          >
+            重置密码
+          </el-button>
+          <el-button
+            v-if="canPickRole"
+            :disabled="!selectedOne || !roleOptionsLoaded"
+            :icon="Share"
+            type="primary"
+            plain
+            @click="selectedOne && openRoleEdit(selectedOne)"
+          >
+            调整角色
+          </el-button>
+
+          <div class="admin-action-bar__end">
+            <el-tooltip
+              content="刷新列表"
+              placement="top"
+            >
+              <el-button
+                :icon="Refresh"
+                :loading="retrying"
+                type="info"
+                plain
+                aria-label="刷新列表"
+                @click="search"
+              />
+            </el-tooltip>
+          </div>
+        </div>
+      </header>
 
       <AdminListPanel
         :empty-description="emptyDescription"
@@ -783,7 +850,6 @@ onMounted(async () => {
                   <el-button
                     :icon="Edit"
                     aria-label="编辑资料"
-                    size="small"
                     type="success"
                     plain
                     circle
@@ -797,7 +863,6 @@ onMounted(async () => {
                   <el-button
                     :icon="Key"
                     aria-label="重置密码"
-                    size="small"
                     type="warning"
                     plain
                     circle
@@ -805,18 +870,18 @@ onMounted(async () => {
                   />
                 </el-tooltip>
                 <el-tooltip
-                  content="角色授权"
+                  content="分配角色"
                   placement="top"
                 >
                   <el-button
                     v-if="canPickRole"
                     :icon="Share"
-                    aria-label="角色授权"
-                    size="small"
+                    aria-label="分配角色"
+                    data-test="assign-roles"
                     type="primary"
                     plain
                     circle
-                    @click="openGrants(row)"
+                    @click="openGrants(row, $event)"
                   />
                 </el-tooltip>
               </div>
@@ -834,6 +899,12 @@ onMounted(async () => {
         @change="onPaginationChange"
       />
     </section>
+
+    <UserRoleDrawer
+      v-model="drawerOpen"
+      :user="drawerUser"
+      @saved="search"
+    />
 
     <el-dialog
       class="admin-dialog"

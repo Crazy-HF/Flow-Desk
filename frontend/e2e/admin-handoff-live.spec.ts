@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 
 // This test uses the CI demo stack. Its temporary principals live only in that isolated database.
 const password = process.env.E2E_PASSWORD ?? '123456'
-const origin = 'http://127.0.0.1:4173'
+const origin = process.env.E2E_ORIGIN ?? 'http://127.0.0.1:4173'
 
 interface Envelope<T> { data: T }
 interface Role { id: number; code: string }
@@ -27,7 +27,7 @@ function auth(accessToken: string) { return { Authorization: `Bearer ${accessTok
 
 async function findUser(page: Page, username: string) {
   await page.getByLabel('登录名').fill(username)
-  await page.getByRole('button', { name: '查询' }).click()
+  await page.getByRole('region', { name: '用户查询条件' }).getByRole('button', { name: '搜索' }).click()
   const row = page.locator('tbody tr').filter({ hasText: username })
   await expect(row).toHaveCount(1)
   return row

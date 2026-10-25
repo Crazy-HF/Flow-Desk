@@ -43,7 +43,7 @@ async function signIn(page: Page, username = employeeUsername, userPassword = pa
 
 /** 第二个只持有 EMPLOYEE 角色的账号用于实际验证本人数据隔离；收尾 SQL 删除它。 */
 async function createIsolationEmployee(request: APIRequestContext, suffix: string) {
-  const origin = { Origin: 'http://127.0.0.1:4173' }
+  const origin = { Origin: process.env.E2E_ORIGIN ?? 'http://127.0.0.1:4173' }
   const login = await request.post('/fd/v1/auth/login', {
     headers: origin,
     data: { username: process.env.E2E_ADMIN_USERNAME ?? 'admin', password },
@@ -163,10 +163,10 @@ test('员工创建工单：双击只建一张、刷新后仍在、列表可回�
   const creation = await createdResponse
   expect(creation.status()).toBe(201)
 
-  const ticketNo = (await page.locator('.ticket-meta__no').innerText()).trim()
+  const ticketNo = (await page.locator('.ticket-hero__no').innerText()).trim()
   expect(ticketNo).toMatch(/^FD-\d{8}-\d{3}$/)
 
-  const meta = page.locator('.ticket-meta')
+  const meta = page.locator('.ticket-hero')
   await expect(meta).toContainText('待受理')
   await expect(meta).toContainText('优先级 高')
 
@@ -189,7 +189,7 @@ test('员工创建工单：双击只建一张、刷新后仍在、列表可回�
   // ---- 刷新恢复：内存里的 Access Token 会丢，靠 HttpOnly Refresh Cookie 重新恢复身份 ----
   await page.reload()
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(title)
-  await expect(page.locator('.ticket-meta__no')).toHaveText(ticketNo)
+  await expect(page.locator('.ticket-hero__no')).toHaveText(ticketNo)
   await expect(page.locator('.ticket-timeline__item').first()).toContainText('创建工单')
 
   // ---- 列表可回溯，而且用同一个标题只搜到一张：证明没有建出第二张工单 ----
@@ -256,7 +256,7 @@ test('员工创建工单：双击只建一张、刷新后仍在、列表可回�
 
   // 第二个纯员工账号：同一标题在本人列表为空，直接访问详情被后端统一为 404。
   const isolation = await createIsolationEmployee(request, suffix)
-  const otherContext = await browser.newContext({ baseURL: 'http://127.0.0.1:4173' })
+  const otherContext = await browser.newContext({ baseURL: process.env.E2E_BASE_URL ?? 'http://127.0.0.1:4173' })
   let isolationTraceId: string | undefined
   try {
     const otherPage = await otherContext.newPage()

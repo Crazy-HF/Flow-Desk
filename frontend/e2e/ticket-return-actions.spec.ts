@@ -124,7 +124,7 @@ test('片 A：员工反馈问题仍未解决，工单退回处理中且 IT 可�
   const created = await creating
   expect(created.status()).toBe(201)
   await expect(page).toHaveURL(/\/tickets\/FD-\d{8}-\d{3}$/)
-  const ticketNo = (await page.locator('.ticket-meta__no').innerText()).trim()
+  const ticketNo = (await page.locator('.ticket-hero__no').innerText()).trim()
   record(steps, 'create', created, `${ticketNo} 由员工通过界面创建`)
   await signOut(page)
 
@@ -150,7 +150,7 @@ test('片 A：员工反馈问题仍未解决，工单退回处理中且 IT 可�
   )
   expect(resolved.status()).toBe(200)
   record(steps, 'submit-resolution', resolved, '进入待员工确认并生成确认期限')
-  await expect(page.locator('.ticket-meta')).toContainText('待员工确认')
+  await expect(page.locator('.ticket-hero')).toContainText('待员工确认')
 
   /**
    * 片 A 的关键断言：提交人此时应该同时看到「确认已解决」与「问题仍未解决」。
@@ -164,7 +164,7 @@ test('片 A：员工反馈问题仍未解决，工单退回处理中且 IT 可�
   await signIn(page, employeeUsername)
   await page.goto(`/tickets/${ticketNo}`)
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(title)
-  await expect(page.locator('.ticket-meta')).toContainText('待员工确认')
+  await expect(page.locator('.ticket-hero')).toContainText('待员工确认')
   expect(await actionLabels(page)).toEqual(['确认已解决', '问题仍未解决', '申请撤销工单'])
   await page.screenshot({
     path: resolve(reviewDir, 'employee-waiting-confirmation-1440.png'),
@@ -182,7 +182,7 @@ test('片 A：员工反馈问题仍未解决，工单退回处理中且 IT 可�
   record(steps, 'report-unresolved', unresolved, '工单退回处理中')
 
   // 状态回到处理中：员工不是负责人，处理动作一个都不出现；留下的只有他自己那一格申请撤销
-  await expect(page.locator('.ticket-meta')).toContainText('处理中')
+  await expect(page.locator('.ticket-hero')).toContainText('处理中')
   expect(await actionLabels(page)).toEqual(['申请撤销工单'])
   // 未解决反馈进入时间线，解决结果仍在（不可变）
   await expect(page.locator('.ticket-timeline__item').last()).toContainText('反馈问题仍未解决')
@@ -196,7 +196,7 @@ test('片 A：员工反馈问题仍未解决，工单退回处理中且 IT 可�
   await signOut(page)
   await signIn(page, itUsername)
   await page.goto(`/tickets/${ticketNo}`)
-  await expect(page.locator('.ticket-meta')).toContainText('处理中')
+  await expect(page.locator('.ticket-hero')).toContainText('处理中')
   // 处理中 + 本人负责人：七个动作（片 B 起「请求补充信息」、片 C 起调整与转交、片 D 起关闭都在这里）
   expect(await actionLabels(page)).toEqual([
     '记录处理过程',

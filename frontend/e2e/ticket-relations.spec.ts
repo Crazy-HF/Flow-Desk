@@ -104,7 +104,7 @@ async function createTicket(
   const created = await creating
   expect(created.status()).toBe(201)
   await expect(page).toHaveURL(/\/tickets\/FD-\d{8}-\d{3}$/)
-  const ticketNo = (await page.locator('.ticket-meta__no').innerText()).trim()
+  const ticketNo = (await page.locator('.ticket-hero__no').innerText()).trim()
   record(
     steps,
     sourceTicketNo === null ? 'create.original' : 'create.followUp',
