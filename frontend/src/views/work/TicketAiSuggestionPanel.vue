@@ -6,8 +6,9 @@ import { errorCode } from '@/api/http'
 import {
   generateTicketAiSuggestion,
   listTicketAiSuggestions,
+  previewTicketAiSources,
 } from '@/api/ticketAi'
-import type { TicketAiSuggestion } from '@/api/ticketAi'
+import type { TicketAiSourcesPreview, TicketAiSuggestion } from '@/api/ticketAi'
 import { createSubmissionKey } from '@/api/tickets'
 import type { TicketDetail } from '@/api/tickets'
 import EmptyState from '@/components/EmptyState.vue'
@@ -26,6 +27,10 @@ const emit = defineEmits<{
 }>()
 
 const previewOpen = ref(false)
+const sourcesPreview = ref<TicketAiSourcesPreview | null>(null)
+const previewPhase = ref<'idle' | 'loading' | 'ready' | 'error'>('idle')
+const previewError = ref('')
+let previewSequence = 0
 const confirmedTitle = ref('')
 const confirmedDescription = ref('')
 const titleError = ref('')
@@ -45,12 +50,52 @@ const loadingMore = ref(false)
 
 const hasMoreHistory = computed(() => historyPage.value < historyTotalPages.value)
 
-/** 详情发生变化时，先前打开但尚未确认的预览不再代表当前工单。 */
-watch(() => props.ticket.version, () => {
-  if (!generating.value) {
-    previewOpen.value = false
+/** 详情变化或关闭弹窗会废弃飞行中的预览，旧响应不能重新启用确认。 */
+watch(() => [props.ticket.ticketNo, props.ticket.version], () => {
+  previewOpen.value = false
+  invalidatePreview()
+})
+
+watch(previewOpen, (open) => {
+  if (!open) {
+    invalidatePreview()
   }
 })
+
+function invalidatePreview(): void {
+  previewSequence += 1
+  sourcesPreview.value = null
+  previewPhase.value = 'idle'
+  previewError.value = ''
+}
+
+/** 只接受当前弹窗、当前工单版本的预览；失败时保持确认禁用。 */
+async function loadSourcesPreview(): Promise<void> {
+  const sequence = ++previewSequence
+  const ticketNo = props.ticket.ticketNo
+  const version = props.ticket.version
+  sourcesPreview.value = null
+  previewPhase.value = 'loading'
+  previewError.value = ''
+  try {
+    const result = await previewTicketAiSources(ticketNo, version)
+    if (sequence !== previewSequence || !previewOpen.value
+      || ticketNo !== props.ticket.ticketNo || version !== props.ticket.version) {
+      return
+    }
+    sourcesPreview.value = result
+    previewPhase.value = 'ready'
+  } catch (error) {
+    if (sequence !== previewSequence || !previewOpen.value) {
+      return
+    }
+    previewPhase.value = 'error'
+    previewError.value = describeError(error, '参考来源加载失败，请重试')
+    if (errorCode(error) === 'TICKET_CONFLICT') {
+      emit('refreshDetail')
+    }
+  }
+}
 
 function openPreview(): void {
   if (!props.canGenerate || generating.value) {
@@ -62,6 +107,7 @@ function openPreview(): void {
   descriptionError.value = ''
   generationError.value = ''
   previewOpen.value = true
+  void loadSourcesPreview()
 }
 
 function validateTitle(): boolean {
@@ -80,7 +126,8 @@ function validateDescription(): boolean {
 
 /** 每次确认生成一个新 requestId；同一点击在飞行期间不允许再次提交。 */
 async function generate(): Promise<void> {
-  if (!props.canGenerate || generating.value) {
+  if (!props.canGenerate || generating.value || !previewOpen.value
+    || previewPhase.value !== 'ready' || !sourcesPreview.value) {
     return
   }
 
@@ -95,6 +142,7 @@ async function generate(): Promise<void> {
 
   const ticketNo = props.ticket.ticketNo
   const version = props.ticket.version
+  const sourceDigest = sourcesPreview.value.sourceDigest
   generating.value = true
   generationError.value = ''
   try {
@@ -103,6 +151,7 @@ async function generate(): Promise<void> {
       version,
       title,
       description,
+      sourceDigest,
     })
     selected.value = suggestion
     previewOpen.value = false
@@ -112,6 +161,9 @@ async function generate(): Promise<void> {
     generationError.value = describeError(error, '建议没有生成成功，请稍后重试')
     if (errorCode(error) === 'TICKET_CONFLICT') {
       emit('refreshDetail')
+    } else if (errorCode(error) === 'AI_SOURCES_CHANGED') {
+      // 拒绝的请求没有占额；刷新摘录后必须由负责人再次点击确认，不自动重发 POST。
+      void loadSourcesPreview()
     }
   } finally {
     generating.value = false
@@ -346,6 +398,22 @@ function fillProcessingRecord(suggestion: TicketAiSuggestion): void {
             <dt>优先级</dt><dd>{{ ticketPriorityLabel(selected.input.priority) }}</dd>
             <dt>状态</dt><dd>{{ ticketStatusLabel(selected.input.status) }}</dd>
           </dl>
+          <div
+            v-if="selected.sources?.length"
+            class="ticket-ai__sources"
+          >
+            <h3>本次参考来源</h3>
+            <div
+              v-for="source in selected.sources"
+              :key="source.label"
+              class="ticket-ai__source"
+            >
+              <strong>{{ source.label }} {{ source.ticketNo }} · {{ source.title }}</strong>
+              <p class="ticket-ai__text">
+                {{ source.processExcerpt }}
+              </p>
+            </div>
+          </div>
         </details>
       </article>
     </div>
@@ -360,7 +428,7 @@ function fillProcessingRecord(suggestion: TicketAiSuggestion): void {
       :width="640"
     >
       <p class="ticket-ai__hint">
-        只发送下面五项文字。请先删改标题、描述中的敏感信息；附件和处理记录不会发送。
+        请核对下面五项工单内容及参考来源。请先删改标题、描述中的敏感信息；附件不会发送。
       </p>
       <div class="ticket-ai__preview">
         <label for="ticket-ai-title">标题 <span aria-hidden="true">*</span></label>
@@ -404,6 +472,55 @@ function fillProcessingRecord(suggestion: TicketAiSuggestion): void {
           <dt>优先级</dt><dd>{{ ticketPriorityLabel(ticket.priority) }}</dd>
           <dt>状态</dt><dd>{{ ticketStatusLabel(ticket.status) }}</dd>
         </dl>
+        <div
+          class="ticket-ai__sources"
+          aria-label="将发送给 AI 的参考来源"
+        >
+          <h3>参考来源</h3>
+          <el-skeleton
+            v-if="previewPhase === 'loading'"
+            animated
+            :rows="2"
+            aria-busy="true"
+            aria-label="正在加载参考来源"
+          />
+          <p
+            v-else-if="previewPhase === 'ready' && sourcesPreview?.sources.length === 0"
+            class="ticket-ai__hint"
+          >
+            本次没有参考来源，仅发送上面五项工单内容。
+          </p>
+          <template v-else-if="previewPhase === 'ready'">
+            <p class="ticket-ai__hint">
+              以下摘录将一并发送，请逐条核对。
+            </p>
+            <div
+              v-for="source in sourcesPreview?.sources"
+              :key="source.label"
+              class="ticket-ai__source"
+            >
+              <strong>{{ source.label }} {{ source.title }}</strong>
+              <p class="ticket-ai__text">
+                {{ source.processExcerpt }}
+              </p>
+            </div>
+          </template>
+          <p
+            v-if="previewError"
+            class="ticket-action-error"
+            role="alert"
+          >
+            {{ previewError }}
+          </p>
+          <el-button
+            v-if="previewPhase === 'error'"
+            type="info"
+            plain
+            @click="loadSourcesPreview"
+          >
+            重试加载来源
+          </el-button>
+        </div>
       </div>
       <p
         v-if="generationError"
@@ -422,6 +539,7 @@ function fillProcessingRecord(suggestion: TicketAiSuggestion): void {
         <el-button
           type="primary"
           :loading="generating"
+          :disabled="previewPhase !== 'ready' || !sourcesPreview"
           @click="generate"
         >
           确认并生成

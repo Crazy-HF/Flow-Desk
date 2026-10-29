@@ -6,6 +6,7 @@ import com.flowdesk.common.web.R;
 import com.flowdesk.ticket.application.command.GenerateTicketAiSuggestionCommand;
 import com.flowdesk.ticket.application.query.TicketAiSuggestionQuery;
 import com.flowdesk.ticket.application.result.TicketAiSuggestionResult;
+import com.flowdesk.ticket.application.result.TicketAiSourcesPreviewResult;
 import com.flowdesk.ticket.application.service.TicketAiSuggestionService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Collections;
@@ -56,6 +58,14 @@ public class TicketAiSuggestionController {
             @PathVariable String ticketNo,
             @Valid @RequestBody GenerateTicketAiSuggestionCommand command) {
         return R.success(suggestionService.generate(ticketNo, command));
+    }
+
+    /** 返回本次确认前的来源快照；后续生成时仍必须重新查询并校验摘要。 */
+    @GetMapping("/sources-preview")
+    public R<TicketAiSourcesPreviewResult> previewSources(
+            @PathVariable String ticketNo,
+            @RequestParam Long version) {
+        return R.success(suggestionService.previewSources(ticketNo, version));
     }
 
     /**

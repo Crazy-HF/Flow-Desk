@@ -28,7 +28,16 @@ public record GenerateTicketAiSuggestionCommand(
 
         @NotBlank(message = "描述不能为空")
         @Size(max = 10000, message = "描述最多10000个字符")
-        String description) {
+        String description,
+
+        @Pattern(regexp = "^[0-9a-fA-F]{64}$", message = "来源摘要必须是 SHA-256")
+        String sourceDigest) {
+
+    /** 兼容服务端既有调用；无来源的新请求仍须经服务层重查确认。 */
+    public GenerateTicketAiSuggestionCommand(
+            String requestId, Long version, String title, String description) {
+        this(requestId, version, title, description, null);
+    }
 
     /** 规范化请求标识和负责人确认的文本，再由字段约束校验格式与长度。 */
     public GenerateTicketAiSuggestionCommand {
@@ -37,5 +46,7 @@ public record GenerateTicketAiSuggestionCommand(
                 : requestId.strip().toLowerCase(Locale.ROOT);
         title = title == null ? null : title.strip();
         description = description == null ? null : description.strip();
+        sourceDigest = sourceDigest == null ? null
+                : sourceDigest.strip().toLowerCase(Locale.ROOT);
     }
 }

@@ -43,7 +43,8 @@ class DatabaseMigrationIT {
             "iam_user", "iam_role", "iam_permission", "iam_user_role", "iam_role_permission",
             "ticket_category", "ticket", "ticket_record", "attachment", "ticket_attachment",
             "ticket_relation", "ticket_participant", "ticket_daily_sequence", "notification",
-            "ticket_ai_daily_quota", "ticket_ai_request", "ticket_ai_suggestion");
+            "ticket_ai_daily_quota", "ticket_ai_request", "ticket_ai_suggestion",
+            "ticket_ai_suggestion_source");
 
     private static final Set<String> EXPECTED_INDEXES = Set.of(
             "uk_iam_user_username", "uk_iam_role_code", "uk_iam_permission_code",
@@ -62,7 +63,8 @@ class DatabaseMigrationIT {
             "idx_notification_read_at", "idx_ticket_ended_at_id",
             "uk_ticket_ai_request_user_request", "uk_ticket_ai_request_id_ticket",
             "idx_ticket_ai_request_ticket_created", "idx_ticket_ai_request_status_created",
-            "uk_ticket_ai_suggestion_request", "idx_ticket_ai_suggestion_ticket_created");
+            "uk_ticket_ai_suggestion_request", "idx_ticket_ai_suggestion_ticket_created",
+            "idx_ticket_ai_source_ticket");
 
     /**
      * 记录类型白名单的完整基线：V1 的 15 个 + V7 追加的 4 个 + V8 追加的 1 个。
@@ -104,7 +106,7 @@ class DatabaseMigrationIT {
         var history = jdbc.queryForList(
                 "SELECT version, success FROM flyway_schema_history ORDER BY installed_rank");
         assertThat(history).extracting(row -> String.valueOf(row.get("version")))
-                .containsExactly("1", "2", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14");
+                .containsExactly("1", "2", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15");
         assertThat(history).allSatisfy(row ->
                 assertThat(row.get("success")).isEqualTo(Boolean.TRUE));
 
@@ -120,9 +122,14 @@ class DatabaseMigrationIT {
         var foreignKeys = jdbc.queryForList(
                 "SELECT constraint_name, delete_rule FROM information_schema.referential_constraints "
                         + "WHERE constraint_schema = DATABASE()");
-        assertThat(foreignKeys).hasSize(30);
-        assertThat(foreignKeys).allSatisfy(row ->
-                assertThat(row.get("delete_rule")).isEqualTo("NO ACTION"));
+        assertThat(foreignKeys).hasSize(32);
+        assertThat(foreignKeys).filteredOn(row ->
+                "fk_ticket_ai_source_suggestion".equals(row.get("constraint_name")))
+                .singleElement().satisfies(row ->
+                        assertThat(row.get("delete_rule")).isEqualTo("CASCADE"));
+        assertThat(foreignKeys).filteredOn(row ->
+                !"fk_ticket_ai_source_suggestion".equals(row.get("constraint_name")))
+                .allSatisfy(row -> assertThat(row.get("delete_rule")).isEqualTo("NO ACTION"));
 
         var indexNames = jdbc.queryForList(
                 "SELECT DISTINCT index_name FROM information_schema.statistics "

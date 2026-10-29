@@ -19,7 +19,22 @@ public interface TicketAiModelPort {
             String description,
             String category,
             String priority,
-            String status) {
+            String status,
+            List<Source> sources) {
+
+        /** 无召回时保留原 v4 的五项输入调用方式。 */
+        public Input(String title, String description, String category,
+                     String priority, String status) {
+            this(title, description, category, priority, status, List.of());
+        }
+
+        public Input {
+            sources = List.copyOf(sources);
+        }
+    }
+
+    /** 模型只接收标签、标题和摘录；内部 ID 与真实工单号留在服务端。 */
+    record Source(String label, String title, String processExcerpt) {
     }
 
     /** 适配器解析后的结果；应用服务仍须校验非空、条数和长度。 */

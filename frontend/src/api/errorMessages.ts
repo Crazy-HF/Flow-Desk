@@ -22,6 +22,7 @@ const messages: Record<string, string> = {
   AI_UNAVAILABLE: 'AI 处理辅助暂不可用，请稍后重试',
   AI_DAILY_LIMIT_REACHED: '今天的 AI 生成次数已用完',
   AI_REQUEST_ID_REUSED: '本次请求标识已用于其他内容，请重新确认后生成',
+  AI_SOURCES_CHANGED: '参考来源已变化，请核对更新后的摘录再生成',
   AI_REQUEST_IN_PROGRESS: '这次 AI 请求仍在处理中，请稍后查看',
   AI_RESULT_UNCERTAIN: '这次 AI 请求的结果暂无法确认，请先查看历史',
   AI_PROVIDER_TIMEOUT: '模型响应超时，请先查看历史，再决定是否重试',

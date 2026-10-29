@@ -48,10 +48,17 @@ const suggestion = {
   inputTokens: 120,
   outputTokens: 85,
   createdAt: '2026-10-23T02:00:00Z',
+  sources: [{ label: '[S1]', ticketNo: 'FD-20261020-001',
+    title: '虚构投影仪故障', processExcerpt: '核实连接线与输入源。' }],
 }
 
-async function mockApi(page: Page, onGenerate: (body: Record<string, unknown>) => void): Promise<void> {
+async function mockApi(
+  page: Page,
+  onGenerate: (body: Record<string, unknown>) => void,
+  sourceChangeOnce = false,
+): Promise<void> {
   let saved = false
+  let generationAttempts = 0
   await page.route('**/fd/v1/**', async (route) => {
     const request = route.request()
     const url = new URL(request.url())
@@ -76,8 +83,23 @@ async function mockApi(page: Page, onGenerate: (body: Record<string, unknown>) =
       await route.fulfill({ json: reply({ items: [], page: 1, size: 20, totalElements: 0, totalPages: 0 }) })
       return
     }
+    if (path === `/tickets/${ticketNo}/ai-suggestions/sources-preview`) {
+      await route.fulfill({ json: reply({
+        sourceDigest: generationAttempts === 0 ? 'a'.repeat(64) : 'b'.repeat(64),
+        sources: [{ label: '[S1]', title: '虚构投影仪故障',
+          processExcerpt: generationAttempts === 0 ? '核实连接线与输入源。' : '先核实投影仪输入源。' }],
+      }) })
+      return
+    }
     if (path === `/tickets/${ticketNo}/ai-suggestions` && request.method() === 'POST') {
       onGenerate(request.postDataJSON() as Record<string, unknown>)
+      generationAttempts += 1
+      if (sourceChangeOnce && generationAttempts === 1) {
+        await route.fulfill({ status: 409, json: {
+          code: 'AI_SOURCES_CHANGED', message: '来源已变化', data: null,
+        } })
+        return
+      }
       saved = true
       await route.fulfill({ json: reply(suggestion) })
       return
@@ -116,7 +138,8 @@ test('负责人先删敏再生成，保存历史并只预填处理记录', async
   await page.getByRole('button', { name: '生成建议' }).click()
   const dialog = page.getByRole('dialog', { name: '确认发送给 AI 的工单内容' })
   await expect(dialog).toBeVisible()
-  await expect(dialog).toContainText('附件和处理记录不会发送')
+  await expect(dialog).toContainText('附件不会发送')
+  await expect(dialog).toContainText('核实连接线与输入源。')
   await dialog.getByPlaceholder('请输入发送给 AI 的标题').fill('三楼投影仪无信号')
   await dialog.getByPlaceholder('请输入发送给 AI 的问题描述').fill('连接后幕布显示无信号。')
   await dialog.getByRole('button', { name: '确认并生成' }).click()
@@ -128,10 +151,12 @@ test('负责人先删敏再生成，保存历史并只预填处理记录', async
     version: 0,
     title: '三楼投影仪无信号',
     description: '连接后幕布显示无信号。',
+    sourceDigest: 'a'.repeat(64),
   })
   expect(String(sent[0]?.requestId)).toMatch(/^[0-9a-f-]{36}$/)
   expect(JSON.stringify(sent[0])).not.toContain('13800000000')
   expect(JSON.stringify(sent[0])).not.toContain('category')
+  await expect(page.getByRole('article', { name: '已保存的 AI 建议' })).toContainText('FD-20261020-001')
 
   await page.getByRole('button', { name: '填入处理记录草稿' }).click()
   const recordDialog = page.locator('.el-message-box')
@@ -146,6 +171,26 @@ test('负责人先删敏再生成，保存历史并只预填处理记录', async
   const imagePath = testInfo.outputPath('ai-ticket-desktop.png')
   await page.screenshot({ path: imagePath, fullPage: true })
   await testInfo.attach('ai-ticket-desktop', { path: imagePath })
+})
+
+test('来源变化只重新预览，不自动重发付费请求', async ({ page }) => {
+  const sent: Record<string, unknown>[] = []
+  await mockApi(page, (body) => sent.push(body), true)
+  await openTicket(page)
+
+  await page.getByRole('button', { name: '生成建议' }).click()
+  const dialog = page.getByRole('dialog', { name: '确认发送给 AI 的工单内容' })
+  await expect(dialog).toContainText('核实连接线与输入源。')
+  await dialog.getByRole('button', { name: '确认并生成' }).click()
+  await expect(dialog).toContainText('先核实投影仪输入源。')
+  await expect(dialog).toContainText('参考来源已变化')
+  expect(sent).toHaveLength(1)
+  expect(sent[0]?.sourceDigest).toBe('a'.repeat(64))
+
+  await dialog.getByRole('button', { name: '确认并生成' }).click()
+  await expect(dialog).not.toBeVisible()
+  expect(sent).toHaveLength(2)
+  expect(sent[1]?.sourceDigest).toBe('b'.repeat(64))
 })
 
 test('375 窄屏可查看历史且页面不横向溢出', async ({ page }, testInfo) => {

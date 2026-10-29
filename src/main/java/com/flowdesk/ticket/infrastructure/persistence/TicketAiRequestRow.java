@@ -13,6 +13,7 @@ public class TicketAiRequestRow {
     private String requestId;
     private Long ticketVersion;
     private String inputSha256;
+    private String sourceDigest;
     private String status;
     private String failureCode;
     private LocalDateTime createdAt;

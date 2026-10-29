@@ -26,24 +26,57 @@ import java.util.Map;
  */
 public final class DeepSeekBatchEvaluation {
     private static final BigDecimal BUDGET = new BigDecimal("5.00");
+    private static final BigDecimal SAFETY_RESERVE = new BigDecimal("0.10");
     private static final Path REPORT = Path.of("target", "ai-ticket-real-evaluation-v4-parser2.json");
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private DeepSeekBatchEvaluation() {
     }
 
+    static BigDecimal requireRecordAuthorization(String evaluation, String record,
+                                                  String enabled, String key,
+                                                  String remainingBudget) {
+        if (!"YES".equals(evaluation) || !"YES".equals(record)
+                || !"true".equalsIgnoreCase(enabled)
+                || key == null || key.isBlank()) {
+            throw new IllegalStateException(
+                    "付费记录需要 FLOWDESK_AI_EVALUATION=YES、FLOWDESK_AI_RECORD=YES、"
+                            + "FLOWDESK_AI_ENABLED=true 和 DEEPSEEK_API_KEY");
+        }
+        BigDecimal remaining;
+        try {
+            remaining = new BigDecimal(remainingBudget);
+        } catch (RuntimeException invalid) {
+            throw new IllegalStateException("需要明确填写本主题剩余人民币预算", invalid);
+        }
+        if (remaining.compareTo(SAFETY_RESERVE) <= 0
+                || remaining.compareTo(BUDGET) > 0) {
+            throw new IllegalStateException("剩余预算须大于 ¥0.10 且不超过 ¥5");
+        }
+        return remaining;
+    }
+
+    static void canSpend(BigDecimal authorizedBudget, BigDecimal observedSpent) {
+        if (authorizedBudget == null || observedSpent == null
+                || observedSpent.signum() < 0
+                || observedSpent.add(SAFETY_RESERVE).compareTo(authorizedBudget) >= 0) {
+            throw new IllegalStateException("余额变化不可确认或已接近本次授权预算，停止付费调用");
+        }
+    }
+
     public static void main(String[] args) throws Exception {
-        if (!"YES".equals(System.getenv("FLOWDESK_AI_EVALUATION"))) {
-            throw new IllegalStateException("需要显式设置 FLOWDESK_AI_EVALUATION=YES");
-        }
         String key = System.getenv("DEEPSEEK_API_KEY");
-        if (key == null || key.isBlank()) {
-            throw new IllegalStateException("缺少 DEEPSEEK_API_KEY");
-        }
+        BigDecimal authorizedBudget = requireRecordAuthorization(
+                System.getenv("FLOWDESK_AI_EVALUATION"),
+                System.getenv("FLOWDESK_AI_RECORD"),
+                System.getenv("FLOWDESK_AI_ENABLED"),
+                key,
+                System.getenv("FLOWDESK_AI_REMAINING_BUDGET_CNY"));
 
         HttpClient http = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5)).build();
-        BigDecimal initialBalance = balance(http, key);
+        BigDecimal sessionStartBalance = balance(http, key);
+        BigDecimal initialBalance = sessionStartBalance;
         DeepSeekTicketAiModelAdapter model = new DeepSeekTicketAiModelAdapter(key, JSON);
         List<Map<String, Object>> results = new ArrayList<>();
         if (Files.exists(REPORT)) {
@@ -63,10 +96,7 @@ public final class DeepSeekBatchEvaluation {
         for (int index = start; index <= end; index++) {
             Sample sample = samples().get(index - 1);
             BigDecimal before = balance(http, key);
-            if (initialBalance.subtract(before).compareTo(BUDGET.subtract(new BigDecimal("0.10"))) >= 0) {
-                System.out.println("接近 5 元预算，停止后续调用");
-                break;
-            }
+            canSpend(authorizedBudget, sessionStartBalance.subtract(before));
             long began = System.nanoTime();
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("id", sample.id());
@@ -115,7 +145,7 @@ public final class DeepSeekBatchEvaluation {
         JSON.writerWithDefaultPrettyPrinter().writeValue(REPORT.toFile(), report);
     }
 
-    private static BigDecimal balance(HttpClient http, String key) throws Exception {
+    static BigDecimal balance(HttpClient http, String key) throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("https://api.deepseek.com/user/balance"))
                 .timeout(Duration.ofSeconds(15))

@@ -12,6 +12,8 @@ import com.flowdesk.ticket.mapper.TicketAttachmentMapper;
 import com.flowdesk.ticket.mapper.TicketAiDailyQuotaMapper;
 import com.flowdesk.ticket.mapper.TicketAiRequestMapper;
 import com.flowdesk.ticket.mapper.TicketAiSuggestionMapper;
+import com.flowdesk.ticket.mapper.TicketAiSourceMapper;
+import com.flowdesk.ticket.mapper.TicketAiSuggestionSourceMapper;
 import com.flowdesk.ticket.mapper.TicketDashboardMapper;
 import com.flowdesk.ticket.mapper.TicketDailySequenceMapper;
 import com.flowdesk.ticket.mapper.TicketMapper;
@@ -128,7 +130,7 @@ public class MockedPersistenceConfiguration {
         return Mockito.mock(TicketAttachmentMapper.class);
     }
 
-    /** AI 服务与保留期任务依赖的三个 Mapper；Web 切片不连接真实数据库。 */
+    /** AI 服务与保留期任务的持久化替身；Web 切片不连接真实数据库。 */
     @Bean
     TicketAiDailyQuotaMapper ticketAiDailyQuotaMapper() {
         return Mockito.mock(TicketAiDailyQuotaMapper.class);
@@ -142,6 +144,16 @@ public class MockedPersistenceConfiguration {
     @Bean
     TicketAiSuggestionMapper ticketAiSuggestionMapper() {
         return Mockito.mock(TicketAiSuggestionMapper.class);
+    }
+
+    @Bean
+    TicketAiSourceMapper ticketAiSourceMapper() {
+        return Mockito.mock(TicketAiSourceMapper.class);
+    }
+
+    @Bean
+    TicketAiSuggestionSourceMapper ticketAiSuggestionSourceMapper() {
+        return Mockito.mock(TicketAiSuggestionSourceMapper.class);
     }
 
     /** 通用附件服务（2026-10-13 第 3 步：上传/下载端点）依赖。 */

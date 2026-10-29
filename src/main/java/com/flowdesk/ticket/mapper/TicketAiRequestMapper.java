@@ -20,6 +20,7 @@ public interface TicketAiRequestMapper {
                    request_id AS requestId,
                    ticket_version AS ticketVersion,
                    input_sha256 AS inputSha256,
+                   source_digest AS sourceDigest,
                    status,
                    failure_code AS failureCode,
                    created_at AS createdAt,
@@ -39,10 +40,10 @@ public interface TicketAiRequestMapper {
     @Insert("""
             INSERT INTO ticket_ai_request
                 (ticket_id, user_id, request_id, ticket_version,
-                 input_sha256, status, failure_code, created_at, finished_at)
+                 input_sha256, source_digest, status, failure_code, created_at, finished_at)
             VALUES
                 (#{ticketId}, #{userId}, #{requestId}, #{ticketVersion},
-                 #{inputSha256}, 'RESERVED', NULL, #{createdAt}, NULL)
+                 #{inputSha256}, #{sourceDigest}, 'RESERVED', NULL, #{createdAt}, NULL)
             """)
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insertReserved(TicketAiRequestRow row);

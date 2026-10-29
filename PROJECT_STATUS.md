@@ -1,5 +1,23 @@
 # FlowDesk 项目状态
 
+## 2026-10-29 B-L1 受限检索已完成专项验收，A1 质量评估待运行（`flow-desk/ai-eval-and-retrieval`）
+
+- **本主题范围**：同类已结且当前操作者可见的来源召回、只读来源预览、`sourceDigest` 新请求校验、V15 来源快照、v5 有来源模型输入、生成后二次来源复核、历史 SQL 授权过滤及来源快照级联清理。空来源沿用 v4 五项输入与指纹；旧 `requestId` 不按当前召回集合重发模型。关键实现见 `TicketAiSuggestionServiceImpl`、`TicketAiSourceMapper`、`TicketAiSuggestionMapper` 与 V15 迁移。
+- **验证与下一步**：后端引用闸门已拒绝变形来源标签及裸工单号；V15 在 Testcontainers MySQL 8.4 上迁移校验通过。`TicketAiSuggestionServiceIT` **11/11**，含真实 HTTP 控制器 + MySQL + 模型替身的预览→生成→历史闭环；不调用供应商。`EXPLAIN` 使用 2000 张虚构已结工单（目标类别 200 张、50 条处理记录），分析表统计后从 `ticket_record` 50 行进入，再按 `ticket.PRIMARY` 等值读取；目标工单表无全表扫描，候选集使用临时表与排序。本规模暂无新增索引证据，不外推到生产分布。Web 契约 **4/4**、适配器 **3/3**；前端构建、Lint、模拟接口 Playwright **3/3** 与全量 Vitest **29 套件 / 275 项**均通过。首次后端全量 `verify` 因公共 Web 测试替身缺少两个新 Mapper 出现 473 个上下文错误；补齐 `MockedPersistenceConfiguration` 后重跑，Surefire **1321/1321**、Failsafe **226/226**、0 失败/错误/跳过、`BUILD SUCCESS`。随后浏览器接真实后端、临时 MySQL/Redis 与模型替身的专项 **1/1** 通过；A1 真实配对质量评估仍未完成。模型替身测试不等于真实供应商验证。真实工单环境继续关闭。本次仅按用户授权提交并推送主题分支，不合并 `main`；A1 真实配对与人工审定仍是下一步。
+- **A1 样本准备**：`src/test/resources/ai-eval/a1-l1-cases.json` 固定 16 条虚构配对样本，复用 A01～A10 原五项输入，新增 S/R/N/C 四类共 6 条，含注入文本、空来源与相似干扰来源；`A1EvaluationFixtureTest` 校验样本唯一性、原输入复用、来源标签与 5 条/500 字/2000 字边界、无工单号及 SHA-256，定向测试 **2/2** 通过。尚未调用 DeepSeek、尚无 A1 输出/逐条评分/费用记录，不能作保留或回退判断。
+- **A1 配对工具（本轮）**：新增 `A1PairedEvaluation` 手动入口，同一样本按 `baseline`/`l1` 分侧记录，除既有两项付费开关外还要求 `FLOWDESK_AI_A1_RECORD=YES`，沿用显式人民币剩余预算与每次调用前余额检查；先落盘 `STARTED`，已有记录拒绝自动重调。记录固定样本 SHA-256、五项输入/来源、解析后输出、模型/提示词版本、输入输出 token、耗时和余额差额。`A1PairedReplay` 离线判结构、标签、裸工单号、空来源 v4、模型/提示词版本及输入 token 比率，人工审定未完成时永不自动通过 A1 gate。定向测试 **7/7** 通过；本轮没有调用供应商或产生真实 A1 配对输出，下一步是实际受控录制与 Codex 逐条审定，之后才能判保留或回退。
+- **A1 人工门禁（本轮）**：新增 `A1DecisionGate`，机器配对 16/16 全通过后生成 SHA-256 绑定的逐条审阅模板；`decide` 要求 Codex 对两侧可用性、虚构本单动作、步骤可执行性及 L1 引用真实性/来源注入服从逐条评分并写理由。只有安全门禁全部通过、同输入稍改即用提升 ≥2 且平均输入 token 倍率 ≤3，报告才输出 `RETAIN_L1`；不自动改生产路径。合成数据定向测试覆盖达标、超 3 倍、引用/注入否决、缺评分与输出变更。尚无真实配对输出或人工评分，本轮不作 L1 保留判断，也不进行付费调用。
+- **B-L1 浏览器到后端验收（本轮）**：新增手动专项 `TicketAiBrowserAcceptanceManual` + `frontend/e2e/ticket-ai-live.spec.ts`；临时 Testcontainers MySQL 8.4/Redis 8.8、demo 登录、真实 HTTP、前端 preview、固定模型替身及虚构同类已结来源组成独立栈。浏览器完成来源预览→删敏确认→生成→刷新后历史读取，Java 再查数据库确保恰有 1 条持久化建议。首跑因测试替身模型标识不是服务层要求的 `deepseek-flash` 而收到 `502/AI_INVALID_OUTPUT`；修正替身后重跑 `mvnw.cmd -B '-Dtest=TicketAiBrowserAcceptanceManual' test` → **1/1、0 失败/错误、BUILD SUCCESS**，内含 Playwright 用例成功、前端 `vue-tsc -b && vite build` 成功。新增 E2E 文件 ESLint 与 `git diff --check` 通过；容器和端口在测试退出后已释放。运行中仍有已知 JaCoCo/JSQLParser MethodTooLarge 日志及 Redis 容器退出时的重连警告，未使构建失败。此证据验证浏览器→后端→MySQL，不代表真实 DeepSeek 输出质量；A1 真实配对与逐条审定仍待做。
+
+## 2026-10-24 AI 评估门禁与受限检索：方案与实施分支（`flow-desk/ai-eval-and-retrieval`）
+
+- **A0 实施进展（本轮）**：已把 A01～A10 的最终 `v4` 输入/解析后输出固定在 `src/test/resources/ai-eval/`，附 SHA-256 锁定与逐条 Codex 评分理由；新增零费用回放判定、JSON/Markdown 报告及 CI 显式回放/产物上传。回放结果为结构 10/10、经人工审定虚构本单已执行事实 0、稍改即用 9/10。报告证据级别明确为 `PARSED_OUTPUT_ONLY`：没有供应商原始 JSON/结束原因，不能称为原始响应解析路径回放；原始解析边界由合成响应的适配器测试覆盖。手动付费评估工具新增双开关、AI 启用、Key 和显式剩余预算校验；**本轮未调用 DeepSeek**。B-L1/A1 未实施，V15 未新增，真实工单环境仍关闭。
+- **验证口径**：本轮完整后端 `mvnw.cmd -B verify` 退出码 0、`BUILD SUCCESS`，Surefire 1310/1310、Failsafe 222/222；运行中有 JaCoCo 对 JSQLParser 的插桩异常日志及测试进程退出等待日志，未使构建失败。随后新增付费保护与人工否决门禁测试，A0 回放、付费保护和适配器专项复跑 11/11 通过；新增两项测试之后未再跑完整 `verify`。CI 新增步骤尚未在远端运行，不能记为 CI 已通过。
+- **设计阶段记录**：依据用户提供的 A0 → B-L1 → A1 → 决策方案，对照当前代码和 V14 结构完成可行性分析；详见 `docs/modules/ai-ticket-assistant.md` §8，候选接口扩展见 `docs/api-design.md` §7.8。后续 A0 实施状态以上方本轮记录为准。
+- **核对后的关键修正**：基线提示词为 `v4` 而非 `v2`；当前生产结构允许问题/步骤各 1～10 条；既有真实评估使用 `FLOWDESK_AI_EVALUATION=YES`；录制回放只证明回归、不等同真实模型质量；空召回可保证输入路径等价，不能保证随机模型回答逐字段相同；分类索引虽存在，仍须用 `EXPLAIN` 证实检索计划。
+- **2026-10-24 开工口径已确认**：B-L1 只召回当前操作者可见的同类已结工单；转交后若新负责人对任一来源无权，整条受影响建议在历史分页与总数中隐藏，其他建议可看；V15 保存实际来源快照；演示外发只用虚构或已脱敏来源并展示预览；L2/L3 均待 A1 数据后再议，L3 需单独授权；A1 “稍改即用”由 Codex 逐条评分并作为最终保留门禁，取代早期“用户本人最终评分”口径。详见模块文档 §8.2 与 API 设计 §7.8。
+- **实施规划**：从远端 `main@4048659` 创建 `flow-desk/ai-eval-and-retrieval`；具体文件、步骤与 gate 见 `docs/superpowers/plans/2026-10-24-ai-eval-and-retrieval.md`。当前 A0 离线回放已实施，B-L1/A1 尚未实现。原有未跟踪的 `docs/frontend-ruoyi-style-rebuild-analysis.md` 属其他主题，未修改或暂存。本主题未提交、未推送。
+
 ## 2026-10-24 AI 工单处理辅助验证与待验收项（`flow-desk/ai-ticket-assistant-analysis`）
 
 - **已实现**：DeepSeek `deepseek-flash`（界面名 DeepSeek-V4.1 Flash）的单张工单生成、受限历史、每日额度、幂等请求、30 天清理与详情页删敏预览/可编辑处理记录草稿。`FLOWDESK_AI_ENABLED` 默认关闭。真实评估发现 `v1` 的模糊输入偶发无效输出；提示词迭代到 `v4`（简短结构与未备份数据保护），模型输出上限由 1000 调整为 1600 tokens，解析器只提取三个白名单字段且继续校验必填字段与类型。接口见 `docs/api-design.md` 7.8，固定虚构样本与证据见 `docs/acceptance/2026-10-23-ai-ticket-evaluation.md`。

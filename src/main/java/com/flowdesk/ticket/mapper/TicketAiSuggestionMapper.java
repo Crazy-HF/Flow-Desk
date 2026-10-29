@@ -62,7 +62,8 @@ public interface TicketAiSuggestionMapper {
             @Param("requestRowId") long requestRowId);
 
     /**
-     * 按工单分页读取建议历史；调用方须先检查权限及结束后 30 天期限。
+     * 按工单分页读取建议历史；调用方须先检查目标工单及保留期。
+     * 来源失权的整条建议在 SQL WHERE 中排除，分页插件的总数与列表口径一致。
      * 创建时间及 ID 倒序确保稳定分页；JSON 列作为字符串交给应用层解析。
      */
     @Select("""
@@ -86,11 +87,31 @@ public interface TicketAiSuggestionMapper {
             FROM ticket_ai_suggestion s
             JOIN ticket_ai_request r ON r.id = s.request_row_id
             WHERE s.ticket_id = #{ticketId}
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM ticket_ai_suggestion_source source
+                  JOIN ticket referenced ON referenced.id = source.source_ticket_id
+                  WHERE source.suggestion_id = s.id
+                    AND NOT (
+                        (#{canViewOwn} = TRUE AND referenced.requester_id = #{currentUserId})
+                        OR (#{canViewParticipated} = TRUE AND (
+                            referenced.assignee_id = #{currentUserId}
+                            OR EXISTS (
+                                SELECT 1 FROM ticket_participant participant
+                                WHERE participant.ticket_id = referenced.id
+                                  AND participant.user_id = #{currentUserId}
+                            )
+                        ))
+                    )
+              )
             ORDER BY s.created_at DESC, s.id DESC
             """)
     Page<TicketAiSuggestionRow> selectTicketPage(
             Page<TicketAiSuggestionRow> page,
-            @Param("ticketId") long ticketId);
+            @Param("ticketId") long ticketId,
+            @Param("currentUserId") long currentUserId,
+            @Param("canViewOwn") boolean canViewOwn,
+            @Param("canViewParticipated") boolean canViewParticipated);
 
     /**
      * 按请求 ID 删除建议历史。必须先于对应请求元数据删除，

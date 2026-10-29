@@ -19,6 +19,24 @@ export interface GenerateTicketAiSuggestionPayload {
   version: number
   title: string
   description: string
+  sourceDigest: string
+}
+
+/** 预览只暴露实际外发的摘录，不暴露来源工单编号。 */
+export interface TicketAiSourcePreview {
+  label: string
+  title: string
+  processExcerpt: string
+}
+
+export interface TicketAiSourcesPreview {
+  sources: TicketAiSourcePreview[]
+  sourceDigest: string
+}
+
+/** 历史中的编号来自服务端重新授权后的来源快照。 */
+export interface TicketAiSuggestionSource extends TicketAiSourcePreview {
+  ticketNo: string
 }
 
 /** 生成响应与历史记录共用的结果。 */
@@ -32,6 +50,7 @@ export interface TicketAiSuggestion {
   suggestedSteps: string[]
   model: string
   promptVersion: string
+  sources: TicketAiSuggestionSource[]
   /** 后端在供应商未返回用量时省略这些字段。 */
   inputTokens?: number
   outputTokens?: number
@@ -41,6 +60,18 @@ export interface TicketAiSuggestion {
 export interface TicketAiHistoryParams {
   pageNo?: number
   pageSize?: number
+}
+
+/** 预览不占额；服务端用版本检查本次来源集合。 */
+export async function previewTicketAiSources(
+  ticketNo: string,
+  version: number,
+): Promise<TicketAiSourcesPreview> {
+  const response = await http.get<ApiEnvelope<TicketAiSourcesPreview>>(
+    `/tickets/${encodeURIComponent(ticketNo)}/ai-suggestions/sources-preview`,
+    { params: { version } },
+  )
+  return response.data.data
 }
 
 /** 生成并保存建议；模型调用可等待约 30 秒，不能沿用公共客户端的 10 秒超时。 */
