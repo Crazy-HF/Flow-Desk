@@ -8,6 +8,7 @@ import com.flowdesk.ticket.application.command.GenerateTicketAiSuggestionCommand
 import com.flowdesk.ticket.application.port.TicketAiModelPort;
 import com.flowdesk.ticket.application.query.TicketAiSuggestionQuery;
 import com.flowdesk.ticket.application.service.TicketAiSuggestionService;
+import com.flowdesk.ticket.config.TicketAiProperties;
 import com.flowdesk.ticket.infrastructure.TicketAiRetentionTask;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,6 +29,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -64,6 +66,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
                 + "org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration,"
                 + "org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration",
         "flowdesk.ai.enabled=true",
+        "flowdesk.ai.retrieval-enabled=true",
         "flowdesk.ai.daily-limit=2",
         "DEEPSEEK_API_KEY=integration-test-placeholder"
 })
@@ -350,6 +353,40 @@ class TicketAiSuggestionServiceIT {
         assertThat(count("ticket_ai_suggestion")).isZero();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ticket_ai_suggestion_source",
                 Integer.class)).isZero();
+    }
+
+    @Test
+    void retrievalRollbackUsesBaseInputWhileKeepingPriorSourceHistoryReadable() {
+        insertClosedSource("可见来源", assigneeId, "先核实连接线");
+        when(modelPort.generate(any())).thenReturn(answer());
+        var preview = service.previewSources(ticketNo, 0L);
+        var previous = service.generate(ticketNo, new GenerateTicketAiSuggestionCommand(
+                UUID.randomUUID().toString(), 0L, "删敏后的投影仪问题", "只描述设备现象",
+                preview.sourceDigest()));
+        assertThat(previous.sources()).hasSize(1);
+
+        // 模拟 A1 回退开关；只变更新请求，旧建议继续按快照授权读取。
+        TicketAiProperties original = (TicketAiProperties) ReflectionTestUtils.getField(
+                service, "aiProperties");
+        try {
+            ReflectionTestUtils.setField(service, "aiProperties",
+                    new TicketAiProperties(true, 2, false));
+            var afterRollback = service.previewSources(ticketNo, 0L);
+            assertThat(afterRollback.sources()).isEmpty();
+            var fresh = service.generate(ticketNo, command());
+            assertThat(fresh.sources()).isEmpty();
+            assertThat(service.history(ticketNo, new TicketAiSuggestionQuery()).items())
+                    .extracting(item -> item.id()).contains(previous.id(), fresh.id());
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ticket_ai_suggestion_source",
+                    Integer.class)).isEqualTo(1);
+            ArgumentCaptor<TicketAiModelPort.Input> sent =
+                    ArgumentCaptor.forClass(TicketAiModelPort.Input.class);
+            verify(modelPort, times(2)).generate(sent.capture());
+            assertThat(sent.getAllValues().getFirst().sources()).hasSize(1);
+            assertThat(sent.getAllValues().getLast().sources()).isEmpty();
+        } finally {
+            ReflectionTestUtils.setField(service, "aiProperties", original);
+        }
     }
 
     @Test

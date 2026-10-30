@@ -89,6 +89,8 @@ pnpm --dir frontend dev
 
 单张工单的 AI 建议生成、独立历史、日额度、30 天清理与详情页预览/草稿入口已实现。DeepSeek Key 仅填写在 Git 忽略的根目录 `.env` 的 `DEEPSEEK_API_KEY` 中；真实工单环境保持 `FLOWDESK_AI_ENABLED=false`。真实 MySQL、前端单测与模拟接口浏览器测试已有通过记录；十张虚构样本的最终 `v4` 真实模型评估为 10/10 完整输出、Codex 判定 9/10 稍改即用。详细证据与待决项见 `PROJECT_STATUS.md` 顶部、`docs/modules/ai-ticket-assistant.md` §6.3 与 `docs/acceptance/2026-10-23-ai-ticket-evaluation.md`。
 
+受限历史来源检索已实现候选代码，但 A1 独立重评的固定 16 条虚构样本中，基线与 L1 均为 16/16 稍改即用，未达到至少提升 2 条的保留门槛，正式结论为 `DO_NOT_RETAIN_L1`。因此新建议的检索开关 `FLOWDESK_AI_RETRIEVAL_ENABLED` 默认关闭，沿用 v4 五项输入；已有 v5 历史仍按来源快照授权读取。证据见 `docs/acceptance/2026-10-30-ai-a1-reassessment.md`。
+
 后端健康检查位于 `http://localhost:8081/actuator/health`，前端开发入口位于 `http://localhost:5173`。前端将 `/fd` 请求代理到后端。普通停止使用 `docker compose down`，不要附加 `-v`，以免删除本地数据卷。
 
 ### 演示账号

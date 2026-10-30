@@ -127,6 +127,8 @@ flowdesk:
 
   ai:
     enabled: ${FLOWDESK_AI_ENABLED:false}
+    # A1 质量提升门槛未通过，新请求默认回退 v4；旧 v5 历史仍保留授权读取。
+    retrieval-enabled: ${FLOWDESK_AI_RETRIEVAL_ENABLED:false}
     # 每人北京时间自然日最多占用 10 次；可按环境调低。
     daily-limit: ${FLOWDESK_AI_DAILY_LIMIT:10}
 

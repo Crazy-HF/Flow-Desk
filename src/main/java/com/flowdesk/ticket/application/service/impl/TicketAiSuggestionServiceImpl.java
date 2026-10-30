@@ -167,6 +167,10 @@ public class TicketAiSuggestionServiceImpl implements TicketAiSuggestionService 
 
     /** 预览、新请求占额前和模型返回后共用同一来源选择与裁剪规则。 */
     private List<PreviewSource> visibleSources(TicketDetailRow ticket, long userId) {
+        // 回退只影响新预览和生成；已保存的 v5 历史仍按原来源快照授权读取。
+        if (!Boolean.TRUE.equals(aiProperties.retrievalEnabled())) {
+            return List.of();
+        }
         return preparePreviewSources(sourceMapper.selectVisibleEndedSources(
                 ticket.getId(), ticket.getCategoryId(), userId,
                 permissionPort.hasAuthority("TICKET_VIEW_OWN"),

@@ -1,0 +1,92 @@
+{
+  "evidenceKind" : "PAID_PARSED_OUTPUT_MACHINE_CHECK",
+  "fixtureSha256" : "66d879b411bf90b3a37d077add4134091885e704a9cddd37ad0eb74f79d2de7a",
+  "humanReviewPending" : true,
+  "samples" : [ {
+    "id" : "A01",
+    "kind" : "R",
+    "machineErrors" : [ "MISSING_RECORD" ],
+    "machinePassed" : false
+  }, {
+    "id" : "A02",
+    "kind" : "C",
+    "machineErrors" : [ "MISSING_RECORD" ],
+    "machinePassed" : false
+  }, {
+    "id" : "A03",
+    "kind" : "R",
+    "machineErrors" : [ "MISSING_RECORD" ],
+    "machinePassed" : false
+  }, {
+    "id" : "A04",
+    "kind" : "N",
+    "machineErrors" : [ "MISSING_RECORD" ],
+    "machinePassed" : false
+  }, {
+    "id" : "A05",
+    "kind" : "R",
+    "machineErrors" : [ "MISSING_RECORD" ],
+    "machinePassed" : false
+  }, {
+    "id" : "A06",
+    "kind" : "R",
+    "machineErrors" : [ "MISSING_RECORD" ],
+    "machinePassed" : false
+  }, {
+    "id" : "A07",
+    "kind" : "R",
+    "machineErrors" : [ "MISSING_RECORD" ],
+    "machinePassed" : false
+  }, {
+    "id" : "A08",
+    "kind" : "S",
+    "machineErrors" : [ "MISSING_RECORD" ],
+    "machinePassed" : false
+  }, {
+    "id" : "A09",
+    "kind" : "N",
+    "machineErrors" : [ "MISSING_RECORD" ],
+    "machinePassed" : false
+  }, {
+    "id" : "A10",
+    "kind" : "C",
+    "machineErrors" : [ "MISSING_RECORD" ],
+    "machinePassed" : false
+  }, {
+    "id" : "S11",
+    "kind" : "S",
+    "machineErrors" : [ ],
+    "machinePassed" : true
+  }, {
+    "id" : "R12",
+    "kind" : "R",
+    "machineErrors" : [ ],
+    "machinePassed" : true
+  }, {
+    "id" : "N13",
+    "kind" : "N",
+    "machineErrors" : [ ],
+    "machinePassed" : true
+  }, {
+    "id" : "C14",
+    "kind" : "C",
+    "machineErrors" : [ ],
+    "machinePassed" : true
+  }, {
+    "id" : "R15",
+    "kind" : "R",
+    "machineErrors" : [ "MISSING_RECORD" ],
+    "machinePassed" : false
+  }, {
+    "id" : "S16",
+    "kind" : "S",
+    "machineErrors" : [ "MISSING_RECORD" ],
+    "machinePassed" : false
+  } ],
+  "sampleCount" : 16,
+  "pairedCount" : 4,
+  "machinePassedCount" : 4,
+  "tokenPairCount" : 4,
+  "averageInputTokenRatio" : 1.3072847682119206,
+  "gateA1Passed" : false
+}

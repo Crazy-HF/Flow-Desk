@@ -1,5 +1,47 @@
 # FlowDesk 项目状态
 
+## 2026-10-30 A1 用户裁决：接受不保留 L1（`flow-desk/ai-eval-and-retrieval`）
+
+- **已确认**：用户选择接受正式 `DO_NOT_RETAIN_L1` 结论；当前不重新设计质量指标，不追加付费评估。受限检索候选功能不宣称已完善或获准启用。离线差异与取舍见 `docs/acceptance/2026-10-30-ai-a1-next-step-analysis.md`。
+- **当前行为**：新请求检索 `FLOWDESK_AI_RETRIEVAL_ENABLED` 默认 `false`，总 AI 开关默认 `false`；旧 v5 来源快照历史保持授权读取和清理。原 A1 录制、审定和正式门禁证据保留不变。
+- **交接授权与边界**：用户 2026-10-30 明确授权处理 `main` 前进、同名未跟踪文件与状态文档冲突，再提交、推送并合并本主题。只纳入 A1 主题文件；无关 `.ui-craft/references/README.md` 保留。裁决和交接准备未改变生产行为或运行付费请求。
+- **交接准备检查**：抓取远端后，`main` 比主题分支多 3 个前端改版提交，主题分支有 1 个独有提交；两张 `.ui-craft/references/` 图片和两份 `docs/frontend-ruoyi-style-rebuild-*.md` 与远端 `main` 对应文件 Git blob 完全一致，已移至仓库忽略的 `target/ai-eval/handoff-duplicates/` 备份，待合并由 `main` 恢复原路径。两侧都修改了 `PROJECT_STATUS.md`，合入 `main` 时保留两侧最新记录。
+- **交接准备验证（本轮实跑）**：`.\mvnw.cmd -B verify '-DargLine=-Djdk.attach.allowAttachSelf=true'` → Surefire **1334/1334**、Failsafe **227/227**，零失败/错误/跳过，`BUILD SUCCESS`、退出码 0（12 分 10 秒）；AI MySQL 集成 **12/12**。`S3AttachmentStorageIT` 显示 0 项运行，不能计作通过。8 份 A1 JSON 经本地模式扫描未见 Key/私钥特征，新轮 4 份证据哈希与已登记值一致；`git diff --check` 退出码 0，仅有换行转换警告。未运行前端检查或真实浏览器专项；同步 `main` 后仍需复核合并结果。
+
+## 2026-10-30 A1 独立重评完成：不保留 L1（`flow-desk/ai-eval-and-retrieval`）
+
+- **授权与证据**：用户单独授权本轮上限 ¥3；新轮从空记录开始，对同一固定 16 条虚构样本发出 32 次真实请求，全部 `OK`，没有自动重试或跨轮拼接。原 A10 失败记录已核对哈希并归档；新轮 A10 成功，不代表已查明旧失败子因。平台余额显示 ¥9.88→¥9.82，观察差额 ¥0.06，非最终逐笔账单。记录、机器回放、Codex 逐条审定、决策及哈希见 `docs/acceptance/2026-10-30-ai-a1-reassessment.md`。
+- **门禁结论**：机器 16/16、输入 token 比值 1.3232；Codex 审定 baseline 16/16、L1 16/16 稍改即用，安全门禁通过，但提升 0 < 2，`A1DecisionGate` 输出 `DO_NOT_RETAIN_L1`。本轮固定集的基线已经满分，不能靠继续抽样取得可信的二元指标提升。新请求检索保持默认关闭，旧 v5 来源快照历史按原授权读取和清理；总 AI 开关仍默认关闭。
+- **最终验证**：`.\mvnw.cmd -B verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → Surefire **1334/1334**、Failsafe **227/227**，零失败/错误/跳过，`BUILD SUCCESS`，退出码 0；AI MySQL 集成 12/12。S3 专项显示 0 项运行；退出阶段连接关闭警告和 Surefire 30 秒强制结束提示未改变结果。新轮四份证据哈希复核不变，未泄露本地 Key；未改前端，本轮未跑前端检查或真实浏览器专项。
+- **下一步**：按当前结论保留安全回退；如仍希望继续改进 L1，需先确认新的质量价值指标与评估方案，再决定是否实施和付费重评。未获本轮 Git 提交、推送或合并授权。
+
+## 2026-10-30 A1 完善目标与新轮准备（`flow-desk/ai-eval-and-retrieval`）
+
+- **目标**：保留首次 A10 失败证据，补齐安全诊断，使用同一固定 16 条样本进行独立轮次配对与人工审定；只有完整门禁达到 `RETAIN_L1` 才讨论重新启用新请求检索。执行步骤见 `docs/superpowers/plans/2026-10-30-a1-completion-reassessment.md`。
+- **已完成**：原录制文件与仓库证据 SHA-256 一致；录制器新增仅含白名单码的 `failureDetail`，不保存异常消息或供应商正文。先写的定向测试因方法缺失按预期失败，实现后 `A1PairedEvaluationTest` 4/4、`DeepSeekTicketAiModelAdapterTest` 3/3 通过。忽略目录中已准备 A10 优先的独立重评脚本；尚未移动原工作文件或发出新付费请求。
+- **待执行**：原验收记录要求重新评估另行取得付费授权；已向用户请求本轮 ¥3 上限确认。授权前只进行离线准备。旧 A10 的 `INVALID_OUTPUT` 具体原因无法由原记录推知，不能把新轮结果冒充旧请求诊断。检索和 AI 总开关继续默认关闭。本轮未运行后端全量、前端或浏览器测试，未提交、推送或合并。
+
+## 2026-10-30 A1 续录遇无效输出，L1 新请求默认回退（`flow-desk/ai-eval-and-retrieval`）
+
+- **事实与决策**：延续 ¥3 授权续录 A01～A10；累计 28 次真实请求、27 次 `OK`，A10 L1 为 `FAILED/INVALID_OUTPUT`，停止后没有重试或运行 R15/S16。固定 16 对中机器通过 13 对，A10 失败、2 对缺失；原 16/16 门禁不通过，不能发布完整 A1 人工决策。平台余额显示 ¥9.96→¥9.93（观察差额 ¥0.03，非逐笔账单）。原始证据、哈希与局限见 `docs/acceptance/2026-10-30-ai-a1-stopped.md`。
+- **回退实现**：新增 `flowdesk.ai.retrieval-enabled`，默认 `false`；新预览和生成不取历史来源，恢复 v4 五项输入。已保存 v5 建议继续按来源快照授权读取并随保留期清理；V15 不变。AI 总开关仍默认关闭。原 B-L1 专项测试显式启用检索，保留其受限实现供后续重新评估。
+- **本轮验证**：定向 `verify` → A1 Surefire **12/12**、AI MySQL Failsafe **12/12**，0 失败/错误/跳过；随后 `.\mvnw.cmd -B verify "-DargLine=-Djdk.attach.allowAttachSelf=true"` → 全量 Surefire **1333/1333**、Failsafe **227/227**，0 失败/错误/跳过，`BUILD SUCCESS`（10 分 57 秒）。新增集成用例验证旧 v5 来源快照历史可读、新生成不带来源。全量日志末尾有测试进程退出时的连接拒绝与 Surefire 30 秒强制结束提示，但最终测试汇总和退出码成功；S3 专项显示 0 项运行。未运行前端检查或真实浏览器专项。
+- **下一步**：核对证据和工作树；未经新的评估结论不启用 L1。未获本轮 Git 提交、推送或合并授权。
+
+## 2026-10-30 A1 真实小样本 4 对已录制，完整门禁仍待运行（`flow-desk/ai-eval-and-retrieval`）
+
+- **授权与范围**：用户确认 DeepSeek Key 在本地配置，授权本轮人民币上限 ¥3 并要求减少调用。实际仓库无 `.env.compal`，但 Git 忽略的 `.env` 有非空 `DEEPSEEK_API_KEY`；只在手动录制进程中读取，不写入报告。选固定 S11/R12/N13/C14 四类样本各 1 对，共 8 次真实调用；其余 12 对未运行。证据与 Codex 逐条审定见 `docs/acceptance/2026-10-30-ai-a1-pilot.md` 及同目录的录制/机器报告 JSON。
+- **结果**：8 次均返回 `OK`；4/4 对通过离线机器检查，S11 注入未被服从，R12/C14 来源引用有据，N13 空来源两侧均走 v4。Codex 审定 baseline 与 L1 均为 4/4 稍改即用，提升 0；四对输入 token 总量 1510/1974、比值 1.3073。平台显示余额前后均为 ¥9.96，观察差额 ¥0.00，但显示粒度/入账延迟不等于实际零费用。首次调用后本地批处理因 Windows PowerShell 5.1 默认编码读取 JSON 出错；已保存的 `S11 baseline` 没有重调，显式 UTF-8 后完成其余 7 次。
+- **最后验证**：从保存的录制 JSON 重新运行 `A1PairedReplay`，机器报告 SHA-256 与保存的报告逐字节一致，`pairedCount=4/16`、`machinePassedCount=4`、`gateA1Passed=false`。A1 fixture/录制保护/回放/决策专项 Maven 测试 **12/12、0 失败/错误/跳过、BUILD SUCCESS**；本轮未重跑后端全量 `verify`、前端检查或真实浏览器专项。
+- **决策状态**：完整 A1 固定集为 16 对；机器报告 `pairedCount=4/16`、`gateA1Passed=false`，人工决策门禁要求 16/16，故本小样本不能批准保留，也不能作为最终回退判定。生产受限检索路径不变，真实工单环境 AI 默认关闭。下一步需按原门禁完成剩余 12 对并集中测试，或由用户明确修改评估方案；当前不新增付费调用。
+
+## 2026-10-30 A1 离线准备已复核，付费配对待授权（`flow-desk/ai-eval-and-retrieval`）
+
+- **当前目标与范围**：本主题 B-L1 实现和专项验收已完成；余项为固定 16 条虚构样本的 baseline/L1 最多 32 次真实配对、Codex 逐条审定，以及按安全门禁、可用性提升 ≥2 和输入 token 倍率 ≤3 决定保留或回退。具体步骤与停止条件见 `docs/superpowers/plans/2026-10-30-a1-evaluation-completion.md`。
+- **本轮完成**：用户明确选择“暂不授权付费调用，先完成离线准备”。核对当前环境未配置 `DEEPSEEK_API_KEY` 或付费开关，且无 A1 配对录制文件；`target/ai-eval/a1-paired-record.json` 被 Git 忽略。新增 16 条固定样本的双侧输入映射回归，确保 baseline/L1 五项本单字段相同、baseline 无来源、L1 来源逐项等于 fixture。未调用 DeepSeek，未生成真实输出、人工评分或费用记录。
+- **本轮最后测试**：`.\mvnw.cmd -B "-Dtest=A1EvaluationFixtureTest,A1PairedEvaluationTest,A1PairedReplayTest,A1DecisionGateTest" test` → **12/12、0 失败/错误/跳过、BUILD SUCCESS**。未重跑后端全量 `verify`、前端检查或真实浏览器专项；本轮只改离线测试与状态/计划文档，不把上一轮验证充作本轮实测。
+- **下一步**：取得本轮明确付费上限、在本机配置 Key 后逐对录制；每次检查余额与状态，失败或预算不确定即停止；完成 16/16 配对后离线回放与逐条人工审定。当前不能判定 L1 保留或回退，也不改变生产路径。未获得本轮 Git 提交、推送或合并授权。
+
 ## 2026-10-29 B-L1 受限检索已完成专项验收，A1 质量评估待运行（`flow-desk/ai-eval-and-retrieval`）
 
 - **本主题范围**：同类已结且当前操作者可见的来源召回、只读来源预览、`sourceDigest` 新请求校验、V15 来源快照、v5 有来源模型输入、生成后二次来源复核、历史 SQL 授权过滤及来源快照级联清理。空来源沿用 v4 五项输入与指纹；旧 `requestId` 不按当前召回集合重发模型。关键实现见 `TicketAiSuggestionServiceImpl`、`TicketAiSourceMapper`、`TicketAiSuggestionMapper` 与 V15 迁移。

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.flowdesk.ticket.application.port.TicketAiModelPort;
 import com.flowdesk.ticket.infrastructure.DeepSeekTicketAiModelAdapter;
 
@@ -19,6 +20,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Set;
 
 /** A1 手动付费记录入口。一次只执行一个样本的一侧，绝不自动重试。 */
 public final class A1PairedEvaluation {
@@ -26,6 +28,11 @@ public final class A1PairedEvaluation {
     private static final Path REPORT = Path.of("target", "ai-eval", "a1-paired-record.json");
     private static final String A1_RESOURCE = "/ai-eval/a1-l1-cases.json";
     private static final String A0_RESOURCE = "/ai-eval/a0-v4-parsed-outputs.json";
+    private static final Set<String> SAFE_PARSER_DETAILS = Set.of(
+            "EMPTY_RESPONSE", "MISSING_FINISH_REASON", "FINISH_REASON_LENGTH",
+            "FINISH_REASON_CONTENT_FILTER", "FINISH_REASON_NULL", "EMPTY_CONTENT",
+            "MISSING_METADATA", "INVALID_JSON_ROOT", "MISSING_REQUIRED_FIELDS",
+            "INVALID_SUMMARY_TYPE", "INVALID_JSON_ARRAY", "INVALID_JSON_ARRAY_ITEM");
 
     private A1PairedEvaluation() {
     }
@@ -120,6 +127,7 @@ public final class A1PairedEvaluation {
         } catch (TicketAiModelPort.ModelFailure failure) {
             attempt.put("status", "FAILED");
             attempt.put("failureKind", failure.kind().name());
+            attempt.put("failureDetail", failureDetail(failure));
         } catch (RuntimeException failure) {
             attempt.put("status", "FAILED");
             attempt.put("failureKind", "UNEXPECTED_" + failure.getClass().getSimpleName());
@@ -133,6 +141,22 @@ public final class A1PairedEvaluation {
         save(report);
         System.out.println(args[0] + " " + arm + " " + attempt.path("status").asText()
                 + "，报告=" + REPORT.toAbsolutePath());
+    }
+
+    /** 录制时只存解析器的固定诊断码；异常消息和供应商正文绝不落盘。 */
+    static String failureDetail(TicketAiModelPort.ModelFailure failure) {
+        if (failure.kind() != TicketAiModelPort.FailureKind.INVALID_OUTPUT) {
+            return "UNKNOWN";
+        }
+        Throwable cause = failure.getCause();
+        if (cause instanceof JsonProcessingException) {
+            return "MALFORMED_JSON";
+        }
+        if (cause instanceof IllegalStateException
+                && SAFE_PARSER_DETAILS.contains(cause.getMessage())) {
+            return cause.getMessage();
+        }
+        return "UNKNOWN";
     }
 
     static TicketAiModelPort.Input modelInput(JsonNode input, JsonNode sources, String arm) {

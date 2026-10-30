@@ -41,6 +41,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         properties = {
                 "server.port=18094",
                 "flowdesk.ai.enabled=true",
+                "flowdesk.ai.retrieval-enabled=true",
                 "DEEPSEEK_API_KEY=browser-acceptance-placeholder",
                 "flowdesk.ticket.timeout-task-enabled=false",
                 "flowdesk.attachment.reconciliation-enabled=false",
