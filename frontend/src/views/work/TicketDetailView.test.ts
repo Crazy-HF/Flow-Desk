@@ -323,9 +323,9 @@ describe('TicketDetailView', () => {
     const { wrapper } = await mountPage()
 
     expect(wrapper.get('h1').text()).toBe('办公区打印机无法连接')
-    expect(wrapper.get('.ticket-meta__no').text()).toBe('FD-20260929-001')
+    expect(wrapper.get('.ticket-hero__no').text()).toBe('FD-20260929-001')
 
-    const marks = wrapper.findAll('.ticket-meta .ticket-mark')
+    const marks = wrapper.findAll('.ticket-hero .ticket-mark')
     expect(marks).toHaveLength(2)
     expect(marks[0]?.text()).toContain('待受理')
     expect(marks[0]?.get('.ticket-mark__dot').classes()).toContain('ticket-mark__dot--waiting')
@@ -432,7 +432,7 @@ describe('TicketDetailView', () => {
     // 动作成功后必须重新取详情：下一步要靠新版本做乐观锁
     expect(getTicket).toHaveBeenCalledTimes(2)
     expect(actionLabels(wrapper)).toEqual(['记录处理过程'])
-    expect(wrapper.get('.ticket-meta').text()).toContain('处理中')
+    expect(wrapper.get('.ticket-hero').text()).toContain('处理中')
   })
 
   it('追加处理记录：正文去首尾空白后提交，取消确认框则不发请求', async () => {
@@ -514,7 +514,7 @@ describe('TicketDetailView', () => {
       version: 7,
       content: '证书已更新，请重新连接打印机确认',
     })
-    expect(wrapper.get('.ticket-meta').text()).toContain('待员工确认')
+    expect(wrapper.get('.ticket-hero').text()).toContain('待员工确认')
   })
 
   it('确认类动作的正文长度上限与后端契约一致', async () => {
@@ -594,7 +594,7 @@ describe('TicketDetailView', () => {
     await acceptActionBox()
 
     expect(confirmResolution).toHaveBeenCalledWith('FD-20260929-001', { version: 9 })
-    expect(wrapper.get('.ticket-meta').text()).toContain('已完成')
+    expect(wrapper.get('.ticket-hero').text()).toContain('已完成')
     expect(actionLabels(wrapper)).toEqual([])
   })
 
@@ -667,7 +667,7 @@ describe('TicketDetailView', () => {
       version: 5,
       content: '型号是 L3153，报错信息已附在描述里',
     })
-    expect(wrapper.get('.ticket-meta').text()).toContain('处理中')
+    expect(wrapper.get('.ticket-hero').text()).toContain('处理中')
     // 补充完成后提交人不再有任何动作
     expect(actionLabels(wrapper)).toEqual([])
   })
@@ -816,7 +816,7 @@ describe('TicketDetailView', () => {
       version: 4,
       content: '请补充打印机型号与完整报错信息',
     })
-    expect(wrapper.get('.ticket-meta').text()).toContain('待员工补充')
+    expect(wrapper.get('.ticket-hero').text()).toContain('待员工补充')
     // 待补充期间负责人不能再提交解决结果，只能撤回补充请求
     expect(actionLabels(wrapper)).toEqual(['撤回补充请求'])
     // 负责人视角看的是"等员工回到什么时候"，标签与提交人视角不同
@@ -1035,7 +1035,7 @@ describe('TicketDetailView', () => {
       priority: 'LOW',
       reason: '影响范围缩小，可以缓一缓',
     })
-    expect(wrapper.get('.ticket-meta').text()).toContain('优先级 低')
+    expect(wrapper.get('.ticket-hero').text()).toContain('优先级 低')
   })
 
   it('转交：候选人由服务端筛选，提交带 newAssigneeId 与原因', async () => {
@@ -1305,7 +1305,7 @@ describe('TicketDetailView', () => {
     })
     // 非重复原因**不带**这个键：传空串虽然也会被服务端归一成"没传"，但那是把正确性寄托在容错上
     expect(vi.mocked(closeTicket).mock.calls[0]?.[1]).not.toHaveProperty('duplicateTicketNo')
-    expect(wrapper.get('.ticket-meta').text()).toContain('已关闭')
+    expect(wrapper.get('.ticket-hero').text()).toContain('已关闭')
     expect(wrapper.get('.ticket-facts').text()).toContain('超出支持范围')
   })
 
@@ -1449,7 +1449,7 @@ describe('TicketDetailView', () => {
       version: 5,
       reason: '问题已经自行解决',
     })
-    expect(wrapper.get('.ticket-meta').text()).toContain('已取消')
+    expect(wrapper.get('.ticket-hero').text()).toContain('已取消')
     // 终态要能看到结束时间：否则用户只知道"不动了"，不知道什么时候结束的
     expect(wrapper.get('.ticket-facts').text()).toContain('结束时间')
     expect(actionLabels(wrapper)).toEqual([])
@@ -1512,7 +1512,7 @@ describe('TicketDetailView', () => {
     })
 
     // 状态与期限都没变：待批准只能靠 cancelRequest 讲出来
-    expect(wrapper.get('.ticket-meta').text()).toContain('处理中')
+    expect(wrapper.get('.ticket-hero').text()).toContain('处理中')
     const panel = cancelRequestPanel(wrapper)
     expect(panel.text()).toContain('你已申请撤销这张工单')
     expect(panel.text()).toContain('问题已经自行解决')
@@ -1576,7 +1576,7 @@ describe('TicketDetailView', () => {
     await acceptActionBox()
 
     expect(approveCancel).toHaveBeenCalledWith('FD-20260929-001', { version: 7 })
-    expect(wrapper.get('.ticket-meta').text()).toContain('已取消')
+    expect(wrapper.get('.ticket-hero').text()).toContain('已取消')
     // 终态不可能挂待决请求（数据库约束），界面这一块随之消失
     expect(cancelRequestPanel(wrapper).exists()).toBe(false)
   })
@@ -1666,7 +1666,7 @@ describe('TicketDetailView', () => {
       reason: '问题尚未定位，正在等供应商回复',
     })
     // 工单留在原状态：申请失效，处理继续
-    expect(wrapper.get('.ticket-meta').text()).toContain('处理中')
+    expect(wrapper.get('.ticket-hero').text()).toContain('处理中')
   })
 
   /**

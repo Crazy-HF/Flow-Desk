@@ -4,13 +4,18 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { listPermissions, listRoles } from '@/api/rbac'
+import { getRole, listPermissions, listRolePermissionGrants, listRoles } from '@/api/rbac'
 import type { RoleDetail } from '@/api/rbac'
 import RoleListView from './RoleListView.vue'
 
 vi.mock('@/api/rbac', () => ({
   listRoles: vi.fn(),
   listPermissions: vi.fn(),
+  getRole: vi.fn(),
+  listRolePermissionGrants: vi.fn(),
+  grantRolePermissions: vi.fn(),
+  revokeRolePermission: vi.fn(),
+  clearRolePermissions: vi.fn(),
   createRole: vi.fn(),
   updateRole: vi.fn(),
   deleteRole: vi.fn(),
@@ -73,6 +78,8 @@ describe('RoleListView', () => {
     vi.clearAllMocks()
     vi.mocked(listRoles).mockResolvedValue(pageOf([adminRole, supportRole]) as never)
     vi.mocked(listPermissions).mockResolvedValue(pageOf([]) as never)
+    vi.mocked(getRole).mockResolvedValue(supportRole as never)
+    vi.mocked(listRolePermissionGrants).mockResolvedValue(pageOf([]) as never)
   })
 
   it('列出角色、描述与已授权限数量', async () => {
@@ -101,16 +108,59 @@ describe('RoleListView', () => {
     expect(normalDelete?.attributes('disabled')).toBeUndefined()
   })
 
-  it('行内「权限」把角色带进角色权限授权页', async () => {
-    const { wrapper, router } = await mountPage()
+  it('行内「分配权限」打开抽屉，并保留完整授权页的深链', async () => {
+    const { wrapper } = await mountPage()
     const rows = wrapper.findAll('tbody tr')
     const supportRow = rows.find((row) => row.text().includes('IT_SUPPORT'))
 
-    await (supportRow ? buttonByLabel(supportRow, '维护角色权限') : undefined)?.trigger('click')
+    await (supportRow ? buttonByLabel(supportRow, '分配权限') : undefined)?.trigger('click')
     await flushPromises()
 
-    expect(router.currentRoute.value.name).toBe('admin-role-permissions')
-    expect(router.currentRoute.value.query.roleId).toBe('2')
+    // 抽屉打开时按角色 id 重新取详情与授权关系，不信任行上的旧快照
+    expect(getRole).toHaveBeenCalledWith(2)
+    expect(listRolePermissionGrants).toHaveBeenCalledWith(
+      expect.objectContaining({ roleId: 2 }),
+    )
+    expect(wrapper.text()).toContain('当前权限')
+    expect(wrapper.text()).toContain('添加权限')
+
+    // 原授权页与深链入口仍在：抽屉里直接给出带角色 id 的链接
+    expect(wrapper.get('.grant-drawer__full-link').attributes('href')).toBe(
+      '/admin/role-permissions?roleId=2',
+    )
+  })
+
+  it('SYSTEM_ADMIN 的 RBAC_MANAGE 授权在抽屉里不可撤销，清空入口也禁用', async () => {
+    vi.mocked(getRole).mockResolvedValue(adminRole as never)
+    vi.mocked(listRolePermissionGrants).mockResolvedValue({
+      items: [
+        {
+          roleId: 3,
+          roleCode: 'SYSTEM_ADMIN',
+          permissionId: 15,
+          permissionName: '角色与权限管理',
+          permissionCode: 'RBAC_MANAGE',
+        },
+      ],
+      page: 1,
+      size: 100,
+      totalElements: 1,
+      totalPages: 1,
+    } as never)
+
+    const { wrapper } = await mountPage()
+    const row = wrapper.findAll('tbody tr').find((item) => item.text().includes('SYSTEM_ADMIN'))
+
+    await row?.find('[aria-label="分配权限"]').trigger('click')
+    await flushPromises()
+
+    const revoke = wrapper
+      .findAll('.grant-drawer__row button')
+      .find((button) => button.text().trim() === '撤销')
+    expect(revoke?.attributes('disabled')).toBeDefined()
+
+    const clear = buttonByText(wrapper, '清空全部')
+    expect(clear?.attributes('disabled')).toBeDefined()
   })
 
   it('没有角色时用空态说明内置角色的来源', async () => {

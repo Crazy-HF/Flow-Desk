@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  ArrowDown,
   Check,
   CircleClose,
   Delete,
@@ -11,8 +12,7 @@ import {
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
-import { computed, onMounted, reactive, ref, shallowRef } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, nextTick, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 
 import { describeError } from '@/api/errorMessages'
 import { createRole, deleteRole, listPermissions, listRoles, updateRole } from '@/api/rbac'
@@ -21,12 +21,18 @@ import AdminListPanel from '@/components/AdminListPanel.vue'
 import AppPagination from '@/components/AppPagination.vue'
 import AppPage from '@/components/AppPage.vue'
 import ProtectedMark from '@/components/ProtectedMark.vue'
+import RolePermissionDrawer from '@/components/RolePermissionDrawer.vue'
 import { isProtectedRole, PROTECTED_ROLE_CODE } from '@/constants/authorization'
 import { useAdminList } from '@/composables/useAdminList'
 
 /** 角色管理（`docs/api-design.md` 8.2.1，`TASK-060`）。 */
-const router = useRouter()
 const keyword = ref('')
+/** 筛选面板展开状态：默认展开，收起只影响视觉，不影响已生效的条件。 */
+const filtersOpen = ref(true)
+/** 角色权限抽屉：从行入口打开，保存后刷新列表但保留筛选与页码。 */
+const drawerOpen = ref(false)
+const drawerRole = ref<RoleDetail | null>(null)
+const permissionTrigger = ref<HTMLElement | null>(null)
 
 /**
  * 列宽：`el-table` 用 `parseInt` 解析 `width` / `min-width`，`7rem` 会变成 7px，
@@ -222,9 +228,18 @@ async function removeRole(row: RoleDetail): Promise<void> {
   }
 }
 
-function openPermissions(row: RoleDetail): void {
-  void router.push({ name: 'admin-role-permissions', query: { roleId: String(row.id) } })
+function openPermissions(row: RoleDetail, event?: MouseEvent): void {
+  permissionTrigger.value = (event?.currentTarget as HTMLElement | null) ?? null
+  drawerRole.value = row
+  drawerOpen.value = true
 }
+
+/** 抽屉关闭后把焦点还给触发行：键盘用户不应该被丢回页面顶部。 */
+watch(drawerOpen, (open) => {
+  if (!open) {
+    void nextTick(() => permissionTrigger.value?.focus())
+  }
+})
 
 function resetFilters(): void {
   keyword.value = ''
@@ -264,38 +279,67 @@ onMounted(() => {
   >
     <section
       class="admin-filter-card"
+      :class="{ 'admin-filter-card--collapsed': !filtersOpen }"
       aria-label="角色查询条件"
     >
-      <div class="admin-filter-fields">
-        <span class="admin-filter-field">
-          角色名称
-          <el-input
-            id="role-keyword"
-            v-model="keyword"
-            aria-label="角色名称"
-            class="admin-filter-input admin-filter-input--wide"
-            clearable
-            placeholder="请输入角色编码或名称"
-            @keyup.enter="search"
-          />
-        </span>
+      <header class="admin-filter-card__head">
+        <h2 class="admin-filter-card__title">
+          筛选条件
+        </h2>
+        <button
+          class="admin-filter-card__toggle"
+          type="button"
+          aria-controls="role-filter-fields"
+          :aria-expanded="filtersOpen"
+          @click="filtersOpen = !filtersOpen"
+        >
+          {{ filtersOpen ? '收起' : '展开' }}
+          <el-icon
+            class="admin-filter-card__chevron"
+            :class="{ 'admin-filter-card__chevron--collapsed': !filtersOpen }"
+            aria-hidden="true"
+          >
+            <ArrowDown />
+          </el-icon>
+        </button>
+      </header>
 
-        <div class="admin-filter-actions">
-          <el-button
-            :icon="Search"
-            type="primary"
-            @click="search"
-          >
-            查询
-          </el-button>
-          <el-button
-            :icon="Refresh"
-            type="info"
-            plain
-            @click="resetFilters"
-          >
-            重置
-          </el-button>
+      <div
+        v-show="filtersOpen"
+        id="role-filter-fields"
+        class="admin-filter-card__body"
+      >
+        <div class="admin-filter-fields">
+          <span class="admin-filter-field">
+            角色名称
+            <el-input
+              id="role-keyword"
+              v-model="keyword"
+              aria-label="角色名称"
+              class="admin-filter-input admin-filter-input--wide"
+              clearable
+              placeholder="请输入角色编码或名称"
+              @keyup.enter="search"
+            />
+          </span>
+
+          <div class="admin-filter-actions">
+            <el-button
+              :icon="Search"
+              type="primary"
+              @click="search"
+            >
+              搜索
+            </el-button>
+            <el-button
+              :icon="Refresh"
+              type="info"
+              plain
+              @click="resetFilters"
+            >
+              重置
+            </el-button>
+          </div>
         </div>
       </div>
     </section>
@@ -304,59 +348,78 @@ onMounted(() => {
       class="admin-data"
       aria-label="角色数据"
     >
-      <div class="admin-action-bar">
-        <el-button
-          :icon="Plus"
-          type="primary"
-          @click="openCreate"
-        >
-          新增
-        </el-button>
-        <el-button
-          :disabled="!selectedOne"
-          :icon="Edit"
-          type="success"
-          plain
-          @click="selectedOne && openEdit(selectedOne)"
-        >
-          修改
-        </el-button>
-        <el-popconfirm
-          :disabled="!selectedOne || selectedProtected"
-          title="角色存在用户或权限授权关系时删除会被拒绝。确定删除？"
-          cancel-button-text="取消"
-          confirm-button-text="确定"
-          width="17rem"
-          @confirm="removeSelected"
-        >
-          <template #reference>
-            <el-button
-              :disabled="!selectedOne || selectedProtected"
-              :icon="Delete"
-              type="danger"
-              plain
-            >
-              删除
-            </el-button>
-          </template>
-        </el-popconfirm>
-
-        <div class="admin-action-bar__end">
-          <el-tooltip
-            content="刷新列表"
-            placement="top"
-          >
-            <el-button
-              :icon="Refresh"
-              :loading="retrying"
-              aria-label="刷新列表"
-              type="info"
-              plain
-              @click="search"
-            />
-          </el-tooltip>
+      <header class="admin-data__head">
+        <div class="admin-data__heading">
+          <h2 class="admin-data__title">
+            角色列表
+          </h2>
+          <p class="admin-data__summary">
+            <template v-if="phase === 'ready'">
+              共 {{ total }} 条记录，角色编码创建后不可修改。
+            </template>
+            <template v-else-if="phase === 'loading'">
+              正在读取角色列表…
+            </template>
+            <template v-else>
+              记录数暂时无法读取。
+            </template>
+          </p>
         </div>
-      </div>
+
+        <div class="admin-action-bar">
+          <el-button
+            :icon="Plus"
+            type="primary"
+            @click="openCreate"
+          >
+            新增
+          </el-button>
+          <el-button
+            :disabled="!selectedOne"
+            :icon="Edit"
+            type="success"
+            plain
+            @click="selectedOne && openEdit(selectedOne)"
+          >
+            修改
+          </el-button>
+          <el-popconfirm
+            :disabled="!selectedOne || selectedProtected"
+            title="角色存在用户或权限授权关系时删除会被拒绝。确定删除？"
+            cancel-button-text="取消"
+            confirm-button-text="确定"
+            width="17rem"
+            @confirm="removeSelected"
+          >
+            <template #reference>
+              <el-button
+                :disabled="!selectedOne || selectedProtected"
+                :icon="Delete"
+                type="danger"
+                plain
+              >
+                删除
+              </el-button>
+            </template>
+          </el-popconfirm>
+
+          <div class="admin-action-bar__end">
+            <el-tooltip
+              content="刷新列表"
+              placement="top"
+            >
+              <el-button
+                :icon="Refresh"
+                :loading="retrying"
+                aria-label="刷新列表"
+                type="info"
+                plain
+                @click="search"
+              />
+            </el-tooltip>
+          </div>
+        </div>
+      </header>
 
       <AdminListPanel
         :empty-description="emptyDescription"
@@ -451,16 +514,17 @@ onMounted(() => {
                   />
                 </el-tooltip>
                 <el-tooltip
-                  content="维护角色权限"
+                  content="分配权限"
                   placement="top"
                 >
                   <el-button
                     :icon="Setting"
-                    aria-label="维护角色权限"
+                    aria-label="分配权限"
+                    data-test="assign-permissions"
                     type="primary"
                     plain
                     circle
-                    @click="openPermissions(row)"
+                    @click="openPermissions(row, $event)"
                   />
                 </el-tooltip>
                 <el-popconfirm
@@ -497,6 +561,12 @@ onMounted(() => {
         @change="onPaginationChange"
       />
     </section>
+
+    <RolePermissionDrawer
+      v-model="drawerOpen"
+      :role="drawerRole"
+      @saved="search"
+    />
 
     <el-dialog
       v-model="createVisible"

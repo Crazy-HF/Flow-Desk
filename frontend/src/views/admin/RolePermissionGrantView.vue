@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Delete, Plus, Refresh } from '@element-plus/icons-vue'
+import { ArrowDown, Delete, Plus, Refresh } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { computed, onMounted, ref, shallowRef } from 'vue'
 import { useRoute } from 'vue-router'
@@ -35,6 +35,9 @@ import { useAdminList } from '@/composables/useAdminList'
  * 权限选择器按 `keyword` 检索编码或名称，权限码搜索因此是远程检索而不是本地过滤。</p>
  */
 const route = useRoute()
+
+/** 授权表单的展开状态：收起后把整屏留给关系列表。 */
+const filtersOpen = ref(true)
 
 const subject = ref<RoleDetail | null>(null)
 const subjectOptions = shallowRef<RoleDetail[]>([])
@@ -192,132 +195,183 @@ onMounted(async () => {
   >
     <section
       class="admin-filter-card grant-form"
+      :class="{ 'admin-filter-card--collapsed': !filtersOpen }"
       aria-label="授予角色权限"
     >
-      <div class="admin-filter-fields">
-        <span class="admin-filter-field">
-          授权对象
-          <el-select
-            id="grant-role"
-            aria-label="授权对象"
-            class="admin-filter-input admin-filter-input--wide"
-            clearable
-            filterable
-            :loading="subjectLoading"
-            :model-value="subject?.id ?? null"
-            placeholder="请输入角色编码或名称检索"
-            remote
-            reserve-keyword
-            :remote-method="searchSubjects"
-            size="small"
-            @change="onSubjectChange"
+      <header class="admin-filter-card__head">
+        <h2 class="admin-filter-card__title">
+          授予权限
+        </h2>
+        <button
+          class="admin-filter-card__toggle"
+          type="button"
+          aria-controls="role-grant-fields"
+          :aria-expanded="filtersOpen"
+          @click="filtersOpen = !filtersOpen"
+        >
+          {{ filtersOpen ? '收起' : '展开' }}
+          <el-icon
+            class="admin-filter-card__chevron"
+            :class="{ 'admin-filter-card__chevron--collapsed': !filtersOpen }"
+            aria-hidden="true"
           >
-            <el-option
-              v-for="role in subjectOptions"
-              :key="role.id"
-              :label="`${role.name}（${role.code}）`"
-              :value="role.id"
-            />
-          </el-select>
-        </span>
+            <ArrowDown />
+          </el-icon>
+        </button>
+      </header>
 
-        <span class="admin-filter-field">
-          要授予的权限
-          <el-select
-            id="grant-permissions"
-            v-model="selectedPermissionIds"
-            aria-label="要授予的权限"
-            class="admin-filter-input"
-            collapse-tags
-            filterable
-            multiple
-            :loading="permissionLoading"
-            placeholder="请输入权限编码或名称检索"
-            remote
-            reserve-keyword
-            :remote-method="searchPermissions"
-            size="small"
-          >
-            <el-option
-              v-for="permission in permissionOptions"
-              :key="permission.id"
-              :label="`${permission.name}（${permission.code}）`"
-              :value="permission.id"
-            />
-          </el-select>
-        </span>
-
-        <div class="admin-filter-actions">
-          <el-button
-            :icon="Plus"
-            :loading="granting"
-            size="small"
-            type="primary"
-            @click="submitGrant"
-          >
-            批量授予
-          </el-button>
-        </div>
-      </div>
-
-      <p
-        v-if="grantError"
-        class="admin-error"
-        role="alert"
+      <div
+        v-show="filtersOpen"
+        id="role-grant-fields"
+        class="admin-filter-card__body"
       >
-        {{ grantError }}
-      </p>
+        <div class="admin-filter-fields">
+          <span class="admin-filter-field">
+            授权对象
+            <el-select
+              id="grant-role"
+              aria-label="授权对象"
+              class="admin-filter-input admin-filter-input--wide"
+              clearable
+              filterable
+              :loading="subjectLoading"
+              :model-value="subject?.id ?? null"
+              placeholder="请输入角色编码或名称检索"
+              remote
+              reserve-keyword
+              :remote-method="searchSubjects"
+              size="small"
+              @change="onSubjectChange"
+            >
+              <el-option
+                v-for="role in subjectOptions"
+                :key="role.id"
+                :label="`${role.name}（${role.code}）`"
+                :value="role.id"
+              />
+            </el-select>
+          </span>
+
+          <span class="admin-filter-field">
+            要授予的权限
+            <el-select
+              id="grant-permissions"
+              v-model="selectedPermissionIds"
+              aria-label="要授予的权限"
+              class="admin-filter-input"
+              collapse-tags
+              filterable
+              multiple
+              :loading="permissionLoading"
+              placeholder="请输入权限编码或名称检索"
+              remote
+              reserve-keyword
+              :remote-method="searchPermissions"
+              size="small"
+            >
+              <el-option
+                v-for="permission in permissionOptions"
+                :key="permission.id"
+                :label="`${permission.name}（${permission.code}）`"
+                :value="permission.id"
+              />
+            </el-select>
+          </span>
+
+          <div class="admin-filter-actions">
+            <el-button
+              :icon="Plus"
+              :loading="granting"
+              size="small"
+              type="primary"
+              @click="submitGrant"
+            >
+              批量授予
+            </el-button>
+          </div>
+        </div>
+
+        <p
+          v-if="grantError"
+          class="admin-error"
+          role="alert"
+        >
+          {{ grantError }}
+        </p>
+      </div>
     </section>
 
     <section
       class="admin-data"
       aria-label="角色权限授权数据"
     >
-      <div
-        v-if="subject"
-        class="admin-action-bar"
-      >
-        <el-popconfirm
-          title="清空后该角色不再有任何权限，持有它的用户会话会失效。确定清空？"
-          cancel-button-text="取消"
-          confirm-button-text="确定"
-          :disabled="clearsProtectedGrant()"
-          width="19rem"
-          @confirm="clearAll"
-        >
-          <template #reference>
-            <el-button
-              :disabled="clearsProtectedGrant()"
-              :icon="Delete"
-              :title="
-                clearsProtectedGrant()
-                  ? `${PROTECTED_ROLE_CODE} 仍持有 ${PROTECTED_PERMISSION_CODE} 时不能清空`
-                  : undefined
-              "
-              type="danger"
-              plain
-            >
-              清空全部权限
-            </el-button>
-          </template>
-        </el-popconfirm>
-
-        <div class="admin-action-bar__end">
-          <el-tooltip
-            content="刷新列表"
-            placement="top"
-          >
-            <el-button
-              :icon="Refresh"
-              :loading="retrying"
-              aria-label="刷新列表"
-              type="info"
-              plain
-              @click="search"
-            />
-          </el-tooltip>
+      <header class="admin-data__head">
+        <div class="admin-data__heading">
+          <h2 class="admin-data__title">
+            已授予权限
+          </h2>
+          <p class="admin-data__summary">
+            <template v-if="!subject">
+              先选择要授权的角色，这里会列出它当前持有的权限。
+            </template>
+            <template v-else-if="phase === 'ready'">
+              共 {{ total }} 条授权记录，权限变更后持有该角色的用户需重新登录。
+            </template>
+            <template v-else-if="phase === 'loading'">
+              正在读取授权关系…
+            </template>
+            <template v-else>
+              记录数暂时无法读取。
+            </template>
+          </p>
         </div>
-      </div>
+
+        <div
+          v-if="subject"
+          class="admin-action-bar"
+        >
+          <el-popconfirm
+            title="清空后该角色不再有任何权限，持有它的用户会话会失效。确定清空？"
+            cancel-button-text="取消"
+            confirm-button-text="确定"
+            :disabled="clearsProtectedGrant()"
+            width="19rem"
+            @confirm="clearAll"
+          >
+            <template #reference>
+              <el-button
+                :disabled="clearsProtectedGrant()"
+                :icon="Delete"
+                :title="
+                  clearsProtectedGrant()
+                    ? `${PROTECTED_ROLE_CODE} 仍持有 ${PROTECTED_PERMISSION_CODE} 时不能清空`
+                    : undefined
+                "
+                type="danger"
+                plain
+              >
+                清空全部权限
+              </el-button>
+            </template>
+          </el-popconfirm>
+
+          <div class="admin-action-bar__end">
+            <el-tooltip
+              content="刷新列表"
+              placement="top"
+            >
+              <el-button
+                :icon="Refresh"
+                :loading="retrying"
+                aria-label="刷新列表"
+                type="info"
+                plain
+                @click="search"
+              />
+            </el-tooltip>
+          </div>
+        </div>
+      </header>
 
       <EmptyState
         v-if="!subject"

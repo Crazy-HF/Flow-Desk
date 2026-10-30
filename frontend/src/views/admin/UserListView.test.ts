@@ -4,7 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { listRoles } from '@/api/rbac'
+import { grantUserRoles, listRoles, listUserRoleGrants } from '@/api/rbac'
 import { disableUser, getActiveTicketAssignments, getHandoffCandidates, getUser, listUsers, replaceUserRoles } from '@/api/users'
 import type { UserDetail } from '@/api/users'
 import { useAuthStore } from '@/stores/auth'
@@ -23,7 +23,13 @@ vi.mock('@/api/users', () => ({
   resetUserPassword: vi.fn(),
 }))
 
-vi.mock('@/api/rbac', () => ({ listRoles: vi.fn() }))
+vi.mock('@/api/rbac', () => ({
+  listRoles: vi.fn(),
+  listUserRoleGrants: vi.fn(),
+  grantUserRoles: vi.fn(),
+  revokeUserRole: vi.fn(),
+  clearUserRoles: vi.fn(),
+}))
 
 const adminAccount: UserDetail = {
   id: 3,
@@ -86,6 +92,7 @@ describe('UserListView', () => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
     vi.mocked(listRoles).mockResolvedValue(pageOf([]) as never)
+    vi.mocked(listUserRoleGrants).mockResolvedValue(pageOf([]) as never)
     vi.mocked(listUsers).mockResolvedValue(pageOf([adminAccount, employeeAccount]) as never)
   })
 
@@ -158,12 +165,45 @@ describe('UserListView', () => {
     expect(wrapper.text()).toContain('演示员工')
   })
 
+  it('行内「分配角色」打开抽屉，按用户取授权并在保存后刷新列表', async () => {
+    signIn(['USER_MANAGE', 'RBAC_MANAGE'])
+    vi.mocked(listRoles).mockResolvedValue({
+      items: [{ id: 2, code: 'IT_SUPPORT', name: 'IT 支持人员', permissionIds: [] }],
+      page: 1,
+      size: 20,
+      totalElements: 1,
+      totalPages: 1,
+    } as never)
+    vi.mocked(getUser).mockResolvedValue(employeeAccount as never)
+    vi.mocked(grantUserRoles).mockResolvedValue([
+      { userId: 4, roleId: 2, roleName: 'IT 支持人员', roleCode: 'IT_SUPPORT' },
+    ] as never)
+
+    const { wrapper } = await mountPage()
+    const row = wrapper.findAll('tbody tr').find((item) => item.text().includes('演示员工'))
+
+    await row?.find('[aria-label="分配角色"]').trigger('click')
+    await flushPromises()
+
+    expect(getUser).toHaveBeenCalledWith(4)
+    expect(listUserRoleGrants).toHaveBeenCalledWith(expect.objectContaining({ userId: 4 }))
+    expect(wrapper.text()).toContain('当前角色')
+
+    await wrapper.get('.grant-choice input').setValue(true)
+    await buttonByText(wrapper, '保存')?.trigger('click')
+    await flushPromises()
+
+    expect(grantUserRoles).toHaveBeenCalledWith(4, [2])
+    // 保存后回到同一列表：筛选与页码不重置，只重新取数
+    expect(listUsers).toHaveBeenCalledTimes(2)
+  })
+
   it('查询把筛选条件交给接口，重置后回到无筛选', async () => {
     signIn(['USER_MANAGE'])
 
     const { wrapper } = await mountPage()
     await wrapper.get('input').setValue('ali')
-    await buttonByText(wrapper, '查询')?.trigger('click')
+    await buttonByText(wrapper, '搜索')?.trigger('click')
     await flushPromises()
 
     expect(listUsers).toHaveBeenLastCalledWith(

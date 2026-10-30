@@ -872,6 +872,7 @@ async function runAction(name: TicketActionName, initialContent = ''): Promise<v
 <template>
   <AppPage
     class="admin-page ticket-detail-page"
+    hide-header
     layout="list"
     :title="pageTitle"
   >
@@ -923,30 +924,53 @@ async function runAction(name: TicketActionName, initialContent = ''): Promise<v
     </section>
 
     <template v-else-if="detail">
-      <div class="ticket-meta">
-        <span class="ticket-meta__no">{{ detail.ticketNo }}</span>
-        <span class="ticket-mark">
-          <span
-            class="ticket-mark__dot"
-            :class="`ticket-mark__dot--${ticketStatusTone(detail.status)}`"
-          />
-          {{ ticketStatusLabel(detail.status) }}
-        </span>
-        <span class="ticket-mark">
-          <span
-            class="ticket-mark__dot"
-            :class="`ticket-mark__dot--${ticketPriorityTone(detail.priority)}`"
-          />
-          优先级 {{ ticketPriorityLabel(detail.priority) }}
-        </span>
+      <!--
+        详情头部：编号是锚点、标题是主体、状态与优先级是"现在怎么样"。
+        参考图没有同构页面，所以这里不套用列表语言——它要回答的是"这张单现在到哪一步了"。
+      -->
+      <section
+        class="ticket-hero"
+        aria-labelledby="ticket-hero-title"
+      >
+        <div class="ticket-hero__main">
+          <p class="ticket-hero__no">
+            {{ detail.ticketNo }}
+          </p>
+          <h1 id="ticket-hero-title">
+            {{ pageTitle }}
+          </h1>
+          <div class="ticket-hero__marks">
+            <span class="ticket-mark">
+              <span
+                class="ticket-mark__dot"
+                :class="`ticket-mark__dot--${ticketStatusTone(detail.status)}`"
+              />
+              {{ ticketStatusLabel(detail.status) }}
+            </span>
+            <span class="ticket-mark">
+              <span
+                class="ticket-mark__dot"
+                :class="`ticket-mark__dot--${ticketPriorityTone(detail.priority)}`"
+              />
+              优先级 {{ ticketPriorityLabel(detail.priority) }}
+            </span>
+            <span class="ticket-hero__fact">
+              负责人 {{ detail.assignee?.displayName ?? '未分配' }}
+            </span>
+            <span class="ticket-hero__fact">
+              更新于 {{ formatDateTime(detail.updatedAt) }}
+            </span>
+          </div>
+        </div>
+
         <RouterLink
-          class="ticket-meta__back"
+          class="ticket-hero__back"
           :to="{ name: 'tickets' }"
         >
           <el-icon><ArrowLeft /></el-icon>
           返回工单列表
         </RouterLink>
-      </div>
+      </section>
 
       <div class="ticket-detail">
         <div class="ticket-detail__main">

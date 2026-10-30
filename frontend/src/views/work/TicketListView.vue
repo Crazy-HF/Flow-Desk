@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Plus, Refresh, Search } from '@element-plus/icons-vue'
+import { ArrowDown, Plus, Refresh, Search } from '@element-plus/icons-vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 
@@ -131,6 +131,8 @@ const awaitingMyApprovalAvailable = computed(() => scope.value === 'ASSIGNED_TO_
 
 // ---------- 筛选条件 ----------
 
+/** 筛选面板的展开状态：字段多，允许收起后只看结果。 */
+const filtersOpen = ref(true)
 const keyword = ref('')
 const statusFilter = ref<TicketStatus[]>([])
 const priorityFilter = ref<TicketPriority[]>([])
@@ -344,167 +346,196 @@ onMounted(() => {
     <template v-else>
       <section
         class="admin-filter-card"
+        :class="{ 'admin-filter-card--collapsed': !filtersOpen }"
         aria-label="工单查询条件"
       >
-        <div class="ticket-scope-bar">
-          <span class="ticket-scope-bar__label">范围</span>
-          <el-radio-group
-            :model-value="scope"
-            @update:model-value="onScopeSelected"
+        <header class="admin-filter-card__head">
+          <h2 class="admin-filter-card__title">
+            筛选条件
+          </h2>
+          <button
+            class="admin-filter-card__toggle"
+            type="button"
+            aria-controls="ticket-filter-fields"
+            :aria-expanded="filtersOpen"
+            @click="filtersOpen = !filtersOpen"
           >
-            <el-radio-button
-              v-for="option in permittedScopes"
-              :key="option.value"
-              :value="option.value"
+            {{ filtersOpen ? '收起' : '展开' }}
+            <el-icon
+              class="admin-filter-card__chevron"
+              :class="{ 'admin-filter-card__chevron--collapsed': !filtersOpen }"
+              aria-hidden="true"
             >
-              {{ option.label }}
-            </el-radio-button>
-          </el-radio-group>
-        </div>
+              <ArrowDown />
+            </el-icon>
+          </button>
+        </header>
 
-        <div class="admin-filter-fields">
-          <span
-            v-if="awaitingMyApprovalAvailable"
-            class="admin-filter-field"
-          >
-            待办
-            <el-switch
-              id="ticket-awaiting-my-approval"
-              v-model="awaitingMyApproval"
-              aria-label="只看待我批准的工单"
-              active-text="待我批准"
-              @change="onAwaitingMyApprovalChange"
-            />
-          </span>
-
-          <span class="admin-filter-field">
-            关键词
-            <el-input
-              id="ticket-keyword"
-              v-model="keyword"
-              aria-label="工单关键词"
-              class="admin-filter-input admin-filter-input--wide"
-              clearable
-              placeholder="请输入工单编号或标题"
-              @keyup.enter="search"
-            />
-          </span>
-
-          <span
-            v-if="statusFilterAvailable"
-            class="admin-filter-field"
-          >
-            状态
-            <el-select
-              id="ticket-status"
-              v-model="statusFilter"
-              aria-label="工单状态"
-              class="admin-filter-input"
-              clearable
-              collapse-tags
-              multiple
-              placeholder="请选择状态"
+        <div
+          v-show="filtersOpen"
+          id="ticket-filter-fields"
+          class="admin-filter-card__body"
+        >
+          <div class="ticket-scope-bar">
+            <span class="ticket-scope-bar__label">范围</span>
+            <el-radio-group
+              :model-value="scope"
+              @update:model-value="onScopeSelected"
             >
-              <el-option
-                v-for="option in TICKET_STATUS_OPTIONS"
+              <el-radio-button
+                v-for="option in permittedScopes"
                 :key="option.value"
-                :label="option.label"
                 :value="option.value"
+              >
+                {{ option.label }}
+              </el-radio-button>
+            </el-radio-group>
+          </div>
+
+          <div class="admin-filter-fields">
+            <span
+              v-if="awaitingMyApprovalAvailable"
+              class="admin-filter-field"
+            >
+              待办
+              <el-switch
+                id="ticket-awaiting-my-approval"
+                v-model="awaitingMyApproval"
+                aria-label="只看待我批准的工单"
+                active-text="待我批准"
+                @change="onAwaitingMyApprovalChange"
               />
-            </el-select>
-          </span>
+            </span>
 
-          <span class="admin-filter-field">
-            优先级
-            <el-select
-              id="ticket-priority"
-              v-model="priorityFilter"
-              aria-label="工单优先级"
-              class="admin-filter-input admin-filter-input--narrow"
-              clearable
-              collapse-tags
-              multiple
-              placeholder="请选择优先级"
-            >
-              <el-option
-                v-for="option in TICKET_PRIORITY_OPTIONS"
-                :key="option.value"
-                :label="option.label"
-                :value="option.value"
+            <span class="admin-filter-field">
+              关键词
+              <el-input
+                id="ticket-keyword"
+                v-model="keyword"
+                aria-label="工单关键词"
+                class="admin-filter-input admin-filter-input--wide"
+                clearable
+                placeholder="请输入工单编号或标题"
+                @keyup.enter="search"
               />
-            </el-select>
-          </span>
+            </span>
 
-          <span
-            v-if="categoryFilterAvailable"
-            class="admin-filter-field"
-          >
-            分类
-            <el-select
-              id="ticket-category"
-              v-model="categoryFilter"
-              aria-label="工单分类"
-              class="admin-filter-input"
-              clearable
-              placeholder="请选择分类"
+            <span
+              v-if="statusFilterAvailable"
+              class="admin-filter-field"
             >
-              <el-option
-                v-for="option in categoryOptions"
-                :key="option.id"
-                :label="option.name"
-                :value="option.id"
+              状态
+              <el-select
+                id="ticket-status"
+                v-model="statusFilter"
+                aria-label="工单状态"
+                class="admin-filter-input"
+                clearable
+                collapse-tags
+                multiple
+                placeholder="请选择状态"
+              >
+                <el-option
+                  v-for="option in TICKET_STATUS_OPTIONS"
+                  :key="option.value"
+                  :label="option.label"
+                  :value="option.value"
+                />
+              </el-select>
+            </span>
+
+            <span class="admin-filter-field">
+              优先级
+              <el-select
+                id="ticket-priority"
+                v-model="priorityFilter"
+                aria-label="工单优先级"
+                class="admin-filter-input admin-filter-input--narrow"
+                clearable
+                collapse-tags
+                multiple
+                placeholder="请选择优先级"
+              >
+                <el-option
+                  v-for="option in TICKET_PRIORITY_OPTIONS"
+                  :key="option.value"
+                  :label="option.label"
+                  :value="option.value"
+                />
+              </el-select>
+            </span>
+
+            <span
+              v-if="categoryFilterAvailable"
+              class="admin-filter-field"
+            >
+              分类
+              <el-select
+                id="ticket-category"
+                v-model="categoryFilter"
+                aria-label="工单分类"
+                class="admin-filter-input"
+                clearable
+                placeholder="请选择分类"
+              >
+                <el-option
+                  v-for="option in categoryOptions"
+                  :key="option.id"
+                  :label="option.name"
+                  :value="option.id"
+                />
+              </el-select>
+            </span>
+
+            <span class="admin-filter-field">
+              创建时间
+              <el-date-picker
+                v-model="createdRange"
+                aria-label="创建时间范围"
+                class="ticket-filter-range"
+                end-placeholder="结束时间"
+                range-separator="到"
+                start-placeholder="开始时间"
+                type="datetimerange"
+                value-format="YYYY-MM-DDTHH:mm:ssZ"
               />
-            </el-select>
-          </span>
+            </span>
 
-          <span class="admin-filter-field">
-            创建时间
-            <el-date-picker
-              v-model="createdRange"
-              aria-label="创建时间范围"
-              class="ticket-filter-range"
-              end-placeholder="结束时间"
-              range-separator="到"
-              start-placeholder="开始时间"
-              type="datetimerange"
-              value-format="YYYY-MM-DDTHH:mm:ssZ"
-            />
-          </span>
+            <span class="admin-filter-field">
+              排序
+              <el-select
+                id="ticket-sort"
+                v-model="sort"
+                aria-label="工单排序"
+                class="admin-filter-input"
+                @change="search"
+              >
+                <el-option
+                  v-for="option in TICKET_SORT_OPTIONS"
+                  :key="option.value"
+                  :label="option.label"
+                  :value="option.value"
+                />
+              </el-select>
+            </span>
 
-          <span class="admin-filter-field">
-            排序
-            <el-select
-              id="ticket-sort"
-              v-model="sort"
-              aria-label="工单排序"
-              class="admin-filter-input"
-              @change="search"
-            >
-              <el-option
-                v-for="option in TICKET_SORT_OPTIONS"
-                :key="option.value"
-                :label="option.label"
-                :value="option.value"
-              />
-            </el-select>
-          </span>
-
-          <div class="admin-filter-actions">
-            <el-button
-              :icon="Search"
-              type="primary"
-              @click="search"
-            >
-              查询
-            </el-button>
-            <el-button
-              :icon="Refresh"
-              type="info"
-              plain
-              @click="resetFilters"
-            >
-              重置
-            </el-button>
+            <div class="admin-filter-actions">
+              <el-button
+                :icon="Search"
+                type="primary"
+                @click="search"
+              >
+                查询
+              </el-button>
+              <el-button
+                :icon="Refresh"
+                type="info"
+                plain
+                @click="resetFilters"
+              >
+                重置
+              </el-button>
+            </div>
           </div>
         </div>
       </section>
@@ -513,32 +544,51 @@ onMounted(() => {
         class="admin-data ticket-list-data"
         aria-label="工单数据"
       >
-        <div class="admin-action-bar">
-          <el-button
-            v-if="canCreate"
-            :icon="Plus"
-            type="primary"
-            @click="router.push({ name: 'ticket-new' })"
-          >
-            新建工单
-          </el-button>
-
-          <div class="admin-action-bar__end">
-            <el-tooltip
-              content="刷新列表"
-              placement="top"
-            >
-              <el-button
-                :icon="Refresh"
-                :loading="retrying"
-                aria-label="刷新列表"
-                type="info"
-                plain
-                @click="search"
-              />
-            </el-tooltip>
+        <header class="admin-data__head">
+          <div class="admin-data__heading">
+            <h2 class="admin-data__title">
+              工单列表
+            </h2>
+            <p class="admin-data__summary">
+              <template v-if="phase === 'ready'">
+                共 {{ total }} 条记录，按当前范围与筛选条件统计。
+              </template>
+              <template v-else-if="phase === 'loading'">
+                正在读取工单列表…
+              </template>
+              <template v-else>
+                记录数暂时无法读取。
+              </template>
+            </p>
           </div>
-        </div>
+
+          <div class="admin-action-bar">
+            <el-button
+              v-if="canCreate"
+              :icon="Plus"
+              type="primary"
+              @click="router.push({ name: 'ticket-new' })"
+            >
+              新建工单
+            </el-button>
+
+            <div class="admin-action-bar__end">
+              <el-tooltip
+                content="刷新列表"
+                placement="top"
+              >
+                <el-button
+                  :icon="Refresh"
+                  :loading="retrying"
+                  aria-label="刷新列表"
+                  type="info"
+                  plain
+                  @click="search"
+                />
+              </el-tooltip>
+            </div>
+          </div>
+        </header>
 
         <AdminListPanel
           :empty-description="emptyDescription"

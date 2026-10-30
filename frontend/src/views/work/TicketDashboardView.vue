@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Refresh, Search } from '@element-plus/icons-vue'
+import { ArrowDown, Refresh, Search } from '@element-plus/icons-vue'
 import { computed, onMounted, ref } from 'vue'
 
 import { fetchTicketDashboard } from '@/api/dashboard'
@@ -53,6 +53,9 @@ function initialScope(): DashboardScope {
   const preferred = permittedScopes.value.find((option) => option.value === 'PENDING_QUEUE')
   return preferred?.value ?? permittedScopes.value[0]?.value ?? 'PENDING_QUEUE'
 }
+
+/** 筛选面板的展开状态：范围条与时间区间收起后，概览卡片能多占一屏。 */
+const filtersOpen = ref(true)
 
 const scope = ref<DashboardScope>(initialScope())
 const currentScope = computed(
@@ -282,78 +285,107 @@ onMounted(() => {
     <template v-else>
       <section
         class="admin-filter-card"
+        :class="{ 'admin-filter-card--collapsed': !filtersOpen }"
         aria-label="数据概览查询条件"
       >
-        <div class="ticket-scope-bar">
-          <span class="ticket-scope-bar__label">范围</span>
-          <el-radio-group
-            :model-value="scope"
-            @update:model-value="onScopeSelected"
+        <header class="admin-filter-card__head">
+          <h2 class="admin-filter-card__title">
+            筛选条件
+          </h2>
+          <button
+            class="admin-filter-card__toggle"
+            type="button"
+            aria-controls="dashboard-filter-fields"
+            :aria-expanded="filtersOpen"
+            @click="filtersOpen = !filtersOpen"
           >
-            <el-radio-button
-              v-for="option in permittedScopes"
-              :key="option.value"
-              :value="option.value"
+            {{ filtersOpen ? '收起' : '展开' }}
+            <el-icon
+              class="admin-filter-card__chevron"
+              :class="{ 'admin-filter-card__chevron--collapsed': !filtersOpen }"
+              aria-hidden="true"
             >
-              {{ option.label }}
-            </el-radio-button>
-          </el-radio-group>
-        </div>
+              <ArrowDown />
+            </el-icon>
+          </button>
+        </header>
 
-        <div class="admin-filter-fields">
-          <span class="admin-filter-field">
-            创建时间
-            <el-date-picker
-              v-model="createdRange"
-              aria-label="创建时间范围"
-              class="ticket-filter-range"
-              end-placeholder="结束时间"
-              range-separator="到"
-              start-placeholder="开始时间"
-              type="datetimerange"
-              value-format="YYYY-MM-DDTHH:mm:ssZ"
-              @change="onDateChanged"
-            />
-          </span>
-
-          <span
-            v-if="categoryOptions.length > 0 || categoryFilter !== null"
-            class="admin-filter-field"
-          >
-            分类
-            <el-select
-              id="dashboard-category"
-              v-model="categoryFilter"
-              aria-label="工单分类"
-              class="admin-filter-input"
-              clearable
-              placeholder="请选择分类"
+        <div
+          v-show="filtersOpen"
+          id="dashboard-filter-fields"
+          class="admin-filter-card__body"
+        >
+          <div class="ticket-scope-bar">
+            <span class="ticket-scope-bar__label">范围</span>
+            <el-radio-group
+              :model-value="scope"
+              @update:model-value="onScopeSelected"
             >
-              <el-option
-                v-for="option in categoryOptions"
-                :key="option.id"
-                :label="option.name"
-                :value="option.id"
+              <el-radio-button
+                v-for="option in permittedScopes"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}
+              </el-radio-button>
+            </el-radio-group>
+          </div>
+
+          <div class="admin-filter-fields">
+            <span class="admin-filter-field">
+              创建时间
+              <el-date-picker
+                v-model="createdRange"
+                aria-label="创建时间范围"
+                class="ticket-filter-range"
+                end-placeholder="结束时间"
+                range-separator="到"
+                start-placeholder="开始时间"
+                type="datetimerange"
+                value-format="YYYY-MM-DDTHH:mm:ssZ"
+                @change="onDateChanged"
               />
-            </el-select>
-          </span>
+            </span>
 
-          <div class="admin-filter-actions">
-            <el-button
-              :icon="Search"
-              type="primary"
-              @click="load"
+            <span
+              v-if="categoryOptions.length > 0 || categoryFilter !== null"
+              class="admin-filter-field"
             >
-              查询
-            </el-button>
-            <el-button
-              :icon="Refresh"
-              type="info"
-              plain
-              @click="resetFilters"
-            >
-              重置
-            </el-button>
+              分类
+              <el-select
+                id="dashboard-category"
+                v-model="categoryFilter"
+                aria-label="工单分类"
+                class="admin-filter-input"
+                clearable
+                placeholder="请选择分类"
+              >
+                <el-option
+                  v-for="option in categoryOptions"
+                  :key="option.id"
+                  :label="option.name"
+                  :value="option.id"
+                />
+              </el-select>
+            </span>
+
+            <div class="admin-filter-actions">
+              <el-button
+                :icon="Search"
+                type="primary"
+                @click="load"
+              >
+                查询
+              </el-button>
+              <el-button
+                :icon="Refresh"
+                type="info"
+                plain
+                @click="resetFilters"
+              >
+                重置
+              </el-button>
+            </div>
           </div>
         </div>
       </section>
@@ -362,6 +394,17 @@ onMounted(() => {
         class="admin-data dashboard-data"
         aria-label="数据概览结果"
       >
+        <header class="admin-data__head">
+          <div class="admin-data__heading">
+            <h2 class="admin-data__title">
+              概览结果
+            </h2>
+            <p class="admin-data__summary">
+              按当前范围与时间区间统计，切换范围会重新取数。
+            </p>
+          </div>
+        </header>
+
         <el-skeleton
           v-if="phase === 'loading'"
           animated

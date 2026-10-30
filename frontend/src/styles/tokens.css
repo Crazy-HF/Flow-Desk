@@ -37,13 +37,29 @@
   --fd-color-text-faint: #94a3b8; /* 占位符、禁用态 */
   --fd-color-text-inverse: #ffffff;
 
-  /* ---- 中性色：背景与描边 ---- */
-  --fd-color-bg: #f3f4f6; /* 页面底色 */
+  /* ---- 中性色：背景与描边 ----
+   * 2026-10-24 重铸按参考图把页面底色调到 #f5f7fa、描边调到中性灰 #e5e7eb：
+   * 旧值偏蓝，叠在深蓝侧栏旁边会显得整屏发紫。 */
+  --fd-color-bg: #f5f7fa; /* 页面底色 */
   --fd-color-surface: #ffffff; /* 卡片、顶栏、弹层 */
-  --fd-color-surface-subtle: #f1f5f9; /* hover 底色、表头 */
-  --fd-color-border: #dbe3ee; /* 常规描边 */
+  --fd-color-surface-subtle: #f1f5f9; /* hover 底色 */
+  --fd-color-table-head: #f8fafc; /* 表头带：比 hover 更浅，只用于表格 */
+  --fd-color-border: #e5e7eb; /* 常规描边 */
   --fd-color-border-subtle: #eef2f7; /* 分隔线 */
   --fd-color-border-strong: #cbd5e1; /* 虚线框、弱化容器 */
+
+  /* ---- 深蓝侧栏：取值来自用户提供的 06/07 参考图 ----
+   * #111827 是侧栏底、#1b3656 是选中行、#60a5fa 是选中行左侧的指示条。
+   * 三者是同一族的明度台阶，换主色时不要只改其中一个。 */
+  --fd-color-nav-bg: #111827;
+  --fd-color-nav-bg-brand: #1a212f;
+  --fd-color-nav-border: #293140;
+  --fd-color-nav-text: #b0b8c4;
+  --fd-color-nav-text-muted: #7b828f;
+  --fd-color-nav-text-active: #e5edf8;
+  --fd-color-nav-hover: #1a2532;
+  --fd-color-nav-active: #1b3656;
+  --fd-color-nav-accent: #60a5fa;
 
   /* ---- 间距刻度：4px 基准，rem 书写以跟随根字号 ----
    * 有对比的两端才叫刻度。两端极值不允许被"就近取整"顶掉：
@@ -123,16 +139,21 @@
   /* ---- 布局尺度 ---- */
   --fd-admin-row-height: 3rem; /* 管理列表基准行高 */
   --fd-admin-body-min: 16rem; /* 少量数据时的表体空间 */
-  --fd-admin-gutter: var(--fd-space-6);
+  --fd-admin-gutter: var(--fd-space-3); /* 工作区四周留白：参考图约 10–12px */
   --fd-page-max: 52rem; /* 业务页内容宽度 */
   --fd-page-wide-max: 70rem; /* 首页等宽业务页上限 */
   /* 管理列表不再有宽度上限：它跟随工作区宽度（参考后台的语言）。
      与 --fd-page-wide-max 分开命名，是因为"首页多宽"和"管理列表多宽"是两个决定：
      前者是阅读宽度，后者由表格列与操作位决定。 */
   --fd-admin-list-max: 100%;
-  --fd-sidebar-width: 14rem; /* 桌面应用壳侧栏 */
-  --fd-sidebar-drawer-width: min(20rem, 88vw); /* 窄屏抽屉宽度 */
+  --fd-sidebar-width: 12.5rem; /* 200px  桌面应用壳侧栏，与参考图一致 */
+  --fd-sidebar-collapsed-width: 4.25rem; /* 68px  收起后只留图标列 */
+  --fd-sidebar-drawer-width: min(17.5rem, 86vw); /* 窄屏抽屉宽度 */
   --fd-shell-header-height: 3.25rem; /* 52px  应用壳顶栏：36px 控件 + 上下各 8px */
+  --fd-shell-tab-height: 2.25rem; /* 36px  页面标签带 */
+  --fd-shell-tab-item-height: 1.875rem; /* 30px  单个标签 */
+  --fd-shell-brand-height: 3.5rem; /* 56px  侧栏品牌位 */
+  --fd-nav-item-height: 2.625rem; /* 42px  侧栏一级 / 二级项 */
   --fd-shell-search-width: 11rem; /* 176px 顶栏搜索位：图标 + 两字标签 + 两侧留白 */
   --fd-notification-popover-width: 22rem; /* 352px 顶栏铃铛气泡：标题一行、元信息一行仍能换行 */
   --fd-auth-card-max: 26rem; /* 登录等居中卡片宽度 */

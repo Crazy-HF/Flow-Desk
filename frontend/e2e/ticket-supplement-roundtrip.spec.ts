@@ -125,7 +125,7 @@ test('片 B：IT 请求补充、员工补充，工单回到处理中且 IT 可�
   const created = await creating
   expect(created.status()).toBe(201)
   await expect(page).toHaveURL(/\/tickets\/FD-\d{8}-\d{3}$/)
-  const ticketNo = (await page.locator('.ticket-meta__no').innerText()).trim()
+  const ticketNo = (await page.locator('.ticket-hero__no').innerText()).trim()
   record(steps, 'create', created, `${ticketNo} 由员工通过界面创建`)
   await signOut(page)
 
@@ -152,7 +152,7 @@ test('片 B：IT 请求补充、员工补充，工单回到处理中且 IT 可�
   expect(requested.status()).toBe(200)
   record(steps, 'request-supplement', requested, '进入待员工补充并生成补充期限')
 
-  await expect(page.locator('.ticket-meta')).toContainText('待员工补充')
+  await expect(page.locator('.ticket-hero')).toContainText('待员工补充')
   // 待补充期间负责人不能再提交解决结果（docs/kickoff.md 4.11），剩下的入口是撤回，
   // 外加片 C 的调整分类、调整优先级与转交
   expect(await actionLabels(page)).toEqual([
@@ -175,7 +175,7 @@ test('片 B：IT 请求补充、员工补充，工单回到处理中且 IT 可�
   await signIn(page, employeeUsername)
   await page.goto(`/tickets/${ticketNo}`)
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(title)
-  await expect(page.locator('.ticket-meta')).toContainText('待员工补充')
+  await expect(page.locator('.ticket-hero')).toContainText('待员工补充')
   // 提交人在待补充上能做两件事：补充信息，或申请撤销（2026-10-08 两阶段撤销后不再直接撤销）
   expect(await actionLabels(page)).toEqual(['提交补充信息', '申请撤销工单'])
 
@@ -204,7 +204,7 @@ test('片 B：IT 请求补充、员工补充，工单回到处理中且 IT 可�
   record(steps, 'supplement', supplemented, '员工补充后回到处理中')
 
   // ---------- 4. 回到处理中：期限消失、员工侧只剩申请撤销、时间线两条新记录 ----------
-  await expect(page.locator('.ticket-meta')).toContainText('处理中')
+  await expect(page.locator('.ticket-hero')).toContainText('处理中')
   expect(await actionLabels(page)).toEqual(['申请撤销工单'])
   await expect(employeeFacts).not.toContainText('补充截止时间')
   const supplementRecord = page
@@ -221,7 +221,7 @@ test('片 B：IT 请求补充、员工补充，工单回到处理中且 IT 可�
   await signOut(page)
   await signIn(page, itUsername)
   await page.goto(`/tickets/${ticketNo}`)
-  await expect(page.locator('.ticket-meta')).toContainText('处理中')
+  await expect(page.locator('.ticket-hero')).toContainText('处理中')
   // 回到处理中：负责人拿回六个处理动作（片 C 的调整与转交），外加片 D 的关闭
   expect(await actionLabels(page)).toEqual([
     '记录处理过程',

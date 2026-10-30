@@ -131,7 +131,7 @@ async function createTicketAsEmployee(
   const created = await creating
   expect(created.status()).toBe(201)
   await expect(page).toHaveURL(/\/tickets\/FD-\d{8}-\d{3}$/)
-  const ticketNo = (await page.locator('.ticket-meta__no').innerText()).trim()
+  const ticketNo = (await page.locator('.ticket-hero__no').innerText()).trim()
   record(steps, 'create', created, `${ticketNo} 由员工通过界面创建`)
   return ticketNo
 }
@@ -154,7 +154,7 @@ async function claimAsIt(page: Page, ticketNo: string, steps: StepEvidence[]): P
   const queueRow = page.locator('.admin-table tbody tr').filter({ hasText: ticketNo })
   await expect(queueRow).toHaveCount(1)
   await queueRow.locator('.ticket-cell__title').click()
-  await expect(page.locator('.ticket-meta__no')).toHaveText(ticketNo)
+  await expect(page.locator('.ticket-hero__no')).toHaveText(ticketNo)
 
   await page.locator('.ticket-action .el-button').filter({ hasText: '领取工单' }).click()
   const dialog = page.locator('.el-message-box')
@@ -164,7 +164,7 @@ async function claimAsIt(page: Page, ticketNo: string, steps: StepEvidence[]): P
   const claimed = await claiming
   expect(claimed.status()).toBe(200)
   record(steps, 'claim', claimed, 'IT 领取成功，工单进入「处理中」')
-  await expect(page.locator('.ticket-meta')).toContainText('处理中')
+  await expect(page.locator('.ticket-hero')).toContainText('处理中')
   return itDisplayName
 }
 
@@ -233,7 +233,7 @@ test('两阶段撤销场景一：员工申请撤销、IT 同意后工单进入�
   record(steps, 'request-cancel', requested, '提交人在「处理中」发起撤销申请，工单状态不变')
 
   // 状态与期限都不变，所以"待批准"只能由详情单独返回的 cancelRequest 画出来
-  await expect(page.locator('.ticket-meta')).toContainText('处理中')
+  await expect(page.locator('.ticket-hero')).toContainText('处理中')
   const pendingPanel = page.locator('.ticket-cancel-request')
   await expect(pendingPanel).toBeVisible()
   await expect(pendingPanel).toContainText('你已申请撤销这张工单')
@@ -292,7 +292,7 @@ test('两阶段撤销场景一：员工申请撤销、IT 同意后工单进入�
   expect(approved.status()).toBe(200)
   record(steps, 'approve-cancel', approved, '当前负责人同意撤销，工单进入「已取消」')
 
-  await expect(page.locator('.ticket-meta')).toContainText('已取消')
+  await expect(page.locator('.ticket-hero')).toContainText('已取消')
   // 撤销是业务终止不是删除：负责人保留（这里用的是登录身份读到的显示名），并落下结束时间
   await expect(page.locator('.ticket-facts')).toContainText(itDisplayName)
   await expect(page.locator('.ticket-facts')).toContainText('结束时间')
@@ -366,7 +366,7 @@ test('片 D 场景二：IT 以「超出支持范围」关闭工单，工单进�
   expect(closed.status()).toBe(200)
   record(steps, 'close', closed, 'IT 以「超出支持范围」关闭工单，工单进入「已关闭」')
 
-  await expect(page.locator('.ticket-meta')).toContainText('已关闭')
+  await expect(page.locator('.ticket-hero')).toContainText('已关闭')
   // 三个终态必须可区分：已关闭带关闭方式与标准原因，且保留负责人
   const facts = page.locator('.ticket-facts')
   await expect(facts).toContainText('关闭方式')
@@ -427,7 +427,7 @@ test('片 D 场景三：选到「重复工单」才出现重复单号输入框�
   await dialog.locator('.el-message-box__btns .el-button').filter({ hasText: '取消' }).click()
   // 等遮罩真的消失再换账号：弹窗还在时顶部栏点不到
   await expect(page.locator('.el-message-box')).toHaveCount(0)
-  await expect(page.locator('.ticket-meta')).toContainText('处理中')
+  await expect(page.locator('.ticket-hero')).toContainText('处理中')
 
   expect(pageErrors, '页面上出现了 JavaScript 错误').toEqual([])
   await signOut(page)
@@ -504,7 +504,7 @@ test('两阶段撤销场景四：申请 → 驳回 → 再申请 → 撤回 → 
   record(steps, 'reject-cancel', rejected, '当前负责人驳回撤销申请，工单保留原状态')
 
   // 驳回不结束工单：状态不变、申请块消失、决策按钮也收回，处理动作照旧
-  await expect(page.locator('.ticket-meta')).toContainText('处理中')
+  await expect(page.locator('.ticket-hero')).toContainText('处理中')
   await expect(page.locator('.ticket-cancel-request')).toHaveCount(0)
   expect(await actionLabels(page)).toEqual([
     '记录处理过程',
@@ -538,7 +538,7 @@ test('两阶段撤销场景四：申请 → 驳回 → 再申请 → 撤回 → 
   expect(withdrawn.status()).toBe(200)
   record(steps, 'withdraw-cancel-request', withdrawn, '提交人撤回自己的撤销申请')
 
-  await expect(page.locator('.ticket-meta')).toContainText('处理中')
+  await expect(page.locator('.ticket-hero')).toContainText('处理中')
   await expect(page.locator('.ticket-cancel-request')).toHaveCount(0)
   // 撤回之后不是"用过一次就没了"：还能重新发起
   expect(await actionLabels(page)).toEqual(['申请撤销工单'])
@@ -563,7 +563,7 @@ test('两阶段撤销场景四：申请 → 驳回 → 再申请 → 撤回 → 
   expect(approved.status()).toBe(200)
   record(steps, 'approve-cancel', approved, '当前负责人同意撤销，工单进入「已取消」')
 
-  await expect(page.locator('.ticket-meta')).toContainText('已取消')
+  await expect(page.locator('.ticket-hero')).toContainText('已取消')
   await expect(page.locator('.ticket-facts')).toContainText(itDisplayName)
   // 三轮申请各留一条记录：时间线是业务事实，不能被后来的动作抹平
   await expect(
