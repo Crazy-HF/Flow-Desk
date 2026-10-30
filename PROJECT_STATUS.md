@@ -5,8 +5,9 @@
 - **已确认**：用户选择接受正式 `DO_NOT_RETAIN_L1` 结论；当前不重新设计质量指标，不追加付费评估。受限检索候选功能不宣称已完善或获准启用。离线差异与取舍见 `docs/acceptance/2026-10-30-ai-a1-next-step-analysis.md`。
 - **当前行为**：新请求检索 `FLOWDESK_AI_RETRIEVAL_ENABLED` 默认 `false`，总 AI 开关默认 `false`；旧 v5 来源快照历史保持授权读取和清理。原 A1 录制、审定和正式门禁证据保留不变。
 - **交接授权与边界**：用户 2026-10-30 明确授权处理 `main` 前进、同名未跟踪文件与状态文档冲突，再提交、推送并合并本主题。只纳入 A1 主题文件；无关 `.ui-craft/references/README.md` 保留。裁决和交接准备未改变生产行为或运行付费请求。
-- **交接准备检查**：抓取远端后，`main` 比主题分支多 3 个前端改版提交，主题分支有 1 个独有提交；两张 `.ui-craft/references/` 图片和两份 `docs/frontend-ruoyi-style-rebuild-*.md` 与远端 `main` 对应文件 Git blob 完全一致，已移至仓库忽略的 `target/ai-eval/handoff-duplicates/` 备份，待合并由 `main` 恢复原路径。两侧都修改了 `PROJECT_STATUS.md`，合入 `main` 时保留两侧最新记录。
-- **交接准备验证（本轮实跑）**：`.\mvnw.cmd -B verify '-DargLine=-Djdk.attach.allowAttachSelf=true'` → Surefire **1334/1334**、Failsafe **227/227**，零失败/错误/跳过，`BUILD SUCCESS`、退出码 0（12 分 10 秒）；AI MySQL 集成 **12/12**。`S3AttachmentStorageIT` 显示 0 项运行，不能计作通过。8 份 A1 JSON 经本地模式扫描未见 Key/私钥特征，新轮 4 份证据哈希与已登记值一致；`git diff --check` 退出码 0，仅有换行转换警告。未运行前端检查或真实浏览器专项；同步 `main` 后仍需复核合并结果。
+- **交接同步**：抓取远端后先将 4 个与 `origin/main` Git blob 完全一致的同名未跟踪文件移到忽略目录 `target/ai-eval/handoff-duplicates/` 备份，再仅提交 A1 文件（`53841f0`）；`origin/main@5f982e6` 的 3 个前端改版提交通过合并提交 `543a922` 进入本分支，4 个原路径由 `main` 恢复且逐个哈希一致。`PROJECT_STATUS.md` 冲突已人工保留 A1 和前端改版两侧记录；无关 `.ui-craft/references/README.md` 仍未暂存。
+- **合并前后端验证（实跑）**：`.\mvnw.cmd -B verify '-DargLine=-Djdk.attach.allowAttachSelf=true'` → Surefire **1334/1334**、Failsafe **227/227**，零失败/错误/跳过，`BUILD SUCCESS`、退出码 0（12 分 10 秒）；AI MySQL 集成 **12/12**。`S3AttachmentStorageIT` 显示 0 项运行，不能计作通过。8 份 A1 JSON 经本地模式扫描未见 Key/私钥特征，新轮 4 份证据哈希与已登记值一致；当时 `git diff --check` 退出码 0，仅有换行转换警告。
+- **同步后验证**：合并只涉及前端、视觉证据及状态文档，没有新增后端源码变更。当前合并结果的前端 `pnpm typecheck`、`pnpm lint`、`pnpm build` 全通过，Vitest **30/30 套件、289/289 项**；`TicketAiBrowserAcceptanceManual` 使用临时 MySQL/Redis、真实 HTTP、Playwright 和固定模型替身，**1/1**、`BUILD SUCCESS`，未连接 DeepSeek。浏览器专项退出时有 Redis 容器关闭后的重连警告与 Surefire dumpstream 提示，最终退出码 0；这轮未重跑后端全量 `verify`，上项后端全量验证发生在合并前，且后端源码未变。同步进来的前端全量 E2E 本轮未重跑，将以远端 CI 结果为交接门禁。
 
 ## 2026-10-30 A1 独立重评完成：不保留 L1（`flow-desk/ai-eval-and-retrieval`）
 
