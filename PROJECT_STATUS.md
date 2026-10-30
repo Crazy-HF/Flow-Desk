@@ -1,5 +1,12 @@
 # FlowDesk 项目状态
 
+## 2026-10-30 交接完成：AI 评估与受限检索已并入 `main`
+
+- **合并方式**：主题分支 `flow-desk/ai-eval-and-retrieval` 以**快进**方式并入 `main`（`5f982e6..4f65536`），未创建 PR；本地 `main` 与 `origin/main` 均为 `4f65536`。分支已推送（`8d7cf25..4f65536`）。
+- **本轮唯一新增改动**：`docs/api-design.md` §7.8 把受限检索从「仅设计，未实施」改为已实现（默认关闭），并补 `sources-preview` 合同行与生成命令的 `sourceDigest` 字段（提交 `4f65536`）。未改生产代码。
+- **未跑（不视为已通过）**：本轮无后端/前端源码改动，按用户指示未重跑测试、真实栈脚本与前端检查；远端 CI 本轮未查到（本机 `gh` 无 `GH_TOKEN`），因此以先前已验证记录为准，不新增 CI 通过结论。
+- **已知缺口（未修，非本主题引入）**：`docs/database-design.md` 至今未记录 V14/V15 的 AI 表与列；无关改动 `.ui-craft/references/README.md` 仍保持未暂存。
+
 ## 2026-10-30 A1 用户裁决：接受不保留 L1（`flow-desk/ai-eval-and-retrieval`）
 
 - **已确认**：用户选择接受正式 `DO_NOT_RETAIN_L1` 结论；当前不重新设计质量指标，不追加付费评估。受限检索候选功能不宣称已完善或获准启用。离线差异与取舍见 `docs/acceptance/2026-10-30-ai-a1-next-step-analysis.md`。
