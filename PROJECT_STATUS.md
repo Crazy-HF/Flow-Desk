@@ -1,5 +1,11 @@
 # FlowDesk 项目状态
 
+## 2026-10-31 交接完成：用户详情已并入 `main`
+
+- **合并方式**：主题分支 `flow-desk/user-detail`（提交 `d851152`）以**快进**方式并入 `main`（`2868fe4..d851152`），未创建 PR；本地 `main` 与 `origin/main` 均为 `d851152`，分支已推送到 `origin`。
+- **本轮未跑**：按用户指示未重跑测试，沿用主题内已记录的验收（前端全量 E2E **35 通过 / 2 跳过 / 0 失败**、真实栈用户详情专项 **1/1**、后端 `verify` Surefire **1334** + Failsafe **227**）。
+- **遗留**：A1 固定样本在 Windows 检出下的 LF/CRLF 字节哈希不一致待独立处理；真实 MinIO 的 S3 专项未补验。
+
 ## 2026-10-31 用户详情主题全量验收（`flow-desk/user-detail`，未交接）
 
 - **范围**：为手动隔离验收入口增加 `-Dflowdesk.user-detail.full-e2e=true` 模式，在临时 MySQL/Redis 与真实后端上运行前端全量 Playwright，并输出 JSON 结果；默认模式仍运行用户详情专项。未改生产代码、接口或迁移。
