@@ -21,7 +21,7 @@
 | --- | --- |
 | 不是搬 RuoYi 框架 | 根 `AGENTS.md`「项目采用原生开发，不使用若依」仍然有效。**不引入**动态菜单、`v-hasPermi` 指令、`useDict`、请求加解密、UnoCSS、SCSS scoped、TagView、`utils/request.ts`、`rows/total` 分页契约。 |
 | 不是重做视觉 | 管理端五页（用户 / 角色 / 权限 / 用户角色授权 / 角色权限授权）在 2026-09-27～28 已按同一套语言打样并推广，2026-10-06 用户裁决视为已通过。**不改观感，只补结构一致性**。 |
-| 不是新增功能 | `docs/api-design.md` 里没有后端实现的能力（数据概览、管理性交接、附件、工单关联、全局搜索）**不做**，也不新建"入口存在但接口不存在"的假页面。 |
+| 不是新增功能 | 本模板不授权新增后端能力。原列举的数据概览、管理性交接、附件、工单关联后来均已实现；全局搜索仍无接口，不建"入口存在但接口不存在"的假页面。 |
 
 **一句话**：flow-Desk 的版本是「**Ruoyi 风格的页面骨架 + flow-Desk 的 token / 六态 / 错误码 / 内存 token / 静态路由**」。骨架对齐，底座不动。
 
@@ -56,9 +56,9 @@
 | **A 管理列表** | 查询 + 列表 + 分页 + 弹窗增删改 | 用户 / 角色 / 权限 / 分类管理 | §3.1 规范骨架，**已完成** |
 | **B 关系授权** | 选主体 → 授予 → 关系行列表 | 用户角色授权 / 角色权限授权 | §3.1 的变体：筛选卡换成 `.grant-form`，数据区内容换成 `.grant-list` 关系行 |
 | **C 业务列表** | 带"工作范围"的列表 | 工单列表 `/tickets`、IT 工作台 `/it/queue` | §3.1 同构；差异是**范围切换属于筛选条件**（§4.4） |
-| **D 详情 / 时间线** | 主体 + 属性侧栏 + 时间线 + 动作区 | 工单详情 `/tickets/:ticketNo` | §5 详情版骨架 |
+| **D 详情 / 时间线** | 主体 + 属性侧栏；按业务需要加时间线与动作区 | 工单详情 `/tickets/:ticketNo`、只读用户详情 `/admin/users/:userId` | §5 详情版骨架；用户详情只显示接口已有字段 |
 | **E 表单** | 单页提交，无列表 | 新建工单 `/tickets/new` | §6 表单版骨架 |
-| **F 工作台 / 概览** | 入口聚合，无表格 | 首页 `/`；数据概览 `/dashboard`（**占位，后端未实现**） | §7（仅首页适用；dashboard 保持占位页直到后端有接口） |
+| **F 工作台 / 概览** | 入口聚合，无表格 | 首页 `/`；单范围数据概览 `/dashboard` | §7 适用于首页；数据概览按已实现的统计契约展示 |
 | **G 认证 / 错误** | 居中卡片 | 登录 / 403 / 404 | 沿用 `.auth-page` + `.auth-card`，不在本文件约束范围 |
 
 **新增页面第一步**：在表里找到它属于哪一类。**找不到就先停下来说明理由**，不要新开类别（`frontend/AGENTS.md` 目录分层同理）。
@@ -244,7 +244,7 @@ const emptyTitle = computed(() => hasFilters.value ? '没有符合条件的结�
 | 在页面里 `ElMessage.error('...')` 写中文错误串 | 走 `describeError` + `errorMessages.ts` |
 | 把 Access Token 写进 localStorage / sessionStorage / Cookie | 只在 Pinia 内存；刷新靠 HttpOnly Refresh Cookie |
 | 引入 `v-hasPermi` 指令、`useDict`、`utils/request.ts`、动态路由 | 属于 RuoYi 框架层，本项目不使用（根 `AGENTS.md`） |
-| 为不存在的后端能力建页面 | 保持 `PlannedWorkView` 占位（`/dashboard`、`/admin/users/:userId`） |
+| 为不存在的后端能力建页面 | 先核对当前接口；`/dashboard` 与 `/admin/users/:userId` 已有真实页面，不再作为占位示例 |
 | emoji 当功能图标 | 用 `@element-plus/icons-vue` |
 | placeholder 冒充默认值 | 有默认值就显示真实默认值 |
 | 新增依赖（图表、富文本、上传…） | 先确认（`AGENTS.md`）；MVP 无图表需求 |
@@ -290,7 +290,7 @@ const emptyTitle = computed(() => hasFilters.value ? '没有符合条件的结�
 | **C2** | 业务列表复用同一套骨架 | `TicketListView` / `TicketQueueView` 已用 `AppPage layout="list"` + `.admin-*` | 保持；新业务列表页一律照此，不再自创构图 |
 | **C5** | 筛选卡标题与描述口径 | 各页 `h2` 与 `page description` 有无不一 | 统一：`description` 写"这一页是干什么的、字段不可改的规则"，不写技术说明 |
 | **C6** | 空态文案两类区分 | 列表页已做，关系授权页部分未做 | 补齐 |
-| **C8** | 占位页与文档一致 | `/dashboard`、`/admin/users/:userId` 指向 `PlannedWorkView` | **保持占位**，直到后端实现 `docs/api-design.md` 8.3/8.5 |
+| **C8** | 占位页与文档一致 | `/dashboard` 已有数据概览；`/admin/users/:userId` 已有只读详情 | 两条路由均接真实接口；后续新增页面先核对当前代码与契约 |
 | **C9** | `user-list-*` 私有样式前缀 | `UserListView` 仍带 `user-list-data` / `user-list-page`，`main.css` 里有 10 条 `.user-list-*` 规则 | 属独立一轮的样式收敛，不在本轮范围（C3 只处理弹窗） |
 
 **已达标、不要再动**：五个管理页的四区结构、宽度策略（`--fd-admin-list-max` 跟随工作区）、按钮语义色、操作列纯图标 + tooltip + aria-label、分页宽窄屏两套 layout、表格列宽无单位像素数、六态落点。

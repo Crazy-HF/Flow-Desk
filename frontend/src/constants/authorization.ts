@@ -79,7 +79,7 @@ export interface NavigationEntry {
   role?: string
 }
 
-/** 侧栏导航条目；尚未实现的页面（当前只有用户详情）指向占位页，但仍然按权限展示。 */
+/** 侧栏导航条目；用户详情由用户列表进入，不单独占一条导航。 */
 export const navigationEntries: NavigationEntry[] = [
   {
     name: 'tickets',

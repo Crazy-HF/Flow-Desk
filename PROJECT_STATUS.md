@@ -1,5 +1,27 @@
 # FlowDesk 项目状态
 
+## 2026-10-31 用户详情主题全量验收（`flow-desk/user-detail`，未交接）
+
+- **范围**：为手动隔离验收入口增加 `-Dflowdesk.user-detail.full-e2e=true` 模式，在临时 MySQL/Redis 与真实后端上运行前端全量 Playwright，并输出 JSON 结果；默认模式仍运行用户详情专项。未改生产代码、接口或迁移。
+- **前端验证**：`pnpm lint`、`pnpm typecheck`、`pnpm exec vitest run`（31 套件 / 297 项）及 `pnpm build` 全通过。全量 E2E 的独立 JSON 报告为 **35 通过、2 跳过、0 失败**；两项跳过分别是另需专用环境的 AI 和用户详情 live 专项。验收入口改动后再跑默认用户详情真实栈专项，**1/1**、`BUILD SUCCESS`。全量 E2E 自动改写的历史截图与证据已恢复，不纳入主题差异。
+- **后端验证**：第一次 `mvnw.cmd -B verify` 为 Surefire **1334 项中 1 项失败**：A1 固定样本字节哈希因 Windows 检出将 74 处 LF 转为 CRLF，与已登记的 LF 哈希不符；Git blob 与原工作区一致，非本主题内容变化。仅将本工作树样本临时转 LF 后重跑相同命令，Surefire **1334/1334**、Failsafe **227/227**、`BUILD SUCCESS`；结束后已恢复原检出状态。该跨平台哈希测试问题留待独立主题处理，不能把原始 Windows 检出描述为全绿。真实 MinIO 的 S3 专项仍未补验。
+- **交接前规范收口**：只读复核未发现可证实的功能、契约或安全缺陷；将零角色提示改为复用前端规范要求的 `EmptyState`。先新增组件断言并确认失败，再实现后定向 Vitest **5/5**、`pnpm lint`、`pnpm typecheck`、`pnpm build` 通过；本次细节修改后未重跑全量后端或浏览器套件。
+- **Git 与下一步**：本主题仍只在独立工作树，未提交、推送或合并；先按仓库流程完成本主题交接，再从最新 `main` 决定下一产品功能。`flow-desk/docs-current-state` 的文档改动仍在原工作区，未混入本主题。
+
+## 2026-10-31 用户详情真实栈补验（`flow-desk/user-detail`，未交接）
+
+- **下一步分析**：用户详情页已有模拟 HTTP 浏览器覆盖，但缺少真实接口、会话与权限串联证据；概览趋势/导出、邮件/Webhook 和真实工单 AI 启用仍涉及未裁决的业务范围。本轮继续收口用户详情主题，没有新增产品接口或迁移。
+- **验收实现**：新增手动入口 `UserDetailBrowserAcceptanceManual`，用临时 MySQL 8.4/Redis 8.8、`demo` 数据和真实 Spring Boot HTTP 启动浏览器专项。Playwright 从管理员用户列表进入详情，核对实际返回的用户 ID、角色和页面资料，验证刷新、重载后的会话恢复、窄屏无横向溢出、缺失用户的 404 页面，以及员工访问管理路由与直接请求详情 API 均为 403。测试不写演示库或调用外部 AI；默认测试集合不自动运行该手动入口。
+- **验证**：`pnpm exec eslint e2e/user-detail-live.spec.ts`、`pnpm typecheck` 均通过；`.\mvnw.cmd -B '-Dtest=UserDetailBrowserAcceptanceManual' test` 最终 **1/1** 通过、`BUILD SUCCESS`，内含前端构建与 Playwright **1/1**。首轮浏览器失败是切到 375px 后测试仍要求折叠的主导航可见，改为检查员工首页后复跑通过；补上后端 403 断言后最终再次通过。运行日志出现已有 JaCoCo/JSQLParser 插桩异常和容器关闭后的 Redis 重连警告，未改变测试结论。本轮未跑后端全量 `verify` 或前端全量 E2E。
+- **Git**：代码和验收仍在独立工作树，尚未提交、推送或合并；`flow-desk/docs-current-state` 与其无关改动保持在原工作区。
+
+## 2026-10-31 用户详情页实现（`flow-desk/user-detail`，未交接）
+
+- **基线与范围**：从 `main@2868fe4` 的独立工作树实现 `/admin/users/:userId` 只读详情，复用现有 `GET /fd/v1/users/{userId}` 和 `USER_MANAGE` 路由门禁；用户列表登录名可进入详情。页面显示账号状态、角色、创建与更新时间，零角色明确提示，支持刷新、返回；非法编号和 `USER_NOT_FOUND` 使用不存在态，其他加载失败可重试。编辑、启停、重置密码和角色交接仍由现有用户管理入口负责，没有修改后端、迁移或 API 契约。
+- **实现与视觉**：新增 `UserDetailView` 及同目录测试、浏览器链路用例；替换原 `PlannedWorkView` 路由，按现行页面模板使用身份头部、资料区与角色区。1440 / 375 截图存于本机临时目录，375 整页无横向溢出；异常态截图为不存在用户。`frontend/PAGE-TEMPLATE.md` 的历史占位说明同步更新。
+- **本轮验证**：先以失败测试确认路由仍为占位、详情尚无读取与列表链接，再实现；前端 `pnpm typecheck`、`pnpm lint`、`pnpm build` 均退出码 0；Vitest **31 套件 / 297 项**全通过；Playwright 模拟 HTTP 的浏览器链路 **1/1**，包含列表进入、刷新、返回、404 和桌面/窄屏检查，页面错误为 0。全量单测第一次因新增路由测试复用同一地址、守卫未重新触发而为 296/297，修正测试起点后定向和全量均通过。后端与真实栈 E2E 本轮未运行；浏览器证据不代表真实后端联调。
+- **Git**：本主题尚未提交、推送或合并。原工作区 `flow-desk/docs-current-state` 的文档改动及 `.ui-craft/references/README.md` 原有改动均保持在另一工作区，未纳入本主题。
+
 ## 2026-10-30 交接完成：AI 评估与受限检索已并入 `main`
 
 - **合并方式**：主题分支 `flow-desk/ai-eval-and-retrieval` 以**快进**方式并入 `main`（`5f982e6..4f65536`），未创建 PR；本地 `main` 与 `origin/main` 均为 `4f65536`。分支已推送（`8d7cf25..4f65536`）。

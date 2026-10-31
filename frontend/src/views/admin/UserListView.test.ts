@@ -76,6 +76,7 @@ async function mountPage(query: Record<string, string> = {}) {
     history: createMemoryHistory(),
     routes: [
       { path: '/admin/users', name: 'admin-users', component: { template: '<div />' } },
+      { path: '/admin/users/:userId', name: 'admin-user-detail', component: { template: '<div />' } },
       { path: '/admin/user-roles', name: 'admin-user-roles', component: { template: '<div />' } },
     ],
   })
@@ -108,6 +109,14 @@ describe('UserListView', () => {
     // 状态用开关表达，开关自带读屏说明（谁的状态、当前是启用还是停用）
     expect(wrapper.html()).toContain('演示管理员的账号状态，当前启用')
     expect(wrapper.findAll('[role="switch"]')).toHaveLength(2)
+  })
+
+  it('登录名提供用户详情入口', async () => {
+    signIn(['USER_MANAGE'])
+    const { wrapper } = await mountPage()
+
+    expect(wrapper.find('a[href="/admin/users/3"]').text()).toBe('admin')
+    expect(wrapper.find('a[href="/admin/users/4"]').text()).toBe('employee')
   })
 
   it('从授权页带 userId 进入时打开该用户的角色替换弹窗', async () => {

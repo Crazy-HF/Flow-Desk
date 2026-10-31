@@ -3,7 +3,7 @@ import { ArrowDown, Check, CircleClose, Edit, Key, Plus, Refresh, Search, Share 
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { computed, nextTick, onMounted, reactive, ref, shallowRef, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
 
 import { describeError } from '@/api/errorMessages'
 import { listRoles } from '@/api/rbac'
@@ -772,7 +772,12 @@ onMounted(async () => {
             show-overflow-tooltip
           >
             <template #default="{ row }">
-              <span class="admin-ident">{{ row.username }}</span>
+              <RouterLink
+                class="admin-ident admin-ident--link"
+                :to="{ name: 'admin-user-detail', params: { userId: row.id } }"
+              >
+                {{ row.username }}
+              </RouterLink>
             </template>
           </el-table-column>
           <el-table-column

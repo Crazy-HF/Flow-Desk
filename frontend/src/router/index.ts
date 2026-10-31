@@ -6,13 +6,13 @@ import PermissionListView from '@/views/admin/PermissionListView.vue'
 import RoleListView from '@/views/admin/RoleListView.vue'
 import RolePermissionGrantView from '@/views/admin/RolePermissionGrantView.vue'
 import UserListView from '@/views/admin/UserListView.vue'
+import UserDetailView from '@/views/admin/UserDetailView.vue'
 import UserRoleGrantView from '@/views/admin/UserRoleGrantView.vue'
 import LoginView from '@/views/auth/LoginView.vue'
 import ForbiddenView from '@/views/error/ForbiddenView.vue'
 import NotFoundView from '@/views/error/NotFoundView.vue'
 import HomeView from '@/views/work/HomeView.vue'
 import NotificationListView from '@/views/work/NotificationListView.vue'
-import PlannedWorkView from '@/views/work/PlannedWorkView.vue'
 import TicketCreateView from '@/views/work/TicketCreateView.vue'
 import TicketDashboardView from '@/views/work/TicketDashboardView.vue'
 import TicketDetailView from '@/views/work/TicketDetailView.vue'
@@ -106,8 +106,8 @@ const router = createRouter({
     {
       path: '/admin/users/:userId',
       name: 'admin-user-detail',
-      component: PlannedWorkView,
-      meta: { title: '用户详情', permission: 'USER_MANAGE', plannedTask: '完整版 backlog：用户详情' },
+      component: UserDetailView,
+      meta: { title: '用户详情', permission: 'USER_MANAGE' },
     },
     {
       path: '/admin/roles',

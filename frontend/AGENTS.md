@@ -40,7 +40,7 @@
 | `src/layout/` | 登录后的应用壳：顶栏 / 侧栏 / 面包屑 / 主体四层的摆位，不放业务内容 | `index.vue` |
 | `src/views/auth/` | 登录与身份入口 | `LoginView.vue` |
 | `src/views/error/` | 框架级错误页 | `ForbiddenView.vue`、`NotFoundView.vue` |
-| `src/views/work/` | 员工工单主链路 + shell 入口页 | 以后放工单列表/详情/新建；当前 `HomeView.vue`、`PlannedWorkView.vue` |
+| `src/views/work/` | 员工工单主链路 + shell 入口页 | 工单列表、详情、新建、概览、站内信与首页；`PlannedWorkView.vue` 是历史占位组件，当前路由不再使用 |
 | `src/views/admin/` | 系统管理端 | 以后的用户管理、分类管理 |
 | `src/composables/` | **跨领域**复用的组合式函数（不含页面与领域查询字段） | `useAdminList`（分页列表取数状态机）、`useCompactPagination`（分页窄屏收敛） |
 
